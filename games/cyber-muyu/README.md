@@ -9,8 +9,8 @@ Sound effects, the contact shadow and glow are generated locally; the models are
 
 The optional `context.progress` v1 capability saves `economy.serialize(state)`:
 `{schemaVersion:3, data}` with merit, collected relics, each relic's switch and dragged
-position, the chosen skins, the drop pity counter and stats. Saves are throttled on both edges: the
-first change after a quiet spell saves at once, later changes within five seconds;
+position, the chosen skins, the drop pity counter and stats. Every strike saves at once (a local write, so
+a tab closed right after a strike keeps it);
 every relic and pause also saves. A 1.x save
 (`{schemaVersion:1, data:{merit}}`) and the unreleased 2.0 draft (schema 2) migrate.
 `economy.deserialize` rejects anything else; unsupported saves fail before game

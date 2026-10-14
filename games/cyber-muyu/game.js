@@ -351,9 +351,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
   const now = () => clock + (lastReal === null ? 0 : Math.min(1, performance.now() / 1000 - lastReal));
 
   let paused = false;
-  let dirty = false;
   // Saves are throttled on both edges: a change after a quiet spell saves at once, later ones within 5 s.
-  let saveTimer = 5, labelTimer = 0, autoTime = 0;
+  let labelTimer = 0, autoTime = 0;
   let wakeTimer = null;
   let luck = null; // { id, until }
   let panelSelected = -1; // keyboard selection in the 法物 panel
@@ -371,9 +370,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
   // fish itself stays rigid.
   const swing = { angle: 0, velocity: 0, queued: [] };
 
+  // Every strike saves: a local write is cheap, and a tab closed right after a strike keeps it.
   function save() {
-    dirty = false;
-    saveTimer = 0;
     if (progress) void progress.save(economy.serialize(state)).catch(() => { /* The player displays the save failure and retains an exportable snapshot. */ });
   }
 
@@ -433,8 +431,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
     swing.queued.push({ beat, result });
     if (reducedMotion) impact(1);
     else swing.velocity = Math.min(50, Math.max(swing.velocity, 0) + 36);
-    dirty = true;
-    if (saveTimer >= 5) save();
+    save();
     labels();
     context.announce(`${words.merit} ${exact(state.merit)}`);
     context.invalidate();
@@ -695,7 +692,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
     if (event.code === "Space" || event.code === "Enter") { event.preventDefault(); setFocus(true); strike(); }
   }, { signal });
 
-  // Frames run only while something moves; a timer wakes the game to save or to count down luck.
+  // Frames run only while something moves; a timer wakes the game to count down luck.
   function scheduleWake(seconds) {
     clearTimeout(wakeTimer);
     wakeTimer = null;
@@ -805,13 +802,11 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
       applyCamera();
       effects.setZen(zen.level, zen.samadhi, state.skin.fish === "gold");
       const effectsBusy = effects.update(delta);
-      saveTimer += delta;
-      if (dirty && saveTimer >= 5) save();
       labelTimer -= delta;
       if (labelTimer <= 0) { labelTimer = 1; labels(); refreshStatus(); }
       const ebbing = zen.level > 0 && !zen.chanting;
       const busy = Boolean(auto) || moving || flying || hudBusy || effectsBusy || relicsBusy || moodMoving || ebbing;
-      scheduleWake(busy ? Infinity : Math.min(luck ? 1 : Infinity, dirty ? Math.max(0.05, 5 - saveTimer) : Infinity));
+      scheduleWake(busy || !luck ? Infinity : 1);
       return busy;
     },
     resize,
