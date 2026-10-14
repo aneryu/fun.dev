@@ -170,8 +170,9 @@ Remove the live package in the same terminal transition that records completion
 or cancellation. Expiry checks reject access immediately; scheduled cleanup
 removes abandoned packages and later receipts independently of new visitors.
 Do not mistake an `expires_at` column or request-triggered housekeeping for a
-running deletion job. The cleanup Worker has a five-minute schedule and at most ten batches of 500
-records per run. Its deployment and verified execution are required before
+running deletion job. The cleanup Worker has an hourly schedule and at most ten batches of 500
+records per run, above the 4,096-record admission cap. An abandoned package
+therefore outlives its 10-minute link by at most about an hour. Its deployment and verified execution are required before
 production activation.
 [Cloudflare Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/).
 

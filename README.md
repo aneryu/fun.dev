@@ -92,7 +92,7 @@ The relay accepts 64 KiB per save, 1 MiB per complete packet, and 128 total curr
 and alternate snapshots. Oversize transfers fail without omitting games. Links
 expire after 10 minutes; commit/cancel clears the live payload immediately.
 Terminal receipts expire seven days after the transfer deadline. The cleanup
-Worker runs every five minutes and deletes in bounded batches, even with no
+Worker runs hourly and deletes in bounded batches, even with no
 visitors. Expired links stop working regardless of cleanup timing.
 
 Admission is capped transactionally at 4,096 transfer records and 64 MiB of live

@@ -124,7 +124,7 @@ Build environment variables (set by the commands above, not by `.env`):
 - Production: Pages project `fundev` (direct upload, branch `production`, domains
   `fun.dev`, `fundev.pages.dev`); R2 bucket `fundev-games` at `games.fun.dev`;
   D1 `fundev-progress-production`; Worker `fundev-transfer-cleanup-production`
-  (every five minutes; no HTTP endpoint).
+  (hourly; no HTTP endpoint).
 - The cleanup Worker bounds transfer retention. Check its cron runs in the
   Cloudflare dashboard (Workers → `fundev-transfer-cleanup-production` → Logs)
   after it is first deployed or changed. Local cron tests can use
