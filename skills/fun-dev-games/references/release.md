@@ -18,14 +18,11 @@ uploads a `files.json` list for offline caching. Text supports
 both zh/en translations. Publish only reviewed runtime files. Bump `version` for
 each release; Git keeps earlier versions.
 
-From the fun.dev checkout, inspect `docs/game-registry.md` and run:
-
-```sh
-npm run game:publish -- games/my-game/game.json --dry-run
-# Only when game publication is authorized:
-npm run game:publish -- games/my-game/game.json
-npm run game:remove -- my-game
-```
+From the fun.dev checkout, read `docs/workflow.md`. Inspect a release with
+`node scripts/publish-game.mjs publish games/my-game/game.json --dry-run`.
+Only when publication is authorized, commit on `production` and run
+`npm run release`: it publishes changed games, deploys the site if needed, and
+checks fun.dev afterwards. `npm run game:remove -- my-game` removes a game.
 
 The publisher uses locally configured `R2_ENDPOINT`, `R2_BUCKET`,
 `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`. Never embed these in browser code.
@@ -51,23 +48,13 @@ verify the authenticated project, domain and branch before uploading. Use the
 available Wrangler CLI; do not install a framework or add Workers configuration
 to a purely static Pages site.
 
-For production website builds, set `FUNDEV_GAME_ORIGIN` to the verified public
-resource origin. A build without it contains local demo fixtures and is not the
-independent-registry production artifact. Run `npm run release:check` (unit
-tests, production build, smoke test against the live R2 catalog) and deploy only
-when it passes; it leaves the production artifact in `dist/`. Inspect
-`dist/game-source.js`, CSP and the absence of `dist/games.json` before deploying.
-
-```sh
-wrangler pages project list
-wrangler pages deployment list --project-name fundev
-# Only with the user's deployment authorization and the target verified:
-wrangler pages deploy dist --project-name fundev --branch production
-```
-
-If deploying a deliberately reviewed dirty tree, report that fact and use
-`--commit-dirty=true`; do not pretend its contents match the recorded Git commit.
-A publish request does not itself request a Git commit or push. Preserve unrelated
+Deploy only with `npm run release` (with the user's authorization). It refuses a
+dirty tree or another branch, prints the plan (D1 migrations, cleanup Worker,
+games, website) before changing anything, verifies locally, smoke-tests the
+production build against the live catalog, deploys `dist/` from
+`npm run build:production`, checks fun.dev, and pushes. `npm run release -- --check`
+repeats only the live checks. A publish request does not itself request a Git
+commit; ask before committing unrelated work. Preserve unrelated
 changes and never deploy an unreviewed whole working tree merely for convenience.
 
 Use configured credentials without printing them. If authentication fails, stop

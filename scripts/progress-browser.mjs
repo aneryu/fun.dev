@@ -16,7 +16,7 @@ const origin = `https://localhost:${port}`;
 let server, browser, output = '';
 const cli = 'node_modules/wrangler/bin/wrangler.js';
 try {
-  execFileSync('npm', ['run', 'build:transfer-local'], { env, stdio: 'pipe' });
+  execFileSync('npm', ['run', 'build'], { env: { ...env, FUNDEV_GAME_ORIGIN: '', FUNDEV_TRANSFER: '1' }, stdio: 'pipe' });
   execFileSync(process.execPath, [cli, 'd1', 'migrations', 'apply', 'DB', '--local', '--persist-to', temporary, '--env-file', '/dev/null'], { env, stdio: 'pipe' });
   server = spawn(process.execPath, [cli, 'pages', 'dev', '--persist-to', temporary, '--port', String(port), '--env-file', '/dev/null', '--binding', 'TRANSFER_ENABLED=true', '--binding', `TRANSFER_ORIGIN=${origin}`], { env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   for (const stream of [server.stdout, server.stderr]) stream.on('data', chunk => { output = (output + chunk).slice(-12000); });

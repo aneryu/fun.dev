@@ -36,7 +36,7 @@ directory (keep tooling in `dev/`). Their exported runtime must be browser ESM
 with `game.js` exporting `createGame(context)`, listed with its assets in
 `game.json`. Iterate with `npm run dev -- <id>`, which rebuilds and reloads the
 local platform; the public site does not connect to local servers. Run
-`npm run test:smoke` for the generic lifecycle checks of every game.
+`npm run verify` for the lifecycle checks of every game and the platform.
 
 Read [the trust boundary](references/security.md) before integrating game code.
 

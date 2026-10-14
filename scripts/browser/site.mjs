@@ -1,37 +1,20 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
-import { createPreviewServer, listen } from "./preview-server.mjs";
+import { results, running, watch as watchErrors } from "./harness.mjs";
 
-// Lobby covers, share pages, the 404 fallback, the web app manifest, and offline play
-// through the service worker (enabled in this build, unlike the other browser tests).
-const root = fileURLToPath(new URL("../", import.meta.url));
-execFileSync("npm", ["run", "--silent", "build"], { cwd: root, stdio: "inherit", env: { ...process.env, FUNDEV_GAME_ORIGIN: "", FUNDEV_TRANSFER: "", FUNDEV_NO_SW: "" } });
-const server = createPreviewServer({ root: resolve(root, "dist") });
-const { port } = await listen(server, 0, "127.0.0.1");
-const base = `http://127.0.0.1:${port}`;
-await mkdir(resolve(root, "test-results"), { recursive: true });
-const browser = await chromium.launch({ args: ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-const errors = [];
-function watch(page) {
-  page.setDefaultTimeout(20000);
-  page.on("pageerror", (error) => errors.push(error.message));
-  page.on("console", (message) => { if (message.type() === "error") errors.push(`${page.url()}: ${message.text()}`); });
-  return page;
-}
-const running = (page) => page.waitForFunction(() => document.querySelector("#player-message").hidden && document.querySelector(".game-surface canvas"));
+// Lobby covers, share pages, the 404 fallback, the manifest, and offline play through the
+// service worker (the verify build keeps it enabled; other suites block it per context).
 
-try {
+export async function siteChecks({ browser, base }) {
+  const errors = [];
+  const watch = (page) => watchErrors(page, errors);
   // Lobby rows show the cover thumbnail at desktop and phone widths.
   for (const [name, viewport] of [["desktop", { width: 1280, height: 800 }], ["mobile", { width: 375, height: 740 }]]) {
     const context = await browser.newContext({ viewport, serviceWorkers: "block" });
     const page = watch(await context.newPage());
     await page.goto(`${base}/games/?lang=en`);
     await page.waitForFunction(() => document.querySelector(".game-cover")?.complete && document.querySelector(".game-cover").naturalWidth > 0);
-    await page.screenshot({ path: resolve(root, `test-results/lobby-${name}.png`) });
+    await page.screenshot({ path: resolve(results, `lobby-${name}.png`) });
     await context.close();
   }
 
@@ -88,12 +71,8 @@ try {
   assert.ok((await page.locator(".game-surface canvas").getAttribute("aria-label")).includes("MERIT 1."), "progress survives offline reload");
   await page.goto(`${base}/games/?lang=en`);
   await page.waitForFunction(() => document.querySelector(".game-item h3")?.textContent === "Wooden Fish");
-  await page.screenshot({ path: resolve(root, "test-results/lobby-offline.png") });
+  await page.screenshot({ path: resolve(results, "lobby-offline.png") });
   await pwa.close();
 
   assert.deepEqual(errors.filter((error) => !/status of 404/.test(error)), []);
-  console.log("Site checks passed: lobby covers, share pages and 404 forwarding, manifest/icons, offline lobby and game after one online visit.");
-} finally {
-  await browser.close();
-  server.close();
 }

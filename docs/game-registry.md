@@ -52,14 +52,12 @@ Each game's source directory `games/<id>/` has a `game.json` beside `game.js`:
 }
 ```
 
-From the repository root:
+`npm run release` publishes every game whose content differs from the live
+catalog (see [workflow](workflow.md)); `npm run game:remove -- my-game` removes an
+entry. To inspect a release without publishing:
 
 ```sh
-npm ci
-npm run game:publish -- games/my-game/game.json --dry-run
-# With publication authorized and R2 credentials configured:
-npm run game:publish -- games/my-game/game.json
-npm run game:remove -- my-game
+node scripts/publish-game.mjs publish games/my-game/game.json --dry-run
 ```
 
 The dry run needs no credentials and prints the exact file list, size and hash.
@@ -107,12 +105,10 @@ Cross-origin files still execute inside the fun.dev document. Only publish
 trusted games; this is deployment independence, not isolation from DOM/storage.
 R2 write credentials therefore grant the ability to publish code run on fun.dev.
 
-Without `FUNDEV_GAME_ORIGIN`, `npm run build && npm run preview` bundles the
-local `games/` sources and catalog for offline integration checks. A `.env` that
-sets it makes `npm run build` a remote build; `npm run dev` and
-`npm run test:smoke` always use the local sources. `npm run test:smoke -- --remote`
-(part of `npm run release:check`) tests the production build against the live
-R2 catalog through a local proxy, because R2 CORS admits only the public origins. It does not connect the online
+`npm run build`, `npm run dev` and `npm run verify` bundle the local `games/`
+sources and catalog; `npm run build:production` reads the R2 catalog. During
+`npm run release`, the production build is smoke-tested against the live R2
+catalog through a local proxy, because R2 CORS admits only the public origins. It does not connect the online
 site to a local server. Production must explicitly configure the remote origin.
 
 Sources: [R2 public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/),

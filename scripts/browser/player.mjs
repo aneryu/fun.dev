@@ -1,40 +1,28 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
-import { createPreviewServer, listen } from "./preview-server.mjs";
+import { results } from "./harness.mjs";
 
 // Player features from API v2 with the Wooden Fish reference game.
-const root = fileURLToPath(new URL("../", import.meta.url));
-execFileSync("npm", ["run", "--silent", "build"], { cwd: root, stdio: "inherit", env: { ...process.env, FUNDEV_GAME_ORIGIN: "", FUNDEV_TRANSFER: "", FUNDEV_NO_SW: "1" } });
-const dist = resolve(root, "dist");
-const catalog = JSON.parse(await readFile(resolve(dist, "games.json"), "utf8"));
-const server = createPreviewServer({ root: dist });
-const { port } = await listen(server, 0, "127.0.0.1");
-const base = `http://127.0.0.1:${port}`;
-await mkdir(resolve(root, "test-results"), { recursive: true });
-const browser = await chromium.launch({ args: ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-const errors = [];
 
-async function open(context, query = "", entry = {}) {
-  if (Object.keys(entry).length) {
-    await context.route("**/games.json", (route) => route.fulfill({ json: catalog.map((game) => ({ ...game, ...entry })) }));
+export async function playerChecks({ browser, base, dist }) {
+  const catalog = JSON.parse(await readFile(resolve(dist, "games.json"), "utf8"));
+  const errors = [];
+  async function open(context, query = "", entry = {}) {
+    if (Object.keys(entry).length) {
+      await context.route("**/games.json", (route) => route.fulfill({ json: catalog.map((game) => ({ ...game, ...entry })) }));
+    }
+    const page = await context.newPage();
+    page.setDefaultTimeout(20000);
+    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+    await page.goto(`${base}/play/?game=cyber-muyu&lang=en${query}`);
+    return page;
   }
-  const page = await context.newPage();
-  page.setDefaultTimeout(20000);
-  page.on("pageerror", (error) => errors.push(error.message));
-  page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
-  await page.goto(`${base}/play/?game=cyber-muyu&lang=en${query}`);
-  return page;
-}
-const running = (page) => page.waitForFunction(() => document.querySelector("#player-message").hidden && document.querySelector(".game-surface canvas"));
-const label = (page) => page.locator(".game-surface canvas").getAttribute("aria-label");
-const merit = async (page) => Number((await label(page)).match(/MERIT (\d+)/)[1]);
-
-try {
-  const desktop = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const running = (page) => page.waitForFunction(() => document.querySelector("#player-message").hidden && document.querySelector(".game-surface canvas"));
+  const label = (page) => page.locator(".game-surface canvas").getAttribute("aria-label");
+  const merit = async (page) => Number((await label(page)).match(/MERIT (\d+)/)[1]);
+  const desktop = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 800 } });
   const page = await open(desktop);
   await running(page);
   assert.equal(await page.locator("#player-loading").isHidden(), true, "loading bar hides once running");
@@ -76,7 +64,7 @@ try {
   assert.equal(await page.locator("#option-feedback").isChecked(), false, "settings persist across sessions");
   assert.equal(await page.locator("#pref-mute").isChecked(), true);
   await page.locator("#close-options").click();
-  await page.screenshot({ path: resolve(root, "test-results/player-desktop.png") });
+  await page.screenshot({ path: resolve(results, "player-desktop.png") });
 
   // ?debug=1 reveals the stats panel and debug-only options. One tab owns a game's saves at a time.
   await page.close();
@@ -92,32 +80,28 @@ try {
   await debug.close();
 
   // Mobile: a landscape-only game waits for rotation; options live behind the menu.
-  const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const mobile = await browser.newContext({ serviceWorkers: "block", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const phone = await open(mobile, "", { orientation: "landscape", keepAwake: true });
   await phone.waitForFunction(() => document.querySelector("#player-status").textContent.includes("landscape"));
   assert.equal(await phone.locator("#player-message").isVisible(), true);
-  await phone.screenshot({ path: resolve(root, "test-results/player-rotate.png") });
+  await phone.screenshot({ path: resolve(results, "player-rotate.png") });
   await phone.setViewportSize({ width: 844, height: 390 });
   await running(phone);
   await phone.locator("#menu-toggle").tap();
   await phone.locator("#open-options").tap();
   assert.equal(await phone.locator("#options-dialog").isVisible(), true);
-  await phone.screenshot({ path: resolve(root, "test-results/player-options-mobile.png") });
+  await phone.screenshot({ path: resolve(results, "player-options-mobile.png") });
   await phone.locator("#close-options").tap();
   await running(phone);
   await mobile.close();
 
   // Catalog entries for another API version explain themselves instead of loading.
   for (const [apiVersion, text] of [[3, "has been updated"], [1, "being updated"]]) {
-    const context = await browser.newContext();
+    const context = await browser.newContext({ serviceWorkers: "block" });
     const mismatch = await open(context, "", { apiVersion });
     await mismatch.waitForFunction((expected) => document.querySelector("#player-status").textContent.includes(expected), text);
     assert.equal(await mismatch.locator(".game-surface canvas").count(), 0);
     await context.close();
   }
   assert.deepEqual(errors, []);
-  console.log("Player checks passed: loading, announcements, options/settings/cheats, mute preference, share text, restart, debug panel, rotation prompt, API mismatch.");
-} finally {
-  await browser.close();
-  server.close();
 }

@@ -1,17 +1,7 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { crc32, deflateSync } from "node:zlib";
-import { chromium } from "playwright";
-import { createPreviewServer, listen } from "./preview-server.mjs";
 
-// Browser checks for the runtime kit and loaders under the real site/player CSP.
-const root = fileURLToPath(new URL("../", import.meta.url));
-execFileSync("npm", ["run", "--silent", "build"], { cwd: root, stdio: "inherit", env: { ...process.env, FUNDEV_GAME_ORIGIN: "", FUNDEV_TRANSFER: "", FUNDEV_NO_SW: "1" } });
-const server = createPreviewServer({ root: resolve(root, "dist") });
-const { port } = await listen(server, 0, "127.0.0.1");
-const base = `http://127.0.0.1:${port}`;
+// Runtime kit and loaders under the real site and player CSP.
 
 // A one-triangle GLB whose base-colour texture is an embedded 2x2 PNG (loaded through blob: URLs).
 function glbFixture() {
@@ -53,14 +43,12 @@ function glbFixture() {
   return Buffer.concat([header, chunkHeader(json.length, 0x4e4f534a), json, chunkHeader(bin.length, 0x004e4942), bin]);
 }
 
-const browser = await chromium.launch({ args: ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-try {
-  const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+export async function kitChecks({ browser, base }) {
+  const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 800, height: 600 } });
   await context.route("**/kit-fixture/triangle.glb", (route) => route.fulfill({ body: glbFixture(), headers: { "content-type": "model/gltf-binary" } }));
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  page.on("console", (message) => { if (process.env.KIT_DEBUG) console.log("console:", message.type(), message.text()); });
   await page.goto(`${base}/play/`);
   await page.evaluate(() => {
     window.__violations = [];
@@ -194,8 +182,4 @@ try {
   });
   assert.ok(blocked.some((directive) => directive.startsWith("worker-src")), `site CSP blocks blob workers: ${blocked}`);
   assert.deepEqual(errors, []);
-  console.log("Kit browser checks passed: text/HUD placement, pointer/actions/joystick, glTF with embedded texture, Draco/KTX2 under the player CSP, site CSP still strict.");
-} finally {
-  await browser.close();
-  server.close();
 }

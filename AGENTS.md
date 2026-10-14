@@ -50,8 +50,9 @@ Do not introduce a framework unless the task benefits materially from it.
 
 ## Validation
 
-For every change, run the narrowest relevant checks available. Before handing
-off a deployable change, verify at minimum:
+For every change, run the narrowest relevant checks available (`npm test`,
+`npm run verify`; see `docs/workflow.md`). Release only with `npm run release`.
+Before handing off a deployable change, verify at minimum:
 
 - the production build succeeds, if a build step exists;
 - internal links and referenced local assets resolve;

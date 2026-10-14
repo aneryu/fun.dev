@@ -348,7 +348,7 @@ limitation. See Wooden Fish 1.1.0 for a complete checkpoint example.
    manifest listing every runtime file.
 2. Test the bundle in the local container with `npm run dev -- <id>`, including
    mobile/desktop, input, pause/resume, restart, loading failures, cleanup,
-   options and console errors. `npm run test:smoke` runs the generic lifecycle
+   options and console errors. `npm run verify -- smoke` runs the generic lifecycle
    checks for every game in `games/`; it does not verify gameplay.
 3. Follow [independent registration](game-registry.md) to upload the bundle and
    atomically update the R2 catalog. No website build/deployment is required.
