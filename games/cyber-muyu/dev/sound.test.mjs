@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { synthesizeKnock } from "../sound.js";
+import { bells, synthesizeBell, synthesizeKnock } from "../sound.js";
 
 test("synthesized knocks are audible, bounded, and decay to silence at common sample rates", () => {
   for (const sampleRate of [44100, 48000]) {
@@ -14,5 +14,15 @@ test("synthesized knocks are audible, bounded, and decay to silence at common sa
     const tail = rms(Math.floor(sampleRate * 0.25), samples.length);
     assert.ok(attack > 0.05, "audible attack");
     assert.ok(tail < attack * 0.01, "resonance fades before ending");
+  }
+});
+
+test("synthesized bells ring, stay bounded and fade out", () => {
+  for (const preset of Object.values(bells)) {
+    const samples = synthesizeBell(48000, preset);
+    assert.equal(samples.length, Math.ceil(48000 * preset.duration));
+    assert.ok(samples.every((sample) => Number.isFinite(sample) && Math.abs(sample) < 1));
+    assert.equal(Math.abs(samples.at(-1)), 0);
+    assert.ok(samples.slice(0, 4800).some((sample) => Math.abs(sample) > 0.05), "audible strike");
   }
 });

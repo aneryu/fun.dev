@@ -1,11 +1,12 @@
 {
   "name": "wooden-fish-game",
-  "version": "1.4.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test dev/*.test.mjs",
     "model": "node dev/decode-meshopt.mjs dev/tripo-source.glb /tmp/wooden-fish-plain.glb && blender -b --python dev/clean-model.py -- /tmp/wooden-fish-plain.glb assets/wooden-fish.glb",
-    "voice": "${QWEN_TTS_PYTHON:-python3} dev/chant-voice.py"
+    "voice": "uv run --with numpy --with soundfile python dev/chant-voice.py",
+    "simulate": "node dev/simulate.mjs"
   }
 }
