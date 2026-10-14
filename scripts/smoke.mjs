@@ -23,7 +23,8 @@ const viewports = {
 
 execFileSync("npm", ["run", "--silent", remote ? "build:production" : "build"], {
   cwd: root, stdio: "inherit",
-  env: { ...process.env, FUNDEV_NO_SW: "1", ...(remote ? {} : { FUNDEV_GAME_ORIGIN: "", FUNDEV_TRANSFER: "" }) },
+  // --remote leaves the deployable artifact, so it keeps the service worker; the test browser blocks it instead.
+  env: { ...process.env, ...(remote ? {} : { FUNDEV_GAME_ORIGIN: "", FUNDEV_TRANSFER: "", FUNDEV_NO_SW: "1" }) },
 });
 const origin = JSON.parse((await readFile(resolve(dist, "game-source.js"), "utf8")).match(/gameOrigin = (".*");/)[1]);
 if (remote !== Boolean(origin)) throw new Error("Unexpected game origin in the build.");
@@ -50,7 +51,7 @@ const failures = [];
 await mkdir(resolve(root, "test-results"), { recursive: true });
 
 async function check(game, name) {
-  const context = await browser.newContext({ ...viewports[name], locale: "en-US" });
+  const context = await browser.newContext({ ...viewports[name], locale: "en-US", serviceWorkers: "block" });
   if (remote) await context.route(`${origin}/**`, proxy);
   const page = await context.newPage();
   page.setDefaultTimeout(30000);
