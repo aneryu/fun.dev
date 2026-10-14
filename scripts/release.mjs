@@ -43,7 +43,7 @@ if (args.includes("--check")) {
 // ── Plan (read-only) ─────────────────────────────────────────────────────────
 if (git("status", "--porcelain")) fail("Commit or stash your changes first: a release deploys exactly one commit.");
 const branch = git("rev-parse", "--abbrev-ref", "HEAD");
-if (branch !== "production") fail(`Releases ship the production branch (current: ${branch}). Merge into production first.`);
+if (branch !== "main") fail(`Releases ship the main branch (current: ${branch}). Merge into main first.`);
 const head = git("rev-parse", "HEAD");
 console.log("Reading the live state…");
 
@@ -145,6 +145,7 @@ try {
 if (deploySite) {
   step("Deploy website");
   const subject = git("log", "-1", "--format=%s");
+  // "production" is the Pages production environment, not a Git branch.
   const result = wrangler("pages", "deploy", "dist", "--project-name", PROJECT, "--branch", "production", "--commit-hash", head, "--commit-message", subject, "--commit-dirty=false");
   if (result.status !== 0) { await restoreCatalog().catch(() => {}); gameStore?.close(); }
   const output = must(result, "Deploying to Pages");
@@ -161,6 +162,6 @@ catch (error) { fail(`fun.dev failed a live check: ${error.message}. Investigate
 finally { await browser.close(); }
 
 step("Push");
-const push = spawnSync("git", ["push", "origin", "production"], { cwd: root, encoding: "utf8" });
-console.log(push.status === 0 ? "  pushed production to origin" : `  push failed (release is live): ${push.stderr.trim()}`);
+const push = spawnSync("git", ["push", "origin", "main"], { cwd: root, encoding: "utf8" });
+console.log(push.status === 0 ? "  pushed main to origin" : `  push failed (release is live): ${push.stderr.trim()}`);
 console.log(`\n✓ Released ${head.slice(0, 7)}.`);

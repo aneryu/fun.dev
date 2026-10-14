@@ -1,6 +1,7 @@
 # Workflow: develop, test, release
 
 Three commands cover day-to-day work. Everything else is in the reference below.
+Several games in parallel: [parallel game development](parallel-games.md).
 
 ```sh
 npm run dev [-- <game-id>]   # develop with live reload
@@ -45,12 +46,13 @@ npm run dev -- cyber-muyu    # prints the player URL for one game, with ?debug=1
 | site | lobby covers, share pages and 404 forwarding, manifest/icons, offline play through the service worker |
 
 `npm run verify -- smoke player` runs only some browser suites;
+`npm run verify -- smoke --game=<id>` smoke-tests a single game;
 `npm run verify -- --transfer` adds the slower account-transfer test (local D1 with
 `wrangler pages dev`). Screenshots go to `test-results/`. Commit when it passes.
 
 ## 3. Release
 
-Commit on `production`, then:
+Commit on `main`, then:
 
 ```sh
 npm run release              # shows the plan and asks for confirmation
@@ -75,7 +77,7 @@ games were published, which refreshes the share pages). After confirmation:
 6. Deploy `dist/` to Pages with the commit hash (the next release diffs from it).
 7. Wait until fun.dev serves the new build, then check the service worker flag,
    player and site CSP, share pages, and the smoke test on fun.dev itself.
-8. Push `production` to GitHub.
+8. Push `main` to GitHub.
 
 Nothing is "half released" before step 6: a failure leaves the previous site
 and catalog. After step 6 a failed live check means fixing forward with a new
@@ -121,7 +123,7 @@ Build environment variables (set by the commands above, not by `.env`):
 
 ## Operations
 
-- Production: Pages project `fundev` (direct upload, branch `production`, domains
+- Production: Pages project `fundev` (direct upload to the production environment from Git `main`, domains
   `fun.dev`, `fundev.pages.dev`); R2 bucket `fundev-games` at `games.fun.dev`;
   D1 `fundev-progress-production`; Worker `fundev-transfer-cleanup-production`
   (hourly; no HTTP endpoint).

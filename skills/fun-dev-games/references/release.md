@@ -20,7 +20,7 @@ each release; Git keeps earlier versions.
 
 From the fun.dev checkout, read `docs/workflow.md`. Inspect a release with
 `node scripts/publish-game.mjs publish games/my-game/game.json --dry-run`.
-Only when publication is authorized, commit on `production` and run
+Only when publication is authorized, commit on `main` and run
 `npm run release`: it publishes changed games, deploys the site if needed, and
 checks fun.dev afterwards. `npm run game:remove -- my-game` removes a game.
 

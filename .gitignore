@@ -7,3 +7,4 @@ dist/
 .dev.vars
 .dev.vars.*
 test-results/
+.claude/worktrees/

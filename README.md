@@ -124,7 +124,7 @@ receive the current locale through the shared container.
 ## Cloudflare Pages
 
 `npm run release` deploys `dist/` (from `npm run build:production`) to the `fundev`
-Pages project, branch `production`, by direct upload with Wrangler so `functions/`
+Pages project's production environment (Git branch `main`), by direct upload with Wrangler so `functions/`
 is compiled too. The build includes the game-development Skill at
 `/skills/fun-dev-games.tar.gz` and `/skills/fun-dev-games/SKILL.md`.
 

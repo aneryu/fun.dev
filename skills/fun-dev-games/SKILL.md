@@ -38,6 +38,9 @@ with `game.js` exporting `createGame(context)`, listed with its assets in
 local platform; the public site does not connect to local servers. Run
 `npm run verify` for the lifecycle checks of every game and the platform.
 
+When several agents build games at once, follow the checkout's
+`docs/parallel-games.md`: one game per agent, its own `games/<id>/` only.
+
 Read [the trust boundary](references/security.md) before integrating game code.
 
 ## Integrate a release
@@ -59,7 +62,8 @@ again just because this skill is in use. Complete the reviewable build first.
 
 For Cloudflare Pages, inspect the existing project/domain/production branch,
 build `dist/`, and use the installed authenticated Wrangler CLI. The repository's
-recorded project is `fundev`, branch `production`, domain `fun.dev`; verify these
+recorded project is `fundev`, production environment (Git branch `main`),
+domain `fun.dev`; verify these
 before mutating remote state. Do not create a substitute project, change DNS,
 commit/push unrelated work or broaden credentials to bypass a deployment failure.
 If authentication or target verification fails, preserve the prepared artifact

@@ -11,12 +11,14 @@ import { smoke } from "./browser/smoke.mjs";
 //   npm run verify                      unit tests + all browser suites
 //   npm run verify -- smoke player      only the named browser suites (plus unit tests)
 //   npm run verify -- --transfer        also the slower account-transfer test (wrangler pages dev)
+//   npm run verify -- smoke --game=<id> smoke-test one game only (for parallel game work)
 const args = process.argv.slice(2);
+const only = args.find((arg) => arg.startsWith("--game="))?.slice("--game=".length);
 const suites = { smoke: null, kit: kitChecks, player: playerChecks, site: siteChecks };
 const selected = args.filter((arg) => !arg.startsWith("--"));
-const unknown = [...selected.filter((name) => !(name in suites)), ...args.filter((arg) => arg.startsWith("--") && arg !== "--transfer")];
+const unknown = [...selected.filter((name) => !(name in suites)), ...args.filter((arg) => arg.startsWith("--") && arg !== "--transfer" && !arg.startsWith("--game="))];
 if (unknown.length) {
-  console.error(`Unknown: ${unknown.join(", ")}. Usage: npm run verify [-- ${Object.keys(suites).join("|")} ...] [--transfer]`);
+  console.error(`Unknown: ${unknown.join(", ")}. Usage: npm run verify [-- ${Object.keys(suites).join("|")} ...] [--game=<id>] [--transfer]`);
   process.exit(1);
 }
 const results = [];
@@ -43,8 +45,9 @@ if (results.every(([, status]) => status === "ok")) {
   const server = await serve();
   const browser = await launch();
   try {
-    const games = JSON.parse(await readFile(resolve(dist, "games.json"), "utf8"));
-    for (const [name, run] of Object.entries(suites)) {
+    const games = JSON.parse(await readFile(resolve(dist, "games.json"), "utf8")).filter((game) => !only || game.id === only);
+    if (only && !games.length) results.push([`no game "${only}" in games/`, "FAIL", 0]);
+    else for (const [name, run] of Object.entries(suites)) {
       if (selected.length && !selected.includes(name)) continue;
       await step(`browser: ${name}`, () => name === "smoke" ? smoke({ browser, base: server.base, games }) : run({ browser, base: server.base, dist }));
     }

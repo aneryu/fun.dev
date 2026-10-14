@@ -15,7 +15,9 @@ The site uses plain HTML, CSS, and JavaScript, with a small Node.js build that
 copies static assets and the pinned Three.js runtime into `dist/`. The shared
 player loads game bundles using the contract in `docs/game-bundles.md`.
 Game sources live in `games/<id>/`; planned platform capabilities and their
-order are in `docs/platform-roadmap.md`.
+order are in `docs/platform-roadmap.md`. When several agents work at once, follow
+`docs/parallel-games.md` (one game per agent and worktree; only the coordinator
+merges into `main` and releases).
 Do not introduce a framework unless the task benefits materially from it.
 
 ## Development Principles
