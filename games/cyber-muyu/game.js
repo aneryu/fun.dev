@@ -1,9 +1,9 @@
 import { createWoodenFishHUD } from "./hud.js";
-import { createKnockAudio } from "./sound.js";
+import { createChantVoice, createKnockAudio } from "./sound.js";
+import { createChant } from "./chant.js";
 
 // Rendered by the platform's options panel; values arrive through context.options.
 export const options = [
-  { id: "feedback", section: "settings", type: "toggle", default: true, label: { zh: "显示「+1」", en: "Show “+1”" } },
   { id: "merit-1000", section: "cheats", type: "action", label: { zh: "功德 +1000", en: "Merit +1000" } },
   { id: "auto-strike", section: "cheats", audience: "debug", type: "toggle", label: { zh: "自动敲击", en: "Auto strike" } },
 ];
@@ -22,8 +22,8 @@ export async function createGame(context) {
     initialMerit = value.data.merit;
   }
   const copy = {
-    zh: { merit: "功德", strike: "敲木鱼，功德加一", unavailable: "声音不可用", keys: "空格或回车敲击，左右方向键或拖动旋转", share: (n) => `我在 fun.dev 敲木鱼，功德 ${n}`, cheats: "（开了秘籍）" },
-    en: { merit: "MERIT", strike: "Strike the wooden fish. Merit plus one", unavailable: "Sound unavailable", keys: "Space or Enter to strike, arrow keys or drag to rotate", share: (n) => `I've earned ${n} merit on Wooden Fish at fun.dev`, cheats: " (with cheats)" },
+    zh: { merit: "功德", strike: "敲木鱼，功德加一。连敲三下之后，一敲念一字：南无阿弥陀佛", unavailable: "声音不可用", keys: "空格或回车敲击，左右方向键或拖动旋转", share: (n) => `我在 fun.dev 敲木鱼，功德 ${n}`, cheats: "（开了秘籍）" },
+    en: { merit: "MERIT", strike: "Strike the wooden fish. Merit plus one. After three knocks, each strike chants one syllable of Namo Amitabha", unavailable: "Sound unavailable", keys: "Space or Enter to strike, arrow keys or drag to rotate", share: (n) => `I've earned ${n} merit on Wooden Fish at fun.dev`, cheats: " (with cheats)" },
   };
   let words = copy[context.locale] || copy.en;
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 60);
@@ -336,7 +336,6 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (0.93 + 0.07 * weave), cushionGold, go
   let paused = false;
   let soundAvailable = true;
   let pulse = 0;
-  let feedbackTime = 0;
   let autoTime = 0;
   const audio = createKnockAudio(context.audio, () => {
     if (signal.aborted) return;
@@ -344,6 +343,19 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (0.93 + 0.07 * weave), cushionGold, go
     labels();
   });
   onCleanup(() => audio.dispose());
+  // The chant loads in the background: until it is ready (or if it fails) strikes only knock.
+  const chant = createChant();
+  const voice = context.audio ? createChantVoice(context.audio, signal) : null;
+  let slices = null;
+  const fetchAsset = async (path) => {
+    const response = await fetch(context.asset(path), { signal });
+    if (!response.ok) throw new Error(`Asset unavailable: ${path}`);
+    return response;
+  };
+  if (voice) void fetchAsset("assets/chant.json").then((response) => response.json()).then((data) => {
+    if (signal.aborted) return;
+    return voice.load(fetchAsset("assets/chant.wav")).then(() => { slices = data.slices; });
+  }).catch(() => { /* Optional: the knock and merit work without the chant. */ });
 
   function labels() {
     hud.setScore(merit);
@@ -372,24 +384,17 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (0.93 + 0.07 * weave), cushionGold, go
     context.haptics.vibrate("tap");
     addMerit(1);
     pulse = 1;
-    if (context.options.feedback) {
-      feedbackTime = 0.7;
-      hud.showFeedback(1, 0);
-    }
+    const syllable = chant.strike(performance.now() / 1000);
+    if (syllable !== null && slices && soundAvailable) voice.say(slices[syllable]);
   }
 
-  const projected = new THREE.Vector3();
   function resize() {
     const aspect = viewport.width / viewport.height;
     const distance = aspect < 1 ? 10.5 / aspect ** 0.7 : 10.5;
     camera.position.set(0, distance * 0.55, distance * 0.835);
     camera.lookAt(0, 0, 0);
     camera.updateMatrixWorld();
-    projected.set(0, 0, 0).project(camera);
-    const centerX = (projected.x + 1) / 2 * viewport.width;
-    const centerY = (1 - projected.y) / 2 * viewport.height;
-    const radius = viewport.height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / camera.position.length();
-    hud.resize(viewport.width, viewport.height, centerX, Math.max(105, centerY - radius * 1.8), viewport.safeArea);
+    hud.resize(viewport.width, viewport.height, viewport.safeArea);
   }
 
   labels();
@@ -412,22 +417,14 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (0.93 + 0.07 * weave), cushionGold, go
       if (!reducedMotion) {
         mallet.quaternion.slerpQuaternions(malletRest, malletContact, impact);
       }
-      if (feedbackTime > 0) {
-        feedbackTime = Math.max(0, feedbackTime - delta);
-        if (!reducedMotion) {
-          hud.showFeedback(Math.min(1, feedbackTime * 4), (0.7 - feedbackTime) * 40);
-        }
-        if (feedbackTime === 0) hud.showFeedback(0, 0);
-      }
-      return auto || pulse > 0 || feedbackTime > 0 || spinVelocity !== 0;
+      return auto || pulse > 0 || spinVelocity !== 0;
     },
     resize,
-    pause() { paused = true; drag = null; spinVelocity = 0; audio.pause(); },
+    pause() { paused = true; drag = null; spinVelocity = 0; audio.pause(); voice?.stop(); chant.reset(); },
     resume() { paused = false; },
     localeChanged(locale) { words = copy[locale] || copy.en; labels(); },
     optionChanged(id) {
       if (id === "merit-1000") addMerit(1000);
-      if (id === "feedback" && !context.options.feedback) { feedbackTime = 0; hud.showFeedback(0, 0); }
       context.invalidate();
     },
     shareText(locale) {

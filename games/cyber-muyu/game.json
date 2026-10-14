@@ -1,6 +1,6 @@
 {
   "id": "cyber-muyu",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "apiVersion": 2,
   "title": {
     "zh": "敲木鱼",
@@ -17,15 +17,18 @@
   ],
   "orientation": "any",
   "howToPlay": {
-    "zh": "点一下木鱼，功德加一。键盘：先选中游戏画面，再按空格或回车。左右拖动或按方向键可以转动木鱼。声音和「+1」提示在「选项」里调整。",
-    "en": "Tap or click the wooden fish to earn merit. Keyboard: focus the game, then press Space or Enter. Drag sideways or use the arrow keys to turn it. Sound and the “+1” hint are in Options."
+    "zh": "点一下木鱼，功德加一。连敲三下之后开始念经，一敲一字：南无阿弥陀佛；停顿太久就要重新起板。键盘：先选中游戏画面，再按空格或回车。左右拖动或按方向键可以转动木鱼。声音在「选项」里调整。",
+    "en": "Tap or click the wooden fish to earn merit. After three knocks it starts chanting Namo Amitabha (南无阿弥陀佛), one syllable per strike; pause too long and it warms up again. Keyboard: focus the game, then press Space or Enter. Drag sideways or use the arrow keys to turn it. Sound is in Options."
   },
   "cover": "assets/cover.jpg",
   "files": [
     "game.js",
     "hud.js",
     "sound.js",
+    "chant.js",
     "assets/wooden-fish.glb",
+    "assets/chant.wav",
+    "assets/chant.json",
     "assets/cover.jpg"
   ]
 }

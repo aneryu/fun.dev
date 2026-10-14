@@ -49,7 +49,7 @@ stop frames and make the game mount inert. Dispose the game, run registered
 cleanup callbacks/resources, and release host-owned mounts and rendering state.
 
 The game creates no DOM and ships no HTML/CSS. Its local `hud.js` draws the
-counter and floating feedback with Three.js geometry in the same render pass as
+merit counter with Three.js geometry in the same render pass as
 the model, below the platform's `viewport.safeArea`. The game owns layout,
 raycast hit testing and input. Tap the fish to strike; with the canvas focused,
 Space or Enter strikes. The canvas label includes localized controls and score;
@@ -62,8 +62,8 @@ merit changes are also sent to `context.announce`, which the platform coalesces.
   longer draws its own speaker button or binds M.
 - Each strike calls `context.haptics.vibrate("tap")` and reports loading through
   `context.reportLoading`.
-- `options` declares a persistent “+1” setting, a player cheat (Merit +1000) and
-  a debug-only auto-strike cheat. Cheat merit is saved like normal play.
+- `options` declares a player cheat (Merit +1000) and a debug-only auto-strike
+  cheat. 1.4.0 removed the “+1” floating-text setting. Cheat merit is saved like normal play.
 - `shareText(locale)` returns the merit for the platform's Share button, marking
   sessions that used cheats.
 - `assets/cover.jpg` (1200×630) is a screenshot of the game, used for the lobby
@@ -72,6 +72,16 @@ required. Rendering geometry does not provide separate screen-reader buttons;
 keyboard actions and the canvas label provide the nonvisual interface.
 The platform menu belongs to the host; allow a small top-left safe-area margin.
 
+## Chant (1.4.0)
+
+Three knocks less than 1.2 s apart warm up the chant; from the fourth strike each
+strike chants one syllable of 南无阿弥陀佛 over the knock. A pause longer than 1.5 s,
+pausing the game or restarting breaks the chant, which warms up again from 南. The
+voice is monophonic: a new syllable cuts the previous one with a 30 ms fade. The rules
+are in `chant.js`. `assets/chant.wav` and its slices in `assets/chant.json` load in the
+background after the game starts; until they arrive, or if they fail, strikes only
+knock. The voice is Chinese in every locale. Strikes show no floating text.
+
 ## Local development
 
 From this directory, without the parent repository:
@@ -79,6 +89,8 @@ From this directory, without the parent repository:
 ```sh
 npm test
 npm run model
+QWEN_TTS_PYTHON=~/qwen3-tts/.venv/bin/python npm run voice -- takes 8
+QWEN_TTS_PYTHON=~/qwen3-tts/.venv/bin/python npm run voice -- pick 1
 ```
 
 Tests need Node.js 22+; no install is needed. `assets/wooden-fish.glb` is included,
@@ -95,3 +107,14 @@ an uncompressed GLB. Materials and the procedural wood grain are in `game.js`.
 `dev/`, `package.json` and this README are development files and are excluded
 from the platform's published bundle. The model was generated with Tripo; no
 texture is included.
+
+The chant voice was generated with Qwen3-TTS (1.7B CustomVoice, speaker Uncle Fu)
+through its local Gradio demo (`QWEN_TTS_URL`, default `http://127.0.0.1:8010/`; start
+it with the Qwen3-TTS checkout's `serve.sh`). `takes` speaks the whole phrase in one
+utterance with punctuation pauses (拿，摩，阿，弥，陀，佛: the homophone 拿摩 gets the
+chanted ná mó; the model reads 南无 as nán wú) and a monotone temple-chant instruction,
+keeps takes that split into exactly six syllables and writes slow-strike previews to
+`/tmp/chant-takes`; `pick` packs the chosen take's syllables at their natural length
+(tails capped at 0.6 s and faded, no time stretching or pitch processing) into
+`assets/chant.wav`. Instructions with a fixed tempo made the model drag each syllable.
+The endpoint has no seed, so the committed WAV is the reproducible artifact.

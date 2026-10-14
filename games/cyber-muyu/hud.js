@@ -5,8 +5,6 @@ export function createWoodenFishHUD({ THREE, camera, scene, track }) {
   camera.add(root);
   scene.add(camera);
   const ink = track(new THREE.MeshBasicMaterial({ color: 0x211f17, depthTest: false, depthWrite: false }));
-  const fadingInk = track(ink.clone());
-  fadingInk.transparent = true;
   const quad = track(new THREE.PlaneGeometry(1, 1));
   function stroke(parent, x1, y1, x2, y2, width = 2, material = ink) {
     const mesh = new THREE.Mesh(quad, material);
@@ -42,15 +40,9 @@ export function createWoodenFishHUD({ THREE, camera, scene, track }) {
     }
   }
   const score = new THREE.Group();
-  const feedback = new THREE.Group();
-  root.add(score, feedback);
-  sparkle(feedback, -24, fadingInk);
-  stroke(feedback, -5, 0, 5, 0, 2, fadingInk);
-  stroke(feedback, 0, -5, 0, 5, 2, fadingInk);
-  number(feedback, '1', 12, fadingInk);
-  feedback.visible = false;
+  root.add(score);
   let scoreValue = null;
-  let width = 390, feedbackY = 0;
+  let width = 390;
   return {
     setScore(value) {
       if (scoreValue === value) return;
@@ -63,18 +55,11 @@ export function createWoodenFishHUD({ THREE, camera, scene, track }) {
       score.scale.setScalar(Math.min(1, (width - 120) / (text.length * 17 + 46)));
     },
     // `safe` is the platform's safe area (cutouts and the menu button) in CSS pixels.
-    resize(w, h, x, y, safe = { top: 0, left: 0 }) {
+    resize(w, h, safe = { top: 0, left: 0 }) {
       width = w;
       root.scale.setScalar(2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / h);
       score.position.set(h < 480 ? -w / 2 + Math.max(112, safe.left + 112) : 0, h / 2 - Math.max(46, safe.top + 30), 0);
       score.scale.setScalar(Math.min(1, (w - 120) / (String(scoreValue).length * 17 + 46)));
-      feedbackY = h / 2 - y;
-      feedback.position.set(x - w / 2, feedbackY, 0);
-    },
-    showFeedback(opacity, rise) {
-      feedback.visible = opacity > 0;
-      feedback.position.y = feedbackY + rise;
-      fadingInk.opacity = opacity;
     },
   };
 }

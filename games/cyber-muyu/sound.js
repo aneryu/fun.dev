@@ -73,3 +73,45 @@ export function createKnockAudio(audio, onUnavailable) {
     },
   };
 }
+
+// The chant voice: one recorded phrase played a syllable at a time. Monophonic: each
+// syllable cuts the previous one with a short fade, so fast strikes chant faster.
+export function createChantVoice(audio, signal) {
+  let buffer = null;
+  let current = null;
+
+  function release(voice, at) {
+    voice.gain.gain.cancelScheduledValues(at);
+    voice.gain.gain.setValueAtTime(voice.gain.gain.value, at);
+    voice.gain.gain.linearRampToValueAtTime(0, at + 0.03);
+    voice.source.stop(at + 0.03);
+  }
+
+  return {
+    // Resolves once decoded; a failure only leaves the chant silent.
+    async load(response) {
+      const data = await (await response).arrayBuffer();
+      signal.throwIfAborted();
+      buffer = await audio.context.decodeAudioData(data);
+    },
+    say([offset, duration]) {
+      if (!buffer || signal.aborted) return;
+      const { context, destination } = audio;
+      const now = context.currentTime;
+      if (current) release(current, now);
+      const source = context.createBufferSource();
+      const gain = context.createGain();
+      source.buffer = buffer;
+      gain.gain.value = 0.55;
+      source.connect(gain).connect(destination);
+      const voice = { source, gain };
+      current = voice;
+      source.onended = () => { source.disconnect(); gain.disconnect(); if (current === voice) current = null; };
+      source.start(now, offset, duration);
+    },
+    stop() {
+      if (current) release(current, audio.context.currentTime);
+      current = null;
+    },
+  };
+}
