@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { results, running, watch as watchErrors } from "./harness.mjs";
 
 // Lobby covers, share pages, the 404 fallback, the manifest, and offline play through the
 // service worker (the verify build keeps it enabled; other suites block it per context).
+
+const { version } = JSON.parse(readFileSync(new URL("../../games/cyber-muyu/game.json", import.meta.url), "utf8"));
 
 export async function siteChecks({ browser, base }) {
   const errors = [];
@@ -57,14 +60,14 @@ export async function siteChecks({ browser, base }) {
   await page.locator(".game-surface canvas").focus();
   await page.keyboard.press("Space");
   await page.waitForFunction(() => document.querySelector(".game-surface canvas").getAttribute("aria-label").includes("MERIT 1."));
-  await page.waitForFunction(async () => {
+  await page.waitForFunction(async (version) => {
     const cache = await caches.open("releases-v1");
     const cached = (await cache.keys()).map((request) => new URL(request.url).pathname);
-    const list = await cache.match(`${location.origin}/games/cyber-muyu/1.2.0/files.json`);
+    const list = await cache.match(`${location.origin}/games/cyber-muyu/${version}/files.json`);
     if (!list) return false;
     const { files } = await list.json();
-    return files.every((file) => cached.includes(`/games/cyber-muyu/1.2.0/${file}`));
-  }, null, { polling: 250 });
+    return files.every((file) => cached.includes(`/games/cyber-muyu/${version}/${file}`));
+  }, version, { polling: 250 });
   await pwa.setOffline(true);
   await page.reload();
   await running(page);

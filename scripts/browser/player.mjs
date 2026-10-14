@@ -34,16 +34,16 @@ export async function playerChecks({ browser, base, dist }) {
 
   // Options: how to play, platform sound/haptics, settings and player cheats; debug items hidden.
   await page.locator("#open-options").click();
-  assert.match(await page.locator("#how-to-play-text").textContent(), /Tap or click the wooden fish/);
+  assert.match(await page.locator("#how-to-play-text").textContent(), /strike the wooden fish/);
   assert.equal(await page.locator("#options-debug").isHidden(), true);
   assert.equal(await page.locator("#player-message").isVisible(), true, "opening options pauses the game");
   await page.locator("#option-merit-1000").click();
-  await page.locator("#option-feedback").uncheck();
+  await page.locator("#option-rings").uncheck();
   await page.locator("#pref-mute").check();
   await page.locator("#close-options").click();
   await running(page);
   assert.equal(await merit(page), 1001, "cheat action reaches the game");
-  assert.deepEqual(await page.evaluate(() => [JSON.parse(localStorage.getItem("fun.dev.settings.cyber-muyu")), JSON.parse(localStorage.getItem("fun.dev.audio")).muted]), [{ feedback: false }, true]);
+  assert.deepEqual(await page.evaluate(() => [JSON.parse(localStorage.getItem("fun.dev.settings.cyber-muyu")).rings, JSON.parse(localStorage.getItem("fun.dev.audio")).muted]), [false, true]);
 
   // Share text comes from the game and notes cheats; without Web Share the link is copied.
   // The site's Permissions-Policy forbids clipboard reads, so record the write instead.
@@ -54,14 +54,14 @@ export async function playerChecks({ browser, base, dist }) {
   await page.locator("#share").click();
   await page.waitForFunction(() => document.querySelector("#action-status").textContent.includes("copied"));
   const shared = await page.evaluate(() => window.__copied);
-  assert.match(shared, /1001 merit on Wooden Fish at fun\.dev \(with cheats\) http:\/\/127\.0\.0\.1:\d+\/s\/cyber-muyu\/en\/$/);
+  assert.match(shared, /1001 merit and 0\/12 relics on Wooden Fish at fun\.dev \(with cheats\) http:\/\/127\.0\.0\.1:\d+\/s\/cyber-muyu\/en\/$/);
 
   // Restart keeps settings and saved merit, and starts a session without cheats.
   await page.locator("#restart").click();
   await running(page);
   assert.equal(await merit(page), 1001);
   await page.locator("#open-options").click();
-  assert.equal(await page.locator("#option-feedback").isChecked(), false, "settings persist across sessions");
+  assert.equal(await page.locator("#option-rings").isChecked(), false, "settings persist across sessions");
   assert.equal(await page.locator("#pref-mute").isChecked(), true);
   await page.locator("#close-options").click();
   await page.screenshot({ path: resolve(results, "player-desktop.png") });
