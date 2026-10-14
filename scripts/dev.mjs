@@ -20,6 +20,16 @@ if (id) {
 
 const clients = new Set();
 const reloadScript = 'new EventSource("/__dev/events").addEventListener("reload", () => location.reload());\n';
+// Dev never runs the offline worker: a build without FUNDEV_NO_SW (e.g. verify) can register it,
+// and it then serves cached release files for the unchanged version. Browsers re-check /sw.js on
+// every navigation, so this replacement removes any installed worker and its caches by itself.
+const removeWorkerScript = `self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => event.waitUntil((async () => {
+  for (const name of await caches.keys()) await caches.delete(name);
+  await self.registration.unregister();
+  for (const client of await self.clients.matchAll({ type: "window" })) client.navigate(client.url);
+})()));
+`;
 
 function build() {
   // An empty origin overrides .env, so dev always serves the local games/ sources.
@@ -62,6 +72,11 @@ const server = createPreviewServer({
     if (pathname === "/__dev/reload.js") {
       response.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-cache" });
       response.end(reloadScript);
+      return true;
+    }
+    if (pathname === "/sw.js") {
+      response.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-cache" });
+      response.end(removeWorkerScript);
       return true;
     }
     if (pathname === "/__dev/events") {
