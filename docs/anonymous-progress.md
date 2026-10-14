@@ -9,7 +9,7 @@ permanent cloud save is required. The replacement design is
 
 The replacement is now implemented locally; it has not been deployed. The
 synchronization flow and API descriptions below are historical. Their code has
-been removed, and old routes return 410. Do not use the historical deployment
+been removed, old routes return 410, and migration 0005 dropped the tables. Do not use the historical deployment
 instructions to reactivate synchronization.
 
 ### Review findings in the current implementation

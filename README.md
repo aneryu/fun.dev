@@ -79,11 +79,10 @@ IndexedDB v1 upgrades transactionally to v2 with a new local profile ID,
 retaining the latest local snapshot,
 other profiles, and legacy conflict/in-flight alternatives for export.
 Unconfirmed legacy cloud-only slots remain blocked until an explicit reset or
-import; they never become empty saves automatically. Existing
-cloud tables are preserved by the additive migration, but old session, recovery,
-and sync API routes now return 410. Old cloud-only saves require an operator
-export before retiring any legacy database; the browser does not silently fetch
-or choose them. Existing Cookies are ignored; the new service issues none.
+import; they never become empty saves automatically. Old session, recovery,
+and sync API routes return 410, and migration 0005 dropped the legacy cloud
+tables (production held no legacy rows). Existing Cookies are ignored; the new
+service issues none.
 
 Run the transfer stack locally with `npm run transfer:preview` (local D1 under
 `.wrangler/`, https://localhost:8788) and test it with `npm run verify -- --transfer`.

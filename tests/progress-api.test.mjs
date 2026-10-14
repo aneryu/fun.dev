@@ -18,11 +18,11 @@ async function setup(t, fetch=service.fetch) {
 const claim=(r,secret=randomSecret())=>({id:r.id,token:r.token,secret});
 const commit=(r,c)=>({id:r.id,secret:c.secret,role:'recipient',digest:r.digest});
 
-test('ordinary visits, saves, reload and foreground checks make no progress requests or accounts',async t=>{
+test('ordinary visits, saves, reload and foreground checks make no progress requests or relay records',async t=>{
   let calls=0; const c=await client(async()=>{calls++;throw Error('unexpected network');});t.after(()=>c.close());
   await c.prepare(); await c.capability().api.save(value(8));await c.resumeCheck();await c.prepare();
   assert.equal((await c.capability().api.load()).snapshot.data.merit,8);assert.equal(calls,0);
-  assert.equal((await service.db.prepare('SELECT COUNT(*) n FROM accounts').first()).n,0);
+  assert.equal((await service.db.prepare('SELECT COUNT(*) n FROM transfers').first()).n,0);
 });
 test('complete profile transfers once, retains source read-only and supports A to B to C',async t=>{
   const {a,b}=await setup(t), oldIdentity=a.identity;

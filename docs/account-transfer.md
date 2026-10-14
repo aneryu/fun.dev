@@ -219,10 +219,9 @@ replacement API is enabled so they cannot bypass transfer confirmation.
 
 The production build now enables explicit transfer with `FUNDEV_TRANSFER=1`;
 legacy cloud flags are ignored. Legacy API routes return 410. Production
-activation must include migration 0004 and the scheduled cleanup deployment. Recheck any existing remote data
-before a schema retirement; do not drop legacy tables merely because the last
-recorded deployment status says the feature was not live. This implementation
-has not deployed code, altered Cloudflare settings, or deleted remote data.
+activation must include migration 0004 and the scheduled cleanup deployment.
+Migration 0005 drops the legacy synchronization tables; production held no
+legacy rows when this was checked on 2026-10-14.
 
 ## Acceptance requirements
 
