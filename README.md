@@ -213,9 +213,22 @@ files; deploy from this repository so Wrangler also compiles `functions/`. See C
 
 ## Analytics
 
-Use **Cloudflare Web Analytics** for privacy-first page-view, visitor, and Web
-Vitals reporting. Enable automatic setup for `fun.dev` in the Cloudflare Web
-Analytics dashboard. Cloudflare then injects the beacon at the edge, so this
-repository does not need to contain a site token or third-party tracking code.
-The production Content Security Policy permits only Cloudflare's beacon script
-and its `https://cloudflareinsights.com/cdn-cgi/rum` analytics endpoint.
+Use **Cloudflare Web Analytics** for unified page-view, visitor, and Web Vitals
+reporting across `/`, `/games/`, and `/play/`. The existing `fun.dev` analytics
+site injects the beacon through the domain's automatic setup. Pages project
+analytics is disabled to avoid duplicate snippets. Do not add another script to
+individual pages or game bundles. Site identifiers stay in Cloudflare settings.
+The existing exclusion of EU visitors from automatic injection is retained.
+
+The former Pages analytics site allowed only `fundev.pages.dev`, which rejected
+reports from the production custom domain. Keep Pages analytics disabled when
+changing settings or deploying; use the `fun.dev` Web Analytics dashboard.
+Verify one beacon per page and successful collection POST responses outside
+excluded regions. A loaded script alone does not prove that reporting works.
+The player removes private transfer fragments before the deferred beacon runs.
+Do not send account IDs, transfer credentials, save contents, or gameplay events
+to analytics.
+
+The production Content Security Policy permits Cloudflare's beacon script,
+including its versioned path, and both same-origin collection and the
+`https://cloudflareinsights.com/cdn-cgi/rum` endpoint.
