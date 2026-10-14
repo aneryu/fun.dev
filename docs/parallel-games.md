@@ -24,10 +24,13 @@ namespace), then creates a worktree from the current `main`:
 
 ```sh
 git worktree add ../fundev-wt/<id> -b game/<id> main
-cd ../fundev-wt/<id> && npm ci --prefer-offline
+ln -s "$PWD/node_modules" ../fundev-wt/<id>/node_modules
 ```
 
-Playwright's browser download is shared between worktrees. Each worktree has its
+The symlink shares the main checkout's dependencies (and Playwright's browser
+download is shared anyway), so a worktree costs no install time or disk. Do not
+change dependencies while worktrees are open; a branch that needs to should run
+`rm node_modules && npm ci` in its own worktree instead. Each worktree has its
 own `dist/`, `test-results/` and `.wrangler/`. Give each agent its own dev port:
 `PORT=8001 npm run dev -- <id>`.
 
@@ -48,24 +51,30 @@ directory. See [game bundles](game-bundles.md) and the
 - Commit on `game/<id>` and report the branch, the last commit, the verify
   summary, and anything left open. Do not merge.
 
-## Merge (coordinator, one branch at a time)
+## Merge (coordinator)
+
+Each game agent already ran the full verify, so merging is only a scope check;
+verification runs once for the whole batch.
 
 ```sh
 git diff --name-only main...game/<id>    # must list only games/<id>/
+git -C ../fundev-wt/<id> status --short  # must be clean (all work committed)
 git -C ../fundev-wt/<id> rebase main
-git -C ../fundev-wt/<id> status --short   # must be clean
-(cd ../fundev-wt/<id> && npm run verify)
 git merge --ff-only game/<id>            # in the main checkout, on main
 ```
 
-Reject a branch that touches files outside its directory; move those changes to a
-platform branch. Game branches rebase without conflicts because they share no
-files. If a merged game later breaks `npm run verify` on `main`, `git revert` its
-merge rather than blocking the other games.
+Repeat for each finished game, then run `npm run verify` once on `main` (or go
+straight to `npm run release`, whose first step is the same verify). Reject a
+branch that touches files outside its directory; move those changes to a platform
+branch. Game branches rebase without conflicts because they share no files.
+If the batch verify fails, find the game with `npm run verify -- smoke --game=<id>`
+and `git revert` its commits rather than blocking the other games.
 
 ## Platform changes
 
-- One platform branch at a time. It merges before the games that depend on it;
+- One platform branch at a time. It affects every game, so run the full
+  `npm run verify` in its worktree before merging it on its own (not in a batch).
+  It merges before the games that depend on it;
   afterwards every open game branch rebases onto `main` and re-runs verify.
 - The platform runs a single game API version. A change to the API version must
   update every game in the same merge, so make it while no game branch is open,
