@@ -1,5 +1,5 @@
 import { prepareRelease, publishRelease, unregisterGame } from "./game-release.mjs";
-import { openGameStore } from "./game-store.mjs";
+import { createWranglerStore } from "./r2-wrangler-store.mjs";
 
 // Manual publishing; `npm run release` does this automatically for changed games.
 const [action, input, ...flags] = process.argv.slice(2);
@@ -12,13 +12,13 @@ try {
     if (flags.includes("--dry-run")) {
       for (const asset of release.assets) console.log(`  ${asset.path}`);
     } else {
-      ({ store } = openGameStore());
+      store = createWranglerStore();
       await publishRelease(store, release);
       console.log("Published bundle and registered game in R2. Website deployment unchanged.");
     }
   } else {
     if (flags.length) throw new Error("remove does not accept flags.");
-    ({ store } = openGameStore());
+    store = createWranglerStore();
     await unregisterGame(store, input);
     console.log("Removed catalog entry. Released assets retained. Website deployment unchanged.");
   }

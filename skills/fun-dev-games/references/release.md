@@ -24,9 +24,9 @@ Only when publication is authorized, commit on `production` and run
 `npm run release`: it publishes changed games, deploys the site if needed, and
 checks fun.dev afterwards. `npm run game:remove -- my-game` removes a game.
 
-The publisher uses locally configured `R2_ENDPOINT`, `R2_BUCKET`,
-`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`. Never embed these in browser code.
-It uploads immutable content-addressed files first, then conditionally updates
+The publisher uses the local `npx wrangler login` session (bucket `fundev-games`,
+or `R2_BUCKET`). Never embed Cloudflare credentials in browser code.
+It uploads immutable content-addressed files first, then re-reads and updates
 `games.json`. Conflicts stop without overwrite; inspect and retry. Removal only
 changes the catalog, preserving releases and active sessions. Rollback republishes
 an older saved bundle. No Pages build, deploy or Git push is part of registration.

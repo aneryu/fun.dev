@@ -98,11 +98,9 @@ again.
 
 - Wrangler login (`npx wrangler login`) is enough for everything. Game files are
   uploaded with `wrangler r2 object put`; the catalog update is checked by
-  re-reading it just before writing, which is safe with a single operator.
-- With `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` (bucket-scoped Object Read &
-  Write) plus `R2_ENDPOINT` and `R2_BUCKET` in `.env`, publishing uses the S3 API
-  with true conditional writes (`If-Match`) instead. Prefer this if more than one
-  person or machine releases.
+  re-reading it just before writing, which is safe with a single operator. Do not
+  release from two machines at once. `R2_BUCKET` in `.env` overrides the bucket
+  (default `fundev-games`).
 - Never commit `.env`; never put R2 or Cloudflare credentials in `site/`, games or
   Pages variables. `.env` does not affect builds.
 

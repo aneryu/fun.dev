@@ -7,7 +7,7 @@ import { dist, launch, proxy, root, serve } from "./browser/harness.mjs";
 import { liveCheck } from "./browser/live.mjs";
 import { smoke } from "./browser/smoke.mjs";
 import { publishRelease } from "./game-release.mjs";
-import { openGameStore } from "./game-store.mjs";
+import { createWranglerStore } from "./r2-wrangler-store.mjs";
 import { loadLocalGames } from "./local-games.mjs";
 
 // One-command release: npm run release [-- --yes] | [-- --check]
@@ -115,13 +115,12 @@ async function restoreCatalog() {
 }
 if (publish.length) {
   step("Publish games");
-  const opened = openGameStore();
-  gameStore = opened.store;
+  gameStore = createWranglerStore();
   try {
     previousCatalog = await gameStore.get("games.json");
     for (const release of publish) {
       await publishRelease(gameStore, release);
-      console.log(`  published ${release.game.id}@${release.game.version} via ${opened.kind}`);
+      console.log(`  published ${release.game.id}@${release.game.version}`);
     }
   } catch (error) {
     await restoreCatalog().catch(() => {});

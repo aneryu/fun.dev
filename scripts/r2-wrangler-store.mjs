@@ -5,15 +5,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Fallback store through the logged-in Wrangler CLI, for publishing without S3 keys.
+// Game store through the logged-in Wrangler CLI.
 // Wrangler has no conditional writes: If-Match / If-None-Match are emulated by re-reading
 // the object just before writing (ETag = SHA-256 of its body). Safe for a single operator,
-// not for concurrent publishers; prefer the S3 store when R2 keys are configured.
+// not for concurrent publishers.
 const cli = fileURLToPath(new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url));
 const env = { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false", WRANGLER_SEND_METRICS: "false" };
 const digest = (body) => `"${createHash("sha256").update(body).digest("hex")}"`;
 
-export function createWranglerStore(bucket = process.env.R2_BUCKET) {
+export function createWranglerStore(bucket = process.env.R2_BUCKET || "fundev-games") {
   if (!bucket || !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucket)) throw new Error("Set R2_BUCKET to the R2 bucket name.");
   const directory = mkdtempSync(join(tmpdir(), "fundev-r2-"));
   function get(key) {
