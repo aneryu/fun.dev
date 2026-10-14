@@ -1,0 +1,36 @@
+{
+  "name": "fun-dev",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "build": "npm run check && node --env-file-if-exists=.env scripts/build.mjs",
+    "preview": "node scripts/preview.mjs",
+    "db:local": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler d1 migrations apply DB --local --env-file /dev/null",
+    "types:cloud": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types server/env.d.ts --env-file /dev/null --env-interface TransferEnv --include-runtime false --strict-vars false",
+    "test:progress": "node --test tests/progress-*.test.mjs",
+    "test:browser": "node scripts/progress-browser.mjs",
+    "test": "node --test",
+    "game:publish": "node --env-file-if-exists=.env scripts/publish-game.mjs publish",
+    "game:remove": "node --env-file-if-exists=.env scripts/publish-game.mjs remove",
+    "build:production": "FUNDEV_GAME_ORIGIN=https://games.fun.dev FUNDEV_TRANSFER=1 npm run build",
+    "db:production": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false WRANGLER_SEND_METRICS=false wrangler d1 migrations apply DB --remote --env production --env-file /dev/null",
+    "build:transfer-local": "FUNDEV_GAME_ORIGIN= FUNDEV_TRANSFER=1 npm run build",
+    "preview:transfer": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler pages dev --env-file /dev/null --binding TRANSFER_ENABLED=true --binding TRANSFER_ORIGIN=https://localhost:8788",
+    "check:cleanup": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false WRANGLER_SEND_METRICS=false wrangler deploy --dry-run --config wrangler.cleanup.jsonc --env production --env-file /dev/null"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-s3": "3.1150.0",
+    "esbuild": "0.28.2",
+    "fake-indexeddb": "6.2.5",
+    "miniflare": "5.20261006.2-beta",
+    "playwright": "1.64.0",
+    "wrangler": "4.150.0"
+  }
+}

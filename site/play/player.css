@@ -1,0 +1,50 @@
+.player-page { height: 100dvh; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+.player-header { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 1.5rem; padding: 0.75rem 1.5rem; }
+.player-header h1 { flex: 1; font-size: 1rem; overflow-wrap: anywhere; }
+.back-link { display: inline-flex; align-items: center; min-height: 2.75rem; font-size: 0.8rem; }
+.player-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.player-main { position: relative; min-height: 0; background: var(--duck-yellow); color: var(--duck-ink); }
+.game-stage, .game-surface, .game-surface canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.game-surface canvas { display: block; touch-action: none; }
+.game-surface canvas:focus-visible { outline: 3px solid var(--focus-blue); outline-offset: -4px; }
+.player-message { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.5rem; padding: 2rem; text-align: center; background: var(--duck-yellow); }
+.player-message .button { background: var(--duck-yellow); color: var(--duck-ink); }
+.player-message a:focus-visible, .player-message button:focus-visible { outline-color: var(--focus-blue); }
+.player-footer { display: flex; justify-content: space-between; gap: 1rem; padding: 0.65rem 1.5rem; color: var(--duck-brown); font-size: 0.75rem; }
+.player-main:fullscreen { width: 100%; height: 100%; }
+.player-page:fullscreen { width: 100%; height: 100%; }
+.player-menu-toggle { position: fixed; z-index: 3; top: calc(env(safe-area-inset-top) + 0.75rem); left: calc(env(safe-area-inset-left) + 0.75rem); width: 44px; height: 44px; padding: 0; border: 1px solid var(--duck-ink); border-radius: 0; background: var(--duck-yellow); color: var(--duck-ink); font-size: 1.25rem; touch-action: manipulation; }
+.player-menu-toggle:focus-visible { outline-color: var(--focus-blue); }
+.controls-dialog { width: min(24rem, calc(100% - 2rem)); max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 2rem); padding: 1.25rem; border: 2px solid var(--duck-ink); background: var(--duck-yellow); color: var(--duck-ink); overscroll-behavior: contain; }
+.controls-dialog::backdrop { background: rgb(0 0 0 / 65%); }
+.controls-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.close-controls { width: 44px; padding: 0; background: transparent; border: 1px solid var(--duck-ink); font-size: 1.5rem; }
+.controls-dialog .player-header { padding: 1rem 0 0; gap: 1rem; }
+.controls-dialog .wordmark { display: none; }
+.controls-dialog h1 { flex-basis: 100%; order: -1; }
+.controls-dialog .language-toggle { margin-left: auto; }
+.controls-dialog .player-actions { width: 100%; }
+.controls-dialog .player-actions button { flex: 1; padding-inline: 0.65rem; }
+.progress-dialog { width: min(34rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); padding: 1.25rem; border: 2px solid var(--duck-ink); background: var(--duck-yellow); color: var(--duck-ink); overscroll-behavior: contain; }
+.progress-dialog::backdrop { background: rgb(0 0 0 / 65%); }
+.progress-dialog p, .progress-dialog details, .progress-dialog form { margin-top: 1rem; }
+.progress-dialog p, .progress-dialog label, .progress-dialog summary { font-size: 0.85rem; }
+.progress-dialog summary { min-height: 44px; padding-block: 0.65rem; cursor: pointer; }
+.progress-dialog summary:focus-visible, .progress-file:focus-within { outline: 3px solid var(--focus-blue); outline-offset: 3px; }
+.progress-dialog input:not([type=file]), .progress-dialog textarea, .progress-dialog select { display: block; width: 100%; min-height: 44px; margin-block: 0.5rem; border: 1px solid var(--duck-brown); background: var(--duck-cream); color: var(--duck-ink); font: inherit; padding: 0.5rem; }
+.progress-dialog textarea { resize: vertical; overflow-wrap: anywhere; }
+.progress-buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+.progress-file { position: relative; display: inline-flex; align-items: center; min-height: 44px; cursor: pointer; }
+.progress-file input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+#progress-session-list p { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem; }
+#progress-action-status:empty { display: none; }
+@media (max-width: 64rem), (pointer: coarse) {
+  html:has(.player-page) { background: var(--duck-yellow); }
+  .player-page { display: block; height: 100vh; height: 100dvh; overflow: hidden; overscroll-behavior: none; background: var(--duck-yellow); }
+  .player-page > .player-header { display: none; }
+  .player-main { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .player-footer { position: fixed; z-index: 2; bottom: calc(env(safe-area-inset-bottom) + 0.75rem); left: calc(env(safe-area-inset-left) + 0.75rem); right: calc(env(safe-area-inset-right) + 0.75rem); padding: 0; color: var(--duck-ink); pointer-events: none; }
+  #game-description { display: none; }
+  #action-status:not(:empty) { padding: 0.75rem; background: var(--duck-yellow); }
+  .player-message { padding: calc(env(safe-area-inset-top) + 4rem) calc(env(safe-area-inset-right) + 1.5rem) calc(env(safe-area-inset-bottom) + 2rem) calc(env(safe-area-inset-left) + 1.5rem); }
+}

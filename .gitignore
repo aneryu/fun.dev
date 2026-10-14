@@ -1,2 +1,9 @@
 .wrangler/
 .DS_Store
+node_modules/
+dist/
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+test-results/

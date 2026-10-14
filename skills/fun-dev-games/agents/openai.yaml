@@ -1,0 +1,4 @@
+interface:
+  display_name: "fun.dev Games"
+  short_description: "Develop, debug and publish fun.dev game bundles"
+  default_prompt: "Use $fun-dev-games to build and publish a game bundle for fun.dev."

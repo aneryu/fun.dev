@@ -11,9 +11,10 @@ without taking itself too seriously.
 
 ## Current State
 
-The repository starts without an established framework or build system. Do not
-introduce one unless the task benefits materially from it. For small pages,
-prefer plain HTML, CSS, and JavaScript.
+The site uses plain HTML, CSS, and JavaScript, with a small Node.js build that
+copies static assets and the pinned Three.js runtime into `dist/`. The shared
+player loads game bundles using the contract in `docs/game-bundles.md`.
+Do not introduce a framework unless the task benefits materially from it.
 
 ## Development Principles
 
@@ -23,7 +24,8 @@ prefer plain HTML, CSS, and JavaScript.
   Cloudflare Pages Functions and requested by the user.
 - Keep content, interaction, and visual design aligned with the "just for fun"
   theme.
-- Make pages responsive and usable on both mobile and desktop.
+- Prioritize mobile layouts, touch input, and game performance; adapt to desktop.
+- On mobile, let `/play` fill the available viewport and keep platform controls in a menu.
 - Use semantic HTML, keyboard-accessible controls, visible focus states, and
   sufficient color contrast.
 - Respect `prefers-reduced-motion` when adding animation.

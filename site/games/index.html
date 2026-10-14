@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="fun.dev — 小游戏，随时玩。" data-i18n-content="description">
+    <meta name="theme-color" content="#ffd43b">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://fun.dev/games/">
+    <meta property="og:title" content="fun.dev">
+    <meta property="og:description" content="fun.dev — 小游戏，随时玩。" data-i18n-content="description">
+    <link rel="canonical" href="https://fun.dev/games/">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/platform.css">
+    <script type="module" src="/app.js"></script>
+    <title>fun.dev</title>
+  </head>
+  <body class="lobby-page">
+    <a class="skip-link" href="#games" data-i18n="skip">跳到游戏</a>
+    <header class="site-header page-width">
+      <h1><a class="wordmark" href="/" aria-label="fun.dev 首页" data-i18n-aria="home" data-language-link>fun.dev</a></h1>
+      <select class="language-toggle" id="language-toggle" aria-label="语言" data-i18n-aria="language" hidden><option value="auto" data-i18n="languageAuto">自动</option><option value="zh" lang="zh-CN">中文</option><option value="en" lang="en">English</option></select>
+    </header>
+    <main class="page-width">
+      <section class="catalog" id="games" aria-labelledby="games-title">
+        <div class="section-heading">
+          <h2 id="games-title" tabindex="-1" data-i18n="games">游戏</h2>
+          <p class="muted catalog-count" id="catalog-count"></p>
+        </div>
+        <div class="catalog-tools" id="catalog-tools" hidden>
+          <div class="search-field"><label for="search" data-i18n="search">搜索</label><input id="search" type="search" placeholder="搜索游戏" data-i18n-placeholder="searchPlaceholder" autocomplete="off" maxlength="120"></div>
+          <div class="category-field"><label for="category" data-i18n="category">分类</label><select id="category"><option value="" data-i18n="allCategories">全部分类</option></select></div>
+          <button class="button" type="button" id="random-game" data-i18n="random">随便玩</button>
+        </div>
+        <p class="result-status muted" id="result-status" role="status" aria-live="polite"></p>
+        <ul class="game-list" id="game-list" aria-label="游戏列表" data-i18n-aria="gameList" hidden></ul>
+        <div class="empty-state" id="empty-state" hidden>
+          <svg class="controller" viewBox="0 0 200 132" fill="none" aria-hidden="true">
+            <path d="M99 28V17h26V4" stroke="currentColor" stroke-width="3"/>
+            <path d="M49 30h102l23 62c5 16-12 29-24 18l-22-20H72l-22 20C38 121 21 108 26 92Z" fill="#fff7d6" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+            <path d="M61 48v26M48 61h26" stroke="currentColor" stroke-width="8"/>
+            <circle cx="137" cy="53" r="7" fill="#9c3a12"/><circle cx="152" cy="69" r="7" fill="#064f67"/>
+            <path d="M92 75h7m5 0h7" stroke="currentColor" stroke-width="3"/>
+          </svg>
+          <p class="muted" data-i18n="empty">游戏即将上线。</p>
+        </div>
+        <div class="message-state" id="no-results" hidden>
+          <p data-i18n="noResults">没有找到游戏。</p>
+          <button class="button" id="clear-filters" type="button" data-i18n="clear">清除筛选</button>
+        </div>
+        <div class="message-state" id="load-error" hidden>
+          <p data-i18n="loadError">加载失败，请重试。</p>
+          <button class="button" id="retry" type="button" data-i18n="retry">重试</button>
+        </div>
+        <noscript><p class="message-state">请开启 JavaScript。<br><span lang="en">Please enable JavaScript.</span></p></noscript>
+      </section>
+    </main>
+  </body>
+</html>

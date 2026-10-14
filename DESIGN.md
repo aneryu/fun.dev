@@ -16,9 +16,11 @@ yellow field, dark simple marks, and very small touches of beak orange and water
 blue.
 
 The page should feel lightweight, curious, and personal. Prefer one strong idea
-over a collection of polished portfolio components. The current homepage uses
-a code-diff composition: `work.` is removed and `fun.` is added beneath the
-shared context `Code for`.
+over a collection of polished portfolio components. The homepage retains the
+original centered “Code for / − work. / + fun.” composition and introductory
+line, with a Games link in the header. The separate `/games/` lobby uses only the
+`fun.dev` wordmark, a language switch, and a simple game list. Avoid introductory
+essays, slogans, about sections, or repeated explanations.
 
 ## Color Palette
 
@@ -61,8 +63,7 @@ Use the local system monospace stack:
 Do not load remote fonts. Monospace is part of the current character, not a
 signal that the site must look like a terminal.
 
-- Hero: fluid `clamp()` sizing, regular weight, tight tracking.
-- Added line: bold.
+- Wordmark: bold, with fluid `clamp()` sizing on the lobby.
 - Body: regular weight with a comfortable `1.5` line height.
 - Keep paragraphs narrow enough to scan in one glance.
 
@@ -70,10 +71,10 @@ signal that the site must look like a terminal.
 
 - Use a full-viewport yellow canvas.
 - Keep the `fun.dev` wordmark in the top-left corner.
-- Center the primary thought both visually and structurally.
+- Center the original typographic hero on the homepage.
+- On `/games/`, keep the game list directly beneath the header.
 - Preserve generous empty space; do not fill the page to prove it has content.
-- Keep every diff line intact on desktop when possible.
-- On mobile, reduce type size before changing the composition.
+- Design for mobile first, then adapt to desktop. Keep labels short and controls comfortably sized.
 - Minimum supported viewport width: `320px`.
 
 ## Components
@@ -82,18 +83,13 @@ signal that the site must look like a terminal.
 
 Plain text, bold monospace, no logo lockup. Its hover underline uses Beak Deep.
 
-### Diff statement
-
-- Context line: Duck Ink.
-- Removed `work.` line: Beak Deep with a clear strike-through and `−` marker.
-- Added `fun.` line: Water Deep at bold weight with a `+` marker.
-- Markers are generated with CSS so copied text remains clean.
-
 ### Supporting copy
 
-Centered, short, and set in regular-weight Duck Brown. It should quietly anchor
-the page without competing with the diff statement. The current line is
-`Things I make for fun.`
+Only include short game descriptions, instructions, and necessary status text.
+Use Duck Brown for secondary text. All interface copy supports Chinese and
+English; keep `fun.dev` unchanged. Detect the browser language automatically;
+keep the optional Auto/中文/English selector small and borderless at the right of the lobby
+header and inside the mobile player menu. Preserve its 44px touch area and focus outline.
 
 ### Future surfaces
 
@@ -102,16 +98,25 @@ white cards, shadows, glass effects, and large collections of rounded pills.
 
 ## Motion and Interaction
 
-The baseline page does not require JavaScript or motion. Add interaction only
-when it introduces a real playful idea. CSS motion must respect
-`prefers-reduced-motion`, and core content must remain available without it.
+The wordmark remains readable without JavaScript; the game
+catalog and player require it and show a noscript explanation. CSS motion must
+respect `prefers-reduced-motion`. The player passes this preference to games.
+
+### Shared player
+
+On phones and tablets, fill the available dynamic viewport with the game and
+put platform controls in a small menu. Respect display cutouts and safe areas
+in both orientations. Desktop keeps a yellow header and footer. The wooden-fish
+demo uses the yellow canvas, brown wood, and simple dark text without neon effects.
+Platform controls remain keyboard accessible,
+including pause, restart, fullscreen (where supported), and return to the lobby.
+Loading, pause, and error messages are plain text in a high-contrast inset.
 
 ## Accessibility
 
 - Preserve the current high-contrast text variants on Duck Yellow.
 - Use Focus Blue for a visible `3px` keyboard outline.
-- Do not communicate diff meaning through color alone; retain `+`, `−`,
-  insertion, deletion, and strike-through semantics.
+- Do not communicate game state through color alone; retain text status.
 - Keep touch controls at least `44px` high if controls are introduced.
 - Decorative images and marks must be hidden from assistive technology.
 
