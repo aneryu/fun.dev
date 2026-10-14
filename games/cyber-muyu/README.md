@@ -3,7 +3,7 @@
 Self-contained game source bundle. Copy this entire directory to another project
 to develop it, or copy the runtime files listed in `game.json` to publish it.
 There are no remote assets, application imports, or package dependencies.
-Sound effects, the contact shadow, glow and the relic models are generated locally.
+Sound effects, the contact shadow and glow are generated locally; the models are Draco GLBs.
 
 ## Progress
 
@@ -96,13 +96,18 @@ The design and its reasons are in `DESIGN-economy.md`. Modules:
 - `zen.js`: one rhythm detector for the chant and the zen meter. Three knocks warm up the
   chant (南无阿弥陀佛, one syllable per strike); steady beats deepen zen, which multiplies
   merit and warms the scene; two seconds without a strike break the chant and zen ebbs.
-- `altar.js`: relics on a shallow arc in front of the fish, draggable and switchable,
-  behind a `buildItem` provider (generated low-poly now) that a GLB loader can replace.
+- `altar.js`: relics on a shallow arc in front of the fish (tallest at the far ends),
+  draggable and switchable; each is a copy of its node in `assets/relics.glb`, with effect
+  points and animated pivots. The relic models load in the background, so a new player
+  starts after the fish alone; a save with relics waits for them, and a relic dropped before
+  they arrive flies out once they do.
 - `relics.js`: what relics do in the scene: incense smoke, the lotus lamp's light, prayer
   beads, the nodding little monk, wind chimes, fortune sticks, and petals for good luck.
 - `effects.js`: zen glow, rays for the gold-lacquered fish and camera-facing sound rings.
-- `sound.js`: knocks with a zen-dependent hall (softer with the mallet wrap, deeper with the
-  rosewood mallet), bowl, temple bell and wind chimes, and the chant voice,
+- `sound.js`: crisp hollow knocks (a mallet click over damped wood modes, four detuned
+  variants) with a zen-dependent, darkening hall (softer with the mallet wrap, deeper with the
+  rosewood mallet), bowl, temple bell and wind chimes, all in D major pentatonic and through
+  a gentle compressor, and the chant voice,
   which speeds up (up to 2×) on fast beats and sounds through a soft echo and a hall.
 
 The mallet is a damped spring: a press kicks it, and sound, haptics and a sound ring
@@ -117,6 +122,7 @@ From this directory, without the parent repository:
 npm test
 npm run simulate   # progress curve of four lives and a mashing player
 npm run model
+npm run relics
 npm run voice -- <recording.mp3>
 ```
 
@@ -129,10 +135,36 @@ platform has no meshopt decoder), then `dev/clean-model.py` names the meshes
 cushion with a clean torus of the same size, smooths the fish, bakes ambient
 occlusion (Cycles) and each vertex's depth below the fish's convex hull into its
 vertex colors, which shade the carving's grooves and the hollow slit, applies transforms and exports
-an uncompressed GLB. Materials and the procedural wood grain are in `game.js`.
+a GLB, which `gltf-transform` (run through `npx`, not a dependency) compresses with Draco:
+Blender's ARM build has no Draco library, and the platform's loader decodes Draco.
+Materials and the procedural wood grain are in `game.js`.
+
+`npm run relics` rebuilds `assets/relics.glb` (needs the uncompressed `/tmp/wooden-fish.glb`
+from `npm run model` for the rosewood mallet). `dev/fetch-blenderkit.py` downloads three free
+CC0 BlenderKit models into `~/.cache/fundev-blenderkit` (no account needed; the .blend files
+stay outside the repository), and `dev/build-relics.py` applies their modifiers, scales each
+relic, reduces it to 800–1,800 triangles, bakes its colors (Cycles) and repaints each face
+with the nearest color of a shared palette, so no textures ship. It models the other relics (chanting box, bronze bowl, wind chime, mallet wrap, fortune sticks,
+little monk, prayer beads, temple bell) and reuses the fish's mallet for the rosewood mallet.
+All twelve stay within about 16,000 triangles (`dev/models.test.mjs` checks the budget, the
+size and every hook). Effect points (`tip`, `mouth`, `flame`, `vent`) and animated pivots
+(`nod`, `loop`, `chimes`) are empties inside each relic.
+
+One style for everything: the palette takes the fish's wood, red lacquer, rosewood, bronze and
+gold and the cushion's red cloth and straw (materials named `wood`, `lacquer`, `gold` … in the
+GLB), and `game.js` gives the relics' `wood`, `dark-wood` and `rosewood` the fish's
+procedural grain, so the altar reads as one set of lacquered wooden toys.
+
+| Relic | BlenderKit model | Author | License |
+| --- | --- | --- | --- |
+| 香炉 Censer | Chinese Tripod Censer | Free poly | CC0 |
+| 莲花灯 Lotus lamp | Chinese lotus lamp | Free poly | CC0 |
+| 线香 Incense (burner) | Incense Burner | Seatla Morake | CC0 |
+
+Only CC0 models are used, so the built GLB can live in this public repository.
 
 `dev/`, `package.json` and this README are development files and are excluded
-from the platform's published bundle. The model was generated with Tripo; no
+from the platform's published bundle. The wooden fish was generated with Tripo; no
 texture is included.
 
 The chant voice is a 清念 recitation of 南无阿弥陀佛; it sounds once the chanting box (录音机)

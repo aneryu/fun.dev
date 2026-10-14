@@ -1,5 +1,7 @@
-"""Step 2: name the parts, replace the cushion with a torus, smooth the fish, bake AO into the fish, apply transforms, export assets/wooden-fish.glb.
-blender -b --python dev/clean-model.py -- /tmp/plain.glb assets/wooden-fish.glb
+"""Step 2: name the parts, replace the cushion with a torus, smooth the fish, bake AO into the fish, apply transforms, export the fish.
+blender -b --python dev/clean-model.py -- /tmp/plain.glb /tmp/wooden-fish.glb
+Step 3 compresses it (Blender here has no Draco library); dev/build-relics.py also reads /tmp/wooden-fish.glb:
+npx @gltf-transform/cli@4.5.1 draco /tmp/wooden-fish.glb assets/wooden-fish.glb --encode-speed 0 --decode-speed 5
 Parts of the Tripo model: 0 fish, 5 mallet head, 7 mallet handle, the rest the (replaced) cushion.
 """
 import bpy, bmesh, sys

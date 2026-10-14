@@ -142,7 +142,12 @@ diffuseColor.rgb *= mix(0.6, 1.15, 0.45 * bands + 0.4 * fibres + 0.15 * tone) * 
   malletMaterial.customProgramCacheKey = shellMaterial.customProgramCacheKey;
   shellMaterial.defines = { WOOD_OCCLUSION: "" };
   const { createAssets } = await context.runtime("kit/assets.js");
-  const model = (await createAssets(context).gltf("assets/wooden-fish.glb")).scene;
+  const assets = createAssets(context);
+  // Both are Draco GLBs. The relics' models (altar.js clones them when collected) start loading
+  // now, but only a save with relics waits for them before the first frame.
+  const relicLibrary = assets.gltf("assets/relics.glb");
+  relicLibrary.catch(() => {}); // a failure is reported where it is awaited
+  const model = (await assets.gltf("assets/wooden-fish.glb")).scene;
   // Untextured meshes; materials are assigned here.
   const body = model.getObjectByName("Fish");
   const malletHead = model.getObjectByName("MalletHead");
@@ -315,7 +320,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
   const fishSize = footBox.getSize(new THREE.Vector3());
   const fishCenter = footBox.getCenter(new THREE.Vector3());
   const fishRadius = Math.max(fishSize.x, fishSize.z) / 2;
-  const altar = createAltar({ THREE, scene, track, reducedMotion, fish: { x: fishCenter.x, z: fishCenter.z, radius: fishRadius } });
+  const altar = createAltar({ THREE, scene, reducedMotion, fish: { x: fishCenter.x, z: fishCenter.z, radius: fishRadius } });
   const effects = createEffects({ THREE, scene, camera, track, reducedMotion, center: new THREE.Vector3(crown.x, 0, crown.z) });
   const relics = createRelics({ THREE, scene, track, altar, createText: kit.createText, font: kit.systemFont, reducedMotion });
 
@@ -726,6 +731,31 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
 
   applyLooks();
   altar.sync(state.collection, state.relics);
+  const libraryLoaded = relicLibrary.then((gltf) => {
+    if (signal.aborted) return;
+    // The relics' wood (named in dev/build-relics.py) gets the fish's grain, in its own colors.
+    const grained = new Map();
+    const grain = (material) => {
+      if (!["wood", "dark-wood", "rosewood"].includes(material.name)) return material;
+      if (!grained.has(material.name)) {
+        const wood = track(malletMaterial.clone());
+        wood.onBeforeCompile = shellMaterial.onBeforeCompile;
+        wood.customProgramCacheKey = shellMaterial.customProgramCacheKey;
+        wood.color.copy(material.color);
+        wood.roughness = material.roughness;
+        wood.clearcoat = material.clearcoat ?? 0;
+        grained.set(material.name, wood);
+      }
+      return grained.get(material.name);
+    };
+    gltf.scene.traverse((child) => { if (child.isMesh) child.material = grain(child.material); });
+    altar.setLibrary(gltf.scene);
+    context.invalidate();
+  });
+  // Without relics yet, the game starts at once; a failed load then leaves the altar empty.
+  if (economy.items.some((item) => economy.has(state, item.id))) await libraryLoaded;
+  else libraryLoaded.catch((error) => { if (!signal.aborted) console.warn("Relic models unavailable", error); });
+  signal.throwIfAborted();
   refreshStatus();
   labels();
   context.reportLoading(1);

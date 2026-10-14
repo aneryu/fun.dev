@@ -108,4 +108,4 @@
 
 ## Later
 
-推迟，不是放弃：Tripo 生成的法物模型（`altar.js` 的 `buildItem` 可替换）；多个飘字叠加。
+推迟，不是放弃：多个飘字叠加。（法物模型已在 2.1.0 换成 BlenderKit 模型和 Blender 建模，见 README。）

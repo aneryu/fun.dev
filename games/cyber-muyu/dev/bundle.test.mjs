@@ -24,6 +24,7 @@ test("runtime resource graph stays inside the relocatable bundle", async () => {
   }
   await visit(new URL("game.js", root));
   assert.ok(seen.has(new URL("assets/wooden-fish.glb", root).href));
+  assert.ok(seen.has(new URL("assets/relics.glb", root).href));
 });
 
 test("game owns its Three.js HUD without platform widgets, DOM or CSS", async () => {
