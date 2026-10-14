@@ -81,10 +81,17 @@ npm test
 npm run model
 ```
 
-Tests need Node.js 22+; no install is needed. Model regeneration optionally needs
-Blender 4.0 on PATH. `dev/create-model.py` writes `assets/wooden-fish.json` relative
-to itself. The existing model is included, so Blender is unnecessary at runtime.
+Tests need Node.js 22+; no install is needed. `assets/wooden-fish.glb` is included,
+so model regeneration is only needed after replacing `dev/tripo-source.glb`. It
+needs Blender 4.2+ on PATH and the parent repository's `three` package:
+`dev/decode-meshopt.mjs` decodes the meshopt-compressed Tripo export (the
+platform has no meshopt decoder), then `dev/clean-model.py` names the meshes
+`Fish`, `Cushion`, `MalletHead` and `MalletHandle`, replaces the lumpy generated
+cushion with a clean torus of the same size, smooths the fish, bakes ambient
+occlusion (Cycles) and each vertex's depth below the fish's convex hull into its
+vertex colors, which shade the carving's grooves and the hollow slit, applies transforms and exports
+an uncompressed GLB. Materials and the procedural wood grain are in `game.js`.
 
 `dev/`, `package.json` and this README are development files and are excluded
-from the platform's published bundle. All model geometry is locally authored;
-no downloaded commercial mesh or texture is included.
+from the platform's published bundle. The model was generated with Tripo; no
+texture is included.
