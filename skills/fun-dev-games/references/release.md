@@ -10,17 +10,20 @@ so inspect the complete artifact, not only the entry module.
 
 ## Independent game publication
 
-Create `game.json` beside the game entry with `id`, `version`, `apiVersion: 1`,
-`title`, `description`, `category`, `platforms` and an explicit `files` array
-including `game.js`. Text supports both zh/en translations. Publish only reviewed
-runtime files. The game may live outside the platform checkout.
+Create `games/<id>/game.json` beside the game entry with `id` (matching the
+directory name), `version`, `apiVersion: 2`, `title`, `description`, `category`,
+`platforms`, optional `orientation`/`howToPlay`/`cover`/`keepAwake`, and an
+explicit `files` array including `game.js` (and the cover). The publisher also
+uploads a `files.json` list for offline caching. Text supports
+both zh/en translations. Publish only reviewed runtime files. Bump `version` for
+each release; Git keeps earlier versions.
 
 From the fun.dev checkout, inspect `docs/game-registry.md` and run:
 
 ```sh
-npm run game:publish -- /absolute/path/to/game.json --dry-run
+npm run game:publish -- games/my-game/game.json --dry-run
 # Only when game publication is authorized:
-npm run game:publish -- /absolute/path/to/game.json
+npm run game:publish -- games/my-game/game.json
 npm run game:remove -- my-game
 ```
 
@@ -33,8 +36,8 @@ an older saved bundle. No Pages build, deploy or Git push is part of registratio
 
 A one-time website deployment must configure `FUNDEV_GAME_ORIGIN`, the trusted
 public HTTPS resource origin, with CORS and caching configured on R2. Subsequent
-game releases need no website deployment. `site/games.json` and bundled demo files
-are local preview fixtures, removed from production builds with a remote origin.
+game releases need no website deployment. Local builds bundle `games/` with a
+generated catalog; production builds with a remote origin bundle no games.
 
 Verify browser loading, resource paths, mobile/desktop, touch/keyboard,
 pause/resume, restart and cleanup. Check `/games/?lang=zh`, `/games/?lang=en`
@@ -50,8 +53,10 @@ to a purely static Pages site.
 
 For production website builds, set `FUNDEV_GAME_ORIGIN` to the verified public
 resource origin. A build without it contains local demo fixtures and is not the
-independent-registry production artifact. Inspect `dist/game-source.js`, CSP and
-the absence of `dist/games.json` before deploying.
+independent-registry production artifact. Run `npm run release:check` (unit
+tests, production build, smoke test against the live R2 catalog) and deploy only
+when it passes; it leaves the production artifact in `dist/`. Inspect
+`dist/game-source.js`, CSP and the absence of `dist/games.json` before deploying.
 
 ```sh
 wrangler pages project list

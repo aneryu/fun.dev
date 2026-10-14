@@ -7,11 +7,15 @@ description: Develop, debug, integrate, and deploy self-contained Three.js game 
 
 Build a self-contained game bundle; the platform supplies the online Three.js
 container. Games do not ship HTML, CSS, a renderer, or their own animation loop.
-Game visuals, HUD, hit testing, audio, resources and state belong to the game.
-Do not add game-specific platform APIs for counters, buttons, inventories, etc.
+Game visuals, HUD, hit testing, sounds, resources and state belong to the game;
+the platform owns the audio context, mute/volume/haptics switches, and the
+Options panel that renders the game's declared settings and cheats. Do not add
+game-specific platform APIs for counters, buttons, inventories, etc.; use the
+runtime kit through `context.runtime()` for shared helpers.
 
-Use this skill with the user's game repository. When integrating or deploying,
-locate the fun.dev checkout and read its current AGENTS.md and DESIGN.md. The
+Game sources live in the fun.dev repository, one directory per game at
+`games/<id>/`, so platform contract changes and every game upgrade together.
+Locate the fun.dev checkout and read its current AGENTS.md and DESIGN.md. The
 reference platform repository is https://github.com/aneryu/fun.dev; do not assume
 it exists at a particular local path. Inspect the implementation if its contract
 has changed since this skill was downloaded.
@@ -24,12 +28,15 @@ build tool is needed. Prefer mobile-friendly geometry, bounded pixel ratio,
 on-demand rendering when idle, touch controls and reduced motion.
 
 Use [the starter](assets/game.js) as an optional example, not as required gameplay.
-It creates one Three.js object and implements input, resource ownership and pause.
+It creates one Three.js object, a kit text HUD and two options, and implements
+input, resource ownership and pause.
 
-Games may use their preferred source language/build tools. Their exported
-runtime must be browser ESM with `game.js` exporting `createGame(context)`.
-Use the game’s own tools for iteration. Validate integration using the local
-platform build and preview; the public site does not connect to local servers.
+Games may use their preferred source language/build tools inside their
+directory (keep tooling in `dev/`). Their exported runtime must be browser ESM
+with `game.js` exporting `createGame(context)`, listed with its assets in
+`game.json`. Iterate with `npm run dev -- <id>`, which rebuilds and reloads the
+local platform; the public site does not connect to local servers. Run
+`npm run test:smoke` for the generic lifecycle checks of every game.
 
 Read [the trust boundary](references/security.md) before integrating game code.
 

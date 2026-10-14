@@ -1,5 +1,6 @@
-import { gameText, loadCatalog, playPath } from "./catalog.js";
+import { compatible, coverURL, gameText, loadCatalog, playPath } from "./catalog.js";
 import { getLocale, initLocale, languagePath, onLocaleChange, t } from "./i18n.js";
+import { registerServiceWorker } from "./pwa.js";
 
 const list = document.querySelector("#game-list");
 const tools = document.querySelector("#catalog-tools");
@@ -27,8 +28,14 @@ function gameItem(game) {
   const item = element("li", "game-item", "");
   const link = element("a", "game-link", "");
   link.href = languagePath(playPath(game));
-  const number = element("span", "game-number", String(games.indexOf(game) + 1).padStart(2, "0"));
-  number.setAttribute("aria-hidden", "true");
+  // A cover thumbnail replaces the row number when the game has one; both are decorative.
+  let number;
+  if (game.cover) {
+    number = Object.assign(document.createElement("img"), { className: "game-cover", src: coverURL(game), alt: "", loading: "lazy", decoding: "async", width: 112, height: 112 });
+  } else {
+    number = element("span", "game-number", String(games.indexOf(game) + 1).padStart(2, "0"));
+    number.setAttribute("aria-hidden", "true");
+  }
   const info = element("div", "game-info", "");
   const platforms = game.platforms.map((platform) => t(platform)).join(" / ");
   info.append(
@@ -83,7 +90,8 @@ async function load() {
   loadState = "loading";
   render();
   try {
-    games = await loadCatalog(AbortSignal.timeout(10000));
+    // Entries for another container API cannot run here; the player explains direct links.
+    games = (await loadCatalog(AbortSignal.timeout(10000))).filter(compatible);
     search.value = "";
     category.value = "";
     loadState = "ready";
@@ -116,3 +124,4 @@ document.querySelector("#retry").addEventListener("click", async () => {
 initLocale();
 onLocaleChange(translateCatalog);
 load();
+registerServiceWorker();

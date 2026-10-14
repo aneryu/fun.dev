@@ -1,13 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, rm, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { prepareRelease, publishRelease, unregisterGame } from "../scripts/game-release.mjs";
 import { gameOrigin } from "../scripts/game-origin.mjs";
+import { loadLocalGames, localCatalog } from "../scripts/local-games.mjs";
 
-const manifest = fileURLToPath(new URL("../site/games/cyber-muyu/1.0.0/game.json", import.meta.url));
+const manifest = fileURLToPath(new URL("../games/cyber-muyu/game.json", import.meta.url));
 function memoryStore() {
   const objects = new Map(); let sequence = 0;
   return {
@@ -26,14 +27,16 @@ test("publish/register/update/remove independently of site files; immutable retr
   await publishRelease(store, release);
   const first = JSON.parse(store.objects.get("games.json").body);
   assert.equal(first[0].release, release.game.release);
-  assert.equal(store.objects.size, release.assets.length + 1);
+  assert.equal(store.objects.size, release.assets.length + 2);
   assert.equal(store.objects.get("games.json").cache, "no-store");
+  const listed = JSON.parse(store.objects.get(`games/${release.game.id}/${release.game.version}/${release.game.release}/files.json`).body);
+  assert.deepEqual(listed.files, release.assets.map((asset) => asset.path));
   await publishRelease(store, release);
   await publishRelease(store, {...release, game:{...release.game, title:"Updated"}});
   assert.equal(JSON.parse(store.objects.get("games.json").body)[0].title, "Updated");
   await unregisterGame(store, release.game.id);
   assert.deepEqual(JSON.parse(store.objects.get("games.json").body), []);
-  assert.equal(store.objects.size, release.assets.length + 1);
+  assert.equal(store.objects.size, release.assets.length + 2);
 });
 test("upload failure leaves catalog unchanged; concurrent publisher cannot overwrite it", async () => {
   const release = await prepareRelease(manifest);
@@ -54,10 +57,10 @@ test("upload failure leaves catalog unchanged; concurrent publisher cannot overw
 test("explicit file list rejects traversal, secrets, missing imports and symlinks", async () => {
   const dir = await mkdtemp(join(tmpdir(),"fundev-release-"));
   try {
-    const {game} = await prepareRelease(manifest); delete game.release;
+    const {game} = await prepareRelease(manifest); delete game.release; delete game.cover;
     const path=join(dir,"game.json");
     await writeFile(join(dir,"game.js"), "export function createGame() { return {}; }");
-    for (const file of ["../secret.json", ".env", "a/../secret.json", "game.json", "node_modules/secret.js"]) {
+    for (const file of ["../secret.json", ".env", "a/../secret.json", "game.json", "files.json", "node_modules/secret.js"]) {
       await writeFile(path,JSON.stringify({...game,files:["game.js",file]}));
       await assert.rejects(prepareRelease(path),/Invalid runtime/);
     }
@@ -72,4 +75,18 @@ test("explicit file list rejects traversal, secrets, missing imports and symlink
 test("source origin configuration rejects URL injection and local endpoints", () => {
   assert.equal(gameOrigin("https://games.example.com/"),"https://games.example.com");
   for(const value of ["http://games.example.com","https://x.example.com/a","https://user@x.example.com","https://127.0.0.1","https://x.localhost","https://x.example.com:443/a","https://x.example.com?q=1"]) assert.throws(()=>gameOrigin(value));
+});
+test("local game sources build an unhashed preview catalog and require matching directory IDs", async () => {
+  const [release] = await loadLocalGames();
+  assert.equal(release.game.id, "cyber-muyu");
+  assert.ok(release.assets.every((asset) => !/^(?:dev\/|package\.json|README\.md)/.test(asset.path)));
+  assert.equal(localCatalog([release])[0].release, undefined);
+  const dir = await mkdtemp(join(tmpdir(), "fundev-games-"));
+  try {
+    const {game} = await prepareRelease(manifest); delete game.release; delete game.cover;
+    await mkdir(join(dir, "other-name"));
+    await writeFile(join(dir, "other-name", "game.js"), "export function createGame() { return {}; }");
+    await writeFile(join(dir, "other-name", "game.json"), JSON.stringify({...game, files:["game.js"]}));
+    await assert.rejects(loadLocalGames(dir), /must use id "other-name"/);
+  } finally { await rm(dir, {recursive:true, force:true}); }
 });

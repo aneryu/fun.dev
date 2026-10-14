@@ -14,6 +14,11 @@ export const messages = {
     chooseGame: "请先选择游戏。", missingGame: "游戏不存在。",
     gameError: "游戏出错，请重开。", playerError: "加载失败，请刷新。",
     fullscreenError: "无法进入全屏。",
+    options: "选项", closeOptions: "关闭选项", howToPlay: "怎么玩", soundHaptics: "声音与震动", mute: "静音", volume: "音量",
+    haptics: "震动反馈", settings: "设置", cheats: "秘籍", debugOptions: "调试", share: "分享", shareCopied: "分享链接已复制。",
+    shareError: "无法分享，请手动复制地址。", rotatePortrait: "请把设备竖过来。", rotateLandscape: "请把设备横过来。",
+    platformUpdated: "fun.dev 已更新，请刷新页面。", gameOutdated: "这个游戏正在升级，请稍后再来。", loadingProgress: "加载进度",
+    shareDefault: (title) => `来 fun.dev 玩「${title}」`,
   },
   en: {
     language: "Language", languageAuto: "Auto",
@@ -30,6 +35,11 @@ export const messages = {
     chooseGame: "Choose a game first.", missingGame: "Game not found.",
     gameError: "Something went wrong. Restart the game.", playerError: "Couldn't load the game. Reload to retry.",
     fullscreenError: "Fullscreen unavailable.",
+    options: "Options", closeOptions: "Close options", howToPlay: "How to play", soundHaptics: "Sound & haptics", mute: "Mute", volume: "Volume",
+    haptics: "Haptic feedback", settings: "Settings", cheats: "Cheats", debugOptions: "Debug", share: "Share", shareCopied: "Share link copied.",
+    shareError: "Couldn't share. Copy the address instead.", rotatePortrait: "Turn your device to portrait.", rotateLandscape: "Turn your device to landscape.",
+    platformUpdated: "fun.dev has been updated. Reload the page.", gameOutdated: "This game is being updated. Try again later.", loadingProgress: "Loading progress",
+    shareDefault: (title) => `Play ${title} on fun.dev`,
   },
 };
 

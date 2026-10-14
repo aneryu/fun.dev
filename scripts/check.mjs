@@ -2,21 +2,16 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { bundlePath, validateCatalog } from "../site/catalog.js";
+import { loadLocalGames } from "./local-games.mjs";
 
 const root = resolve(fileURLToPath(new URL("../site/", import.meta.url)));
 const errors = [];
-const games = validateCatalog(JSON.parse(await readFile(join(root, "games.json"), "utf8")));
 const generated = new Set(["/vendor/three/three.module.js", "/skills/fun-dev-games.tar.gz"]);
 
 async function checkReference(source, value) {
   if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(value)) return;
   const url = new URL(value, `https://local.test/${relative(root, source)}`);
-  if (/^\/games\/[^/]+\/[^/]+\/(?:dev|package\.json|README\.md)(?:\/|$)/.test(url.pathname)) {
-    errors.push(`${relative(root, source)}: reference to unpublished game development file ${value}`);
-    return;
-  }
-  if (generated.has(url.pathname)) return;
+  if (generated.has(url.pathname) || url.pathname.startsWith("/runtime/addons/")) return;
   let target = resolve(root, `.${decodeURIComponent(url.pathname)}`);
   if (!target.startsWith(`${root}/`) && target !== root) throw new Error("Reference escapes site directory.");
   try {
@@ -36,8 +31,7 @@ async function walk(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
     if (entry.isSymbolicLink()) { errors.push(`Symlink is not a portable game asset: ${relative(root, path)}`); continue; }
-    // Bundle development tools are not browser code or published assets.
-    if (entry.isDirectory()) { if (!(entry.name === "dev" && path.startsWith(join(root, "games") + "/"))) await walk(path); continue; }
+    if (entry.isDirectory()) { await walk(path); continue; }
     const extension = extname(path);
     if (![".html", ".css", ".js", ".mjs"].includes(extension)) continue;
     const text = await readFile(path, "utf8");
@@ -58,7 +52,17 @@ async function walk(directory) {
   }
 }
 
-for (const game of games) await checkReference(join(root, "games.json"), bundlePath(game));
+// The release preparation validates manifests, listed files and literal imports, as the publisher does.
+let games = [];
+try {
+  games = await loadLocalGames();
+  for (const { game, assets } of games) {
+    for (const asset of assets.filter((file) => /\.m?js$/.test(file.path))) {
+      const result = spawnSync(process.execPath, ["--check", "--input-type=module"], { input: asset.body, encoding: "utf8" });
+      if (result.status !== 0) errors.push(`games/${game.id}/${asset.path}: ${result.stderr}`);
+    }
+  }
+} catch (error) { errors.push(error.message); }
 await walk(root);
 if (errors.length) {
   console.error(errors.join("\n"));

@@ -7,6 +7,8 @@
     <meta name="robots" content="noindex">
     <script src="/progress/link-entry.js"></script>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
     <link rel="stylesheet" href="/platform.css">
     <link rel="stylesheet" href="/play/player.css">
     <script type="module" src="/play/player.js"></script>
@@ -27,18 +29,36 @@
         <button class="button" id="restart" type="button" data-i18n="restart" disabled>重开</button>
         <button class="button" id="fullscreen" type="button" hidden>全屏</button>
         <button class="button" id="open-progress" type="button" data-open-progress disabled>我的进度</button>
+        <button class="button" id="open-options" type="button" data-i18n="options" disabled>选项</button>
+        <button class="button" id="share" type="button" data-i18n="share" disabled>分享</button>
       </div>
     </header>
     <main class="player-main" id="player">
       <div class="game-stage" id="game-stage" aria-label="游戏区域" data-i18n-aria="gameArea"></div>
       <div class="player-message" id="player-message" role="status" aria-live="polite">
         <p id="player-status">加载中…</p>
+        <progress id="player-loading" max="1" aria-label="加载进度" data-i18n-aria="loadingProgress" hidden></progress>
         <button class="button" id="resume" type="button" data-i18n="resume" hidden>继续</button>
         <button class="button" id="open-progress-message" type="button" data-open-progress hidden>我的进度</button>
         <a id="error-back" href="/games/" data-language-link data-i18n="errorBack" hidden>返回游戏</a>
         <noscript><p>请开启 JavaScript。<br><span lang="en">Please enable JavaScript.</span></p></noscript>
       </div>
     </main>
+    <dialog id="options-dialog" class="options-dialog" aria-labelledby="options-title">
+      <div class="controls-heading"><h2 id="options-title" data-i18n="options">选项</h2><button id="close-options" class="close-controls" type="button" aria-label="关闭选项" data-i18n-aria="closeOptions">×</button></div>
+      <section id="how-to-play" hidden><h3 data-i18n="howToPlay">怎么玩</h3><p id="how-to-play-text"></p></section>
+      <fieldset class="option-group"><legend data-i18n="soundHaptics">声音与震动</legend>
+        <label class="option-row"><input type="checkbox" id="pref-mute"><span data-i18n="mute">静音</span></label>
+        <label class="option-row option-range"><span data-i18n="volume">音量</span><input type="range" id="pref-volume" min="0" max="1" step="0.05"></label>
+        <label class="option-row"><input type="checkbox" id="pref-haptics"><span data-i18n="haptics">震动反馈</span></label>
+      </fieldset>
+      <fieldset class="option-group" id="options-settings" hidden><legend data-i18n="settings">设置</legend><div class="option-list"></div></fieldset>
+      <fieldset class="option-group" id="options-cheats" hidden><legend data-i18n="cheats">秘籍</legend><div class="option-list"></div></fieldset>
+      <fieldset class="option-group" id="options-debug" hidden><legend data-i18n="debugOptions">调试</legend><div class="option-list"></div></fieldset>
+    </dialog>
+    <div id="game-announcer" class="visually-hidden" role="status" aria-live="polite"></div>
+    <div class="safe-area-probe" aria-hidden="true"></div>
+    <pre id="debug-panel" class="debug-panel" aria-hidden="true" hidden></pre>
     <footer class="player-footer">
       <p id="game-description"></p>
       <p id="action-status" role="status" aria-live="polite"></p>

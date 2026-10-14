@@ -1,7 +1,7 @@
 import { readFile, lstat } from "node:fs/promises";
 import { dirname, resolve, extname, join } from "node:path";
 import { createHash } from "node:crypto";
-import { validateCatalog } from "../site/catalog.js";
+import { API_VERSION, validateCatalog } from "../site/catalog.js";
 
 const types = { ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".avif": "image/avif", ".svg": "image/svg+xml", ".glb": "model/gltf-binary", ".gltf": "model/gltf+json", ".bin": "application/octet-stream", ".wasm": "application/wasm", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".wav": "audio/wav" };
 const digest = (body) => createHash("sha256").update(body).digest("hex");
@@ -9,14 +9,16 @@ const digest = (body) => createHash("sha256").update(body).digest("hex");
 export async function prepareRelease(manifestPath) {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   const { files, ...game } = manifest;
-  if (Object.keys(game).some((key) => !["id", "version", "apiVersion", "title", "description", "category", "platforms"].includes(key))) throw new Error("Unexpected manifest field.");
+  if (Object.keys(game).some((key) => !["id", "version", "apiVersion", "title", "description", "category", "platforms", "orientation", "howToPlay", "cover", "keepAwake"].includes(key))) throw new Error("Unexpected manifest field.");
   validateCatalog([game]);
+  if (game.apiVersion !== API_VERSION) throw new Error(`apiVersion must be ${API_VERSION} for this platform.`);
+  if (game.cover !== undefined && !files?.includes?.(game.cover)) throw new Error("cover must be listed in files.");
   if (!Array.isArray(files) || !files.includes("game.js") || files.length > 4096 || new Set(files).size !== files.length) throw new Error("files must list game.js and unique runtime files (maximum 4096).");
   const root = dirname(resolve(manifestPath));
   const assets = [];
   let total = 0;
   for (const path of [...files].sort()) {
-    if (typeof path !== "string" || !/^[a-zA-Z0-9_-][a-zA-Z0-9_./-]*$/.test(path) || path.split("/").some((part) => !part || part.startsWith(".") || ["dev", "node_modules"].includes(part)) || ["package.json", "package-lock.json", "game.json"].includes(path) || !types[extname(path)]) throw new Error(`Invalid runtime file: ${path}`);
+    if (typeof path !== "string" || !/^[a-zA-Z0-9_-][a-zA-Z0-9_./-]*$/.test(path) || path.split("/").some((part) => !part || part.startsWith(".") || ["dev", "node_modules"].includes(part)) || ["package.json", "package-lock.json", "game.json", "files.json"].includes(path) || !types[extname(path)]) throw new Error(`Invalid runtime file: ${path}`);
     let target = root;
     for (const part of path.split("/")) {
       target = join(target, part);
@@ -66,7 +68,9 @@ export async function publishRelease(store, release) {
   const index = games.findIndex((item) => item.id === game.id);
   // Files are content-addressed. Failed uploads cannot expose a partial release.
   const prefix = `games/${game.id}/${game.version}/${game.release}/`;
-  for (const asset of assets) {
+  // files.json lets the site's service worker cache a whole release for offline play.
+  const fileList = Buffer.from(JSON.stringify({ files: assets.map((asset) => asset.path) }));
+  for (const asset of [...assets, { path: "files.json", body: fileList, type: "application/json", hash: digest(fileList) }]) {
     const key = prefix + asset.path;
     try {
       await store.put(key, asset.body, { type: asset.type, cache: "public, max-age=31536000, immutable", ifNoneMatch: "*" });

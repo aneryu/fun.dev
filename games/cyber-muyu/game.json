@@ -1,0 +1,31 @@
+{
+  "id": "cyber-muyu",
+  "version": "1.2.0",
+  "apiVersion": 2,
+  "title": {
+    "zh": "敲木鱼",
+    "en": "Wooden Fish"
+  },
+  "description": {
+    "zh": "功德 +1",
+    "en": "Merit +1"
+  },
+  "category": "Demo",
+  "platforms": [
+    "mobile",
+    "desktop"
+  ],
+  "orientation": "any",
+  "howToPlay": {
+    "zh": "点一下木鱼，功德加一。键盘：先选中游戏画面，再按空格或回车。声音和「+1」提示在「选项」里调整。",
+    "en": "Tap or click the wooden fish to earn merit. Keyboard: focus the game, then press Space or Enter. Sound and the “+1” hint are in Options."
+  },
+  "cover": "assets/cover.jpg",
+  "files": [
+    "game.js",
+    "hud.js",
+    "sound.js",
+    "assets/wooden-fish.json",
+    "assets/cover.jpg"
+  ]
+}

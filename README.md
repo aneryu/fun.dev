@@ -10,8 +10,8 @@ The demo's original mesh has a hollow belly, a narrow slit, round sound holes,
 and a tapered tail, with a plain wood-colored material. Its shape reference is
 [this wooden-fish model preview](https://booth.pm/ja/items/2154190); no vendor mesh
 or texture is included. Its self-contained source, tools and tests are documented
-in [the game README](site/games/cyber-muyu/1.1.0/README.md). To regenerate the mesh:
-`npm --prefix site/games/cyber-muyu/1.1.0 run model`. Blender 4.0 is optional for
+in [the game README](games/cyber-muyu/README.md). To regenerate the mesh:
+`npm --prefix games/cyber-muyu run model`. Blender 4.0 is optional for
 model editing and is not required to build or run the site.
 
 ## Local preview
@@ -32,16 +32,33 @@ response headers, including its Content Security Policy. Rebuild after editing
 source files. Set `PORT` for another port, or `HOST=127.0.0.1` to keep the
 preview on this machine only.
 
+For development, `npm run dev` builds the local `games/` sources, serves them the
+same way, rebuilds on changes to `site/`, `games/`, `scripts/` or `skills/`, and
+reloads open pages. `npm run dev -- cyber-muyu` prints the player URL for one
+game. The reload script is injected by the dev server only; it never enters
+`dist/`. A `.env` that sets `FUNDEV_GAME_ORIGIN` turns `npm run build` into a
+remote build, but `npm run dev` always uses the local sources.
+
 ## Platform structure
 
 - `site/index.html`: original personal homepage, with a Games entry.
 - `site/games/index.html`: game lobby, with search and category filtering.
-- `site/games.json`: local preview catalog; production reads the independent R2 catalog.
 - `site/play/`: shared player, opened as `/play/?game=<id>`.
-- `site/runtime/`: Three.js host, lifecycle, and resource ownership helpers.
-- `site/games/<id>/<version>/game.js`: each game's ESM bundle and adjacent assets.
+- `site/runtime/`: Three.js host (API v2: lifecycle, shared audio, options,
+  safe area, announcements, haptics), the runtime kit (`kit/`: text, input,
+  fixed-step loop, assets, seeded random) and built loaders (`addons/`: glTF,
+  Draco, KTX2 with self-hosted decoders).
+- `site/sw.js`, `site/manifest.webmanifest`, `site/icons/`: installable app and
+  offline play for games opened before. The build writes the precache list.
+- `site/404.html`: not-found page; it also forwards share links `/s/<id>/` that
+  have no generated page yet. The production build generates `/s/<id>/` and
+  `/s/<id>/en/` share pages with Open Graph tags from the R2 catalog.
+- `games/<id>/`: each game's source, one directory per game; `game.json` holds its
+  catalog metadata, version, and runtime file list. Local builds generate the
+  preview catalog and bundles from it; production reads the independent R2 catalog.
 - `examples/spinning-cube/`: integration example, excluded from the build/catalog.
 - `docs/game-bundles.md`: bundle format, API, and publishing workflow.
+- `docs/platform-roadmap.md`: planned shared platform capabilities and their order.
 
 The frontend remains plain HTML/CSS/JavaScript. The small build exists to pin and
 serve one local copy of Three.js, without a CDN, remote import map, or duplicated
@@ -53,7 +70,7 @@ uses Pages Functions and D1 as a temporary relay.
 
 Supported games save automatically in IndexedDB without registration. Ordinary
 play, reload, focus, and reconnection create no remote account, Cookie, or
-progress API request. Wooden Fish 1.1.0 uses the optional `context.progress`
+progress API request. Wooden Fish uses the optional `context.progress`
 capability; older bundles remain compatible. Offline saving covers an already
 loaded game, not offline loading of the site and its assets.
 
@@ -134,13 +151,19 @@ After deployment is authorized:
 2. Deploy the cleanup Worker with `wrangler deploy --config wrangler.cleanup.jsonc
    --env production --env-file /dev/null`. Verify its five-minute trigger and
    successful cleanup execution before opening transfers to users.
-3. Build with `npm run build:production`, then deploy `dist/` to the `fundev`
-   Pages project on branch `production`. The checked-in production settings use
+3. Run `npm run release:check`, which leaves the production build in `dist/`,
+   then deploy `dist/` to the `fundev` Pages project on branch `production`. The checked-in production settings use
    `TRANSFER_ENABLED=true`, `TRANSFER_ORIGIN=https://fun.dev`, and the existing
    `DB` binding. The frontend uses `FUNDEV_TRANSFER=1`; legacy progress flags
    do not enable it. Verify preview isolation and the one-use transfer flow.
-4. Publish Wooden Fish 1.1.0 separately if the independent R2 catalog still
-   references 1.0.0. Website deployment does not publish a game release.
+4. API v2 cutover (one short outage; the platform runs a single API version).
+   The live site runs API v1 and the R2 catalog lists Wooden Fish 1.1.0. Run
+   `npm run test:smoke` on the local sources, publish every game for API v2
+   (`npm run game:publish -- games/cyber-muyu/game.json`), then immediately run
+   `npm run release:check` and deploy `dist/`. Between publishing and deploying,
+   the old site cannot read the catalog; after deploying, a Pages rollback to an
+   API v1 deployment would show the same error until rolled forward. Website
+   deployment never publishes a game release by itself.
 
 The cleanup Worker is independently configured in `wrangler.cleanup.jsonc` and
 has no public HTTP endpoint. It is necessary for bounded retention, not an
@@ -160,9 +183,10 @@ Do not restore or reactivate legacy synchronization endpoints during rollback.
 
 ## Add a game
 
-Export `createGame(context)` from `game.js` and list the runtime files in a
-`game.json` manifest. Publish/register directly to R2 with `npm run game:publish
--- /path/to/game.json`; use `--dry-run` to inspect first. Game updates and removals
+Create `games/<id>/` with `game.js` exporting `createGame(context)` and a
+`game.json` manifest listing the runtime files. Develop it with `npm run dev --
+<id>`. Publish/register directly to R2 with `npm run game:publish --
+games/<id>/game.json`; use `--dry-run` to inspect first. Game updates and removals
 do not rebuild or deploy the website. See [independent registration](docs/game-registry.md)
 for one-time storage/domain setup, credentials, caching, rollback and commands,
 and [the bundle contract](docs/game-bundles.md) for the runtime interface.
@@ -175,14 +199,29 @@ It is not shipped to browsers. Local preview retains the bundled demo.
 ```sh
 npm test
 npm run build
+npm run test:smoke       # Local games/ in Chromium, mobile and desktop
+npm run test:kit         # Runtime kit and loaders under the real CSP
+npm run test:player      # Options, cheats, share, rotation, API mismatch
+npm run test:site        # Lobby covers, share pages, 404, manifest, offline play
 git diff --check
 ```
 
-The build checks catalog metadata, bundle entry files, JavaScript syntax, literal
-module imports, HTML links/fragments, and CSS asset references. It cannot infer
-computed asset URLs or validate gameplay. Preview new bundles in a browser at
-mobile and desktop sizes, including pause/resume, restart, backgrounding, and
-the console. Test fixtures are separate from the published demo.
+The build checks game manifests and runtime file lists, JavaScript syntax,
+literal module imports, HTML links/fragments, and CSS asset references. It cannot
+infer computed asset URLs or validate gameplay. The smoke test opens every game
+at mobile and desktop sizes and requires: reaching the running state, a canvas
+that is not a single colour, language switching, pause/resume, restart, and no
+console errors through leaving the player. It does not cover backgrounding or
+gameplay; preview new bundles in a browser for those. Test fixtures are separate
+from the published demo.
+
+Before every website deployment, run `npm run release:check`: the unit tests,
+the kit, player and site browser checks, the production build, and the smoke
+test against the live R2 catalog (proxied
+locally because R2 CORS admits only the public origins). Deploy only when it
+passes; it leaves the production artifact in `dist/`. Run `npm run test:smoke`
+against the local sources before publishing games for a contract upgrade.
+Playwright's Chromium must be installed (`npx playwright install chromium`).
 
 ## Language
 
@@ -202,7 +241,8 @@ The build includes the game-development Skill at `/skills/fun-dev-games.tar.gz`
 and its readable entry at `/skills/fun-dev-games/SKILL.md`. These addresses have
 no visible page entry; publishing the website publishes the matching Skill.
 
-- Production build command: `npm run build:production` (static/local preview: `npm run build`)
+- Production build command: `npm run build:production` (static/local preview: `npm run build`);
+  run `npm run release:check` before deploying
 - Build output directory: `dist`
 - Production branch: `production`
 

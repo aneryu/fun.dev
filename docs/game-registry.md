@@ -36,28 +36,29 @@ Registering, updating and removing compatible games does not.
 
 ## Publish and register
 
-In any game output directory, create `game.json` alongside `game.js`:
+Each game's source directory `games/<id>/` has a `game.json` beside `game.js`:
 
 ```json
 {
   "id": "my-game",
   "version": "1.0.0",
-  "apiVersion": 1,
+  "apiVersion": 2,
   "title": {"zh": "我的游戏", "en": "My game"},
   "description": {"zh": "一句话玩法", "en": "One-line description"},
   "category": "Puzzle",
   "platforms": ["mobile", "desktop"],
-  "files": ["game.js", "assets/model.glb"]
+  "cover": "assets/cover.jpg",
+  "files": ["game.js", "assets/model.glb", "assets/cover.jpg"]
 }
 ```
 
-From the platform checkout (the bundle may be anywhere):
+From the repository root:
 
 ```sh
 npm ci
-npm run game:publish -- /absolute/path/to/game.json --dry-run
+npm run game:publish -- games/my-game/game.json --dry-run
 # With publication authorized and R2 credentials configured:
-npm run game:publish -- /absolute/path/to/game.json
+npm run game:publish -- games/my-game/game.json
 npm run game:remove -- my-game
 ```
 
@@ -69,7 +70,9 @@ These checks are not code review or a sandbox. Review file contents, computed
 asset URLs and runtime behavior separately. HTML/CSS pages are not game bundles.
 
 The publisher reads the current catalog and ETag, uploads all files under
-`games/<id>/<version>/<content-hash>/`, then conditionally replaces `games.json`.
+`games/<id>/<version>/<content-hash>/` plus a `files.json` list of them (used by
+the site's service worker to cache a whole release), then conditionally replaces
+`games.json`. It accepts only the platform's current `apiVersion`.
 The manifest is not uploaded. Repeating a release verifies existing immutable
 objects and can resume a partial upload. Changed bytes produce a new hash;
 use a new semantic version for an intentional release. Existing ID updates
@@ -83,7 +86,7 @@ cleanup is a separate deliberate task. The publisher does not delete assets.
 
 Removal hides the game after the next catalog fetch, not from already running
 sessions or anyone holding its public asset URL. Roll back by publishing the
-previous saved bundle/manifest. Each lobby visit/player load fetches the live
+previous version's `games/<id>/` from Git history. Each lobby visit/player load fetches the live
 catalog; an already open lobby must be refreshed to see changes.
 
 The initial Wooden Fish release was uploaded with authenticated Wrangler into
@@ -104,8 +107,12 @@ Cross-origin files still execute inside the fun.dev document. Only publish
 trusted games; this is deployment independence, not isolation from DOM/storage.
 R2 write credentials therefore grant the ability to publish code run on fun.dev.
 
-Without `FUNDEV_GAME_ORIGIN`, `npm run build && npm run preview` uses the local
-demo and catalog for offline integration checks. It does not connect the online
+Without `FUNDEV_GAME_ORIGIN`, `npm run build && npm run preview` bundles the
+local `games/` sources and catalog for offline integration checks. A `.env` that
+sets it makes `npm run build` a remote build; `npm run dev` and
+`npm run test:smoke` always use the local sources. `npm run test:smoke -- --remote`
+(part of `npm run release:check`) tests the production build against the live
+R2 catalog through a local proxy, because R2 CORS admits only the public origins. It does not connect the online
 site to a local server. Production must explicitly configure the remote origin.
 
 Sources: [R2 public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/),

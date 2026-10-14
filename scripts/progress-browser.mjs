@@ -7,7 +7,7 @@ import { createServer } from 'node:net';
 import { chromium } from 'playwright';
 
 const temporary = await mkdtemp(join(tmpdir(), 'fundev-progress-browser-'));
-const env = { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false', WRANGLER_SEND_METRICS: 'false' };
+const env = { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false', WRANGLER_SEND_METRICS: 'false', FUNDEV_NO_SW: '1' };
 const listener = createServer();
 await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
 const port = listener.address().port;

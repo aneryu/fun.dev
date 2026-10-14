@@ -19,7 +19,9 @@ The page should feel lightweight, curious, and personal. Prefer one strong idea
 over a collection of polished portfolio components. The homepage retains the
 original centered “Code for / − work. / + fun.” composition and introductory
 line, with a Games link in the header. The separate `/games/` lobby uses only the
-`fun.dev` wordmark, a language switch, and a simple game list. Avoid introductory
+`fun.dev` wordmark, a language switch, and a simple game list. A game with a cover
+shows it as a small square thumbnail in place of its row number; the list stays a
+single column of rows, never a card grid. Avoid introductory
 essays, slogans, about sections, or repeated explanations.
 
 ## Color Palette
@@ -111,6 +113,10 @@ demo uses the yellow canvas, brown wood, and simple dark text without neon effec
 Platform controls remain keyboard accessible,
 including pause, restart, fullscreen (where supported), and return to the lobby.
 Loading, pause, and error messages are plain text in a high-contrast inset.
+Game options (how to play, sound and haptics, settings, cheats) open in a dialog
+styled like My progress: Duck Yellow surface, Duck Ink border, plain fieldsets.
+Game covers are 1200×630 screenshots of the game itself, cropped to a square
+with a Duck Ink border in the lobby.
 
 ## Accessibility
 
