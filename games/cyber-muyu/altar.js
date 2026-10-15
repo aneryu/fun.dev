@@ -5,7 +5,8 @@
 import { items } from "./economy.js";
 
 const GROUND = -1.04;
-const RADIUS = 2.6;
+const RADIUS = 2.9;
+const SCALE = 2.2; // toy proportions: relics read clearly next to the fish on a phone
 const FLIGHT = 0.9; // seconds from the fish to the pedestal
 
 // Hooks in each relic of assets/relics.glb (see dev/build-relics.py): points where effects start,
@@ -49,13 +50,13 @@ export function createAltar({ THREE, scene, reducedMotion, fish }) {
     const t = ORDER.indexOf(item.id) / (items.length - 1);
     const angle = Math.PI * (0.94 - 0.88 * (t + 0.6 * Math.sin(2 * Math.PI * t) / (2 * Math.PI)));
     const top = new THREE.Vector3(Math.cos(angle) * RADIUS, GROUND, Math.sin(angle) * RADIUS * 0.55 + 0.35);
-    return { item, top, home: top.clone(), object: null, radius: 0.3, flight: null, hop: 0, active: true };
+    return { item, top, home: top.clone(), object: null, radius: 0.3, height: 0.5, flight: null, hop: 0, active: true };
   });
   const find = (id) => slots.find((entry) => entry.item.id === id);
 
   // No clipping: every relic keeps a footprint circle clear of the fish and of the other relics
   // that are shown. A wanted spot that is taken moves to the nearest free one.
-  const REACH = 3.8, GAP = 0.04;
+  const REACH = 4.3, GAP = 0.04;
   const solid = (slot) => slot.object && slot.active;
   function blocked(slot, x, z) {
     const fromFish = Math.hypot(x - fish.x, z - fish.z);
@@ -93,11 +94,12 @@ export function createAltar({ THREE, scene, reducedMotion, fish }) {
   function place(slot) {
     if (slot.object) return;
     slot.object = buildItem(library, slot.item.id);
-    slot.object.scale.setScalar(1.6);
+    slot.object.scale.setScalar(SCALE);
     slot.object.updateMatrixWorld(true);
     // Footprint: half the larger horizontal extent of the model as built.
     const size = new THREE.Box3().setFromObject(slot.object).getSize(new THREE.Vector3());
     slot.radius = Math.max(size.x, size.z) / 2;
+    slot.height = size.y;
     slot.object.visible = slot.active;
     root.add(slot.object);
     face(slot);
@@ -175,6 +177,15 @@ export function createAltar({ THREE, scene, reducedMotion, fish }) {
       return { x: slot.top.x, z: slot.top.z };
     },
     position(id) { return find(id).top.clone(); },
+    // Points the camera keeps in view: the foot and head of every shown relic, at its place
+    // (also while it is still flying there).
+    extent() {
+      return slots.filter(solid).flatMap((slot) => [
+        new THREE.Vector3(slot.top.x - slot.radius, slot.top.y, slot.top.z + slot.radius * 0.5),
+        new THREE.Vector3(slot.top.x + slot.radius, slot.top.y, slot.top.z + slot.radius * 0.5),
+        new THREE.Vector3(slot.top.x, slot.top.y + slot.height, slot.top.z),
+      ]);
+    },
     // The placed model (null until collected), for relic behaviors in relics.js.
     object(id) { return find(id).object; },
     // Which shown relic a ray hits, if any.

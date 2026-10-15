@@ -66,6 +66,9 @@ export function createState() {
     // Per relic: { off: true } when switched off in the game, { x, z } once dragged somewhere.
     relics: {},
     skin: { fish: "wood", cushion: "red" },
+    // 每日一签: lots ever drawn (签谱), lots drawn in the current round of sixty, and the local
+    // date (YYYY-MM-DD) of the last draw.
+    lots: { got: [], round: [], last: "" },
     stats: { time: 0, strikes: 0, sentences: 0, samadhi: 0, drops: 0 },
   };
 }
@@ -114,10 +117,32 @@ export function applyStrike(state, { zen = 1, interval = Infinity, luck = null, 
   return { value, drop };
 }
 
+// 每日一签 ---------------------------------------------------------------------------------
+
+export const LOT_COUNT = 60;
+
+// The local calendar date, so the day turns over at the player's midnight.
+export function today(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+export const lotDrawnToday = (state, day) => state.lots.last === day;
+
+// Draws a lot (0–59) not yet drawn in this round; after all sixty a new round starts.
+export function drawLot(state, day, random = Math.random) {
+  if (state.lots.round.length >= LOT_COUNT) state.lots.round = [];
+  const open = Array.from({ length: LOT_COUNT }, (_, index) => index).filter((index) => !state.lots.round.includes(index));
+  const lot = open[Math.floor(random() * open.length)];
+  state.lots.round.push(lot);
+  if (!state.lots.got.includes(lot)) state.lots.got.push(lot);
+  state.lots.last = day;
+  return lot;
+}
+
 // Saves -----------------------------------------------------------------------------------
 
 export function serialize(state) {
-  return { schemaVersion: 3, data: structuredClone(state) };
+  return { schemaVersion: 4, data: structuredClone(state) };
 }
 
 const finite = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -132,7 +157,7 @@ export function deserialize(snapshot) {
     state.merit = merit;
     return state;
   }
-  const data = snapshot?.schemaVersion === 3 ? snapshot.data : null;
+  const data = snapshot?.schemaVersion === 3 || snapshot?.schemaVersion === 4 ? snapshot.data : null;
   const valid = data && finite(data.merit) && finite(data.sinceDrop) &&
     data.collection && typeof data.collection === "object" &&
     items.every(({ id }) => data.collection[id] === undefined || (Number.isSafeInteger(data.collection[id]) && data.collection[id] >= 0 && data.collection[id] <= 3)) &&
@@ -149,6 +174,11 @@ export function deserialize(snapshot) {
     const wanted = data.skin?.[part];
     if (skins[part].some((skin) => skin.id === wanted)) state.skin[part] = wanted;
   }
+  // Lots: known, unique indices only; schema 3 had none.
+  const lots = (list) => (Array.isArray(list) ? [...new Set(list.filter((index) => Number.isSafeInteger(index) && index >= 0 && index < LOT_COUNT))] : []);
+  state.lots.got = lots(data.lots?.got);
+  state.lots.round = lots(data.lots?.round);
+  if (typeof data.lots?.last === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.lots.last)) state.lots.last = data.lots.last;
   // Relic placement and switches are kept only for known relics and only when well-formed.
   for (const { id } of items) {
     const entry = data.relics?.[id];

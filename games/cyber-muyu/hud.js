@@ -51,12 +51,19 @@ export function createHud({ THREE, camera, scene, track, kit, reducedMotion }) {
         return this;
       },
       opacity(value) { text.object.material.opacity = value; return this; },
+      // Shrinks the text to fit maxWidth CSS pixels; never enlarges it.
+      fit(maxWidth) {
+        const scale = Math.min(1, maxWidth / Math.max(1, text.width));
+        text.object.scale.set(text.width * scale, text.height * scale, 1);
+        return this;
+      },
       hide() { text.object.visible = false; return this; },
     };
   }
 
   // Small vector icons instead of words: a string of prayer beads for relics, a wooden fish on
-  // its cushion for skins. 1 unit = 1 CSS pixel, centered on the icon's position.
+  // its cushion for skins, a fortune stick for the 签谱. 1 unit = 1 CSS pixel, centered on the
+  // icon's position.
   const circle = track(new THREE.CircleGeometry(1, 20));
   function icon(kind, order) {
     const group = new THREE.Group();
@@ -77,6 +84,11 @@ export function createHud({ THREE, camera, scene, track, kit, reducedMotion }) {
         part(circle, Math.cos(a) * 8, Math.sin(a) * 8, 2.4, 2.4);
       }
       part(circle, 0, 8.5, 3.4, 3.4); // the guru bead at the bottom
+    } else if (kind === "stick") {
+      // A cup of fortune sticks: three sticks of different heights above the cup.
+      part(quad, -6.5, -11, 2.6, 12); part(quad, -1.3, -13, 2.6, 14); part(quad, 3.9, -10, 2.6, 11);
+      part(quad, -8, 0, 16, 11); // the cup
+      part(quad, -8, 3, 16, 1.6, cutout, 1); // its band, cut out in cream
     } else {
       part(circle, 0, -2, 11, 8.5); // the fish's body
       part(quad, -7, -1.5, 12, 2.2, cutout, 1); // its slit, cut out in cream
@@ -112,13 +124,30 @@ export function createHud({ THREE, camera, scene, track, kit, reducedMotion }) {
   // tap; locked ones show the merit they need. The selected cell's text is written underneath.
   const panelButton = { border: box(INK, 100), fill: box(CREAM, 101), icon: icon("beads", 102), dot: box(BEAK_DEEP, 103) };
   const panelBorder = box(INK, 110), panelFill = box(CREAM, 111);
-  const tabIcons = [icon("beads", 112), icon("fish", 112)];
+  const tabIcons = [icon("beads", 112), icon("fish", 112), icon("stick", 112)];
   const tabUnderline = box(INK, 112);
   const panelClose = label({ size: 20, weight: 700, order: 112 });
-  const cells = Array.from({ length: 12 }, () => ({ border: box(INK, 112), fill: box(INK, 113), text: label({ size: 15, weight: 700, order: 114 }) }));
+  // Enough cells for the 签谱's sixty lots; the relic and skin tabs use the first twelve.
+  const cells = Array.from({ length: 60 }, () => ({ border: box(INK, 112), fill: box(INK, 113), text: label({ size: 15, weight: 700, order: 114 }) }));
   const panelDetail = label({ size: 13, color: css(BROWN), order: 112 });
   const panelFocus = outline(115);
-  const COLUMNS = 3, CELL = 50, HEADER = 46, FOOTER = 40;
+  const HEADER = 46, FOOTER = 40;
+
+  // Words that float up from the fish now and then (floats.js), at most three at a time.
+  const floaters = Array.from({ length: 3 }, () => ({ text: label({ size: 17, weight: 700, order: 105 }), age: Infinity, x: 0, y: 0 }));
+  let floatCursor = 0;
+  const FLOAT_TIME = 1.5;
+
+  // 每日一签: a cream lot card over a dimmed stage; any press puts it away. The verse stands in
+  // four vertical columns read right to left (zh) or as two lines (en), the 解曰 underneath.
+  const cardShade = box(INK, 120, 0.3), cardBorder = box(INK, 121), cardFill = box(CREAM, 122), cardRule = box(BEAK_DEEP, 123);
+  const cardTitle = label({ size: 15, weight: 700, order: 123, color: css(BEAK_DEEP) });
+  const cardColumns = Array.from({ length: 4 }, () => label({ size: 22, weight: 700, order: 123 }));
+  const cardLines = label({ size: 16, weight: 700, order: 123 });
+  const cardGloss = label({ size: 14, color: css(BROWN), order: 123 });
+  const cardClose = label({ size: 20, weight: 700, order: 123 });
+  cardGloss.text.update({ maxWidth: 290, lineHeight: 1.5 });
+  cardLines.text.update({ maxWidth: 280 });
 
   let viewport = { width: 390, height: 700, safeArea: { top: 0, right: 0, bottom: 0, left: 0 } };
   let status = null;
@@ -126,6 +155,7 @@ export function createHud({ THREE, camera, scene, track, kit, reducedMotion }) {
   let panel = null; // { tabs: [{ id, label, selected }], cells: [{ id, label, state: "on" | "off" | "none" }], selected, detail }
   let panelHeight = 0;
   let bumpTime = 0, infoTime = 0;
+  let card = null, cardTime = 0; // { title, verse: [lines], vertical, gloss }
   let regions = [];
   let focusVisible = false;
   const INFO_TIME = 5;
@@ -168,6 +198,7 @@ export function createHud({ THREE, camera, scene, track, kit, reducedMotion }) {
     const parts = [panelBorder, panelFill, ...tabIcons, tabUnderline, panelClose, panelDetail, panelFocus, ...cells.flatMap(Object.values)];
     if (!panel) { panelHeight = 0; for (const part of parts) part.hide(); return; }
     const W = Math.min(width - 24, 420), X = (width - W) / 2;
+    const COLUMNS = panel.columns, CELL = panel.cellHeight;
     const rows = Math.ceil(panel.cells.length / COLUMNS);
     const H = HEADER + rows * CELL + FOOTER;
     const Y = height - safeArea.bottom - H;
@@ -193,7 +224,7 @@ export function createHud({ THREE, camera, scene, track, kit, reducedMotion }) {
       cell.border.set(cx, cy, cw, CELL - 6, entry.state === "none" ? BROWN : INK);
       cell.border.material.opacity = entry.state === "none" ? 0.35 : 1;
       cell.fill.set(cx + 2, cy + 2, cw - 4, CELL - 10, entry.state === "on" ? INK : CREAM);
-      cell.text.set(entry.label, cx + cw / 2, cy + (CELL - 6) / 2, entry.state === "on" ? css(CREAM) : css(entry.state === "off" ? INK : BROWN));
+      cell.text.set(entry.label, cx + cw / 2, cy + (CELL - 6) / 2, entry.state === "on" ? css(CREAM) : css(entry.state === "off" ? INK : BROWN)).fit(cw - 10);
       regions.push({ x: cx, y: cy, w: cw, h: CELL - 6, action: `cell:${entry.id}` });
       if (focusVisible && index === panel.selected) panelFocus.set(cx, cy, cw, CELL - 6);
     });
@@ -202,12 +233,51 @@ export function createHud({ THREE, camera, scene, track, kit, reducedMotion }) {
     regions.push({ x: X, y: Y, w: W, h: height - Y, action: "none" });
   }
 
+  function layoutFloats() {
+    for (const floater of floaters) {
+      if (floater.age >= FLOAT_TIME) { floater.text.hide(); continue; }
+      const t = floater.age / FLOAT_TIME;
+      const rise = reducedMotion ? 0 : 54 * (1 - (1 - t) ** 2);
+      floater.text.set(floater.value, floater.x, floater.y - rise, floater.color).opacity(Math.min(1, t * 8) * Math.min(1, (1 - t) * 2.5));
+    }
+  }
+
+  function layoutCard() {
+    const parts = [cardShade, cardBorder, cardFill, cardRule, cardTitle, ...cardColumns, cardLines, cardGloss, cardClose];
+    if (!card) { for (const part of parts) part.hide(); return; }
+    const { width, height } = viewport;
+    const W = Math.min(width - 40, 320), H = card.vertical ? 360 : 250;
+    const X = (width - W) / 2, Y = Math.max(16, (height - H) / 2);
+    const fade = reducedMotion ? 1 : Math.min(1, cardTime / 0.25);
+    const lift = reducedMotion ? 0 : 16 * (1 - fade) ** 2;
+    cardShade.set(0, 0, width, height); cardShade.material.opacity = 0.3 * fade;
+    cardBorder.set(X - 2, Y - 2 + lift, W + 4, H + 4); cardBorder.material.opacity = fade;
+    cardFill.set(X, Y + lift, W, H); cardFill.material.opacity = fade;
+    cardTitle.set(card.title, width / 2, Y + lift + 30).fit(W - 64).opacity(fade);
+    cardRule.set(X + 24, Y + lift + 52, W - 48, 2); cardRule.material.opacity = fade;
+    cardClose.set("✕", X + W - 22, Y + lift + 24).opacity(fade);
+    if (card.vertical) {
+      cardLines.hide();
+      // Right to left, one character per row.
+      card.verse.forEach((line, index) => cardColumns[index].set([...line].join("\n"), width / 2 + (1.5 - index) * 46, Y + lift + 70 + 96).opacity(fade));
+      cardGloss.set(card.gloss, width / 2, Y + lift + H - 46).opacity(fade);
+    } else {
+      for (const column of cardColumns) column.hide();
+      cardLines.set(card.verse.join("\n"), width / 2, Y + lift + 110).opacity(fade);
+      cardGloss.set(card.gloss, width / 2, Y + lift + H - 52).opacity(fade);
+    }
+    // The card takes every press until it is put away.
+    regions.unshift({ x: 0, y: 0, w: width, h: height, action: "card" });
+  }
+
   function layout() {
     if (!status) return;
     regions = [];
+    layoutFloats();
     layoutPanel();
     layoutInfo();
     layoutStatus();
+    layoutCard();
   }
 
   return {
@@ -217,6 +287,17 @@ export function createHud({ THREE, camera, scene, track, kit, reducedMotion }) {
       return { top: safeArea.top + 56, bottom: panelHeight ? height - panelHeight : height - safeArea.bottom - 10, right: width };
     },
     get panelOpen() { return Boolean(panel); },
+    get cardOpen() { return Boolean(card); },
+    // { title, verse, vertical, gloss } shows the lot card; null puts it away.
+    setCard(next) { card = next; cardTime = 0; layout(); },
+    // A word floating up from (x, y) in CSS pixels, such as the fish's crown on screen.
+    float(value, x, y, color = css(INK)) {
+      const floater = floaters[floatCursor];
+      floatCursor = (floatCursor + 1) % floaters.length;
+      // Alternate sides so overlapping words stay readable.
+      Object.assign(floater, { value, x: x + (floatCursor % 2 ? -1 : 1) * (10 + Math.random() * 24), y: y - Math.random() * 16, color, age: 0 });
+      layout();
+    },
     setPanel(model) { panel = model; layout(); },
     resize(next) { viewport = next; layer.resize(next); layout(); },
     // { merit, gold, panelButton, panelDot }
@@ -232,9 +313,12 @@ export function createHud({ THREE, camera, scene, track, kit, reducedMotion }) {
     },
     // Returns true while something animates.
     update(delta) {
-      const busy = bumpTime > 0 || infoTime > 0;
+      const floating = floaters.some((floater) => floater.age < FLOAT_TIME);
+      const busy = bumpTime > 0 || infoTime > 0 || floating || (card && cardTime < 0.25);
       bumpTime = Math.max(0, bumpTime - delta);
       infoTime = Math.max(0, infoTime - delta);
+      if (card) cardTime += delta;
+      for (const floater of floaters) floater.age += delta;
       if (busy) layout();
       return busy;
     },

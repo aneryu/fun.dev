@@ -8,11 +8,11 @@ Sound effects, the contact shadow and glow are generated locally; the models are
 ## Progress
 
 The optional `context.progress` v1 capability saves `economy.serialize(state)`:
-`{schemaVersion:3, data}` with merit, collected relics, each relic's switch and dragged
-position, the chosen skins, the drop pity counter and stats. Every strike saves at once (a local write, so
+`{schemaVersion:4, data}` with merit, collected relics, each relic's switch and dragged
+position, the chosen skins, the 签谱 (lots drawn, this round's lots and the last draw's local date), the drop pity counter and stats. Every strike saves at once (a local write, so
 a tab closed right after a strike keeps it);
 every relic and pause also saves. A 1.x save
-(`{schemaVersion:1, data:{merit}}`) and the unreleased 2.0 draft (schema 2) migrate.
+(`{schemaVersion:1, data:{merit}}`), the unreleased 2.0 draft (schema 2) and 2.0–2.1 saves (schema 3, no lots) migrate.
 `economy.deserialize` rejects anything else; unsupported saves fail before game
 resources are allocated and remain available for export through the player.
 Restart preserves progress; the player's confirmed Reset progress action clears it. Without the capability, gameplay
@@ -60,10 +60,12 @@ rectangles in the same render pass as the model, inside the platform's
 layout, hit testing and input: a press anywhere on the stage strikes at once
 (`pointerdown`, several fingers may alternate) unless it lands on the HUD or on a
 relic, which can then be dragged along the floor, never into the fish, behind it or into
-another relic (a press without moving shows what it does). The prayer-bead button opens a panel with two icon tabs: relics (switch each on
-and off) and skins (the fish's and the cushion's, unlocked by merit). With the canvas
-focused, Space or Enter strikes, E opens the panel (arrows select, Enter switches or
-wears, S changes tabs) and C reads the collected relics. The canvas label includes merit, zen, the
+another relic (a press without moving shows what it does). The prayer-bead button opens a panel with three icon tabs: relics (switch each on
+and off), skins (the fish's and the cushion's, unlocked by merit) and the 签谱 (sixty
+lots; a drawn one opens its card again). With the canvas
+focused, Space or Enter strikes, E opens the panel (arrows select, Enter switches,
+wears or opens, S changes tabs) and C reads the collected relics; Space, Enter or Escape
+put a lot card away. The canvas label includes merit, zen, the
 collection and the controls; merit, 入定, relics, luck and switches are sent to
 `context.announce`.
 
@@ -113,6 +115,23 @@ The design and its reasons are in `DESIGN-economy.md`. Modules:
 The mallet is a damped spring: a press kicks it, and sound, haptics and a sound ring
 fire at contact; the wooden fish stays rigid. The game keeps its own clock from `performance.now()` while running
 and renders only while something moves.
+
+## Polish and 每日一签 (2.2.0)
+
+- `lots.js`: the sixty lots (four-line verse and 解曰 in Chinese, a couplet and its meaning in
+  English) and their titles (第十七签 · 庚辰 · 上签). The first 入定 of each local day draws one
+  not yet drawn this round; a bamboo stick flies out of the fish's mouth and a card opens.
+  While it is open zen holds; the first second and a half of presses are absorbed so a steady
+  beat cannot dismiss it unread. Putting the day's lot away brings 30 s of 好运. The share
+  text adds the day's lot.
+- `floats.js`: words that float up from the fish on some strikes (about 1 in 8, 1 in 3 in
+  入定), pure decoration. The pool follows current memes and is refreshed with releases.
+- Zen lights the fish from within: a warm emissive term masked by the baked groove and slit
+  vertex colors, and the mallet head's own emissive material.
+- The camera frames the fish, the resting mallet and the shown relics (points near their
+  silhouettes) in the stage the HUD leaves free and eases over about a second as relics
+  arrive or the panel opens; a drag holds it. Relics are 2.2× their modeled size.
+- Panel labels shrink to fit their cells.
 
 ## Local development
 

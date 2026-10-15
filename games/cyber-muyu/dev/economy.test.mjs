@@ -2,8 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   applyStrike, createState, formatMerit, newlyUnlocked, skins, unlocked, deserialize, dropChance, FIRST_PITY, formatNumber, items, PITY, rollDrop,
-  serialize, strikeValue,
+  serialize, strikeValue, drawLot, lotDrawnToday, LOT_COUNT, today,
 } from "../economy.js";
+import { lots, lotTitle } from "../lots.js";
+import { floats } from "../floats.js";
 import { report, simulate } from "./simulate.mjs";
 
 const fixed = (...values) => { let i = 0; return () => values[i++ % values.length]; };
@@ -68,10 +70,49 @@ test("saves round-trip, migrate older saves and reject anything unexpected", () 
   assert.equal("string" in migrated.collection, false);
   const data = serialize(state).data;
   for (const bad of [
-    { schemaVersion: 1, data: { merit: -1 } }, { schemaVersion: 4, data },
+    { schemaVersion: 1, data: { merit: -1 } }, { schemaVersion: 5, data },
     { schemaVersion: 3, data: { ...data, merit: Infinity } },
     { schemaVersion: 3, data: { ...data, collection: { ...data.collection, bowl: 4 } } },
   ]) assert.throws(() => deserialize(bad));
+});
+
+test("每日一签: one lot a day, no repeats within a round of sixty, saved and migrated", () => {
+  const state = createState();
+  assert.equal(lotDrawnToday(state, "2026-10-15"), false);
+  const drawn = new Set();
+  for (let day = 0; day < LOT_COUNT; day++) drawn.add(drawLot(state, `2026-10-${day}`, () => 0.5));
+  assert.equal(drawn.size, LOT_COUNT);
+  assert.equal(lotDrawnToday(state, `2026-10-${LOT_COUNT - 1}`), true);
+  // A new round starts after sixty; the 签谱 keeps every lot.
+  drawLot(state, "2026-12-15", () => 0);
+  assert.equal(state.lots.round.length, 1);
+  assert.equal(state.lots.got.length, LOT_COUNT);
+  assert.deepEqual(deserialize(JSON.parse(JSON.stringify(serialize(state)))).lots, state.lots);
+  // Schema 3 saves have no lots; malformed entries are dropped.
+  const old = serialize(createState());
+  old.schemaVersion = 3; delete old.data.lots;
+  assert.deepEqual(deserialize(old).lots, { got: [], round: [], last: "" });
+  const messy = serialize(createState());
+  messy.data.lots = { got: [3, 3, 60, -1, "x"], round: "no", last: "yesterday" };
+  assert.deepEqual(deserialize(messy).lots, { got: [3], round: [], last: "" });
+  assert.match(today(new Date(2026, 0, 5)), /^2026-01-05$/);
+});
+
+test("sixty bilingual lots, 8 great / 20 good / 22 fair / 10 poor; floats in both languages", () => {
+  assert.equal(lots.length, LOT_COUNT);
+  const count = {};
+  for (const lot of lots) {
+    count[lot.grade] = (count[lot.grade] ?? 0) + 1;
+    assert.equal(lot.zh.length, 4);
+    for (const line of lot.zh) assert.equal([...line].length, 7, line);
+    assert.equal(lot.en.length, 2);
+    assert.ok(lot.zhGloss && lot.enGloss);
+  }
+  assert.deepEqual(count, { great: 8, good: 20, fair: 22, poor: 10 });
+  assert.equal(lotTitle(16, "zh"), "第十七签 · 庚辰 · 上签");
+  assert.equal(lotTitle(59, "zh"), "第六十签 · 癸亥 · 上上签");
+  assert.equal(lotTitle(0, "en"), "Lot 1 · Great fortune");
+  for (const locale of ["zh", "en"]) assert.ok(floats[locale].length >= 8 && floats[locale].every((word) => word.length <= 16));
 });
 
 test("numbers abbreviate with locale units; every relic is bilingual", () => {

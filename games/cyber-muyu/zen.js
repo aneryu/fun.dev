@@ -86,6 +86,8 @@ export function createZen(params) {
       samadhiSince = null;
       return ended;
     },
+    // Holds the beat as if a strike had just landed: zen neither ebbs nor breaks meanwhile.
+    hold(time) { last = time; },
     // Pausing, opening a fresh session or rebirth: the chant starts over; zen is kept unless cleared.
     reset({ clear = false } = {}) {
       warmup = 0; syllable = -1; last = -Infinity; intervals = [];

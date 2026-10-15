@@ -5,6 +5,8 @@ import { createAltar } from "./altar.js";
 import { createEffects } from "./effects.js";
 import { createRelics } from "./relics.js";
 import * as economy from "./economy.js";
+import { lots, lotTitle } from "./lots.js";
+import { floats } from "./floats.js";
 
 // Rendered by the platform's options panel; values arrive through context.options. Relics are
 // switched on and off in the game's own 法物 panel, not here.
@@ -15,6 +17,7 @@ export const options = [
   { id: "all-skins", section: "cheats", type: "action", label: { zh: "解锁全部皮肤", en: "Unlock every skin" } },
   { id: "auto-strike", section: "cheats", audience: "debug", type: "toggle", label: { zh: "自动敲击（稳定节奏）", en: "Auto strike (steady beat)" } },
   { id: "drop-now", section: "cheats", audience: "debug", type: "action", label: { zh: "立即结缘一次", en: "Drop something now" } },
+  { id: "lot-now", section: "cheats", audience: "debug", type: "action", label: { zh: "立即求签", en: "Draw a lot now" } },
 ];
 
 export async function createGame(context) {
@@ -29,20 +32,22 @@ export async function createGame(context) {
   const copy = {
     zh: {
       merit: "功德", zen: (value) => `入禅 ×${value}`, collection: (count) => `结缘 ${count}/12`,
-      strike: "敲木鱼积功德。连敲三下开始念经；节奏稳定就会入禅，功德随之加倍。念经时偶尔会结缘法物，摆在木鱼前，可以拖动",
-      keys: "空格或回车敲击，E 打开法物面板，面板里方向键选择、回车启用停用或换上皮肤、S 切换法物和皮肤，C 查看已结缘的法物",
+      strike: "敲木鱼积功德。连敲三下开始念经；节奏稳定就会入禅，功德随之加倍。念经时偶尔会结缘法物，摆在木鱼前，可以拖动。每天第一次入定会求得一支签",
+      keys: "空格或回车敲击，E 打开法物面板，面板里方向键选择、回车启用停用、换上皮肤或打开签、S 切换法物、皮肤和签谱，C 查看已结缘的法物",
       panel: (count) => `法物 ${count}/12`, unknown: "？", missing: "尚未结缘", turnedOn: (name) => `${name} 已启用`, turnedOff: (name) => `${name} 已停用`,
-      panelButton: "法物", skins: "皮肤", part: { fish: "木鱼", cushion: "坐垫" }, needs: (value) => `累计功德 ${value} 解锁`, unlocked: (name) => `解锁皮肤：${name}`, unavailable: "声音不可用", noSave: "当前容器不支持存档",
+      panelButton: "法物", skins: "皮肤", lots: (count) => `签谱 ${count}/60`, lotMissing: "尚未求得", gloss: (text) => `解曰：${text}`,
+      lotShare: (title, gloss) => `今日${title}，解曰：${gloss}`, part: { fish: "木鱼", cushion: "坐垫" }, needs: (value) => `累计功德 ${value} 解锁`, unlocked: (name) => `解锁皮肤：${name}`, unavailable: "声音不可用", noSave: "当前容器不支持存档",
       share: (value, count) => `我在 fun.dev 敲木鱼，功德 ${value}，结缘 ${count}/12`, cheats: "（开了秘籍）",
       found: (name) => `结缘 · ${name}`, gotLuck: (name, seconds) => `${name}降临，${seconds} 秒`,
       enter: "入定",
     },
     en: {
       merit: "MERIT", zen: (value) => `Zen ×${value}`, collection: (count) => `Relics ${count}/12`,
-      strike: "Strike the wooden fish to earn merit. After three knocks it chants; a steady beat deepens zen, which multiplies merit. While chanting, strikes sometimes bring a relic that sits in front of the fish and can be dragged",
-      keys: "Space or Enter to strike, E opens the relic panel, where arrow keys select, Enter switches a relic or wears a skin and S switches between relics and skins, C reads the collected relics",
+      strike: "Strike the wooden fish to earn merit. After three knocks it chants; a steady beat deepens zen, which multiplies merit. While chanting, strikes sometimes bring a relic that sits in front of the fish and can be dragged. The first samadhi of each day draws a fortune lot",
+      keys: "Space or Enter to strike, E opens the relic panel, where arrow keys select, Enter switches a relic, wears a skin or opens a lot and S switches between relics, skins and lots, C reads the collected relics",
       panel: (count) => `Relics ${count}/12`, unknown: "?", missing: "Not found yet", turnedOn: (name) => `${name} on`, turnedOff: (name) => `${name} off`,
-      panelButton: "Relics", skins: "Skins", part: { fish: "Fish", cushion: "Cushion" }, needs: (value) => `Unlocks at ${value} merit`, unlocked: (name) => `New skin: ${name}`, unavailable: "Sound unavailable", noSave: "This host does not support saving",
+      panelButton: "Relics", skins: "Skins", lots: (count) => `Lots ${count}/60`, lotMissing: "Not drawn yet", gloss: (text) => text,
+      lotShare: (title, gloss) => `Today: ${title}. ${gloss}`, part: { fish: "Fish", cushion: "Cushion" }, needs: (value) => `Unlocks at ${value} merit`, unlocked: (name) => `New skin: ${name}`, unavailable: "Sound unavailable", noSave: "This host does not support saving",
       share: (value, count) => `I've earned ${value} merit and ${count}/12 relics on Wooden Fish at fun.dev`, cheats: " (with cheats)",
       found: (name) => `New relic: ${name}`, gotLuck: (name, seconds) => `${name} for ${seconds}s`,
       enter: "Samadhi",
@@ -95,6 +100,8 @@ export async function createGame(context) {
 
   const fish = new THREE.Group();
   scene.add(fish);
+  // Warm gold from inside the carving, 0 at rest and rising with zen.
+  const woodGlowUniforms = { woodGlow: { value: 0 }, woodGlowColor: { value: new THREE.Color(0xffa63d) } };
   const shellMaterial = track(new THREE.MeshPhysicalMaterial({ color: 0x9c5626, metalness: 0, roughness: 0.55, clearcoat: 0.2, clearcoatRoughness: 0.4, envMapIntensity: 0.6 }));
   // The model has no UVs, so the grain is procedural in model space: dense streaks that stay
   // horizontal on every side, like teak. Streak noise is stretched across the horizontal plane;
@@ -104,6 +111,7 @@ export async function createGame(context) {
       .replace("#include <common>", `#include <common>
 varying vec3 vWoodPosition;
 varying float vWoodOcclusion;
+varying float vWoodGlow;
 #ifdef WOOD_OCCLUSION
 attribute vec4 color;
 #endif`)
@@ -113,13 +121,19 @@ vWoodPosition = position;
 // Open surfaces stay unshaded; grooves (red: baked AO) darken, and the recessed slit
 // (green: depth below the convex hull) goes nearly black inside.
 vWoodOcclusion = mix(0.35, 1.0, smoothstep(0.05, 0.6, color.r)) * mix(0.12, 1.0, smoothstep(0.45, 0.75, color.g));
+// Zen lights the carving from within: the slit most, the grooves a little.
+vWoodGlow = min(1.0, 0.8 * (1.0 - smoothstep(0.1, 0.7, color.r)) + (1.0 - smoothstep(0.4, 0.75, color.g)));
 #else
 vWoodOcclusion = 1.0;
+vWoodGlow = 0.0;
 #endif`);
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `#include <common>
 varying vec3 vWoodPosition;
 varying float vWoodOcclusion;
+varying float vWoodGlow;
+uniform float woodGlow;
+uniform vec3 woodGlowColor;
 float woodHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
 float woodNoise(vec3 x) {
   vec3 i = floor(x); vec3 f = fract(x); f = f * f * (3.0 - 2.0 * f);
@@ -133,7 +147,11 @@ float bands = smoothstep(0.2, 0.8, woodNoise(vec3(wp.x * 3.0, y * 60.0, wp.z * 3
 float fibres = woodNoise(vec3(wp.x * 14.0, y * 220.0, wp.z * 14.0));
 fibres = mix(fibres, 0.5, smoothstep(0.4, 0.9, fwidth(y * 220.0)));
 float tone = woodNoise(wp * 3.0);
-diffuseColor.rgb *= mix(0.6, 1.15, 0.45 * bands + 0.4 * fibres + 0.15 * tone) * vWoodOcclusion;`);
+diffuseColor.rgb *= mix(0.6, 1.15, 0.45 * bands + 0.4 * fibres + 0.15 * tone) * vWoodOcclusion;`)
+      .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+totalEmissiveRadiance += woodGlowColor * woodGlow * vWoodGlow;`);
+    shader.uniforms.woodGlow = woodGlowUniforms.woodGlow;
+    shader.uniforms.woodGlowColor = woodGlowUniforms.woodGlowColor;
   };
   shellMaterial.customProgramCacheKey = () => "wooden-fish-grain";
   // Only the fish carries baked occlusion (its vertex colors); the mallet shares the wood without it.
@@ -217,7 +235,13 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
   cushion.material = cushionMaterial;
   body.material = shellMaterial;
   for (const mesh of [body, cushion, malletHead, malletHandle]) mesh.castShadow = mesh.receiveShadow = true;
-  malletHead.material = malletMaterial;
+  // The head has its own material so it can glow with zen while the handle stays plain.
+  const malletHeadMaterial = track(malletMaterial.clone());
+  malletHeadMaterial.onBeforeCompile = shellMaterial.onBeforeCompile;
+  malletHeadMaterial.customProgramCacheKey = shellMaterial.customProgramCacheKey;
+  malletHeadMaterial.emissive.setHex(0xffa63d);
+  malletHeadMaterial.emissiveIntensity = 0;
+  malletHead.material = malletHeadMaterial;
   malletHandle.material = malletMaterial;
   // The mallet lies along +Z in model space: grip at the far end, head at the near end.
   const handleBox = new THREE.Box3().setFromObject(malletHandle);
@@ -268,6 +292,17 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
     vertex.fromBufferAttribute(positions, i).applyMatrix4(body.matrixWorld);
     if (vertex.y > crown.y) crown.copy(vertex);
   }
+  // The slit's mouth: the centre of its deepest recess (the green vertex color, see
+  // dev/clean-model.py), where the daily lot flies out.
+  const mouth = new THREE.Vector3();
+  const recess = body.geometry.attributes.color;
+  let recessCount = 0;
+  for (let i = 0; i < positions.count; i++) {
+    if (recess.getY(i) > 0.3) continue;
+    mouth.add(vertex.fromBufferAttribute(positions, i).applyMatrix4(body.matrixWorld));
+    recessCount++;
+  }
+  if (recessCount) mouth.divideScalar(recessCount); else mouth.copy(crown);
   // Scale the mallet so its head center reaches the crown plus the head radius.
   const headDistance = headCenter.z - grip.z;
   let malletScale = crown.distanceTo(mallet.position) / headDistance;
@@ -286,6 +321,15 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
   mallet.quaternion.copy(malletRest);
   scene.add(mallet);
 
+
+  // 每日一签: a bamboo stick with a red-lacquered end, shown while it flies out of the mouth.
+  const stick = new THREE.Group();
+  const stickBody = new THREE.Mesh(track(new THREE.CylinderGeometry(0.035, 0.03, 0.95, 10)), track(new THREE.MeshStandardMaterial({ color: 0xd8b26a, roughness: 0.6 })));
+  const stickEnd = new THREE.Mesh(track(new THREE.CylinderGeometry(0.037, 0.037, 0.2, 10)), track(new THREE.MeshStandardMaterial({ color: 0xa3261b, roughness: 0.35 })));
+  stickEnd.position.y = 0.38;
+  stick.add(stickBody, stickEnd);
+  stick.visible = false;
+  scene.add(stick);
 
   // The contact shadow hugs the cushion's footprint.
   const footprint = new THREE.Box3().setFromObject(cushion);
@@ -360,6 +404,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
   let focus = false;
   let infoIndex = -1;
   let bellTimer = 0; // distant temple bell during 入定
+  let lotFlight = null; // { index, time } while the day's lot flies out of the fish
+  let lotCard = null; // { index, fresh } while a lot card is open
+  let lotOpenedAt = 0;
+  let floatBag = []; // floats.js words, shuffled, drawn without repeats
   // Zen colors the whole scene: the yellow warms and deepens as zen grows, then eases back.
   const calmColor = scene.background.clone();
   const deepColor = new THREE.Color(0xe9a13a);
@@ -400,6 +448,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
   function applyLooks() {
     for (const item of economy.items) altar.setActive(item.id, !state.relics[item.id]?.off);
     malletMaterial.color.setHex(enabled("rosewood") ? 0x4b1f1a : woodColor);
+    malletHeadMaterial.color.copy(malletMaterial.color);
     const fishLook = fishLooks[state.skin.fish];
     shellMaterial.color.setHex(fishLook.color);
     Object.assign(shellMaterial, { metalness: fishLook.metalness, roughness: fishLook.roughness, clearcoat: fishLook.clearcoat });
@@ -419,7 +468,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
 
   // Everything a strike earns is decided at the press; its sound and sight wait for contact.
   function strike() {
-    if (paused || signal.aborted || hud.panelOpen) return;
+    if (paused || signal.aborted || hud.panelOpen || hud.cardOpen) return;
     const time = now();
     if (luck && time >= luck.until) luck = null;
     const beat = zen.strike(time);
@@ -454,6 +503,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
     ripple({ duration: 0.4 + 0.3 * level, strength: 0.5 + 0.4 * level, color: fortune ? 0xf28c28 : 0xfff7d6 });
     context.haptics.vibrate("tap");
     hud.bump();
+    // Now and then a word floats up from the fish, more often in deeper zen.
+    if (Math.random() < 0.125 + 0.21 * level) floatWord(fortune);
     if (enabled("beads")) relics.bead();
     if (enabled("novice")) relics.nod();
     // 风铃: chimes answer a steady beat once zen has begun.
@@ -466,6 +517,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
       if (beat.steadySentence && enabled("bowl")) { if (soundAvailable) knock.bell("bowl", 0.2); bellRing(); }
       if (beat.samadhi) {
         context.announce(words.enter);
+        // 每日一签: the day's first 入定 draws a lot.
+        if (!economy.lotDrawnToday(state, economy.today()) && !lotFlight && !lotCard) drawLot();
         // 古钟: the bell tolls as samadhi begins.
         if (enabled("bell")) { if (soundAvailable) knock.bell("temple", 0.2); bellRing(); bellTimer = 8; }
       }
@@ -487,6 +540,61 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
     altar.drop(drop.id, crownPoint());
     if (reducedMotion) landed();
     save();
+  }
+
+  function floatWord(fortune) {
+    if (!floatBag.length) floatBag = [...floats[locale()]].sort(() => Math.random() - 0.5);
+    const word = floatBag.pop();
+    const at = crownPoint().project(camera);
+    // Up and to the left of the crown, clear of the mallet on the right.
+    hud.float(word, (at.x + 1) / 2 * viewport.width - 50, (1 - at.y) / 2 * viewport.height - 30, fortune ? "#7a5000" : "#211f17");
+  }
+
+  // 每日一签: the lot is drawn (and saved) at once; a stick flies out of the fish's mouth and
+  // the card opens where it stops.
+  function drawLot() {
+    const index = economy.drawLot(state, economy.today());
+    save();
+    if (soundAvailable) knock.bell("bowl", 0.14);
+    if (reducedMotion) { openLot(index, true); return; }
+    lotFlight = { index, time: 0 };
+    stick.visible = true;
+  }
+  function openLot(index, fresh) {
+    lotFlight = null;
+    stick.visible = false;
+    lotCard = { index, fresh };
+    lotOpenedAt = performance.now();
+    const loc = locale();
+    const entry = lots[index];
+    const verse = loc === "zh" ? entry.zh : entry.en;
+    let gloss = words.gloss(loc === "zh" ? entry.zhGloss : entry.enGloss);
+    // A long 解曰 breaks after the comma nearest its middle, so no full stop is left on its own.
+    if (loc === "zh" && [...gloss].length > 19) {
+      const commas = [...gloss.matchAll(/[，：]/g)].map((match) => match.index).filter((index) => index > 3);
+      const middle = gloss.length / 2;
+      const at = commas.sort((a, b) => Math.abs(a - middle) - Math.abs(b - middle))[0];
+      if (at !== undefined) gloss = `${gloss.slice(0, at + 1)}\n${gloss.slice(at + 1)}`;
+    }
+    hud.setCard({ title: lotTitle(index, loc), verse, vertical: loc === "zh", gloss });
+    context.announce(`${lotTitle(index, loc)}. ${verse.join(loc === "zh" ? "，" : " ")}. ${gloss.replace("\n", "")}`);
+    context.invalidate();
+  }
+  // Putting the day's lot away brings 好运 for 30 s, whatever the lot said.
+  function closeLot() {
+    // A steady beat would put the card away at once: presses in its first moments are absorbed.
+    if (performance.now() - lotOpenedAt < 1500) return;
+    const fresh = lotCard?.fresh;
+    lotCard = null;
+    hud.setCard(null);
+    zen.hold(now());
+    if (fresh) {
+      luck = { id: "chance", until: clock + economy.LUCK_TIME };
+      context.announce(words.gotLuck(luckName("chance"), economy.LUCK_TIME));
+      ripples(3);
+    }
+    refreshStatus();
+    context.invalidate();
   }
 
   // A relic reached its place.
@@ -514,11 +622,21 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
     const tabs = [
       { id: "relics", label: words.panel(economy.collectedCount(state)), selected: panelTab === "relics" },
       { id: "skins", label: words.skins, selected: panelTab === "skins" },
+      { id: "lots", label: words.lots(state.lots.got.length), selected: panelTab === "lots" },
     ];
+    // 签谱: sixty numbered cells; a drawn lot opens its card again.
+    if (panelTab === "lots") {
+      const got = (index) => state.lots.got.includes(index);
+      return {
+        tabs, selected: panelSelected, columns: 10, cellHeight: 34,
+        detail: panelSelected < 0 ? "" : got(panelSelected) ? lotTitle(panelSelected, locale()) : `${words.lots(state.lots.got.length)} · ${words.lotMissing}`,
+        cells: lots.map((_, index) => ({ id: `lot:${index}`, label: String(index + 1), state: got(index) ? "on" : "none" })),
+      };
+    }
     if (panelTab === "skins") {
       const chosen = skinList[panelSelected];
       return {
-        tabs, selected: panelSelected,
+        tabs, selected: panelSelected, columns: 3, cellHeight: 50,
         detail: !chosen ? "" : economy.unlocked(state, chosen.skin) ? `${words.part[chosen.part]} · ${skinName(chosen.skin)}` : words.needs(exact(chosen.skin.at)),
         cells: skinList.map(({ part, skin }) => ({
           id: `${part}:${skin.id}`,
@@ -529,7 +647,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
     }
     const selected = economy.items[panelSelected];
     return {
-      tabs, selected: panelSelected,
+      tabs, selected: panelSelected, columns: 3, cellHeight: 50,
       detail: !selected ? "" : economy.has(state, selected.id) ? selected.does[locale()] : words.missing,
       cells: economy.items.map((item) => ({
         id: item.id,
@@ -563,7 +681,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
     context.announce(words.unlocked(skinName(skin)));
     if (soundAvailable) knock.bell("bowl", 0.1);
   }
-  const panelButton = () => (economy.collectedCount(state) || state.merit >= Math.min(...skinList.slice(1).map(({ skin }) => skin.at)) ? words.panelButton : "");
+  const panelButton = () => (economy.collectedCount(state) || state.lots.got.length || state.merit >= Math.min(...skinList.slice(1).map(({ skin }) => skin.at)) ? words.panelButton : "");
 
   function setFocus(visible) {
     if (focus === visible) return;
@@ -572,12 +690,16 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
   }
 
   function act(action) {
+    if (action === "card") { closeLot(); return; }
     if (action === "panel") { panelOpen = true; if (panelSelected < 0) panelSelected = 0; if (freshSkin) panelTab = "skins"; }
     else if (action === "close") panelOpen = false;
     else if (action.startsWith("tab:")) { panelTab = action.slice(4); panelSelected = 0; }
     else if (action.startsWith("cell:")) {
       const id = action.slice(5);
-      if (panelTab === "skins") {
+      if (panelTab === "lots") {
+        panelSelected = Number(id.slice(4));
+        if (state.lots.got.includes(panelSelected)) openLot(panelSelected, false);
+      } else if (panelTab === "skins") {
         const [part, skin] = id.split(":");
         panelSelected = skinList.findIndex((entry) => entry.part === part && entry.skin.id === skin);
         wear(part, skin);
@@ -662,6 +784,10 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
   canvas.addEventListener("pointercancel", endDrag, { signal });
   canvas.addEventListener("keydown", (event) => {
     if (paused || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (hud.cardOpen) {
+      if (["Enter", "Space", "Escape"].includes(event.code) && !event.repeat) { event.preventDefault(); closeLot(); }
+      return;
+    }
     if (event.code === "KeyE" && !event.repeat && panelButton()) {
       event.preventDefault(); setFocus(true); act(panelOpen ? "close" : "panel"); return;
     }
@@ -669,14 +795,16 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
       const moves = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -3, ArrowDown: 3 };
       if (event.code in moves) {
         event.preventDefault(); setFocus(true);
-        panelSelected = Math.min(economy.items.length - 1, Math.max(0, panelSelected + moves[event.code]));
+        const { cells, columns } = panelModel();
+        const step = Math.abs(moves[event.code]) === 3 ? Math.sign(moves[event.code]) * columns : moves[event.code];
+        panelSelected = Math.min(cells.length - 1, Math.max(0, panelSelected + step));
         refreshPanel();
       } else if ((event.code === "Enter" || event.code === "Space") && !event.repeat) {
         event.preventDefault(); setFocus(true);
         act(`cell:${panelModel().cells[panelSelected].id}`);
       } else if (event.code === "KeyS" && !event.repeat) {
         event.preventDefault(); setFocus(true);
-        act(`tab:${panelTab === "relics" ? "skins" : "relics"}`);
+        act(`tab:${{ relics: "skins", skins: "lots", lots: "relics" }[panelTab]}`);
       } else if (event.code === "Escape") { act("close"); }
       return;
     }
@@ -701,28 +829,84 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
   }
   onCleanup(() => clearTimeout(wakeTimer));
 
-  let baseDistance = 10.5;
-  // Center the fish and relics in the stage the HUD leaves free (below the status, above the
-  // 法物 panel), pulling back when that stage is small.
-  function applyCamera() {
-    const { width, height } = viewport;
-    const { top, bottom, right } = hud.stage;
-    const ratio = Math.max(height / Math.max(height * 0.3, bottom - top), width / Math.max(width * 0.4, right));
-    const distance = baseDistance * (1 + (Math.min(ratio, 2.6) - 1) * (hud.panelOpen ? 0.8 : 0.5));
+  // Framing: the camera fits the fish, the mallet and the shown relics into the stage the HUD
+  // leaves free (below the merit, above the 法物 panel). Without relics the fish fills it; as
+  // relics arrive (or the panel opens) the camera eases back over about a second.
+  // Points close to the silhouette (box corners would frame empty space): the cushion's rim on
+  // the floor, the crown and the resting mallet's head and grip.
+  mallet.updateMatrixWorld(true);
+  const restHeadBox = new THREE.Box3().setFromObject(malletHead);
+  const restHead = restHeadBox.getCenter(new THREE.Vector3());
+  const restHeadRadius = (restHeadBox.max.y - restHeadBox.min.y) / 2;
+  const fixedPoints = [
+    ...Array.from({ length: 12 }, (_, i) => new THREE.Vector3(fishCenter.x + Math.cos(i * Math.PI / 6) * fishRadius, -1.04, fishCenter.z + Math.sin(i * Math.PI / 6) * fishRadius)),
+    crown.clone(),
+    restHead.clone().setY(restHead.y + restHeadRadius), restHead.clone().setX(restHead.x - restHeadRadius),
+    mallet.position.clone(),
+  ];
+  const view = { distance: 0, x: 0, y: 0 };
+  let snapView = true;
+  const projected = new THREE.Vector3();
+  function placeCamera(distance, x, y) {
     camera.position.set(0, distance * 0.55, distance * 0.835);
     camera.lookAt(0, 0, 0.3);
-    const worldPerPixel = 2 * camera.position.length() * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / height;
-    camera.translateX((width - right) / 2 * worldPerPixel);
-    camera.translateY(((top + bottom) / 2 - height / 2) * worldPerPixel);
+    camera.translateX(x);
+    camera.translateY(y);
     camera.updateMatrixWorld();
+  }
+  // The points' box on screen in CSS pixels, seen from `distance`.
+  function screenBox(points, distance) {
+    placeCamera(distance, 0, 0);
+    const box = { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
+    for (const point of points) {
+      projected.copy(point).project(camera);
+      const x = (projected.x + 1) / 2 * viewport.width, y = (1 - projected.y) / 2 * viewport.height;
+      box.left = Math.min(box.left, x); box.right = Math.max(box.right, x);
+      box.top = Math.min(box.top, y); box.bottom = Math.max(box.bottom, y);
+    }
+    return box;
+  }
+  function frameTarget() {
+    const { top, bottom, right } = hud.stage;
+    const points = [...fixedPoints, ...altar.extent()];
+    let distance = view.distance || 12;
+    let box = null;
+    // Apparent size falls off about as 1 / distance; a few passes settle the perspective.
+    for (let pass = 0; pass < 4; pass++) {
+      box = screenBox(points, distance);
+      // On wide screens the height limits: keep some air above and below the fish there.
+      const stageHeight = Math.max(viewport.height * 0.25, bottom - top);
+      const fill = Math.max((box.right - box.left) / (right * 0.88), (box.bottom - box.top) / (stageHeight * (viewport.width > viewport.height && viewport.height > 500 ? 0.66 : 0.8)));
+      distance = THREE.MathUtils.clamp(distance * fill, 7, 60);
+    }
+    box = screenBox(points, distance);
+    const worldPerPixel = 2 * camera.position.length() * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / viewport.height;
+    return {
+      distance,
+      x: ((box.left + box.right) / 2 - right / 2) * worldPerPixel,
+      y: ((top + bottom) / 2 - (box.top + box.bottom) / 2) * worldPerPixel,
+    };
+  }
+  // Returns true while the camera is still easing. A drag holds the framing until it ends.
+  function updateCamera(delta) {
+    let moving = false;
+    if (!drag?.moved || snapView) {
+      const target = frameTarget();
+      const ease = snapView || reducedMotion ? 1 : Math.min(1, delta * 3);
+      for (const key of ["distance", "x", "y"]) {
+        view[key] += (target[key] - view[key]) * ease;
+        if (Math.abs(target[key] - view[key]) > 1e-3) moving = true;
+      }
+      snapView = false;
+    }
+    placeCamera(view.distance, view.x, view.y);
+    return moving;
   }
 
   function resize() {
-    const aspect = viewport.width / viewport.height;
-    // Wide enough for the altar's outer pedestals.
-    baseDistance = (aspect < 1 ? 10.5 / aspect ** 0.7 : 10.5) * 1.1;
     hud.resize(viewport);
-    applyCamera();
+    snapView = true;
+    updateCamera(0);
     refreshStatus();
   }
 
@@ -764,11 +948,13 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
       lastReal = real;
       clock += delta;
       if (delta > 0) state.stats.time += delta;
-      const auto = context.options["auto-strike"] && !hud.panelOpen;
+      const auto = context.options["auto-strike"] && !hud.panelOpen && !hud.cardOpen;
       if (auto) {
         autoTime += delta;
         if (autoTime >= 0.45) { autoTime -= 0.45; strike(); }
       }
+      // An open lot card holds the beat: zen neither ebbs nor breaks while it is read.
+      if (hud.cardOpen) zen.hold(clock);
       const ended = zen.update(clock, delta);
       state.stats.samadhi = Math.max(state.stats.samadhi, ended, zen.samadhiTime(clock));
       // Spring steps at 240 Hz keep the bounce stable at any frame rate.
@@ -799,13 +985,26 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
       const relicsBusy = relics.update(delta, { zen: mood, samadhi: zen.samadhi, petals: activeLuck()?.id === "chance" });
       const flying = altar.update(delta, landed);
       const hudBusy = hud.update(delta);
-      applyCamera();
+      const cameraBusy = updateCamera(delta);
+      // The lot flies up and toward the viewer out of the mouth, spinning, then opens as a card.
+      if (lotFlight) {
+        lotFlight.time += delta;
+        const t = Math.min(1, lotFlight.time / 1.1);
+        const out = 1 - (1 - t) ** 2;
+        stick.position.set(mouth.x + out * 0.4, mouth.y + Math.sin(t * Math.PI * 0.8) * 1.6 + out * 0.3, mouth.z + out * 1.6);
+        stick.rotation.set(t * Math.PI * 3, 0, 0.4 + t * Math.PI * 1.5);
+        stick.scale.setScalar(0.4 + 0.6 * Math.min(1, t * 3));
+        if (t >= 1) openLot(lotFlight.index, true);
+      }
+      // Zen lights the carving and the mallet head from within.
+      woodGlowUniforms.woodGlow.value = 2.2 * mood;
+      malletHeadMaterial.emissiveIntensity = 0.35 * mood;
       effects.setZen(zen.level, zen.samadhi, state.skin.fish === "gold");
       const effectsBusy = effects.update(delta);
       labelTimer -= delta;
       if (labelTimer <= 0) { labelTimer = 1; labels(); refreshStatus(); }
       const ebbing = zen.level > 0 && !zen.chanting;
-      const busy = Boolean(auto) || moving || flying || hudBusy || effectsBusy || relicsBusy || moodMoving || ebbing;
+      const busy = Boolean(auto) || moving || flying || hudBusy || cameraBusy || Boolean(lotFlight) || effectsBusy || relicsBusy || moodMoving || ebbing;
       scheduleWake(busy || !luck ? Infinity : 1);
       return busy;
     },
@@ -821,7 +1020,12 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
       save();
     },
     resume() { paused = false; context.invalidate(); },
-    localeChanged() { words = copy[locale()]; refreshStatus(); refreshPanel(); labels(); context.invalidate(); },
+    localeChanged() {
+      words = copy[locale()];
+      floatBag = [];
+      if (lotCard) openLot(lotCard.index, lotCard.fresh);
+      refreshStatus(); refreshPanel(); labels(); context.invalidate();
+    },
     optionChanged(id) {
       // Merit cheats unlock skins on the way, like strikes do.
       const raise = (merit) => {
@@ -842,6 +1046,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
         if (reducedMotion) landed();
         save();
       }
+      // Draws another lot even if today's is drawn, to test the ceremony.
+      if (id === "lot-now" && !lotFlight && !lotCard) drawLot();
       if (id === "drop-now") {
         const drop = economy.rollDrop(state);
         state.stats.drops++;
@@ -856,14 +1062,18 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
     },
     shareText(target) {
       const text = copy[target] || copy.en;
-      return text.share(exact(state.merit, target === "zh" ? "zh" : "en"), economy.collectedCount(state)) + (context.cheatsUsed ? text.cheats : "");
+      const loc = target === "zh" ? "zh" : "en";
+      // The day's lot joins the share text once it is drawn.
+      const index = economy.lotDrawnToday(state, economy.today()) ? state.lots.round.at(-1) : undefined;
+      const lot = index === undefined ? "" : (loc === "zh" ? "。" : ". ") + text.lotShare(lotTitle(index, loc), loc === "zh" ? lots[index].zhGloss : lots[index].enGloss);
+      return text.share(exact(state.merit, loc), economy.collectedCount(state)) + lot + (context.cheatsUsed ? text.cheats : "");
     },
     dispose() {
       altar.dispose();
       relics.dispose();
       effects.dispose();
       hud.dispose();
-      scene.remove(fish, mallet, shadow, floor, camera);
+      scene.remove(fish, mallet, shadow, floor, stick, camera);
     },
   };
 }
