@@ -7,7 +7,7 @@
 import { chromium } from "playwright";
 import { mkdir } from "node:fs/promises";
 
-const [url, out = "/tmp/seal-bot", errorArg = "5"] = process.argv.slice(2);
+const [url, out = "/tmp/seal-bot", errorArg = "5", skipArg = "0"] = process.argv.slice(2);
 const HAND_ERROR = Number(errorArg);
 await mkdir(out, { recursive: true });
 const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
@@ -20,14 +20,37 @@ await page.goto(url);
 await page.waitForFunction(() => document.querySelector("#player-message")?.hidden && document.querySelector(".game-surface canvas"), null, { timeout: 60000 });
 await page.waitForTimeout(800);
 const tap = (locator) => locator.tap();
+// The options open once the game is running; give a slow first load time.
+await page.waitForSelector("#open-options:not([disabled])", { state: "attached", timeout: 60000 });
+await page.waitForTimeout(500);
 if (await page.locator("#menu-toggle").isVisible()) await tap(page.locator("#menu-toggle"));
 await tap(page.locator("#open-options"));
 await page.locator("#options-debug .option-row").filter({ hasText: "测试接口" }).locator("input").check();
 await tap(page.locator("#close-options"));
 await page.waitForTimeout(500);
+// Optionally skip the first steps with the finish-step cheat.
+for (let i = 0; i < Number(skipArg); i++) {
+  if (await page.locator("#menu-toggle").isVisible()) await tap(page.locator("#menu-toggle"));
+  await tap(page.locator("#open-options"));
+  await tap(page.locator("#options-cheats button").filter({ hasText: "完成当前工序" }).first());
+  await tap(page.locator("#close-options"));
+  await page.waitForTimeout(400);
+}
 const box = await page.locator(".game-surface canvas").boundingBox();
+await page.locator(".game-surface canvas").focus();
+await page.keyboard.press("Escape");
+await page.waitForTimeout(400);
 const session = await context.newCDPSession(page);
-const view = () => page.evaluate(() => document.querySelector(".game-surface canvas").sealTest());
+const peek = () => page.evaluate(() => document.querySelector(".game-surface canvas").sealTest());
+// A person looks before acting: wait until the camera and the stone have come to rest.
+async function view() {
+  for (let i = 0; i < 40; i++) {
+    const v = await peek();
+    if (v.still) return v;
+    await page.waitForTimeout(100);
+  }
+  return peek();
+}
 
 let seed = 7;
 const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
@@ -55,7 +78,7 @@ async function touch(points, ms) {
   await page.waitForTimeout(40);
   await send("touchEnd", null);
   // A person looks before the next touch: let the knife settle (it may swing round).
-  await page.waitForTimeout(650);
+  await page.waitForTimeout(350);
 }
 const inside = ([x, y], v, margin = 6) => x > margin && x < v.viewport.width - margin && y > margin && y < v.viewport.height - margin;
 const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -70,31 +93,12 @@ let guard = 0;
 for (;;) {
   let v = await view();
   if (v.stage === "dust" || v.stage === "done" || guard++ > 200) break;
-  if (v.stage === "clear") {
-    // Clearing: take the knife to the nearest ground still standing and scrub it.
-    if (!v.ground.length) { note("clearing, but no ground left to show"); break; }
-    const spot = v.ground.slice().sort((p, q) => distance(v.tip, p) - distance(v.tip, q))[0];
-    console.log(`clear: ${Math.round(v.clearCoverage * 100)}%, scrubbing near ${spot.map(Math.round)}`);
-    if (distance(v.tip, spot) > 12) {
-      const drop = [v.handle[0] + spot[0] - v.tip[0], v.handle[1] + spot[1] - v.tip[1]];
-      if (!inside(drop, v)) note(`moving the knife to the ground puts the finger off screen at ${drop.map(Math.round)}`);
-      await touch([v.handle, drop], 450);
-      stats.moves++;
-      v = await view();
-    }
-    // Back and forth, a little lower each pass, as a hand scrubs.
-    const g = v.grip, path = [g];
-    for (let pass = 0; pass < 4; pass++) path.push([g[0] + (pass % 2 ? -30 : 30), g[1] + pass * 8], [g[0], g[1] + pass * 8 + 4]);
-    await touch(path.filter((point) => inside(point, v, 12)), 900);
-    stats.swipes++;
-    continue;
-  }
   // The open line nearest the knife.
   // A sensible hand: lines that lie the way the knife does first, nearest first; then turn.
   const isAcross = (entry) => Math.abs(entry.a[0] - entry.b[0]) > Math.abs(entry.a[1] - entry.b[1]);
   const near = (entry) => Math.min(distance(v.tip, entry.a), distance(v.tip, entry.b));
   // Characters are cut along their strokes' centres (the knife has two edges); the rest by line.
-  const targets = v.stage === "glyphs" ? v.spines.filter((spine) => spine.open) : v.cuts;
+  const targets = v.cuts;
   if (!targets.length) { note(`nothing open to cut in ${v.stage}`); break; }
   const same = targets.filter((entry) => isAcross(entry) === (v.heading === 1));
   const cut = (same.length ? same : targets).slice().sort((p, q) => near(p) - near(q))[0];
@@ -135,7 +139,7 @@ for (;;) {
   // Carve: hold the grip and swipe the rest of the line, in as many swipes as the screen allows.
   for (let tries = 0; tries < 6; tries++) {
     v = await view();
-    const now = (v.stage === "glyphs" ? v.spines.filter((spine) => spine.open) : v.cuts).find((entry) => entry.index === cut.index);
+    const now = v.cuts.find((entry) => entry.index === cut.index);
     if (!now) break;
     const remaining = [end[0] - v.tip[0], end[1] - v.tip[1]];
     const overrun = 4 / (Math.hypot(...remaining) || 1);
@@ -151,12 +155,12 @@ for (;;) {
     stats.swipes++;
   }
   v = await view();
-  const stillOpen = (v.stage === "glyphs" ? v.spines.filter((spine) => spine.open) : v.cuts).find((entry) => entry.index === cut.index);
+  const stillOpen = v.cuts.find((entry) => entry.index === cut.index);
   if (stillOpen) {
     stats.misses++;
     note(`line ${cut.index} still open after swiping${stillOpen.coverage === undefined ? "" : ` (coverage ${stillOpen.coverage.toFixed(2)})`}`);
     await page.screenshot({ path: `${out}/miss-${stats.misses}.png` });
-    if (stats.misses > 8) break;
+    if (stats.misses > 20) break;
   }
 }
 // The powder: blow until the seal is finished, then wait for its card.

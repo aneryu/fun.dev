@@ -11,8 +11,14 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
 
 ## How it plays
 
-- The characters are 朱文, raised. Steps: chamfer, border, cross (grooves), characters (each
-  stroke's outline), clearing (the ground around the strokes), blowing the powder.
+- The characters are 朱文, raised, in a dense 九叠篆 drawn on even grid lines, so that most
+  gaps between strokes are one groove wide, as in the video. Steps: chamfer, border, cross
+  (grooves), then each character in reading order (its own step), then blowing the powder.
+- A character step closes the camera in on its cell and turns the stone about it. Its ground
+  (everything but the strokes) is shown red and covered by guides, one per push; character
+  grooves clear the ground they pass, never the strokes (painted back as uncut stone), and
+  leave a fine tool mark, so wider patches cleared with several pushes read as hatched. At 90%
+  the rest of the cell is cleared and the next character comes up.
 - A fresh seal opens with a card: its print-to-be, its stone and the six steps. Each finished
   step names the next. The face is seen square from above (about 78°) on a carver's pad.
   Everything is on or beside the knife; only the album and Redo wait in the top corner, in
@@ -27,14 +33,9 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
   goes in while the stone is square.
 - Line assist (a setting, on by default): within 16 CSS px of an open draft line (for the
   characters, of an uncut stroke's centre line) along the knife, the cutting point settles onto
-  it, and onto its nearer end; the line turns yellow. For the characters the knife has two
-  edges, one each side of the stroke, so one push cuts both sides of its outline. Grooves and
-  clearing never touch the strokes: the strokes are painted back as uncut stone.
-- Clearing: holding the grip, the knife scrapes a broad swath wherever the finger takes it; at
-  85% the rest is cleared. Undo (↶ beside the point) takes back swipes in the cutting steps;
-  Redo clears the current step (or the whole seal).
-- A quiet marker shows the cutting point: a thin bar as wide as the groove (two for the
-  characters), a dot ahead; in the clearing, a faint ring as wide as the scrape.
+  it, and onto its nearer end; the line turns yellow. Undo (↶, left of the point, tap only)
+  takes back swipes; Redo clears the current step (or the whole seal).
+- A quiet marker shows the cutting point: a thin bar as wide as the groove and a dot ahead.
 - Keyboard: arrows move the knife; hold Space and Up to push; Q/E turn the stone, Z undoes,
   B blows, A opens the album.
 - The knife in the stone is a stick-slip system tuned to the video's sound (pushes of
@@ -62,8 +63,8 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
 With `context.progress` v1 the game saves `{schemaVersion: 1, data: {current, seals,
 unlockAll}}`. Each seal keeps its strokes as base64 (`carve.js` `serialize`: per stroke
 an int16 start, its axis, blade and step, and int8 wobble every 0.006 face units); six finished
-seals stay under 40 KB, plus 2 KB each for the cleared ground (one bit per cell of a
-128 × 128 grid). It saves whenever the knife lifts and when a seal is finished.
+seals stay under 40 KB; offsets are stored as runs, and the cleared ground is replayed from
+the strokes. Schema 2; a schema 1 save keeps its place but drops its carvings. It saves whenever the knife lifts and when a seal is finished.
 Unsupported saves are refused before play and stay exportable through the player; without
 the capability the game plays and its label says saving is unavailable.
 

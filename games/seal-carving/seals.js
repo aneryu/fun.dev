@@ -5,9 +5,10 @@
 // polylines: "M x,y" starts one, then r/l/u/d n moves right/left/up/down by n units.
 // Glyphs are authored as they print; the face is carved mirrored, as a real seal is.
 //
-// The characters are 朱文, raised: each stroke is one grid unit wide and stays; the carver cuts
-// its outline (just outside it, so the stroke keeps its width) and then clears the ground
-// around it. The border and the cross are cut as grooves.
+// The characters are 朱文, raised: each stroke is one grid unit wide and stays; everything else
+// in the character's cell (its ground) is cut away, as in the video: mostly single grooves
+// between strokes, and a few wider patches cut with several parallel pushes. The draft guides
+// each push. The border and the cross are cut as grooves.
 
 export const GRID = 20;
 
@@ -16,7 +17,7 @@ export const FACE = {
   bevel: 0.022, // width of the chamfer cut along each edge
   border: 0.062, // inset of the border groove's centreline
   frameWidth: 0.017, // border and cross grooves
-  glyphWidth: 0.0125, // character grooves
+  glyphWidth: 0.0225, // character grooves: a little over one grid unit, so one push clears a gap
   gap: 0.016, // clear stone between the frame grooves and a cell's grid
 };
 
@@ -24,31 +25,36 @@ export const FACE = {
 const CELL_ORDER = [[1, 0], [1, 1], [0, 0], [0, 1]];
 
 // Stages, in carving order. Each one's cuts must be finished before the next one's show.
-export const STAGES = ["bevel", "border", "cross", "glyphs", "clear", "dust", "done"];
+// Each character is its own step, carved in reading order, the stone turned between them.
+export const STAGES = ["bevel", "border", "cross", "glyph0", "glyph1", "glyph2", "glyph3", "dust", "done"];
+export const isGlyph = (stage) => /^glyph\d$/.test(stage);
 
 // Shared glyphs: 天, 大, 平, 好 and others appear twice in a seal, drawn alike (as carvers do,
 // though a master varies them a little).
+// Dense 九叠篆: strokes on even grid lines, folded so that most gaps between them are one
+// unit, a single groove wide, as in the video; a few wider patches are cleared with several
+// pushes. The first seal's characters are the plainest.
 const G = {
-  // The first seal's characters: a few straight cuts each, hardly folded, to learn on.
-  上: ["M10,2 d16", "M10,9 r6", "M2,18 r16"],
-  吉: ["M2,4 r16", "M10,1 d7", "M5,8 r10", "M4,11 r12 d7 l12 u7"],
-  只: ["M1,1 r18 d8 l18 u8", "M5,3 r10 d4 l10 u2", "M9,9 d2 l8 d2 r6 d2 l6 d2 r6 d2", "M11,9 d2 r8 d2 l6 d2 r6 d2 l6 d2"],
-  是: ["M1,1 r18 d6 l18 u6", "M1,4 r18", "M1,9 r18", "M9,9 d8", "M11,11 r8 d2 l6 d2 r6", "M7,11 l6 d4 r4", "M1,15 d4 r18"],
-  好: ["M1,1 r7 d5 l5 d4 r5 d9", "M1,9 r8", "M1,13 d6 r4", "M11,1 r8 d4 l4 d14 l4 u2", "M11,3 r6", "M11,9 r8"],
-  玩: ["M1,1 r6 d2 l4", "M1,9 r6", "M1,17 r6 d2", "M4,5 d12", "M10,1 r9", "M9,4 r10", "M12,4 d6 l3 d9", "M16,4 d13 r3 u4", "M14,7 d6 l3"],
-  天: ["M3,1 r14", "M1,5 r18", "M10,5 d4", "M10,9 l9 d3 r6 d3 l6 d4", "M10,9 r9 d3 l6 d3 r6 d4"],
-  开: ["M1,3 r18", "M1,9 r18", "M6,3 d9 l5 d7", "M14,3 d16", "M14,14 r5", "M9,13 d6"],
-  心: ["M2,4 d13 r16 u13", "M5,4 d10 r10 u10", "M10,1 d14", "M2,4 r1", "M18,4 l1", "M7,1 r6"],
-  大: ["M2,6 r16", "M10,1 d8", "M10,9 l3 d4 l4 d5", "M10,9 r3 d4 r4 d5"],
-  平: ["M1,1 r18", "M1,10 r18", "M10,1 d18", "M3,4 d4 r4", "M17,4 d4 l4", "M3,13 r5 d6", "M17,13 l5 d6"],
-  安: ["M10,1 d2", "M1,6 u3 r18 d3", "M2,8 r16", "M12,8 d5 l9 d6", "M7,13 d6", "M2,16 r16"],
-  吃: ["M1,4 r6 d8 l6 u8", "M10,1 r9", "M9,5 r10", "M11,9 r8 d4 l8 d6 r9"],
-  饭: ["M5,1 l4 d4 r6", "M3,7 r4 d12", "M9,1 r10", "M10,1 d18", "M10,6 r9 d4 l6 d6 r6 d3", "M13,13 l3"],
-  万: ["M1,2 r18", "M7,2 d6 l6 d11", "M7,8 r12 d11 l4 u3", "M12,11 d5"],
-  事: ["M10,1 d18 l3", "M1,3 r18", "M4,6 r12 d3 l12 u3", "M2,12 r16", "M4,15 r12 u5"],
-  如: ["M5,1 d6 l4 d4 r8 d8", "M1,7 r9", "M1,15 r4", "M12,6 r7 d10 l7 u10", "M14,9 r3 d4 l3"],
-  意: ["M10,1 d2", "M3,3 r14", "M1,6 r18", "M4,8 r12 d5 l12 u5", "M4,10 r12", "M2,15 d4 r16 u4", "M10,15 d4"],
+  上: ["M10,0 d16", "M10,2 r8 d2 l6", "M10,6 r10 d2 l8 d2 r8 d2 l8 d2 r8", "M2,2 d12 r8", "M8,2 d12", "M4,12 u10 r2 d10", "M2,16 r18 d2 l18 d2 r18"],
+  大: ["M10,0 d16", "M2,6 r16", "M2,6 u4 r6 d2", "M18,6 u4 l6 d2", "M4,8 r12", "M10,10 l6 d10", "M2,12 d8 r2", "M6,12 d8 r2 u8", "M10,10 r6 d10", "M18,12 d8 l2", "M14,12 d8 l2 u8"],
+  吉: ["M2,2 r16", "M2,2 d2 r6", "M18,2 d2 l6", "M10,0 d10", "M4,6 r12", "M6,8 r8", "M2,10 r16 d10 l16 u10", "M4,12 r12 d6 l12 u6", "M6,14 r8 d2 l8 u2"],
+  只: ["M2,0 r16 d8 l16 u8", "M4,2 r12 d4 l12 u4", "M6,4 r8", "M8,10 l6 d10", "M8,12 d8", "M4,12 r2 d8", "M4,12 d8", "M12,10 r6 d10", "M12,12 d8", "M14,12 r2 d8", "M14,12 d8"],
+  是: ["M2,0 r16 d8 l16 u8", "M2,4 r16", "M4,2 r12", "M4,6 r12", "M0,10 r20", "M10,10 d10", "M10,12 r8", "M10,14 r8", "M10,16 r8", "M10,18 r8", "M2,12 d8 r18", "M2,12 r6 d6", "M4,14 r2 d6", "M4,14 d6"],
+  好: ["M8,2 l6 d2 r6 d2 l6 d2 r6 d2 l6 d2 r6 d2 l6 d2 r6 d2 l6", "M4,0 d2", "M12,2 r8 d2 l6 d2 r6", "M16,6 d14 l4 u2", "M10,10 r10", "M18,12 d8 r2", "M14,12 d6", "M12,12 d4"],
+  玩: ["M0,2 r8", "M2,6 r6", "M2,10 r6", "M2,14 r6", "M0,18 r8", "M4,2 d16", "M6,4 d12", "M2,6 d8", "M12,0 r8", "M10,4 r10", "M14,4 d8 l4 d8", "M18,4 d14 r2 u4", "M16,6 d12"],
+  天: ["M2,0 r16", "M4,2 r12", "M2,4 r16", "M0,6 r20", "M10,0 d8", "M10,8 l8 d12", "M10,8 r8 d12", "M4,10 d8 r2 u8", "M8,10 d10", "M16,10 d8 l2 u8", "M12,10 d10"],
+  开: ["M0,2 r20", "M2,4 r16", "M2,6 r16", "M2,8 r16", "M0,10 r20", "M6,2 d18", "M14,2 d18", "M2,12 d8 r2 u8", "M16,12 d8 r2 u8", "M8,12 d6 r4 u6", "M10,12 d4"],
+  心: ["M2,4 d14 r16 u14", "M6,4 d10 r8 u10", "M10,0 d14", "M4,4 d12", "M16,4 d12", "M8,6 d6", "M12,6 d6", "M4,0 r2", "M14,0 r2"],
+  平: ["M0,2 r20", "M2,10 r16", "M10,2 d18", "M4,4 d4 r2 u4", "M14,4 d4 r2 u4", "M2,12 r6", "M2,14 r6", "M2,16 r6", "M2,18 r6", "M12,12 r6", "M12,14 r6", "M12,16 r6", "M12,18 r6", "M2,12 d6", "M18,12 d6"],
+  安: ["M10,0 d2", "M0,2 r20", "M0,2 d4", "M20,2 d4", "M4,4 r12", "M2,8 r16", "M12,8 d12", "M4,10 r12 d2 l12 d2 r12 d2 l12 d2 r12", "M2,20 r16"],
+  吃: ["M0,4 r6 d10 l6 u10", "M2,6 r2 d6 l2 u6", "M10,0 r10", "M8,2 d6", "M8,4 r12", "M10,8 r10 d4 l10 d8 r10", "M12,10 r6", "M12,14 r8", "M12,16 r6", "M12,18 r8", "M0,16 r6", "M0,18 r6", "M6,16 d4 l4"],
+  饭: ["M2,0 d4 r4", "M0,6 r6", "M2,6 d14", "M4,8 d10 r2", "M8,0 r12", "M8,0 d20", "M10,4 r10", "M10,8 r10 d12 l10", "M12,10 r6 d8 l6 u8", "M14,12 r2 d4 l2 u4"],
+  万: ["M0,2 r20", "M6,2 d6 l4 d12", "M6,8 r12 d12 l4", "M8,10 r8 d8 l6", "M10,12 r4 d4 l2", "M2,4 r2", "M10,4 r8", "M10,6 r8", "M4,10 d10", "M4,10 r2 d8"],
+  事: ["M10,0 d20 l4", "M0,2 r20", "M2,6 r16 d4 l16 u4", "M4,8 r12", "M0,12 r20", "M2,14 r16 d4 l16", "M4,16 r12", "M6,20 l4"],
+  如: ["M8,2 l6 d2 r6 d2 l6 d2 r6 d2 l6 d2 r6 d2 l6 d2 r6 d2 l6", "M4,0 d2", "M10,4 r10 d12 l10 u12", "M12,6 r6 d8 l6 u8", "M14,8 r2 d4 l2 u4", "M20,16 d4 l8", "M10,18 r8"],
+  意: ["M10,0 d2", "M2,2 r16", "M4,4 d2", "M16,4 d2", "M0,6 r20", "M2,8 r16 d6 l16 u6", "M4,10 r12", "M4,12 r12", "M2,16 d4 r16 u4", "M10,16 d4", "M6,16 d2", "M14,16 d2"],
 };
+export const GLYPHS = G;
 const glyphs = (text) => Object.fromEntries([...text].map((character) => [character, G[character]]));
 
 export const seals = [
@@ -158,7 +164,7 @@ export function layoutRelief(seal) {
       const [a0, b0] = toFace(x0, y0), [a1, b1] = toFace(x1, y1);
       return [Math.min(a0, a1), Math.min(b0, b1), Math.max(a0, a1), Math.max(b0, b1)];
     };
-    cells.push(rect(0, 0, GRID, GRID));
+    cells.push(rect(-0.5, -0.5, GRID + 0.5, GRID + 0.5));
     const reach = 0.5 + FACE.glyphWidth / 2 / (box.size / GRID); // grid units from centre to outline
     twin = reach * box.size / GRID;
     for (const points of parseGlyph(seal.glyphs[character])) {
@@ -199,11 +205,36 @@ export function layoutSeal(seal) {
   characters.forEach((character, index) => {
     const [column, row] = CELL_ORDER[index];
     const box = cellBox(column, row);
-    // The outline of the raised strokes, cut just outside them: half a groove out.
-    const offset = FACE.glyphWidth / 2 / (box.size / GRID);
-    for (const points of outline(filledCells(seal.glyphs[character]), offset)) {
-      // Print side to face: the face is the mirror image, so u flips.
-      add("glyphs", points.map(([x, y]) => [-(box.u + x / GRID * box.size), box.v + y / GRID * box.size]), FACE.glyphWidth);
+    // Guides over the ground: each ground cell belongs to the longer of its row and column runs;
+    // each straight run of cells sharing a direction is one push of the knife.
+    const filled = filledCells(seal.glyphs[character]);
+    const ground = (x, y) => x >= 0 && y >= 0 && x <= GRID && y <= GRID && !filled.has(`${x},${y}`);
+    const run = (x, y, dx, dy) => { let n = 0; while (ground(x + dx * (n + 1), y + dy * (n + 1))) n++; return n; };
+    const across = new Map();
+    for (let y = 0; y <= GRID; y++) for (let x = 0; x <= GRID; x++) {
+      if (!ground(x, y)) continue;
+      const h = run(x, y, 1, 0) + run(x, y, -1, 0), v = run(x, y, 0, 1) + run(x, y, 0, -1);
+      across.set(`${x},${y}`, h > v);
+    }
+    const toFace = (x, y) => [-(box.u + x / GRID * box.size), box.v + y / GRID * box.size];
+    const stage = `glyph${index}`;
+    for (const horizontal of [true, false]) {
+      for (let line = 0; line <= GRID; line++) {
+        let start = null;
+        for (let k = 0; k <= GRID + 1; k++) {
+          const [x, y] = horizontal ? [k, line] : [line, k];
+          const on = k <= GRID && across.get(`${x},${y}`) === horizontal;
+          if (on && start === null) start = k;
+          if (!on && start !== null) {
+            const end = k - 1;
+            // A lone cell is left to the pushes beside it (and to the finishing of the step).
+            if (end === start) { start = null; continue; }
+            const a = horizontal ? [start - 0.5, line] : [line, start - 0.5], b = horizontal ? [end + 0.5, line] : [line, end + 0.5];
+            add(stage, [toFace(...a), toFace(...b)], FACE.glyphWidth);
+            start = null;
+          }
+        }
+      }
     }
   });
   return segments;

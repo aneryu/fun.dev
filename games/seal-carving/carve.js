@@ -46,14 +46,20 @@ export function createCarving(segments, widths, relief = { keep: [], cells: [] }
   });
   const total = cuts.reduce((sum, cut) => sum + cut.count, 0);
   const strokes = [];
-  // The ground: grid cells inside a character's cell and clear of its strokes.
-  const clearable = new Uint8Array(CLEAR * CLEAR), cleared = new Uint8Array(CLEAR * CLEAR);
-  let clearTotal = 0, clearCount = 0, clearDone = false;
+  // The ground: grid cells inside a character's cell and clear of its strokes, each belonging
+  // to its character (0..3). Character grooves clear it as they pass; once a character's
+  // ground is CLEAR_FINISH cleared, the rest is cleared for the carver and its step is done.
+  const NONE = 255;
+  const clearable = new Uint8Array(CLEAR * CLEAR), cleared = new Uint8Array(CLEAR * CLEAR), charOf = new Uint8Array(CLEAR * CLEAR).fill(NONE);
+  const characters = relief.cells.length;
+  const clearTotal = new Array(characters).fill(0), clearCount = new Array(characters).fill(0), groundDone = new Array(characters).fill(false);
   const gridCentre = (i) => (i + 0.5) / CLEAR - 0.5;
   for (let j = 0; j < CLEAR; j++) for (let i = 0; i < CLEAR; i++) {
     const u = gridCentre(i), v = gridCentre(j);
-    if (inside(relief.cells, u, v) && !inside(relief.keep, u, v, 0.5 / CLEAR)) { clearable[j * CLEAR + i] = 1; clearTotal++; }
+    const char = relief.cells.findIndex(([u0, v0, u1, v1]) => u >= u0 && u <= u1 && v >= v0 && v <= v1);
+    if (char >= 0 && !inside(relief.keep, u, v, 0.5 / CLEAR)) { const index = j * CLEAR + i; clearable[index] = 1; charOf[index] = char; clearTotal[char]++; }
   }
+  const glyphStage = (stage) => (STAGES[stage] ?? "").startsWith("glyph");
 
   // The point at parameter t (0..1) along a cut, offset sideways by `offset` face units.
   function point(cut, t, offset = 0) {
@@ -107,13 +113,15 @@ export function createCarving(segments, widths, relief = { keep: [], cells: [] }
     const target = Math.floor(Math.max(0, distance) / STEP);
     const points = [], changed = new Set();
     const value = clamp(Math.round(offset * OFFSET), -127, 127);
+    const fresh = [];
     while (stroke.offsets.length <= target && stroke.offsets.length < 65535) {
       const k = stroke.offsets.length;
       stroke.offsets.push(value);
       points.push(k);
       for (const cut of cover(stroke, k)) changed.add(cut);
+      if (glyphStage(stroke.stage)) fresh.push(...clearAt(stroke, k));
     }
-    return { points, cuts: [...changed] };
+    return { points, cuts: [...changed], cleared: fresh };
   }
 
   // Cuts the remaining gaps of a nearly finished draft cut as straight strokes.
@@ -143,53 +151,50 @@ export function createCarving(segments, widths, relief = { keep: [], cells: [] }
     return finished;
   }
 
-  // The first step that still has unfinished cuts, then the clearing ("dust" once all is done).
+  // The first step still open: the line steps by their cuts, each character by its ground.
   function stage() {
-    for (const name of STAGES.slice(0, 4)) if (cuts.some((cut) => cut.stage === name && !cut.done)) return name;
-    return clearDone || !clearTotal ? "dust" : "clear";
+    for (const name of STAGES.slice(0, 3)) if (cuts.some((cut) => cut.stage === name && !cut.done)) return name;
+    for (let char = 0; char < characters; char++) if (!groundDone[char] && clearTotal[char]) return `glyph${char}`;
+    return "dust";
   }
 
-  // Clears the ground within `radius` of (u, v). Returns the newly cleared grid indices.
-  function scrape(u, v, radius) {
+  // A character groove clears the ground under point k: a disc as wide as the groove.
+  function clearAt(stroke, k) {
+    const [u, v] = strokePoint(stroke, k);
+    const radius = widths[stroke.width] / 2;
     const fresh = [];
     const i0 = Math.max(0, Math.floor((u - radius + 0.5) * CLEAR)), i1 = Math.min(CLEAR - 1, Math.floor((u + radius + 0.5) * CLEAR));
     const j0 = Math.max(0, Math.floor((v - radius + 0.5) * CLEAR)), j1 = Math.min(CLEAR - 1, Math.floor((v + radius + 0.5) * CLEAR));
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
       const index = j * CLEAR + i;
-      if (!clearable[index] || cleared[index] || Math.hypot(gridCentre(i) - u, gridCentre(j) - v) > radius) continue;
-      cleared[index] = 1; clearCount++; fresh.push(index);
+      if (!clearable[index] || cleared[index] || Math.abs(gridCentre(i) - u) > radius || Math.abs(gridCentre(j) - v) > radius) continue;
+      cleared[index] = 1; clearCount[charOf[index]]++; fresh.push(index);
     }
     return fresh;
   }
-  const clearCoverage = () => clearTotal ? clearCount / clearTotal : 1;
-  // Clears what is left of the ground; returns those indices.
-  function finishClear() {
-    const fresh = [];
-    for (let index = 0; index < cleared.length; index++) if (clearable[index] && !cleared[index]) { cleared[index] = 1; clearCount++; fresh.push(index); }
-    clearDone = true;
-    return fresh;
-  }
-  function resetClear() { cleared.fill(0); clearCount = 0; clearDone = false; }
-  // Saved form of the ground: one bit per grid cell, base64.
-  function serializeClear() {
-    const bytes = new Uint8Array(CLEAR * CLEAR / 8);
-    for (let index = 0; index < cleared.length; index++) if (cleared[index]) bytes[index >> 3] |= 1 << (index & 7);
-    let binary = "";
-    for (let i = 0; i < bytes.length; i += 4096) binary += String.fromCharCode(...bytes.subarray(i, i + 4096));
-    return btoa(binary);
-  }
-  function restoreClear(encoded) {
-    const binary = atob(encoded);
-    if (binary.length !== CLEAR * CLEAR / 8) throw new Error("Malformed ground.");
-    resetClear();
-    for (let index = 0; index < cleared.length; index++) {
-      if (clearable[index] && binary.charCodeAt(index >> 3) & (1 << (index & 7))) { cleared[index] = 1; clearCount++; }
+  const clearCoverage = (char) => clearTotal[char] ? clearCount[char] / clearTotal[char] : 1;
+  // Finishes any character whose ground is nearly cleared: clears the rest and closes its
+  // guides. Returns { cleared: indices, characters: those just finished }.
+  function settleGround() {
+    const fresh = [], finished = [];
+    for (let char = 0; char < characters; char++) {
+      if (groundDone[char] || clearCoverage(char) < CLEAR_FINISH) continue;
+      for (let index = 0; index < cleared.length; index++) if (charOf[index] === char && !cleared[index]) { cleared[index] = 1; clearCount[char]++; fresh.push(index); }
+      groundDone[char] = true;
+      finished.push(char);
+      for (const cut of cuts) if (cut.stage === `glyph${char}` && !cut.done) { cut.covered.fill(1); cut.carved = cut.count; cut.done = true; }
     }
-    clearDone = clearCount === clearTotal;
+    return { cleared: fresh, characters: finished };
   }
+  // Finishes one character outright (the cheat): clears its ground and closes its guides.
+  function finishCharacter(char) {
+    clearCount[char] = Math.max(clearCount[char], Math.ceil(clearTotal[char] * CLEAR_FINISH));
+    return settleGround();
+  }
+  function resetGround() { cleared.fill(0); clearCount.fill(0); groundDone.fill(false); }
   const clearCell = (index) => [gridCentre(index % CLEAR), gridCentre(Math.floor(index / CLEAR))];
 
-  const progress = () => cuts.reduce((sum, cut) => sum + cut.carved, 0) / total;
+  const progress = () => (cuts.reduce((sum, cut) => sum + cut.carved, 0) + clearCount.reduce((sum, n) => sum + n, 0)) / (total + clearTotal.reduce((sum, n) => sum + n, 0));
 
   // Keeps only the given strokes (in order) and works out the draft's coverage again: undoing
   // the last strokes, or a whole step.
@@ -197,32 +202,45 @@ export function createCarving(segments, widths, relief = { keep: [], cells: [] }
     const old = kept.map((stroke) => ({ ...stroke, offsets: stroke.offsets.slice() }));
     strokes.length = 0;
     for (const cut of cuts) { cut.covered.fill(0); cut.carved = 0; cut.done = false; }
+    resetGround();
     const changed = new Set();
     for (const entry of old) {
       const stroke = beginStroke(entry.u, entry.v, entry.axis, entry.width, entry.stage);
       for (let k = 0; k < entry.offsets.length; k++) {
         stroke.offsets.push(entry.offsets[k]);
         for (const cut of cover(stroke, k)) changed.add(cut);
+        if (glyphStage(stroke.stage)) clearAt(stroke, k);
       }
     }
     settle(changed);
+    settleGround();
   }
   const rewind = (count) => rebuild(strokes.slice(0, Math.max(0, count)));
-  const removeStage = (stage) => stage === "clear" ? resetClear() : rebuild(strokes.filter((stroke) => stroke.stage !== STAGES.indexOf(stage)));
+  const removeStage = (stage) => rebuild(strokes.filter((stroke) => stroke.stage !== STAGES.indexOf(stage)));
 
-  // Saved form: per stroke int16 u, int16 v, uint8 axis + 4 × width + 16 × step, uint16 count, then int8
-  // offsets; all strokes concatenated and base64-encoded.
+  // Saved form: per stroke int16 u, int16 v, uint8 axis + 4 × width + 16 × step, uint16 count,
+  // then the int8 offsets as runs (value, length 1..255): the hand's wobble changes slowly.
+  // All strokes concatenated and base64-encoded.
+  function runs(offsets) {
+    const list = [];
+    for (const value of offsets) {
+      const last = list.at(-1);
+      if (last && last[0] === value && last[1] < 255) last[1]++; else list.push([value, 1]);
+    }
+    return list;
+  }
   function serialize() {
-    const size = strokes.reduce((sum, stroke) => sum + 7 + stroke.offsets.length, 0);
+    const encoded = strokes.map((stroke) => runs(stroke.offsets));
+    const size = strokes.reduce((sum, stroke, i) => sum + 7 + encoded[i].length * 2, 0);
     const bytes = new Uint8Array(size);
     const view = new DataView(bytes.buffer);
     let at = 0;
-    for (const stroke of strokes) {
+    strokes.forEach((stroke, i) => {
       view.setInt16(at, Math.round(stroke.u * POSITION)); view.setInt16(at + 2, Math.round(stroke.v * POSITION));
       view.setUint8(at + 4, stroke.axis + 4 * stroke.width + 16 * stroke.stage); view.setUint16(at + 5, stroke.offsets.length);
       at += 7;
-      for (const offset of stroke.offsets) view.setInt8(at++, offset);
-    }
+      for (const [value, length] of encoded[i]) { view.setInt8(at++, value); view.setUint8(at++, length); }
+    });
     let binary = "";
     for (let i = 0; i < bytes.length; i += 4096) binary += String.fromCharCode(...bytes.subarray(i, i + 4096));
     return btoa(binary);
@@ -242,19 +260,26 @@ export function createCarving(segments, widths, relief = { keep: [], cells: [] }
       const code = view.getUint8(at + 4), count = view.getUint16(at + 5);
       at += 7;
       const width = Math.floor(code / 4) % 4, stage = Math.floor(code / 16);
-      if (width >= widths.length || stage > 3 || at + count > bytes.length) throw new Error("Malformed carving.");
+      if (width >= widths.length || stage >= STAGES.length) throw new Error("Malformed carving.");
       const stroke = beginStroke(u, v, code % 4, width, stage);
-      for (let k = 0; k < count; k++) {
-        stroke.offsets.push(view.getInt8(at++));
-        for (const cut of cover(stroke, k)) changed.add(cut);
+      while (stroke.offsets.length < count) {
+        if (at + 2 > bytes.length) throw new Error("Truncated carving.");
+        const value = view.getInt8(at++), length = view.getUint8(at++);
+        if (!length || stroke.offsets.length + length > count) throw new Error("Malformed carving.");
+        for (let n = 0; n < length; n++) {
+          const k = stroke.offsets.length;
+          stroke.offsets.push(value);
+          for (const cut of cover(stroke, k)) changed.add(cut);
+          if (glyphStage(stroke.stage)) clearAt(stroke, k);
+        }
       }
     }
     settle(changed);
+    settleGround();
   }
 
   return { cuts, strokes, total, widths, point, project, coverage, strokePoint, beginStroke, extend, finish, settle, stage, progress, serialize, restore, rewind, removeStage,
-    relief, clearable, cleared, scrape, clearCoverage, finishClear, serializeClear, restoreClear, clearCell,
-    get clearDone() { return clearDone; } };
+    relief, clearable, cleared, charOf, clearCoverage, settleGround, finishCharacter, clearCell };
 }
 
 // Paints strokes into a 2D canvas context whose square of `size` pixels is the face. The
@@ -296,6 +321,20 @@ export function createMaskPainter(carving, context2d, size) {
     g.lineTo(px(a[0] - nx * w), px(a[1] - ny * w));
     g.closePath();
     g.fill();
+    // Character grooves leave a fine tool mark down their middle, so a patch cleared with
+    // several pushes reads as hatched, scraped stone, as in the video.
+    if (stroke.width === 2) {
+      const m = w * 0.16;
+      g.fillStyle = "#c8c8c8";
+      g.beginPath();
+      g.moveTo(px(a[0] + nx * m), px(a[1] + ny * m));
+      g.lineTo(px(b[0] + nx * m), px(b[1] + ny * m));
+      g.lineTo(px(b[0] - nx * m), px(b[1] - ny * m));
+      g.lineTo(px(a[0] - nx * m), px(a[1] - ny * m));
+      g.closePath();
+      g.fill();
+      g.fillStyle = "#fff";
+    }
     // 刀味: the stone flakes off along the groove's lips, more where the hand wobbled. The
     // chamfer (the widest blade) is cut flat and stays clean.
     if (stroke.width === 0) return;
@@ -326,7 +365,7 @@ export function createMaskPainter(carving, context2d, size) {
       }
     };
     // Character outlines never cut into the strokes they surround.
-    if (STAGES[stroke.stage] === "glyphs") protect(draw); else draw();
+    if ((STAGES[stroke.stage] ?? "").startsWith("glyph")) protect(draw); else draw();
   }
 
   // Cleared ground: each grid cell a little larger than itself, unevenly, so the floor reads

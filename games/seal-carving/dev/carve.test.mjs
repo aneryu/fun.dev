@@ -1,15 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { seals, layoutSeal, FACE } from "../seals.js";
+import { seals, layoutSeal, layoutRelief, FACE, STAGES, isGlyph } from "../seals.js";
 import { createCarving, createMaskPainter, AXES, FINISH } from "../carve.js";
 
 const WIDTHS = [FACE.bevel, FACE.frameWidth, FACE.glyphWidth];
-const CODE = { bevel: 0, border: 1, cross: 1, glyphs: 2 };
+const CODE = (stage) => isGlyph(stage) ? 2 : { bevel: 0, border: 1, cross: 1 }[stage];
 const axisOf = (cut) => AXES.findIndex(([dx, dy]) => dx * cut.direction[0] + dy * cut.direction[1] > 0.98);
 
 // Carves a cut the way the knife does: one stroke from its start along its axis.
 function cutAlong(carving, cut, offset = 0) {
-  const stroke = carving.beginStroke(cut.a[0], cut.a[1], axisOf(cut), CODE[cut.stage], ["bevel", "border", "cross", "glyphs"].indexOf(cut.stage));
+  const stroke = carving.beginStroke(cut.a[0], cut.a[1], axisOf(cut), CODE(cut.stage), STAGES.indexOf(cut.stage));
   const { cuts } = carving.extend(stroke, cut.length, offset);
   carving.settle(cuts);
   return stroke;
@@ -43,12 +43,13 @@ test("a nearly finished cut can be finished; the stages run in order", () => {
 test("every seal carves completely, saves and restores exactly, within the snapshot budget", () => {
   let total = 0;
   for (const seal of seals) {
-    const carving = createCarving(layoutSeal(seal), WIDTHS);
+    const carving = createCarving(layoutSeal(seal), WIDTHS, layoutRelief(seal));
     carving.cuts.forEach((cut, index) => cutAlong(carving, cut, ((index % 5) - 2) / 16384 * 20));
+    carving.settleGround();
     assert.equal(carving.stage(), "dust", seal.id);
     const saved = carving.serialize();
     total += saved.length;
-    const again = createCarving(layoutSeal(seal), WIDTHS);
+    const again = createCarving(layoutSeal(seal), WIDTHS, layoutRelief(seal));
     again.restore(saved);
     assert.equal(again.stage(), "dust");
     assert.deepEqual(again.strokes.map((stroke) => stroke.offsets), carving.strokes.map((stroke) => stroke.offsets));
@@ -101,22 +102,20 @@ test("undo rewinds strokes and coverage; a step can be redone alone", () => {
   assert.equal(restored.strokes[0].stage, 1);
 });
 
-test("the ground clears around the strokes, saves and restores", async () => {
-  const { layoutRelief } = await import("../seals.js");
-  const { CLEAR } = await import("../carve.js");
-  const carving = createCarving(layoutSeal(seals[0]), WIDTHS, layoutRelief(seals[0]));
-  for (const cut of carving.cuts) { cutAlong(carving, cut); }
-  assert.equal(carving.stage(), "clear");
-  // Scraping everywhere never clears a stroke's cell.
-  for (let v = -0.5; v <= 0.5; v += 0.02) for (let u = -0.5; u <= 0.5; u += 0.02) carving.scrape(u, v, 0.03);
-  assert.ok(carving.clearCoverage() > 0.95);
-  for (let index = 0; index < CLEAR * CLEAR; index++) if (carving.cleared[index]) assert.equal(carving.clearable[index], 1);
-  const saved = carving.serializeClear();
-  const again = createCarving(layoutSeal(seals[0]), WIDTHS, layoutRelief(seals[0]));
-  again.restoreClear(saved);
-  assert.equal(again.clearCoverage(), carving.clearCoverage());
-  carving.finishClear();
-  assert.equal(carving.stage(), "dust");
-  carving.removeStage("clear");
-  assert.equal(carving.stage(), "clear");
+test("each character is its own step; its guides clear its ground, never its strokes", () => {
+  const relief = layoutRelief(seals[0]);
+  const carving = createCarving(layoutSeal(seals[0]), WIDTHS, relief);
+  for (const cut of carving.cuts.filter((entry) => ["bevel", "border", "cross"].includes(entry.stage))) cutAlong(carving, cut);
+  assert.equal(carving.stage(), "glyph0");
+  const inStroke = (index) => { const [u, v] = carving.clearCell(index); return relief.keep.some(([u0, v0, u1, v1]) => u > u0 + 0.004 && u < u1 - 0.004 && v > v0 + 0.004 && v < v1 - 0.004); };
+  for (const cut of carving.cuts.filter((entry) => entry.stage === "glyph0")) cutAlong(carving, cut);
+  assert.ok(carving.clearCoverage(0) >= 0.85, `the guides clear ${carving.clearCoverage(0).toFixed(2)} of the ground`);
+  assert.equal(carving.clearCoverage(1), 0, "the next character is untouched");
+  carving.settleGround();
+  assert.equal(carving.stage(), "glyph1");
+  for (let index = 0; index < carving.cleared.length; index++) if (carving.cleared[index]) assert.ok(!inStroke(index), "a stroke was cleared");
+  // Redoing a character brings its ground back.
+  carving.removeStage("glyph0");
+  assert.equal(carving.stage(), "glyph0");
+  assert.equal(carving.clearCoverage(0), 0);
 });

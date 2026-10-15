@@ -86,10 +86,13 @@ export function createHud({ THREE, camera, scene, track, kit }) {
     };
   }
 
-  // Status: the seal's name, a six-part progress bar with the steps' names, a short hint.
+  // Status: the seal's name, a eight-part progress bar with the steps' names, a short hint.
+  // A yellow band behind the status, the colour of the room: invisible until the camera closes
+  // in and the stone would run under the status.
+  const band = box(0xffd43b, 99);
   const title = label({ size: 17, weight: 700, order: 100 });
   const hint = label({ size: 12, color: css(BROWN), order: 100 });
-  const STEPS = 6;
+  const STEPS = 8;
   const steps = Array.from({ length: STEPS }, () => ({ track: box(BROWN, 100, 0.25), bar: box(INK, 101), name: label({ size: 11, color: css(BROWN), order: 100 }) }));
   const corners = Array.from({ length: 2 }, () => ({ border: box(INK, 100), fill: box(CREAM, 101), text: label({ size: 13, weight: 700, order: 102 }) }));
   // The cutting point, kept quiet: a short, thin bar as wide as the groove the edge will cut
@@ -156,6 +159,7 @@ export function createHud({ THREE, camera, scene, track, kit }) {
     const { safeArea, width } = viewport;
     const top = safeArea.top;
     const modal = Boolean(card || album);
+    if (modal) band.hide(); else band.set(0, 0, width, top + TOP - 6);
     title.set(modal ? "" : status.title, width / 2, top + 14);
     // The steps' bar: done parts in ink, the current one filling, the rest faint.
     const total = Math.min(width - 120, 300), gap = 4, w = (total - gap * (STEPS - 1)) / STEPS, x0 = (width - total) / 2;

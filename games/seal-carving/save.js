@@ -2,7 +2,8 @@
 // (see carve.js serialize), its cleared ground (serializeClear) and whether it is finished. Snapshots stay a few kilobytes.
 import { seals } from "./seals.js";
 
-export const SCHEMA = 1;
+// 2: character steps carve the ground (1 cut outlines; its carvings are dropped).
+export const SCHEMA = 2;
 
 export function createState() {
   return { current: seals[0].id, seals: {}, unlockAll: false };
@@ -10,17 +11,19 @@ export function createState() {
 
 export function deserialize(snapshot) {
   if (!snapshot || typeof snapshot !== "object") throw new Error("Unsupported save.");
-  if (snapshot.schemaVersion !== SCHEMA) throw new Error(`Unsupported save version ${snapshot.schemaVersion}.`);
+  if (snapshot.schemaVersion !== SCHEMA && snapshot.schemaVersion !== 1) throw new Error(`Unsupported save version ${snapshot.schemaVersion}.`);
   const data = snapshot.data;
   if (!data || typeof data !== "object" || typeof data.current !== "string" || typeof data.seals !== "object" || data.seals === null) throw new Error("Malformed save.");
   const state = createState();
   // Seals that no longer exist are dropped; unknown fields are ignored.
   for (const seal of seals) {
     const entry = data.seals[seal.id];
+    // A version 1 carving no longer matches the layout: finished seals keep their place, their
+    // prints are recarved from scratch.
+    if (snapshot.schemaVersion === 1 && entry && typeof entry === "object") { state.seals[seal.id] = { cuts: null, done: false }; continue; }
     if (!entry || typeof entry !== "object") continue;
     state.seals[seal.id] = {
       cuts: typeof entry.cuts === "string" ? entry.cuts : null,
-      clear: typeof entry.clear === "string" ? entry.clear : null,
       done: entry.done === true,
     };
   }
