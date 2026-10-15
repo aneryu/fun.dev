@@ -15,6 +15,11 @@ Resolve game resources through `asset()`.
 The Wooden Fish bundle demonstrates this boundary. Its source directory can be
 copied and tested independently; only the foundation host needs replacing.
 
+Files under a `lazy/` directory (for example `assets/lazy/`) are published like any
+other runtime file, but the service worker does not download them when the game is
+first opened; they are cached the first time the game requests them. Use it for
+large optional downloads, such as a model needed only by one feature.
+
 Optional `dev/`, `package.json` and `README.md` files at a bundle's root hold
 development tooling and documentation. Builds and the publisher copy only the
 runtime files listed in `game.json`; runtime code must never reference others.

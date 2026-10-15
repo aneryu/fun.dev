@@ -3,7 +3,8 @@ const BUILD = { version: "source", shell: [], gameOrigin: "" };
 
 // Pages, host and catalog: network first, falling back to the cache after 3 s or offline,
 // so online visitors always get the current platform. Game releases are immutable and
-// cached on first use, together with every file listed in their files.json.
+// cached on first use, together with every file listed in their files.json except those in a
+// lazy/ directory, which are cached only once the game asks for them.
 // A new worker takes over only after every fun.dev tab has closed (no skipWaiting).
 const SHELL = `shell-${BUILD.version}`;
 const RELEASES = "releases-v1";
@@ -63,7 +64,10 @@ async function fromRelease(event, url, [prefix, id, version, hash]) {
     event.waitUntil(remember(cache, key));
     return cached;
   }
-  const response = await fetch(event.request);
+  let response;
+  try { response = await fetch(event.request); }
+  // Offline and never cached (e.g. the cover of a game not opened yet).
+  catch { return new Response(null, { status: 504, statusText: "Offline" }); }
   if (response.ok) {
     await cache.put(url.href, response.clone());
     const base = `${url.origin}${prefix}`;
@@ -79,6 +83,7 @@ async function cacheRelease(cache, base) {
     const { files } = await response.json();
     await cache.put(`${base}files.json`, new Response(JSON.stringify({ files }), { headers: { "Content-Type": "application/json" } }));
     for (const file of files) {
+      if (/(?:^|\/)lazy\//.test(file)) continue;
       const href = new URL(file, base).href;
       if (!href.startsWith(base) || await cache.match(href)) continue;
       const asset = await fetch(href, { mode: "cors", credentials: "omit" });

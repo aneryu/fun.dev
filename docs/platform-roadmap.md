@@ -101,6 +101,8 @@ Each module is written together with the first game that needs it.
   `apiVersion` differs and asks for a refresh. The publisher writes an
   immutable `files.json` per release so the worker can cache it completely.
   The runtime is precached as one hashed set. Total cache size is bounded (LRU).
+  Release files under a `lazy/` directory are cached on first use instead of with
+  the release (added 2026-10-15 so Slap's 17 MB face model downloads only for photos).
 - `npm run dev`: watches `site/`, `games/`, and the kit, rebuilds `dist/`,
   serves it with the production headers, and reloads pages through
   server-sent events. The reload script exists only in dev mode, which never

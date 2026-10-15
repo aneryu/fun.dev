@@ -79,5 +79,6 @@ export async function siteChecks({ browser, base }) {
   await page.screenshot({ path: resolve(results, "lobby-offline.png") });
   await pwa.close();
 
-  assert.deepEqual(errors.filter((error) => !/status of 404/.test(error)), []);
+  // 504: offline, the lobby cannot show covers of games that were never opened.
+  assert.deepEqual(errors.filter((error) => !/status of (?:404|504)/.test(error)), []);
 }
