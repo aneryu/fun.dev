@@ -28,16 +28,18 @@ function pickImage(surface, signal, maxSize) {
       const file = input.files?.[0];
       if (!file) return finish(null);
       try {
-        const original = await createImageBitmap(file, { imageOrientation: "from-image" });
+        // Browsers decode upright (EXIF orientation) by default. Scale through a canvas: Safari
+        // does not support createImageBitmap's resize options.
+        const original = await createImageBitmap(file);
         const scale = Math.min(1, maxSize / Math.max(original.width, original.height));
         let image = original;
         if (scale < 1) {
-          image = await createImageBitmap(original, {
-            resizeWidth: Math.max(1, Math.round(original.width * scale)),
-            resizeHeight: Math.max(1, Math.round(original.height * scale)),
-            resizeQuality: "high",
-          });
+          const canvas = new OffscreenCanvas(Math.max(1, Math.round(original.width * scale)), Math.max(1, Math.round(original.height * scale)));
+          const context = canvas.getContext("2d");
+          context.imageSmoothingQuality = "high";
+          context.drawImage(original, 0, 0, canvas.width, canvas.height);
           original.close();
+          image = await createImageBitmap(canvas);
         }
         if (signal.aborted) { image.close(); finish(null); } else finish(image);
       } catch { finish(null, new Error("The image could not be read.")); }
