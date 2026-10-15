@@ -11,21 +11,23 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
 
 ## How it plays
 
-- A finger away from the knife brings it along, tip just above the fingertip. A finger on the
-  knife (handle, blade, or just below the tip where the moving finger rested) drives it in; the first push picks
-  the cut's track, up the screen (a 冲刀 push) or across it (left or right), and pushing along
-  it carves, pulling back slides it down its own groove; lifting the finger lifts it. ‹ ›
-  turn the stone to a comfortable angle. Nothing snaps to the draft: wherever the knife is pushed it
-  cuts, and wobbles and overruns stay in the stone. A draft line counts as cut where a groove
-  runs over it; at 90% coverage its last gaps are cut when the knife lifts.
+- Two states, switched by the Cut/Lift button (下刀/提刀) or Space. Moving: dragging brings
+  the knife along, tip just above the fingertip. Cutting: the knife stays in the stone and a
+  swipe anywhere pushes it from where it stands; the first clear swipe picks the track, up
+  the screen (a 冲刀 push) or across it, along which it carves, back along which it slides
+  down its groove. Lifting the finger leaves it in the stone for the next swipe. ‹ › turn the
+  stone to a comfortable angle; Redo starts the seal on the bench over (the player's Restart
+  keeps progress). Nothing snaps to the draft: grooves go where the knife goes, wobbles and
+  overruns stay. A draft line counts as cut where a groove runs over it; at 90% coverage its
+  last gaps are cut at the end of the swipe.
 - The knife in the stone is a stick-slip system tuned to the video's sound (pushes of
   0.25–0.45 s, cracks 15–40 ms apart): the hand pulls the tip through a spring, the tip
   stays stuck until the pull passes the stone's strength, then a flake breaks off. Each
   crack sounds, vibrates, throws a flake and powder at once. Stones differ in hardness,
   flake size and hard grains (`stones[*].carve` in `stone.js`).
-- Mouse: move to aim, hold the button and drag along a line to carve. Keyboard: arrows move
-  the knife; hold Space to press it in, then Up, Left or Right pushes and the opposite key
-  pulls back; Q/E turn, B blows, A opens
+- Mouse: move or drag to move the knife; with it in, drag along a line to carve. Keyboard:
+  arrows move the knife, Space puts it in or lifts it; with it in, Up, Left or Right pushes
+  and the opposite key pulls back; Q/E turn, B blows, A opens
   the album.
 
 ## Files

@@ -18,10 +18,10 @@ const copy = {
     steps: { bevel: "倒边", border: "刻边框", cross: "分格", glyphs: "刻字", dust: "吹去石粉", done: "完成" },
     stepNames: { bevel: "倒边", border: "边框", cross: "十字", glyphs: "刻字", dust: "吹粉" },
     hints: {
-      bevel: "拖刀把刀尖放到边的一端，松手，再按住刀顺着边推",
-      border: "刀尖放到线的一端，按住刀往上或往左右推",
+      bevel: "拖动把刀尖放到边的一端，点「下刀」，再顺着边划",
+      border: "移刀到线的一端，点「下刀」，往上或往左右划",
       cross: "刻一个十字，分成四格",
-      glyphs: "按住刀顺着线推：竖线往上，横线往左右",
+      glyphs: "下刀后顺着线划：竖线往上，横线往左右",
       dust: "按「吹」或在屏幕上划一下",
       done: "刻好了",
     },
@@ -30,11 +30,11 @@ const copy = {
     nth: (n) => `第${["一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二"][n] ?? n + 1}方`,
     blow: "吹", album: "印谱", left: "‹", right: "›",
     finished: (title) => `「${title}」刻成`, cardDetail: (stone) => `${stone} · 已收入印谱`,
-    next: "刻下一方", stay: "再看看", close: "关闭", back: "回去刻", view: "看印石", recarve: "重刻这一方", sure: "确定重刻？", restart: "重刻", sureShort: "确定？", restarted: "这一方重新开始",
+    next: "刻下一方", stay: "再看看", close: "关闭", back: "回去刻", view: "看印石", recarve: "重刻这一方", sure: "确定重刻？", restart: "重刻", sureShort: "确定？", knifeDown: "下刀", knifeUp: "提刀", restarted: "这一方重新开始",
     albumTitle: (count, total) => `印谱 ${count}/${total}`, albumDetail: "点一方印：刻完的看印蜕，没刻完的接着刻", locked: "？",
     allDone: "全部刻完了！可以在印谱里挑一方重刻",
     viewing: (title) => `看「${title}」`,
-    keys: "方向键移动刀尖；按住空格下刀，再按上或左右方向键顺着线推，反方向往回拉；Q 和 E 转动印石，B 吹石粉，A 打开印谱",
+    keys: "方向键移动刀尖；空格下刀或提刀；下刀后按上或左右方向键顺着线推，反方向往回拉；Q 和 E 转动印石，B 吹石粉，A 打开印谱",
     canvas: (title, step, progress) => `刻一方印：${title}。${step}，已刻 ${progress}%`,
     noSave: "当前容器不支持存档", unavailable: "声音不可用",
     share: (count) => `我在 fun.dev 刻了 ${count} 方印`, cheats: "（开了秘籍）",
@@ -43,10 +43,10 @@ const copy = {
     steps: { bevel: "Chamfer", border: "Border", cross: "Divide", glyphs: "Characters", dust: "Blow", done: "Done" },
     stepNames: { bevel: "Edge", border: "Border", cross: "Cross", glyphs: "Glyphs", dust: "Blow" },
     hints: {
-      bevel: "Drag the tip to an edge's end, lift, then hold the knife and push",
-      border: "Tip at a line's end; hold the knife, push up or sideways",
+      bevel: "Drag the tip to an edge's end, press Cut, swipe along",
+      border: "Tip at a line's end, press Cut, swipe up or sideways",
       cross: "Cut a cross into four cells",
-      glyphs: "Hold the knife and push along: up or sideways",
+      glyphs: "With the knife in, swipe along: up or sideways",
       dust: "Press Blow or swipe the screen",
       done: "Finished",
     },
@@ -55,11 +55,11 @@ const copy = {
     nth: (n) => `Seal ${n + 1}`,
     blow: "Blow", album: "Seals", left: "‹", right: "›",
     finished: (title) => `“${title}” is carved`, cardDetail: (stone) => `${stone} · added to your seals`,
-    next: "Next seal", stay: "Look again", close: "Close", back: "Carve", view: "See stone", recarve: "Carve again", sure: "Sure?", restart: "Redo", sureShort: "Sure?", restarted: "Starting this seal over",
+    next: "Next seal", stay: "Look again", close: "Close", back: "Carve", view: "See stone", recarve: "Carve again", sure: "Sure?", restart: "Redo", sureShort: "Sure?", knifeDown: "Cut", knifeUp: "Lift", restarted: "Starting this seal over",
     albumTitle: (count, total) => `Seals ${count}/${total}`, albumDetail: "Tap a seal: finished ones show their print", locked: "?",
     allDone: "All seals carved! Pick one in Seals to carve it again",
     viewing: (title) => `Viewing “${title}”`,
-    keys: "Arrow keys move the knife tip; hold Space to press it in, then Up, Left or Right pushes along a line and the opposite key pulls back; Q and E turn the stone, B blows the powder, A opens your seals",
+    keys: "Arrow keys move the knife tip; Space puts the knife in or lifts it; with it in, Up, Left or Right pushes along a line and the opposite key pulls back; Q and E turn the stone, B blows the powder, A opens your seals",
     canvas: (title, step, progress) => `Carve a Seal: ${title}. ${step}, ${progress}% carved`,
     noSave: "This host does not support saving", unavailable: "Sound unavailable",
     share: (count) => `I've carved ${count} seals on fun.dev`, cheats: " (with cheats)",
@@ -413,9 +413,9 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   };
   const onFace = (x, z) => { const [u, v] = toLocal(x, z); return Math.abs(u) <= 0.5 && Math.abs(v) <= 0.5; };
 
-  function plunge() {
-    if (knife.plunged || !carvable() || !settled()) return;
-    if (!onFace(knife.x, knife.z)) { hint(words.offFace); return; }
+  function plunge(quiet = false) {
+    if (knife.plunged || !carvable() || !settled()) return false;
+    if (!onFace(knife.x, knife.z)) { if (!quiet) hint(words.offFace); return false; }
     knife.plunged = true;
     knife.origin = { x: knife.x, z: knife.z };
     knife.stroke = null;
@@ -431,14 +431,26 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     knife.refractory = 0;
     knife.tension = 0;
     nextStrength(stones[bench.seal.stone].carve);
-    sound.tap();
-    context.haptics.vibrate("tap");
+    if (!quiet) {
+      sound.tap();
+      context.haptics.vibrate("tap");
+      layoutButtons();
+    }
+    return true;
+  }
+
+  // Between strokes in the stone: finish what is nearly cut, save, and set the knife again where
+  // it stands, so the next stroke starts there and may take a new track.
+  function reset() {
+    lift(true);
+    if (!plunge(true)) layoutButtons(); // off the face: back to moving
   }
 
   // Lifts the knife: cuts it covered nearly all of are finished off, and the work is saved.
-  function lift() {
+  function lift(quiet = false) {
     if (!knife.plunged) return;
     knife.plunged = false;
+    if (!quiet) { gripHint = 0; layoutButtons(); }
     // The knife stays where the cut ended.
     knife.targetX = knife.x; knife.targetZ = knife.z;
     const finished = [];
@@ -702,6 +714,8 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     if (bench?.viewOnly) list.push({ id: "back", label: words.back });
     else {
       list.push({ id: "blow", label: words.blow, active: currentStage() === "dust" });
+      // The switch between moving the knife and cutting with it.
+      if (carvable()) list.push({ id: "knife", label: knife.plunged ? words.knifeUp : words.knifeDown, active: knife.plunged });
       // Starting this seal over: the player's restart keeps progress, so it lives here, and
       // takes a second tap within a few seconds.
       if (bench && bench.carving.strokes.length) list.push({ id: "restart-seal", label: restartArmed > 0 ? words.sureShort : words.restart, active: restartArmed > 0 });
@@ -727,6 +741,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       case "left": turn(1); break;
       case "right": turn(-1); break;
       case "blow": blow(1); break;
+      case "knife": if (knife.plunged) lift(); else plunge(); break;
       case "restart-seal":
         if (restartArmed > 0) {
           restartArmed = 0;
@@ -818,18 +833,12 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   // pushing along a line carves; lifting it lifts the knife. A finger anywhere else brings the
   // knife to it, tip just above the fingertip, and drags it there.
   // With a mouse the tip follows the cursor; the button drives it in and dragging up carves.
-  // The knife answers a finger anywhere along it: from the grip down the blade to the tip, and
-  // on below the tip where the finger that moved it was resting.
-  const gripPoint = new THREE.Vector3();
-  function onKnife(x, y) {
-    gripPoint.copy(knifeModel.grip.center).applyMatrix4(knifeModel.group.matrixWorld);
-    const grip = screenOf(gripPoint.x, gripPoint.z, gripPoint.y);
-    const tip = screenOf(knife.x, knife.z);
-    const rest = [tip[0], tip[1] + TIP_ABOVE_PX];
-    const vx = grip[0] - rest[0], vy = grip[1] - rest[1], length2 = vx * vx + vy * vy || 1;
-    const t = Math.max(0, Math.min(1, ((x - rest[0]) * vx + (y - rest[1]) * vy) / length2));
-    return Math.hypot(x - rest[0] - vx * t, y - rest[1] - vy * t) <= KNIFE_HIT_PX;
-  }
+  // Two states, switched by the 下刀/提刀 button (or Space). Moving: a finger anywhere brings the
+  // knife along, tip just above the fingertip (a mouse moves it under the cursor). Cutting: the
+  // knife stays in the stone; a finger (or mouse drag) anywhere pushes it from where it is.
+  // The first clear stroke of each touch picks the track, up or sideways; along it the knife
+  // carves, back along it slides back down its groove, across it only wobbles. Lifting the
+  // finger leaves the knife in the stone, ready for the next stroke.
   canvas.addEventListener("pointerdown", (event) => {
     if (event.button > 0) return;
     const { x, y } = cssPoint(event);
@@ -837,26 +846,16 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     hud.setFocus(null);
     const mouse = event.pointerType === "mouse";
     try { canvas.setPointerCapture(event.pointerId); } catch { /* Synthetic pointers cannot be captured. */ }
-    // The grip comes before the HUD's text (not its buttons): the knife may stand under the title.
     const action = hud.hit(x, y);
-    const grip = !mouse && !hud.modal && carvable() && onKnife(x, y);
-    const entry = { role: "none", x, y, startX: x, startY: y };
+    const entry = { role: "none", x, y, startX: x, startY: y, offset: mouse ? 0 : TIP_ABOVE_PX };
     pointers.set(event.pointerId, entry);
-    if (action && !(grip && action === "none")) { act(action); return; }
+    if (action && action !== "none") { act(action); return; }
     if (hud.modal || pointers.size > 1) return;
     if (currentStage() === "dust") { entry.role = "dust"; return; }
-    if (mouse) {
-      entry.role = "mouse";
-      aimAt(x, y);
-      knife.x = knife.targetX; knife.z = knife.targetZ;
-      plunge();
-    } else if (grip) {
-      entry.role = "grip";
-      plunge();
-    } else {
-      // Elsewhere the knife comes to the finger, its tip just above the fingertip.
-      entry.role = "hand";
-      aimAt(x, y - TIP_ABOVE_PX);
+    if (knife.plunged) entry.role = "cut";
+    else {
+      entry.role = "move";
+      aimAt(x, y - entry.offset);
     }
     context.invalidate();
   }, { signal });
@@ -865,8 +864,8 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     const { x, y } = cssPoint(event);
     const entry = pointers.get(event.pointerId);
     if (!entry) {
-      // Hovering with a mouse: the tip follows the cursor.
-      if (event.pointerType === "mouse" && !hud.modal && bench && !bench.viewOnly) {
+      // Hovering with a mouse while moving: the tip follows the cursor.
+      if (event.pointerType === "mouse" && !hud.modal && bench && !bench.viewOnly && !knife.plunged) {
         aimAt(x, y);
         hovering = 0;
         context.invalidate();
@@ -880,10 +879,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       if (!entry.blew && Math.hypot(x - entry.startX, y - entry.startY) > 40) { entry.blew = true; blow(0.8); }
       return;
     }
-    if ((entry.role === "mouse" || entry.role === "grip") && knife.plunged) {
-      // In the stone: the first clear push picks the track, up the screen or across it (left or
-      // right); then movement along the track pushes the knife, back along it pulls it back, and
-      // movement across it is only a slight wobble.
+    if (entry.role === "cut" && knife.plunged) {
       const scale = pixelsPer();
       if (!knife.chosen) {
         entry.aimX = (entry.aimX ?? 0) + dx; entry.aimY = (entry.aimY ?? 0) + dy;
@@ -897,8 +893,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       const across = knife.dir[0] ? dy / scale.z : dx / scale.x;
       push(along);
       knife.wobble = clampWobble(knife.wobble + across * 0.03);
-    } else if (entry.role === "mouse") aimAt(x, y);
-    else if (entry.role === "hand") aimAt(x, y - TIP_ABOVE_PX); // the tip rides above the fingertip
+    } else if (entry.role === "move") aimAt(x, y - entry.offset);
     context.invalidate();
   }, { signal });
 
@@ -906,7 +901,8 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     const entry = pointers.get(event.pointerId);
     if (!entry) return;
     pointers.delete(event.pointerId);
-    if (entry.role === "grip" || entry.role === "mouse") lift();
+    // The stroke ends; the knife stays in, set for the next one (which may take a new track).
+    if (entry.role === "cut" && knife.plunged) reset();
     context.invalidate();
   }
   canvas.addEventListener("pointerup", release, { signal });
@@ -948,7 +944,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       }
     } else if (code === "Space" || code === "Enter") {
       event.preventDefault();
-      if (!event.repeat) { if (currentStage() === "dust") blow(1); else held.add("carve"); }
+      if (!event.repeat) { if (currentStage() === "dust") blow(1); else act("knife"); }
     } else if (code === "KeyB") { event.preventDefault(); if (!event.repeat) blow(1); }
     else if (code === "KeyQ") { event.preventDefault(); act("left"); }
     else if (code === "KeyE") { event.preventDefault(); act("right"); }
@@ -958,7 +954,8 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   canvas.addEventListener("keyup", (event) => {
     held.delete(event.code);
     if (event.code.startsWith("Arrow")) held.delete("aim");
-    if (event.code === "Space" || event.code === "Enter") { held.delete("carve"); lift(); }
+    // In the stone, letting go of an arrow ends that stroke, as a lifted finger does.
+    if (event.code.startsWith("Arrow") && knife.plunged && knife.chosen) reset();
   }, { signal });
   canvas.addEventListener("blur", () => { held.clear(); lift(); }, { signal });
 
@@ -1048,7 +1045,6 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       let busy = false;
       if (restartArmed > 0) { restartArmed = Math.max(0, restartArmed - delta); if (restartArmed === 0) layoutButtons(); busy = true; }
       if (context.options["auto-carve"] === true) { demoStep(); busy = true; }
-      if (held.has("carve") && !knife.plunged) plunge();
       // Keyboard: Up pushes while Space holds the knife in, Down pulls back.
       if (knife.plunged && !knife.chosen) {
         const pick = held.has("ArrowUp") ? [0, -1] : held.has("ArrowLeft") ? [-1, 0] : held.has("ArrowRight") ? [1, 0] : null;
