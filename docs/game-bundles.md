@@ -133,6 +133,7 @@ ES modules are cached; restarting calls `createGame` again with a fresh context.
 | `announce(text)` | Screen-reader announcement through the player's live region (up to 200 characters). The player coalesces rapid announcements. |
 | `haptics.vibrate(pattern)` | `"tap"`, `"success"`, `"fail"`, or up to 8 durations in ms. Ignored while paused, when the player turned haptics off, or where unsupported (iOS Safari). |
 | `pickImage({ maxSize })` | Opens the system image picker (library, camera, files). Call it synchronously from a pointer or key handler; browsers require a user gesture. Resolves an upright `ImageBitmap` whose longer side is at most `maxSize` (default 1024, 16–4096), or `null` when cancelled, paused, already picking, or after the session ends; rejects if the file cannot be decoded. The game owns the bitmap: `close()` it when done. Images never leave the device unless the game sends them. |
+| `deviceStorage` | `{ get(key), set(key, blob), delete(key) }` for `Blob` values kept in this browser only, per game: never transferred, exported or synced, unlike `progress`. Keys are 1–32 lowercase letters, digits or hyphens; at most 8 keys of up to 2 MiB each. Use it for data that must stay on the device, such as a picked photo. Absent where IndexedDB is unavailable. |
 | `reportLoading(fraction)` | 0–1 progress shown on the loading screen while `createGame` runs. |
 | `options` | Read-only live values of the module's `options` (see below). |
 | `cheatsUsed` | `true` once any cheat was used in this session. |

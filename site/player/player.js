@@ -4,6 +4,7 @@ import { transferProgress } from "../progress-config.js";
 import { ProgressClient } from "../progress/client.js";
 import { createProgressUI, progressText } from "../progress/ui.js";
 import { registerServiceWorker } from "../pwa.js";
+import { createDeviceStorage } from "../runtime/core/device-storage.js";
 
 // Connection credentials never enter query strings, requests, analytics, or browser history.
 let transferToken = globalThis.__funTransferToken ?? null;
@@ -352,6 +353,7 @@ async function loadWithProgress(loadOptions = {}) {
     const loaded = await host.load(bundlePath(game), {
       progress: progress.capability(), launchReason: loadOptions.launchReason || "open",
       settings: { load: () => readPreference(settingsKey(), {}), save: (values) => writePreference(settingsKey(), values) },
+      deviceStorage: "indexedDB" in window ? createDeviceStorage(game.id) : undefined,
     });
     if (loaded && !progress.used) progress.setStatus("unsupported");
   } finally { loadingGame = false; }

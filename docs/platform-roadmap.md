@@ -38,6 +38,7 @@ All contract changes ship together in one API v2 cutover.
 | Orientation lock | Manifest `orientation` plus a rotate prompt; `screen.orientation.lock` in fullscreen where supported (Android). |
 | Game options panel | See below. |
 | `pickImage()` | Added 2026-10-15 for Slap: the host owns the file input so games stay canvas-only; returns an upright, scaled `ImageBitmap` that stays on the device. |
+| `deviceStorage` | Added 2026-10-15 for Slap: per-game blobs that stay on this device, so a picked photo is remembered without entering progress, transfer or export. |
 | `shareText(locale)` | Optional lifecycle hook used by the platform share button. |
 | Manifest fields | `orientation`, bilingual `howToPlay` (shown in the player menu as real text), and `cover`. |
 

@@ -177,7 +177,7 @@ export function createGameHost({
     else if (session.game) session.renderer.render(session.scene, session.camera);
   }
 
-  async function load(entry, { progress, launchReason = "open", settings } = {}) {
+  async function load(entry, { progress, launchReason = "open", settings, deviceStorage } = {}) {
     release(current);
     const scope = createScope();
     if (progress) scope.signal.addEventListener("abort", () => progress.close(), { once: true });
@@ -247,6 +247,7 @@ export function createGameHost({
         launchReason,
         ...(progress ? { progress: progress.api } : {}),
         ...(sound ? { audio: sound.api } : {}),
+        ...(deviceStorage ? { deviceStorage } : {}),
         get locale() { return currentLocale; },
         THREE, scene, camera: session.camera, renderer, canvas,
         viewport: session.viewport,

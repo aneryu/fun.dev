@@ -131,6 +131,29 @@ export async function playerChecks({ browser, base, dist }) {
   assert.equal(await pick.locator("input[type=file]").count(), 0, "picker input is removed");
   await picker.close();
 
+  // deviceStorage: per-game blobs on this device; validated keys, size and count limits.
+  const device = await browser.newContext({ serviceWorkers: "block" });
+  const store = await device.newPage();
+  store.on("pageerror", (error) => errors.push(error.message));
+  await store.goto(`${base}/`);
+  const stored = await store.evaluate(async () => {
+    const { createDeviceStorage } = await import("/runtime/core/device-storage.js");
+    const a = createDeviceStorage("game-a"), b = createDeviceStorage("game-b");
+    await a.set("face", new Blob(["hello"], { type: "text/plain" }));
+    const text = await (await a.get("face")).text();
+    const other = await b.get("face");
+    const errors = [];
+    for (const attempt of [() => a.set("Bad Key", new Blob([])), () => a.set("big", new Blob([new Uint8Array(2 * 1024 * 1024 + 1)])), () => a.set("text", "not a blob")]) {
+      try { await attempt(); errors.push("accepted"); } catch (error) { errors.push(error.name); }
+    }
+    for (let i = 0; i < 7; i++) await a.set(`k${i}`, new Blob([String(i)]));
+    try { await a.set("one-more", new Blob(["x"])); errors.push("accepted"); } catch (error) { errors.push(error.name); }
+    await a.delete("face");
+    return { text, other, errors, deleted: await a.get("face") };
+  });
+  assert.deepEqual(stored, { text: "hello", other: null, errors: ["TypeError", "RangeError", "TypeError", "RangeError"], deleted: null });
+  await device.close();
+
   // Catalog entries for another API version explain themselves instead of loading.
   for (const [apiVersion, text] of [[3, "has been updated"], [1, "being updated"]]) {
     const context = await browser.newContext({ serviceWorkers: "block" });
