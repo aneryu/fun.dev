@@ -12,10 +12,10 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
 ## How it plays
 
 - Dragging anywhere moves the knife by the finger's own movement (it never jumps under the
-  finger). Pressing the red grip on its handle drives it into the stone; pushing up the
-  screen carves, pulling back slides it down its own groove; lifting the finger lifts it.
-- The knife only travels forward (screen up), as in a 冲刀 push: lines across are cut after
-  turning the stone with ‹ ›. Nothing snaps to the draft: wherever the knife is pushed it
+  finger). Pressing the red grip on its handle drives it into the stone; the first push picks
+  the cut's track, up the screen (a 冲刀 push) or across it (left or right), and pushing along
+  it carves, pulling back slides it down its own groove; lifting the finger lifts it. ‹ ›
+  turn the stone to a comfortable angle. Nothing snaps to the draft: wherever the knife is pushed it
   cuts, and wobbles and overruns stay in the stone. A draft line counts as cut where a groove
   runs over it; at 90% coverage its last gaps are cut when the knife lifts.
 - The knife in the stone is a stick-slip system tuned to the video's sound (pushes of
@@ -23,8 +23,9 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
   stays stuck until the pull passes the stone's strength, then a flake breaks off. Each
   crack sounds, vibrates, throws a flake and powder at once. Stones differ in hardness,
   flake size and hard grains (`stones[*].carve` in `stone.js`).
-- Mouse: move to aim, hold the button and drag up to carve. Keyboard: arrows move the knife;
-  hold Space to press it in, then Up pushes and Down pulls back; Q/E turn, B blows, A opens
+- Mouse: move to aim, hold the button and drag along a line to carve. Keyboard: arrows move
+  the knife; hold Space to press it in, then Up, Left or Right pushes and the opposite key
+  pulls back; Q/E turn, B blows, A opens
   the album.
 
 ## Files
