@@ -11,8 +11,8 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
 
 ## How it plays
 
-- Dragging anywhere moves the knife by the finger's own movement (it never jumps under the
-  finger). Pressing the red grip on its handle drives it into the stone; the first push picks
+- A finger away from the knife brings it along, tip just above the fingertip. A finger on the
+  knife (handle, blade, or just below the tip where the moving finger rested) drives it in; the first push picks
   the cut's track, up the screen (a 冲刀 push) or across it (left or right), and pushing along
   it carves, pulling back slides it down its own groove; lifting the finger lifts it. ‹ ›
   turn the stone to a comfortable angle. Nothing snaps to the draft: wherever the knife is pushed it

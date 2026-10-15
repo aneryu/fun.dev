@@ -18,10 +18,10 @@ const copy = {
     steps: { bevel: "倒边", border: "刻边框", cross: "分格", glyphs: "刻字", dust: "吹去石粉", done: "完成" },
     stepNames: { bevel: "倒边", border: "边框", cross: "十字", glyphs: "刻字", dust: "吹粉" },
     hints: {
-      bevel: "拖动移刀到边的一端，按住红色握点顺着边推",
-      border: "移刀到线的一端，按住握点往上或往左右推",
+      bevel: "拖刀把刀尖放到边的一端，松手，再按住刀顺着边推",
+      border: "刀尖放到线的一端，按住刀往上或往左右推",
       cross: "刻一个十字，分成四格",
-      glyphs: "按住握点顺着线推：竖线往上，横线往左右",
+      glyphs: "按住刀顺着线推：竖线往上，横线往左右",
       dust: "按「吹」或在屏幕上划一下",
       done: "刻好了",
     },
@@ -43,10 +43,10 @@ const copy = {
     steps: { bevel: "Chamfer", border: "Border", cross: "Divide", glyphs: "Characters", dust: "Blow", done: "Done" },
     stepNames: { bevel: "Edge", border: "Border", cross: "Cross", glyphs: "Glyphs", dust: "Blow" },
     hints: {
-      bevel: "Move the knife to an edge's end; hold the grip, push along it",
-      border: "At a line's end, hold the grip, push up or sideways",
+      bevel: "Drag the tip to an edge's end, lift, then hold the knife and push",
+      border: "Tip at a line's end; hold the knife, push up or sideways",
       cross: "Cut a cross into four cells",
-      glyphs: "Hold the grip, push along: up or sideways",
+      glyphs: "Hold the knife and push along: up or sideways",
       dust: "Press Blow or swipe the screen",
       done: "Finished",
     },
@@ -66,7 +66,8 @@ const copy = {
   },
 };
 
-const GRIP_HIT_PX = 34; // the grip answers a finger at least this far from its centre
+const TIP_ABOVE_PX = 56; // on touch the knife tip rides this far above the fingertip
+const KNIFE_HIT_PX = 40; // a finger this close to the knife (or just below its tip) holds it
 const DIRECTION_PX = 8; // the first push this long picks the cut's direction
 const NEAR_EDGE_AT = 0.72; // where the face's near edge sits, as a fraction down the stage
 const QUARTER = Math.PI / 2;
@@ -458,7 +459,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   // there, then a flake breaks off and the tip jumps ahead by the flake's length. A faster push
   // only packs the cracks closer; the knife never runs ahead on its own. Pulled back, the tip
   // slides freely down the groove it has cut, but no further.
-  const MAX_STRETCH = 0.05; // the hand gets no further ahead of the tip than this
+  const CATCH_UP = 2.5; // a pull this many times the stone's strength breaks flakes back to back
   const SUBSTEP = 0.004; // seconds per simulation step
   const SLIDE = 1.5; // face units per second the tip slides along an open groove
   let chipClock = 0, buzzClock = 0;
@@ -468,7 +469,8 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   }
   // Moves the hand along the track by `distance` face units (forward positive).
   function push(distance) {
-    knife.hand = Math.max(-0.02, Math.min(knife.at + MAX_STRETCH, knife.hand + distance));
+    // Nothing of the push is lost: the tip may lag a moment, but it catches up with the hand.
+    knife.hand = Math.max(-0.02, knife.hand + distance);
   }
   function cutStep(delta) {
     const carve = stones[bench.seal.stone].carve;
@@ -483,7 +485,9 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
         knife.at += Math.max(-SLIDE * dt, Math.min(SLIDE * dt, goal - knife.at));
         continue;
       }
-      if (pull < knife.strength || knife.refractory > 0) continue; // stuck, under tension
+      // Stuck, under tension, until the pull breaks a flake; far behind the hand, it breaks them
+      // back to back, so the knife keeps up with a fast push.
+      if (pull < knife.strength || (knife.refractory > 0 && pull < knife.strength * CATCH_UP)) continue;
       const length = Math.min(pull, carve.chip * (0.5 + 1.3 * Math.random()) * (knife.hard ? 2.4 : 1));
       // The far edge of the face stops the knife.
       if (!onFace(knife.origin.x + knife.dir[0] * (knife.at + length), knife.origin.z + knife.dir[1] * (knife.at + length))) { knife.hand = Math.min(knife.hand, knife.at + knife.strength * 0.95); break; }
@@ -536,7 +540,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       for (let i = 0; i < 2; i++) bench.effects.crumb(new THREE.Vector3(tip[0] + dx * 0.004, 0.002, tip[1] + dy * 0.004), ahead);
       knife.shake += (0.5 + crack.force) * (0.0015 + crack.size * 0.002);
       knifeModel.dust = Math.min(1, knifeModel.dust + 0.004 + crack.size * 0.006);
-      sound.chip(crack.size, crack.force);
+      if (crack === cracks[0] || crack === cracks[cracks.length - 1]) sound.chip(crack.size, crack.force);
       if (buzzClock <= 0) { context.haptics.vibrate([Math.round(6 + crack.size * 18)]); buzzClock = 0.03; }
     }
     for (const cut of cuts) knife.touched.add(cut);
@@ -810,17 +814,21 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     clampAim();
   }
 
-  // Touch: pressing the red grip on the knife's handle drives the knife into the stone, and
-  // pushing the finger forward (up the screen) carves; lifting it lifts the knife. Dragging
-  // anywhere else moves the knife by the finger's own movement (it never jumps to the finger).
+  // Touch: a finger on the knife (or resting just below its tip) drives it into the stone, and
+  // pushing along a line carves; lifting it lifts the knife. A finger anywhere else brings the
+  // knife to it, tip just above the fingertip, and drags it there.
   // With a mouse the tip follows the cursor; the button drives it in and dragging up carves.
-  const gripPoint = new THREE.Vector3(), gripEdge = new THREE.Vector3();
-  function onGrip(x, y) {
+  // The knife answers a finger anywhere along it: from the grip down the blade to the tip, and
+  // on below the tip where the finger that moved it was resting.
+  const gripPoint = new THREE.Vector3();
+  function onKnife(x, y) {
     gripPoint.copy(knifeModel.grip.center).applyMatrix4(knifeModel.group.matrixWorld);
-    gripEdge.set(knifeModel.grip.radius, 0, 0).add(knifeModel.grip.center).applyMatrix4(knifeModel.group.matrixWorld);
-    const center = screenOf(gripPoint.x, gripPoint.z, gripPoint.y), edge = screenOf(gripEdge.x, gripEdge.z, gripEdge.y);
-    const radius = Math.max(GRIP_HIT_PX, Math.hypot(edge[0] - center[0], edge[1] - center[1]) * 1.6);
-    return Math.hypot(x - center[0], y - center[1]) <= radius;
+    const grip = screenOf(gripPoint.x, gripPoint.z, gripPoint.y);
+    const tip = screenOf(knife.x, knife.z);
+    const rest = [tip[0], tip[1] + TIP_ABOVE_PX];
+    const vx = grip[0] - rest[0], vy = grip[1] - rest[1], length2 = vx * vx + vy * vy || 1;
+    const t = Math.max(0, Math.min(1, ((x - rest[0]) * vx + (y - rest[1]) * vy) / length2));
+    return Math.hypot(x - rest[0] - vx * t, y - rest[1] - vy * t) <= KNIFE_HIT_PX;
   }
   canvas.addEventListener("pointerdown", (event) => {
     if (event.button > 0) return;
@@ -831,7 +839,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     try { canvas.setPointerCapture(event.pointerId); } catch { /* Synthetic pointers cannot be captured. */ }
     // The grip comes before the HUD's text (not its buttons): the knife may stand under the title.
     const action = hud.hit(x, y);
-    const grip = !mouse && !hud.modal && carvable() && onGrip(x, y);
+    const grip = !mouse && !hud.modal && carvable() && onKnife(x, y);
     const entry = { role: "none", x, y, startX: x, startY: y };
     pointers.set(event.pointerId, entry);
     if (action && !(grip && action === "none")) { act(action); return; }
@@ -845,7 +853,11 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     } else if (grip) {
       entry.role = "grip";
       plunge();
-    } else entry.role = "hand";
+    } else {
+      // Elsewhere the knife comes to the finger, its tip just above the fingertip.
+      entry.role = "hand";
+      aimAt(x, y - TIP_ABOVE_PX);
+    }
     context.invalidate();
   }, { signal });
 
@@ -886,13 +898,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       push(along);
       knife.wobble = clampWobble(knife.wobble + across * 0.03);
     } else if (entry.role === "mouse") aimAt(x, y);
-    else if (entry.role === "hand") {
-      // Moving: the knife follows the finger's movement one to one, from where it is.
-      const scale = pixelsPer();
-      knife.targetX += dx / scale.x;
-      knife.targetZ += dy / scale.z;
-      clampAim();
-    }
+    else if (entry.role === "hand") aimAt(x, y - TIP_ABOVE_PX); // the tip rides above the fingertip
     context.invalidate();
   }, { signal });
 
