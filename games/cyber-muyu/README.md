@@ -125,7 +125,7 @@ and renders only while something moves.
   beat cannot dismiss it unread. Putting the day's lot away brings 30 s of 好运. The share
   text adds the day's lot.
 - `floats.js`: words that float up from the fish on some strikes (about 1 in 8, 1 in 3 in
-  入定), pure decoration. The pool follows current memes and is refreshed with releases.
+  入定), pure decoration. Like the lots they joke about everyday life instead of chasing memes.
 - Zen lights the fish from within: a warm emissive term masked by the baked groove and slit
   vertex colors, and the mallet head's own emissive material.
 - The camera frames the fish, the resting mallet and the shown relics (points near their
