@@ -14,8 +14,9 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
 - The face is seen square from above (about 78°, so a sliver of the sides gives depth).
 - The knife has two zones: dragging its wrapped handle moves it (the touched spot stays under
   the finger); holding its red grip or blade drives it into the stone, and the finger then
-  pushes it one to one. The first clear part of the swipe picks up, down, left or right, along
-  which it carves, back along which it slides down its groove; letting go lifts it. Nothing
+  pushes it one to one. It carves only the way its edge points (away from the handle), and
+  slides back down its groove the other way; letting go lifts it. Turn (转刀, R) turns it a
+  quarter clockwise in place, so its four headings cover every line. Nothing
   snaps to the draft: grooves go where the knife goes. A draft line counts as cut where a
   groove runs over it; at 90% coverage its last gaps are cut when the knife lifts.
 - Undo takes back the last swipe (repeatedly, this session; one stroke at a time for a seal
@@ -27,8 +28,8 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
   stays stuck until the pull passes the stone's strength, then a flake breaks off. Each
   crack sounds, vibrates, throws a flake and powder at once. Stones differ in hardness,
   flake size and hard grains (`stones[*].carve` in `stone.js`).
-- Mouse: the same two zones. Keyboard: arrows move the knife; hold Space to put it in, an
-  arrow pushes and the opposite one pulls back, let go to lift; Z undoes; Q/E turn, B blows, A opens
+- Mouse: the same two zones. Keyboard: arrows move the knife, R turns it; hold Space to put
+  it in, the arrow its edge points to pushes, the opposite pulls back, let go to lift; Z undoes; Q/E turn, B blows, A opens
   the album.
 
 ## Files
