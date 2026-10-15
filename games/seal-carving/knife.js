@@ -127,6 +127,8 @@ normal = normalize(normal + vec3(0.0, (fract(vCordPosition.y * 55.0 + atan(vCord
     group,
     // The grip band's centre and radius in the knife's own space, for hit testing.
     grip: { center: grip.position.clone(), radius: GRIP.radius, length: GRIP.length },
+    // The top of the handle, in the knife's own space: the handle is where the knife is dragged.
+    top: new THREE.Vector3(-BLADE.width / 2, base + HANDLE.length, 0),
     // 0..1: how lit the grip is (pressed).
     set gripGlow(value) { gripMaterial.emissiveIntensity = value * 0.6; },
     // 0..1: how much stone powder clings to the blade.

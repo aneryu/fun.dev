@@ -12,13 +12,12 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
 ## How it plays
 
 - The face is seen square from above (about 78°, so a sliver of the sides gives depth).
-- Two states, switched by the Cut/Lift button (下刀/提刀) or Space. Moving: holding the knife
-  itself drags it. Cutting: the knife stays in the stone and a swipe anywhere pushes it from
-  where it stands; the first clear part of each swipe picks up, down, left or right, along
-  which it carves, back along which it slides down its groove. Lifting the finger leaves it in
-  the stone for the next swipe. Nothing snaps to the draft: grooves go where the knife goes.
-  A draft line counts as cut where a groove runs over it; at 90% coverage its last gaps are cut
-  at the end of the swipe.
+- The knife has two zones: dragging its wrapped handle moves it (the touched spot stays under
+  the finger); holding its red grip or blade drives it into the stone, and the finger then
+  pushes it one to one. The first clear part of the swipe picks up, down, left or right, along
+  which it carves, back along which it slides down its groove; letting go lifts it. Nothing
+  snaps to the draft: grooves go where the knife goes. A draft line counts as cut where a
+  groove runs over it; at 90% coverage its last gaps are cut when the knife lifts.
 - Undo takes back the last swipe (repeatedly, this session; one stroke at a time for a seal
   reopened from a save). Redo opens a card: redo the current step (or the last step cut, if
   nothing of the current one is), or the whole seal. Each saved stroke records its step.
@@ -28,9 +27,8 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
   stays stuck until the pull passes the stone's strength, then a flake breaks off. Each
   crack sounds, vibrates, throws a flake and powder at once. Stones differ in hardness,
   flake size and hard grains (`stones[*].carve` in `stone.js`).
-- Mouse: drag the knife to move it; with it in, drag along a line to carve. Keyboard: arrows
-  move the knife, Space puts it in or lifts it; with it in, an arrow pushes and the opposite
-  one pulls back; Z undoes; Q/E turn, B blows, A opens
+- Mouse: the same two zones. Keyboard: arrows move the knife; hold Space to put it in, an
+  arrow pushes and the opposite one pulls back, let go to lift; Z undoes; Q/E turn, B blows, A opens
   the album.
 
 ## Files
