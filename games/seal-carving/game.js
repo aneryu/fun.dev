@@ -20,15 +20,16 @@ const copy = {
     steps: { bevel: "倒边", border: "刻边框", cross: "分格", glyphs: "刻字轮廓", clear: "铲底", dust: "吹去石粉", done: "完成" },
     stepNames: { bevel: "倒边", border: "边框", cross: "十字", glyphs: "刻字", clear: "铲底", dust: "吹粉" },
     hints: {
-      bevel: "拖刀柄把落刀点放到线的下端，按住握把往上推",
-      border: "刀只往上推：横线就在空白处滑动，把印石转过来",
+      bevel: "拖刀柄对准线的下端，按住握把往上推",
+      border: "横线：在空白处划一圈，把印石转过来",
       cross: "刻一个十字，分成四格",
-      glyphs: "字是凸的：沿笔画中间描一刀，两边一起刻出；转石刻横画",
-      clear: "按住握把在字周围来回划，铲掉空白，笔画铲不到",
-      dust: "点印面上的「吹」，或在屏幕上划一下",
+      glyphs: "沿笔画中间往上推，两边一起刻出",
+      clear: "按住握把来回划，铲掉字周围的空白",
+      dust: "点「吹」，把石粉吹干净",
       done: "刻好了",
     },
-    stepDone: (name) => `${name}完成`,
+    stepDone: (name) => `${name}完成`, stepNext: (done, next) => `${done}完成 · 下一步：${next}`,
+    intro: (n, title) => `${n} · 「${title}」`, introDetail: (stone) => `${stone} · 倒边 边框 十字 刻字 铲底 吹粉`, begin: "开始刻",
     offFace: "刀尖要在印面上才能下刀",
     nth: (n) => `第${["一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二"][n] ?? n + 1}方`,
     blow: "吹", album: "印谱", left: "‹", right: "›",
@@ -48,15 +49,16 @@ const copy = {
     steps: { bevel: "Chamfer", border: "Border", cross: "Divide", glyphs: "Outlines", clear: "Clearing", dust: "Blow", done: "Done" },
     stepNames: { bevel: "Edge", border: "Border", cross: "Cross", glyphs: "Glyphs", clear: "Clear", dust: "Blow" },
     hints: {
-      bevel: "Put the point at a line's lower end; hold the grip and push up",
-      border: "The knife only pushes up: swipe the bare ground to turn the stone",
+      bevel: "Handle to a line's lower end; hold the grip, push up",
+      border: "Lines across: circle the bare ground to turn the stone",
       cross: "Cut a cross into four cells",
-      glyphs: "Raised characters: trace each stroke's middle, both sides cut; turn the stone",
-      clear: "Hold the grip and scrub around the characters; the strokes are safe",
-      dust: "Tap Blow on the face, or swipe the screen",
+      glyphs: "Push up a stroke's middle; both sides are cut",
+      clear: "Hold the grip and scrub away the ground",
+      dust: "Tap Blow to clear the powder",
       done: "Finished",
     },
-    stepDone: (name) => `${name} done`,
+    stepDone: (name) => `${name} done`, stepNext: (done, next) => `${done} done · next: ${next}`,
+    intro: (n, title) => `${n} · ${title}`, introDetail: (stone) => `${stone} · six steps, edge to blow`, begin: "Start",
     offFace: "Aim at the face before pressing the knife in",
     nth: (n) => `Seal ${n + 1}`,
     blow: "Blow", album: "Seals", left: "‹", right: "›",
@@ -155,8 +157,10 @@ diffuseColor.rgb *= 1.0 + 0.22 * ridge * fade;`)
 normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 - smoothstep(0.5, 1.0, fwidth(vMatUv.x * 90.0))), 0.0, 0.0));`);
   };
   matMaterial.customProgramCacheKey = () => "seal-mat";
-  const mat = new THREE.Mesh(track(new THREE.BoxGeometry(3.6, 0.06, 3.8)), matMaterial);
-  mat.position.set(0, -HEIGHT - 0.03, 0.2);
+  // A carver's pad, a defined object on the yellow table, reaching toward the viewer where
+  // the knife's handle rests.
+  const mat = new THREE.Mesh(track(new THREE.BoxGeometry(1.5, 0.06, 2.3)), matMaterial);
+  mat.position.set(0, -HEIGHT - 0.03, 0.45);
   mat.receiveShadow = true;
   scene.add(mat);
 
@@ -329,6 +333,20 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     return texture;
   }
   function refreshPrint(seal) { prints.get(seal.id)?.dispose(); prints.delete(seal.id); }
+  // The print a seal will make once carved: every cut finished and the ground cleared.
+  const targets = new Map();
+  onCleanup(() => { for (const texture of targets.values()) texture.dispose(); });
+  function targetOf(seal) {
+    if (targets.has(seal.id)) return targets.get(seal.id);
+    const carving = createCarving(layoutSeal(seal), WIDTHS, layoutRelief(seal));
+    for (const cut of carving.cuts) carving.finish(cut, STAGE_WIDTH[cut.stage]);
+    carving.finishClear();
+    const maskCanvas = new OffscreenCanvas(256, 256);
+    createMaskPainter(carving, maskCanvas.getContext("2d"), 256).paintAll();
+    const texture = makePrint(maskCanvas);
+    targets.set(seal.id, texture);
+    return texture;
+  }
 
   // Saving: whenever the knife lifts, a few kilobytes.
   function save() {
@@ -351,7 +369,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     // As in the video, the face takes about two thirds of the width, with room around it.
     const needH = 1.8 / (2 * tan) * (height / stageHeight);
     const needW = 1.6 / (2 * tan * (width / height)) * (width / stageWidth);
-    view.distance = Math.max(needH, needW, 2);
+    view.distance = Math.max(needH, needW, 2) * (view.zoom ?? 1);
     const { elevation, azimuth, distance, target } = view;
     camera.position.set(target.x + Math.sin(azimuth) * Math.cos(elevation) * distance, target.y + Math.sin(elevation) * distance, target.z + Math.cos(azimuth) * Math.cos(elevation) * distance);
     camera.lookAt(target);
@@ -675,8 +693,9 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     const stage = currentStage();
     if (stage !== lastStage) {
       if (lastStage && lastStage !== "done") {
-        hud.toast(words.stepDone(words.steps[lastStage]));
-        context.announce(words.stepDone(words.steps[lastStage]));
+        const message = stage === "done" ? words.stepDone(words.steps[lastStage]) : words.stepNext(words.steps[lastStage], words.steps[stage]);
+        hud.toast(message);
+        context.announce(message);
         context.haptics.vibrate("success");
       }
       lastStage = stage;
@@ -752,7 +771,22 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     labels();
   }
 
-  let cardKind = null; // "finished" | "seal" (opened from the album)
+  // A fresh seal opens with what it will become: its print, its stone and the six steps.
+  function openIntro() {
+    const seal = bench.seal;
+    cardKind = "intro";
+    cardSeal = seal;
+    hud.setCard({
+      title: words.intro(words.nth(seals.indexOf(seal)), text(seal.text)),
+      detail: words.introDetail(text(stones[seal.stone].name)),
+      picture: targetOf(seal),
+      buttons: [{ id: "begin", label: words.begin }],
+    });
+    setFocusable();
+  }
+  const fresh = () => bench && !bench.viewOnly && !bench.carving.strokes.length && !state.seals[bench.seal.id]?.done;
+
+  let cardKind = null; // "finished" | "seal" (opened from the album) | "intro" | "redo"
   let cardSeal = null;
   let confirmRecarve = false;
   function openCard(seal = bench.seal, kind = "finished") {
@@ -783,7 +817,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
         const done = state.seals[seal.id]?.done;
         const current = seal.id === state.current && !done;
         const open = saving.unlocked(state, seal.id);
-        return { id: seal.id, picture: done || current ? printOf(seal) : null, label: open ? text(seal.text) : words.locked, current, open };
+        return { id: seal.id, picture: done ? printOf(seal) : open ? targetOf(seal) : null, label: open ? text(seal.text) : words.locked, current, open, pending: open && !done };
       }),
       detail: saving.finishedCount(state) === seals.length ? words.allDone : words.albumDetail,
       buttons: [{ id: "close-album", label: words.close }],
@@ -799,6 +833,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     yaw = yawTarget = 0;
     save();
     layoutButtons();
+    if (fresh()) openIntro();
   }
 
   function viewSeal(seal) {
@@ -835,7 +870,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   function layoutButtons() {
     hud.setButtons([]);
     if (bench?.viewOnly) hud.setCorner([{ id: "album", label: words.album }, { id: "back", label: words.back }]);
-    else if (bench && currentStage() !== "done") hud.setCorner([{ id: "album", label: words.album }, { id: "redo", label: words.restart }]);
+    else if (bench && currentStage() !== "done") hud.setCorner([{ id: "album", label: words.album }, { id: "redo", label: words.restart, quiet: true }]);
     else hud.setCorner([{ id: "album", label: words.album }]);
     badgeKey = null; // redraw the badges on the next frame
   }
@@ -850,7 +885,8 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     const clamp = ([x, y], r) => [Math.max(safeArea.left + r + 6, Math.min(width - safeArea.right - r - 6, x)), Math.max(stage.top + r, Math.min(height - safeArea.bottom - r - 6, y))];
     if (bench && !bench.viewOnly && currentStage() === "dust") {
       const center = screenOf(...toWorld(0, 0));
-      list.push({ id: "blow", label: words.blow, x: center[0], y: center[1], radius: 34, active: true });
+      const below = screenOf(...toWorld(0, 0.5));
+      list.push({ id: "blow", label: words.blow, x: center[0], y: Math.min(viewport.height - viewport.safeArea.bottom - 40, below[1] + 52), radius: 30, active: true });
     } else if (carvable() && !hud.modal) {
       // Undo, just beside and below the cutting point; the clearing has none.
       const tip = screenOf(knife.x, knife.z);
@@ -921,6 +957,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       case "album": openAlbum(); break;
       case "close-album": closeAlbum(); break;
       case "back": carveSeal(seals.find((seal) => seal.id === state.current)); break;
+      case "begin": closeCard(); gripHint = 6; break;
       case "next": {
         closeCard();
         const next = seals[seals.indexOf(bench.seal) + 1];
@@ -1219,7 +1256,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
         if (!event.repeat) act(ids[focusIndex] ?? ids[0]);
       } else if (code === "Escape") {
         event.preventDefault();
-        if (albumOpen) closeAlbum(); else if (cardKind) act(cardKind === "finished" ? "stay" : cardKind === "redo" ? "redo-cancel" : "view");
+        if (albumOpen) closeAlbum(); else if (cardKind) act({ finished: "stay", redo: "redo-cancel", intro: "begin" }[cardKind] ?? "view");
       } else if (code === "KeyA" && albumOpen) { event.preventDefault(); closeAlbum(); }
       context.invalidate();
       return;
@@ -1374,6 +1411,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   const startSeal = seals.find((seal) => seal.id === state.current) ?? seals[0];
   buildBench(startSeal);
   lastStage = currentStage();
+  if (fresh()) openIntro();
   context.reportLoading(0.9);
 
   let paused = false;
@@ -1412,12 +1450,14 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       if (showcase > 0) {
         showcase = Math.max(0, showcase - delta);
         const phase = 1 - showcase / 4.2;
-        view.elevation = ELEVATION - 0.85 * Math.sin(Math.PI * phase);
+        view.elevation = ELEVATION - 0.5 * Math.sin(Math.PI * phase);
+        view.zoom = 1 + 0.35 * Math.sin(Math.PI * phase);
         placeCamera();
         busy = true;
         if (showcase === 0) {
           yaw = yawTarget = 0;
           view.elevation = ELEVATION;
+          view.zoom = 1;
           placeCamera();
           if (!bench.viewOnly) openCard();
         }
@@ -1447,7 +1487,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     localeChanged() {
       words = copy[locale()];
       labels();
-      if (cardKind) openCard(cardSeal, cardKind);
+      if (cardKind === "intro") openIntro(); else if (cardKind === "redo") openRedo(); else if (cardKind) openCard(cardSeal, cardKind);
       if (albumOpen) openAlbum();
     },
     optionChanged(id) {

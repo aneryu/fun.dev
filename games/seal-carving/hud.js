@@ -82,6 +82,7 @@ export function createHud({ THREE, camera, scene, track, kit }) {
         return this;
       },
       hide() { mesh.visible = false; return this; },
+      opacity(value) { material.opacity = value; return this; },
     };
   }
 
@@ -149,7 +150,7 @@ export function createHud({ THREE, camera, scene, track, kit }) {
   let toast = null, toastTime = 0;
   let focus = null; // id of the keyboard-focused control, or null
   let regions = [];
-  const TOAST_TIME = 2.4;
+  const TOAST_TIME = 3;
 
   function layoutStatus() {
     const { safeArea, width } = viewport;
@@ -172,9 +173,10 @@ export function createHud({ THREE, camera, scene, track, kit }) {
     corners.forEach((part, index) => {
       const entry = modal ? null : cornerModel[index];
       if (!entry) { for (const piece of Object.values(part)) piece.hide(); return; }
-      const bw = 56, bh = 40, x = width - safeArea.right - bw - 12, y = (top > 56 ? top - 50 : 8) + index * (bh + 8);
-      part.border.set(x, y, bw, bh); part.fill.set(x + 2, y + 2, bw - 4, bh - 4);
-      part.text.set(entry.label, x + bw / 2, y + bh / 2);
+      // In one row, level with the player's menu button: the album at the right edge.
+      const bw = 56, bh = 40, x = width - safeArea.right - 12 - bw - index * (bw + 8), y = top > 56 ? top - 50 : 8;
+      part.border.set(x, y, bw, bh, entry.quiet ? BROWN : INK); part.fill.set(x + 2, y + 2, bw - 4, bh - 4);
+      part.text.set(entry.label, x + bw / 2, y + bh / 2, css(entry.quiet ? BROWN : INK));
       regions.push({ x, y, w: bw, h: bh, action: entry.id });
       if (focus === entry.id) focusRing.set(x, y, bw, bh);
     });
@@ -301,7 +303,10 @@ export function createHud({ THREE, camera, scene, track, kit }) {
       part.border.set(cx, cy, cell, cell, entry.current ? SEAL_RED : INK);
       part.border.material.opacity = entry.picture || entry.current || entry.open ? 1 : 0.35;
       part.fill.set(cx + 2, cy + 2, cell - 4, cell - 4, CREAM);
-      if (entry.picture) part.picture.set(entry.picture, cx + 6, cy + 6, cell - 12); else part.text.set(entry.label, cx + cell / 2, cy + cell / 2);
+      if (entry.picture) {
+        part.picture.set(entry.picture, cx + 6, cy + 6, cell - 12);
+        part.picture.opacity(entry.pending ? 0.35 : 1);
+      } else part.text.set(entry.label, cx + cell / 2, cy + cell / 2);
       regions.push({ x: cx, y: cy, w: cell, h: cell, action: `seal:${entry.id}` });
       if (focus === `seal:${entry.id}`) focusRing.set(cx, cy, cell, cell);
     });

@@ -13,8 +13,11 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
 
 - The characters are 朱文, raised. Steps: chamfer, border, cross (grooves), characters (each
   stroke's outline), clearing (the ground around the strokes), blowing the powder.
-- The face is seen square from above (about 78°). Everything is on or beside the knife; only
-  the album and Redo wait in the top corner.
+- A fresh seal opens with a card: its print-to-be, its stone and the six steps. Each finished
+  step names the next. The face is seen square from above (about 78°) on a carver's pad.
+  Everything is on or beside the knife; only the album and Redo wait in the top corner, in
+  one row; Blow sits just below the stone. The album shows seals still to carve as faint
+  prints.
 - The knife has two zones: dragging its wrapped handle moves it (the touched spot stays under
   the finger); holding its cinnabar-dyed grip drives it in. As in the video's 冲刀 it only
   pushes up the screen, away from the carver, the finger pushing it one to one; drawn back it
