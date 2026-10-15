@@ -100,3 +100,23 @@ test("undo rewinds strokes and coverage; a step can be redone alone", () => {
   restored.restore(again.serialize());
   assert.equal(restored.strokes[0].stage, 1);
 });
+
+test("the ground clears around the strokes, saves and restores", async () => {
+  const { layoutRelief } = await import("../seals.js");
+  const { CLEAR } = await import("../carve.js");
+  const carving = createCarving(layoutSeal(seals[0]), WIDTHS, layoutRelief(seals[0]));
+  for (const cut of carving.cuts) { cutAlong(carving, cut); }
+  assert.equal(carving.stage(), "clear");
+  // Scraping everywhere never clears a stroke's cell.
+  for (let v = -0.5; v <= 0.5; v += 0.02) for (let u = -0.5; u <= 0.5; u += 0.02) carving.scrape(u, v, 0.03);
+  assert.ok(carving.clearCoverage() > 0.95);
+  for (let index = 0; index < CLEAR * CLEAR; index++) if (carving.cleared[index]) assert.equal(carving.clearable[index], 1);
+  const saved = carving.serializeClear();
+  const again = createCarving(layoutSeal(seals[0]), WIDTHS, layoutRelief(seals[0]));
+  again.restoreClear(saved);
+  assert.equal(again.clearCoverage(), carving.clearCoverage());
+  carving.finishClear();
+  assert.equal(carving.stage(), "dust");
+  carving.removeStage("clear");
+  assert.equal(carving.stage(), "clear");
+});

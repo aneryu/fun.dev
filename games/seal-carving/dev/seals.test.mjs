@@ -35,6 +35,39 @@ test("the face is carved mirrored: the first character sits on the face's left",
 test("the first seal is the easiest to carve", () => {
   const glyphCuts = (seal) => layoutSeal(seal).filter((cut) => cut.stage === "glyphs").length;
   const first = glyphCuts(seals[0]);
-  assert.ok(first <= 24, `the first seal has ${first} glyph cuts`);
+  assert.ok(first <= 56, `the first seal has ${first} outline cuts`);
   for (const seal of seals.slice(1)) assert.ok(glyphCuts(seal) > first, `${seal.id} is easier than the first`);
+});
+
+test("the first seal's parallel strokes stand at least three grid units apart", () => {
+  const segments = [];
+  for (const character of seals[0].text.zh) {
+    for (const points of parseGlyph(seals[0].glyphs[character])) {
+      for (let i = 1; i < points.length; i++) segments.push({ character, a: points[i - 1], b: points[i] });
+    }
+  }
+  for (const [i, p] of segments.entries()) {
+    for (const q of segments.slice(i + 1)) {
+      if (p.character !== q.character) continue;
+      const horizontal = p.a[1] === p.b[1];
+      if (horizontal !== (q.a[1] === q.b[1])) continue;
+      const [axis, across] = horizontal ? [0, 1] : [1, 0];
+      const overlap = Math.min(Math.max(p.a[axis], p.b[axis]), Math.max(q.a[axis], q.b[axis])) - Math.max(Math.min(p.a[axis], p.b[axis]), Math.min(q.a[axis], q.b[axis]));
+      if (overlap <= 0 || p.a[across] === q.a[across]) continue;
+      assert.ok(Math.abs(p.a[across] - q.a[across]) >= 3, `${p.character}: strokes at ${p.a[across]} and ${q.a[across]} are too close to aim between`);
+    }
+  }
+});
+
+test("raised characters: outlines run outside the strokes, which stay clear of the ground", async () => {
+  const { layoutRelief } = await import("../seals.js");
+  for (const seal of seals) {
+    const { keep, cells } = layoutRelief(seal);
+    assert.equal(cells.length, 4);
+    for (const cut of layoutSeal(seal).filter((entry) => entry.stage === "glyphs")) {
+      // The groove's centre line lies outside every stroke.
+      const middle = [(cut.a[0] + cut.b[0]) / 2, (cut.a[1] + cut.b[1]) / 2];
+      assert.ok(!keep.some(([u0, v0, u1, v1]) => middle[0] > u0 + 1e-6 && middle[0] < u1 - 1e-6 && middle[1] > v0 + 1e-6 && middle[1] < v1 - 1e-6), `${seal.id}: an outline runs through a stroke`);
+    }
+  }
 });

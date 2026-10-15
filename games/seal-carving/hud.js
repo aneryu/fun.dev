@@ -85,32 +85,29 @@ export function createHud({ THREE, camera, scene, track, kit }) {
     };
   }
 
-  // Status: the seal's name, a five-part progress bar with the steps' names, a short hint.
+  // Status: the seal's name, a six-part progress bar with the steps' names, a short hint.
   const title = label({ size: 17, weight: 700, order: 100 });
   const hint = label({ size: 12, color: css(BROWN), order: 100 });
-  const STEPS = 5;
+  const STEPS = 6;
   const steps = Array.from({ length: STEPS }, () => ({ track: box(BROWN, 100, 0.25), bar: box(INK, 101), name: label({ size: 11, color: css(BROWN), order: 100 }) }));
   const corners = Array.from({ length: 2 }, () => ({ border: box(INK, 100), fill: box(CREAM, 101), text: label({ size: 13, weight: 700, order: 102 }) }));
-  // The cutting point: where the knife's edge meets the face. A thin ring round it, a bar as
-  // wide as the groove the edge will cut, and arrows along the two ways it can go.
-  // Yellow while the knife hovers, red while it is in the stone; dark outlines keep it legible
-  // on ink and on cut stone alike.
+  // The cutting point, kept quiet: a short, thin bar as wide as the groove the edge will cut
+  // (two, either side of the stroke, when cutting characters),
+  // and a small dot ahead, the way it pushes. Warm white and half see-through while
+  // the knife hovers, a soft red while it is in the stone. In the clearing, a faint ring shows
+  // how wide it scrapes instead.
   const marker = new THREE.Group();
-  const markerParts = [];
-  const markerPart = (geometry, color, order) => {
-    const mesh = new THREE.Mesh(geometry, track(new THREE.MeshBasicMaterial({ color, transparent: true, depthTest: false, depthWrite: false })));
+  const markerPart = (geometry, order) => {
+    const mesh = new THREE.Mesh(geometry, track(new THREE.MeshBasicMaterial({ color: 0xfff3dc, transparent: true, opacity: 0.75, depthTest: false, depthWrite: false })));
     mesh.renderOrder = order; mesh.frustumCulled = false;
     marker.add(mesh);
-    markerParts.push(mesh);
     return mesh;
   };
   const centered = track(new THREE.PlaneGeometry(1, 1));
-  const triangle = track(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(-0.5, -0.5, 0), new THREE.Vector3(0.5, -0.5, 0)]));
-  const ringOutline = markerPart(track(new THREE.RingGeometry(9, 13, 32)), INK, 96);
-  const ring = markerPart(track(new THREE.RingGeometry(10, 12, 32)), 0xffd43b, 97);
-  const barOutline = markerPart(centered, INK, 96), bar = markerPart(centered, 0xffd43b, 97);
-  const arrowOutline = markerPart(triangle, INK, 96), arrow = markerPart(triangle, 0xffd43b, 97);
-  const backOutline = markerPart(triangle, INK, 96), back = markerPart(triangle, 0xffd43b, 97);
+  const dotGeometry = track(new THREE.CircleGeometry(1, 16));
+  const bar = markerPart(centered, 97), bar2 = markerPart(centered, 97);
+  const dots = [markerPart(dotGeometry, 97), markerPart(dotGeometry, 97)];
+  const reach = markerPart(track(new THREE.RingGeometry(0.94, 1, 48)), 97);
   marker.visible = false;
   root.add(marker);
 
@@ -185,21 +182,28 @@ export function createHud({ THREE, camera, scene, track, kit }) {
 
   function layoutMarker() {
     if (!markerModel || card || album) { marker.visible = false; return; }
-    const { x, y, angle, edge, active } = markerModel;
+    const { x, y, angle, edge, active, radius, twin } = markerModel;
     marker.visible = true;
     marker.position.set(x, -y, 0);
     marker.rotation.z = angle; // the cut goes along +x of the marker
-    const color = active ? 0xff4a3a : 0xffd43b;
-    for (const mesh of [ring, bar, arrow, back]) mesh.material.color.setHex(color);
-    // The edge: across the cut, as wide as its groove (never thinner than legible).
-    const length = Math.max(10, edge);
-    bar.scale.set(3, length, 1); barOutline.scale.set(5, length + 2, 1);
-    // The arrow: just outside the ring, pointing the way the knife goes.
-    arrow.position.set(19, 0, 0); arrow.rotation.z = -Math.PI / 2; arrow.scale.set(8, 7, 1);
-    arrowOutline.position.copy(arrow.position); arrowOutline.rotation.z = arrow.rotation.z; arrowOutline.scale.set(11, 10, 1);
-    // The knife cuts both ways along its axis: a second arrow behind.
-    back.position.set(-19, 0, 0); back.rotation.z = Math.PI / 2; back.scale.copy(arrow.scale);
-    backOutline.position.copy(back.position); backOutline.rotation.z = back.rotation.z; backOutline.scale.copy(arrowOutline.scale);
+    const color = active ? 0xe8705a : 0xfff3dc, opacity = active ? 0.9 : 0.7;
+    for (const mesh of [bar, bar2, ...dots, reach]) { mesh.material.color.setHex(color); mesh.material.opacity = opacity; }
+    if (radius) {
+      bar.visible = bar2.visible = dots[0].visible = dots[1].visible = false;
+      reach.visible = true;
+      reach.scale.setScalar(radius);
+      reach.material.opacity = active ? 0.6 : 0.35;
+      return;
+    }
+    reach.visible = false;
+    bar.visible = dots[0].visible = dots[1].visible = true;
+    // Two edges either side of a stroke when cutting characters, else one.
+    bar.scale.set(2, Math.max(4, edge), 1); bar2.scale.copy(bar.scale);
+    bar.position.set(0, twin || 0, 0); bar2.position.set(0, -(twin || 0), 0);
+    bar2.visible = Boolean(twin);
+    // One dot ahead: the knife only pushes forward.
+    dots[0].position.set(9, 0, 0); dots[1].visible = false;
+    for (const dot of dots) dot.scale.setScalar(1.6);
   }
 
   function layoutBadges() {
@@ -330,7 +334,8 @@ export function createHud({ THREE, camera, scene, track, kit }) {
     setButtons(model) { buttonModel = model; layout(); },
     setCorner(model) { cornerModel = model; layout(); },
     setBadges(model) { badgeModel = model; layout(); },
-    // The cutting point: { x, y (CSS px), angle (radians, the cut's way on screen), edge (px), active }.
+    // The cutting point: { x, y (CSS px), angle (radians, the cut's way on screen), edge (px),
+    // active, radius (px, the clearing's reach instead) }.
     setMarker(model) { markerModel = model; layoutMarker(); },
     root,
     setCard(model) { card = model; layout(); },

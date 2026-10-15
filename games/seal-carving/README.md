@@ -11,32 +11,34 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
 
 ## How it plays
 
-- The face is seen square from above (about 78°, so a sliver of the sides gives depth).
-- No button row: everything is on or beside the knife, so the finger stays where it works.
-  The knife has two zones: dragging its wrapped handle moves it (the touched spot stays under
-  the finger); holding its cinnabar-dyed grip or blade drives it into the stone, and the finger
-  then pushes it one to one along the knife's axis, either way; it slides along ground already
-  cut and carves beyond; letting go lifts it (holding again carries on). The knife is upright
-  (cuts up and down) or across (left and right); ⟳ just below the cutting point (or R) switches,
-  ↶ beside it undoes. While cutting the knife is see-through, so the groove shows.
-- A marker shows the cutting point: a ring, a bar as wide as the groove, arrows both ways along
-  the axis (yellow hovering, red in the stone). Line assist (a setting, on by default): within
-  12 CSS px of an open draft line of the step that lies along the knife, the point settles onto
-  it, and onto its end when near one, so a phone finger can place it; the aimed line turns
-  yellow. Nothing snaps while cutting: grooves go where the knife goes. A draft line counts as
-  cut where a groove runs over it; at 90% coverage its last gaps are cut when the knife lifts.
-- Undo takes back the last swipe (repeatedly, this session; one stroke at a time for a seal
-  reopened from a save). Redo, top right under the album, opens a card: redo the current step (or the last step cut, if
-  nothing of the current one is), or the whole seal. Each saved stroke records its step.
-  Q/E still turn the stone on a keyboard. The player's Restart keeps progress, as in every game.
+- The characters are 朱文, raised. Steps: chamfer, border, cross (grooves), characters (each
+  stroke's outline), clearing (the ground around the strokes), blowing the powder.
+- The face is seen square from above (about 78°). Everything is on or beside the knife; only
+  the album and Redo wait in the top corner.
+- The knife has two zones: dragging its wrapped handle moves it (the touched spot stays under
+  the finger); holding its cinnabar-dyed grip drives it in. As in the video's 冲刀 it only
+  pushes up the screen, away from the carver, the finger pushing it one to one; drawn back it
+  slides down its groove. Letting go lifts it.
+- The stone turns under the knife: a finger anywhere off the knife turns it about its centre,
+  settling near each quarter turn (with a click) and squaring up when let go. The knife only
+  goes in while the stone is square.
+- Line assist (a setting, on by default): within 16 CSS px of an open draft line (for the
+  characters, of an uncut stroke's centre line) along the knife, the cutting point settles onto
+  it, and onto its nearer end; the line turns yellow. For the characters the knife has two
+  edges, one each side of the stroke, so one push cuts both sides of its outline. Grooves and
+  clearing never touch the strokes: the strokes are painted back as uncut stone.
+- Clearing: holding the grip, the knife scrapes a broad swath wherever the finger takes it; at
+  85% the rest is cleared. Undo (↶ beside the point) takes back swipes in the cutting steps;
+  Redo clears the current step (or the whole seal).
+- A quiet marker shows the cutting point: a thin bar as wide as the groove (two for the
+  characters), a dot ahead; in the clearing, a faint ring as wide as the scrape.
+- Keyboard: arrows move the knife; hold Space and Up to push; Q/E turn the stone, Z undoes,
+  B blows, A opens the album.
 - The knife in the stone is a stick-slip system tuned to the video's sound (pushes of
-  0.25–0.45 s, cracks 15–40 ms apart): the hand pulls the tip through a spring, the tip
-  stays stuck until the pull passes the stone's strength, then a flake breaks off. Each
-  crack sounds, vibrates, throws a flake and powder at once. Stones differ in hardness,
-  flake size and hard grains (`stones[*].carve` in `stone.js`).
-- Mouse: the same two zones. Keyboard: arrows move the knife, R turns it; hold Space to put
-  it in, an arrow along the knife pushes either way, let go to lift; Z undoes; Q/E turn, B blows, A opens
-  the album.
+  0.25–0.45 s, cracks 15–40 ms apart): the hand pulls the tip through a spring, the tip stays
+  stuck until the pull passes the stone's strength, then a flake breaks off. Each crack sounds,
+  vibrates, throws a flake and powder at once. Stones differ in hardness, flake size and hard
+  grains (`stones[*].carve` in `stone.js`).
 
 ## Files
 
@@ -57,7 +59,8 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
 With `context.progress` v1 the game saves `{schemaVersion: 1, data: {current, seals,
 unlockAll}}`. Each seal keeps its strokes as base64 (`carve.js` `serialize`: per stroke
 an int16 start, its axis, blade and step, and int8 wobble every 0.006 face units); six finished
-seals stay under 40 KB. It saves whenever the knife lifts and when a seal is finished.
+seals stay under 40 KB, plus 2 KB each for the cleared ground (one bit per cell of a
+128 × 128 grid). It saves whenever the knife lifts and when a seal is finished.
 Unsupported saves are refused before play and stay exportable through the player; without
 the capability the game plays and its label says saving is unavailable.
 
@@ -67,6 +70,7 @@ the capability the game plays and its label says saving is unavailable.
 npm test                      # unit tests in dev/ (also run by the root npm test)
 npm run preview               # node dev/preview.mjs: prints and faces of every seal as PNG
 node dev/playtest.mjs <url> <out> [mobile|desktop|cover] [script.json]
+node dev/bot.mjs '<url>?debug=1' [out] [hand-error-px]   # plays the bench's seal by touch
 ```
 
 `dev/playtest.mjs` drives the running game in Chromium with touch, mouse, cheats and

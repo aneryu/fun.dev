@@ -1,5 +1,5 @@
-import { seals, layoutSeal, FACE, STAGES } from "./seals.js";
-import { createCarving, createMaskPainter, FINISH, AXES, STEP, hash } from "./carve.js";
+import { seals, layoutSeal, layoutRelief, FACE, STAGES } from "./seals.js";
+import { createCarving, createMaskPainter, FINISH, CLEAR_FINISH, AXES, STEP, hash } from "./carve.js";
 import { createStone, stones, HEIGHT } from "./stone.js";
 import { createKnife } from "./knife.js";
 import { createSound } from "./sound.js";
@@ -12,17 +12,19 @@ export const options = [
   { id: "finish-step", section: "cheats", type: "action", label: { zh: "完成当前工序", en: "Finish this step" } },
   { id: "unlock-all", section: "cheats", type: "action", label: { zh: "解锁全部印文", en: "Unlock every seal" } },
   { id: "auto-carve", section: "cheats", audience: "debug", type: "toggle", label: { zh: "自动刻（演示）", en: "Carve by itself (demo)" } },
+  { id: "test-hook", section: "cheats", audience: "debug", type: "toggle", label: { zh: "测试接口（试玩脚本用）", en: "Test hook (for playtest scripts)" } },
 ];
 
 const copy = {
   zh: {
-    steps: { bevel: "倒边", border: "刻边框", cross: "分格", glyphs: "刻字", dust: "吹去石粉", done: "完成" },
-    stepNames: { bevel: "倒边", border: "边框", cross: "十字", glyphs: "刻字", dust: "吹粉" },
+    steps: { bevel: "倒边", border: "刻边框", cross: "分格", glyphs: "刻字轮廓", clear: "铲底", dust: "吹去石粉", done: "完成" },
+    stepNames: { bevel: "倒边", border: "边框", cross: "十字", glyphs: "刻字", clear: "铲底", dust: "吹粉" },
     hints: {
-      bevel: "拖刀柄把落刀点放到红线上，按住握把顺着线划",
-      border: "落刀点放到红线上，按住握把顺着线划；⟳ 横竖",
+      bevel: "拖刀柄把落刀点放到线的下端，按住握把往上推",
+      border: "刀只往上推：横线就在空白处滑动，把印石转过来",
       cross: "刻一个十字，分成四格",
-      glyphs: "竖线竖着刻，横线点 ⟳ 横过来刻；↶ 撤销",
+      glyphs: "字是凸的：沿笔画中间描一刀，两边一起刻出；转石刻横画",
+      clear: "按住握把在字周围来回划，铲掉空白，笔画铲不到",
       dust: "点印面上的「吹」，或在屏幕上划一下",
       done: "刻好了",
     },
@@ -33,8 +35,7 @@ const copy = {
     finished: (title) => `「${title}」刻成`, cardDetail: (stone) => `${stone} · 已收入印谱`,
     next: "刻下一方", stay: "再看看", close: "关闭", back: "回去刻", view: "看印石", recarve: "重刻这一方", sure: "确定重刻？", restart: "重刻", undo: "撤销",
     undone: "撤销了一刀", redoTitle: "重刻", redoDetail: "刀痕会清掉，石粉留着", redoStage: (name) => `重刻「${name}」`, redoSeal: "整方重来", cancel: "取消",
-    redone: (name) => `「${name}」重新开始`, holdKnife: "按住刀柄拖动移刀，按住红色握把划着刻",
-    turnKnife: "转刀", headings: ["刀竖着：上下刻", "刀横着：左右刻"], restarted: "这一方重新开始",
+    redone: (name) => `「${name}」重新开始`, restarted: "这一方重新开始",
     albumTitle: (count, total) => `印谱 ${count}/${total}`, albumDetail: "点一方印：刻完的看印蜕，没刻完的接着刻", locked: "？",
     allDone: "全部刻完了！可以在印谱里挑一方重刻",
     viewing: (title) => `看「${title}」`,
@@ -44,13 +45,14 @@ const copy = {
     share: (count) => `我在 fun.dev 刻了 ${count} 方印`, cheats: "（开了秘籍）",
   },
   en: {
-    steps: { bevel: "Chamfer", border: "Border", cross: "Divide", glyphs: "Characters", dust: "Blow", done: "Done" },
-    stepNames: { bevel: "Edge", border: "Border", cross: "Cross", glyphs: "Glyphs", dust: "Blow" },
+    steps: { bevel: "Chamfer", border: "Border", cross: "Divide", glyphs: "Outlines", clear: "Clearing", dust: "Blow", done: "Done" },
+    stepNames: { bevel: "Edge", border: "Border", cross: "Cross", glyphs: "Glyphs", clear: "Clear", dust: "Blow" },
     hints: {
-      bevel: "Drag the handle to put the point on a red line; hold the grip, swipe along",
-      border: "Point on a red line, hold the grip, swipe along; ⟳ turns",
+      bevel: "Put the point at a line's lower end; hold the grip and push up",
+      border: "The knife only pushes up: swipe the bare ground to turn the stone",
       cross: "Cut a cross into four cells",
-      glyphs: "Upright knife for upright lines, ⟳ for lines across; ↶ undoes",
+      glyphs: "Raised characters: trace each stroke's middle, both sides cut; turn the stone",
+      clear: "Hold the grip and scrub around the characters; the strokes are safe",
       dust: "Tap Blow on the face, or swipe the screen",
       done: "Finished",
     },
@@ -61,8 +63,7 @@ const copy = {
     finished: (title) => `“${title}” is carved`, cardDetail: (stone) => `${stone} · added to your seals`,
     next: "Next seal", stay: "Look again", close: "Close", back: "Carve", view: "See stone", recarve: "Carve again", sure: "Sure?", restart: "Redo", undo: "Undo",
     undone: "Undid a cut", redoTitle: "Redo", redoDetail: "The cuts go; the powder stays", redoStage: (name) => `Redo ${name}`, redoSeal: "Whole seal", cancel: "Cancel",
-    redone: (name) => `${name} starts over`, holdKnife: "Drag the knife by its handle; hold the red grip to carve",
-    turnKnife: "Turn", headings: ["Knife upright: cuts up and down", "Knife across: cuts left and right"], restarted: "Starting this seal over",
+    redone: (name) => `${name} starts over`, restarted: "Starting this seal over",
     albumTitle: (count, total) => `Seals ${count}/${total}`, albumDetail: "Tap a seal: finished ones show their print", locked: "?",
     allDone: "All seals carved! Pick one in Seals to carve it again",
     viewing: (title) => `Viewing “${title}”`,
@@ -75,8 +76,11 @@ const copy = {
 
 // The knife's two headings, as world x, z axes: its edge cuts along one of them either way;
 // 转刀 switches between them. The handle leans back along the axis.
-const HEADINGS = [[0, 1], [-1, 0]]; // along the screen's height, across it
-const SNAP_PX = 12; // line assist: how near (CSS px) the cutting point must come to a draft line
+const HEADINGS = [[0, -1]]; // the knife pushes up the screen, away from the carver (冲刀)
+const SPIN_MIN_PX = 40; // nearer the stone's centre than this, a sideways drag turns it
+const SPIN_DRAG_PX = 160; // sideways CSS px per quarter turn near the centre
+const DETENT = 0.14; // radians either side of a quarter turn where the stone settles (~8°)
+const SNAP_PX = 16; // line assist: how near (CSS px) the cutting point must come to a draft line
 const KNIFE_HIT_PX = 36; // a finger this close to the knife picks it up
 const DIRECTION_PX = 8; // the first push this long picks the cut's direction
 const QUARTER = Math.PI / 2;
@@ -190,12 +194,13 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     const own = (resource) => { disposables.push(resource); return resource; };
     const look = stones[seal.stone];
     const stone = createStone({ THREE, track: own, look, seed: seals.indexOf(seal) * 7 + 3, anisotropy });
-    const carving = createCarving(layoutSeal(seal), WIDTHS);
+    const carving = createCarving(layoutSeal(seal), WIDTHS, layoutRelief(seal));
     const painter = createMaskPainter(carving, stone.mask, stone.maskSize);
     const saved = state.seals[seal.id];
     painter.clear();
     if (saved?.cuts) {
       try { carving.restore(saved.cuts); } catch { /* A layout change discards an old carving of this seal. */ }
+      if (saved.clear) try { carving.restoreClear(saved.clear); } catch { /* likewise its ground */ }
       painter.paintAll();
     }
     const effects = createEffects({ THREE, track: own, color: look.groove, stoneColor: look.light, faceHalf: 0.5, floor: -HEIGHT, reducedMotion });
@@ -270,6 +275,11 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       g.lineTo((cut.b[0] + 0.5) * size, (cut.b[1] + 0.5) * size);
       g.stroke();
     };
+    // The raised characters to keep, faintly, while their outlines are cut and the ground cleared.
+    if (stage === "glyphs" || stage === "clear") {
+      g.fillStyle = "rgb(90,0,0)";
+      for (const [u0, v0, u1, v1] of bench.carving.relief.keep) g.fillRect((u0 + 0.5) * size, (v0 + 0.5) * size, (u1 - u0) * size, (v1 - v0) * size);
+    }
     for (const cut of bench.carving.cuts) {
       if (cut.stage !== stage || cut.done) continue;
       // Bold enough to see at a glance on a phone.
@@ -310,8 +320,8 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     if (prints.has(seal.id)) return prints.get(seal.id);
     const saved = state.seals[seal.id];
     if (!saved?.cuts) return null;
-    const carving = createCarving(layoutSeal(seal), WIDTHS);
-    try { carving.restore(saved.cuts); } catch { return null; }
+    const carving = createCarving(layoutSeal(seal), WIDTHS, layoutRelief(seal));
+    try { carving.restore(saved.cuts); if (saved.clear) carving.restoreClear(saved.clear); } catch { return null; }
     const maskCanvas = new OffscreenCanvas(512, 512);
     createMaskPainter(carving, maskCanvas.getContext("2d"), 512).paintAll();
     const texture = makePrint(maskCanvas);
@@ -322,7 +332,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
 
   // Saving: whenever the knife lifts, a few kilobytes.
   function save() {
-    if (!bench.viewOnly) state.seals[bench.seal.id] = { ...state.seals[bench.seal.id], cuts: bench.carving.serialize(), done: Boolean(state.seals[bench.seal.id]?.done) };
+    if (!bench.viewOnly) state.seals[bench.seal.id] = { ...state.seals[bench.seal.id], cuts: bench.carving.serialize(), clear: bench.carving.serializeClear(), done: Boolean(state.seals[bench.seal.id]?.done) };
     if (progress) void progress.save(saving.serialize(state)).catch(() => { /* The player shows the failure and keeps an exportable snapshot. */ });
   }
 
@@ -379,7 +389,8 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   }
 
   let yaw = 0, yawTarget = 0;
-  const settled = () => Math.abs(yawTarget - yaw) < 0.02;
+  // The stone sits square (and still) at a quarter turn: only then does the knife go in.
+  const settled = () => Math.abs(yawTarget - yaw) < 0.02 && Math.abs(yaw - Math.round(yaw / QUARTER) * QUARTER) < 0.02;
   function currentStage() { return bench.viewOnly || state.seals[bench.seal.id]?.done ? "done" : bench.carving.stage(); }
   const carvable = () => bench && !bench.viewOnly && !["dust", "done"].includes(currentStage());
 
@@ -394,7 +405,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   function aligned(cut) {
     if (!settled()) return false;
     const [x, z] = localTrack();
-    return Math.abs(cut.direction[0] * x + cut.direction[1] * z) > 0.98 || Math.abs(cut.direction[0] * z - cut.direction[1] * x) > 0.98;
+    return Math.abs(cut.direction[0] * x + cut.direction[1] * z) > 0.98;
   }
   function axisOf(sign = 1) {
     const [x, z] = localTrack(sign);
@@ -408,6 +419,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     x: 0.1, z: 0.2, targetX: 0.1, targetZ: 0.2, lift: 0.05, // ready on the face
     plunged: false, origin: null, stroke: null, travel: 0, touched: new Set(), cut: false,
     wobble: 0, kick: 0, speed: 0, tension: 0, shake: 0, shakeVelocity: 0,
+    scraping: false, // clearing the ground, the knife held flat
     dir: [0, 1], // world direction of this cut: the knife's heading
     heading: 0, // index in HEADINGS
     headingAngle: 0, // the handle's turn about the vertical, unwrapped so it turns the short way
@@ -503,7 +515,8 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
         knife.at += Math.max(-SLIDE * dt, Math.min(SLIDE * dt, goal - knife.at));
         continue;
       }
-      const sign = knife.hand > hi + 1e-6 ? 1 : knife.hand < lo - 1e-6 ? -1 : 0;
+      // It carves only pushed forward; drawn back it slides down its groove, no further.
+      const sign = knife.hand > hi + 1e-6 ? 1 : 0;
       if (!sign) continue;
       const pull = Math.abs(knife.hand - knife.at);
       // Stuck, under tension, until the pull breaks a flake.
@@ -539,19 +552,30 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     if (reach < STEP * 0.5) return;
     const { carving } = bench;
     const side = sign > 0 ? 0 : 1;
-    let stroke = knife.strokes[side];
-    if (!stroke) {
-      const [u, v] = toLocal(knife.origin.x, knife.origin.z);
-      stroke = knife.strokes[side] = carving.beginStroke(u, v, axisOf(sign), STAGE_WIDTH[currentStage()], STAGES.indexOf(currentStage()));
+    // Cutting characters the knife has two edges, one each side of the stroke it follows,
+    // so a pass along a stroke cuts both its outlines; otherwise a single edge.
+    if (!knife.strokes[side]) {
+      const twin = currentStage() === "glyphs" ? carving.relief.twin : 0;
+      const across = [-knife.dir[1], knife.dir[0]];
+      knife.strokes[side] = (twin ? [-twin, twin] : [0]).map((shift) => {
+        const [u, v] = toLocal(knife.origin.x + across[0] * shift, knife.origin.z + across[1] * shift);
+        return carving.beginStroke(u, v, axisOf(sign), STAGE_WIDTH[currentStage()], STAGES.indexOf(currentStage()));
+      });
     }
-    // The wobble across the track, in the stroke's own sideways direction.
+    let stroke = null, points = [];
+    const cuts = [];
+    for (const edge of knife.strokes[side]) {
+      const [dx, dy] = AXES[edge.axis];
+      scratch.set(-knife.dir[1] * (knife.wobble + knife.kick), 0, knife.dir[0] * (knife.wobble + knife.kick)).applyAxisAngle(UP, -yaw);
+      const offset = scratch.x * -dy + scratch.z * dx;
+      const grown = carving.extend(edge, reach, offset);
+      cuts.push(...grown.cuts);
+      if (grown.points.length) bench.painter.paint(edge, grown.points);
+      if (!stroke) { stroke = edge; points = grown.points; }
+    }
     const [dx, dy] = AXES[stroke.axis];
-    scratch.set(-knife.dir[1] * (knife.wobble + knife.kick), 0, knife.dir[0] * (knife.wobble + knife.kick)).applyAxisAngle(UP, -yaw);
-    const offset = scratch.x * -dy + scratch.z * dx;
-    const { points, cuts } = carving.extend(stroke, reach, offset);
     if (points.length) {
       knife.cut = true;
-      bench.painter.paint(stroke, points);
       maskDirty = true;
       const width = WIDTHS[stroke.width];
       for (const k of points) sprinkle(carving.strokePoint(stroke, k), [dx, dy], width, 1, stroke.width === 0 ? 0.4 : 0.6);
@@ -573,6 +597,40 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     }
     for (const cut of cuts) knife.touched.add(cut);
     if (carving.settle(cuts).length) afterCuts();
+  }
+
+  // Clearing the ground: the knife held flat scrapes a broad swath along the finger's path;
+  // the raised strokes are never touched. Each bite crackles, sheds powder and buzzes; at
+  // CLEAR_FINISH the last of the ground is cleared too.
+  const SCRAPE_RADIUS = 0.07; // face units: half the swath (a broad flat blade)
+  let scrapeChips = 0;
+  function scrapeAlong(x0, z0, x1, z1) {
+    if (currentStage() !== "clear") return;
+    const { carving } = bench;
+    const [u0, v0] = toLocal(x0, z0), [u1, v1] = toLocal(x1, z1);
+    const steps = Math.max(1, Math.ceil(Math.hypot(u1 - u0, v1 - v0) / 0.006));
+    const fresh = [];
+    for (let k = 0; k <= steps; k++) fresh.push(...carving.scrape(u0 + (u1 - u0) * k / steps, v0 + (v1 - v0) * k / steps, SCRAPE_RADIUS));
+    if (!fresh.length) return;
+    bench.painter.paintClear(fresh);
+    maskDirty = labelsDirty = true;
+    for (let i = 0; i < fresh.length; i += 9) {
+      const [u, v] = carving.clearCell(fresh[i]);
+      sprinkle([u, v], [u1 - u0, v1 - v0], 0.02, 1, 0.5);
+    }
+    scrapeChips += fresh.length;
+    while (scrapeChips > 40) {
+      scrapeChips -= 40;
+      if (chipClock <= 0) { sound.chip(0.3 + Math.random() * 0.4, 0.5); chipClock = 0.025; }
+      if (buzzClock <= 0) { context.haptics.vibrate([8]); buzzClock = 0.05; }
+      if (Math.random() < 0.3) bench.effects.flake(new THREE.Vector3(u1, 0.003, v1), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, -1), 0.4, 0.6);
+    }
+    if (carving.clearCoverage() >= CLEAR_FINISH) {
+      bench.painter.paintClear(carving.finishClear());
+      knife.scraping = false;
+      afterCuts();
+      save();
+    }
   }
 
   // Rewrites the carving (undo, redo a step) with the knife out of the stone meanwhile.
@@ -604,6 +662,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     const stages = ["bevel", "border", "cross", "glyphs"];
     const cut = new Set(bench.carving.strokes.map((stroke) => stages[stroke.stage]));
     const current = currentStage();
+    if (current === "clear" && bench.carving.clearCoverage() > 0) return "clear";
     if (cut.has(current)) return current;
     return stages.filter((name) => cut.has(name)).at(-1) ?? null;
   }
@@ -641,8 +700,8 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     if (carvable() && settled()) {
       const [u, v] = toLocal(knife.x, knife.z);
       const width = WIDTHS[STAGE_WIDTH[currentStage()]];
-      for (const cut of bench.carving.cuts) {
-        if (cut.stage !== currentStage() || cut.done || !aligned(cut)) continue;
+      for (const cut of snapLines()) {
+        if (!aligned(cut)) continue;
         const { t, distance } = bench.carving.project(cut, u, v);
         if (Math.abs(distance) <= Math.max(width, cut.width) * 0.7 && t > -0.05 && t < 1.05) { next = cut; break; }
       }
@@ -684,7 +743,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   let showcase = 0; // seconds of the turn left
   function completeSeal() {
     const seal = bench.seal;
-    state.seals[seal.id] = { cuts: bench.carving.serialize(), done: true };
+    state.seals[seal.id] = { cuts: bench.carving.serialize(), clear: bench.carving.serializeClear(), done: true };
     refreshPrint(seal);
     save();
     context.haptics.vibrate("success");
@@ -749,21 +808,24 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     layoutButtons();
   }
 
-  // 转刀: a quarter turn in place, between the knife's two headings; not while it is in the stone.
-  function turnKnife() {
-    if (knife.plunged || !carvable()) return;
-    knife.headingAngle += knife.heading === 0 ? -Math.PI / 2 : Math.PI / 2;
-    knife.heading = 1 - knife.heading;
-    snapAim();
-    sound.tap();
-    context.haptics.vibrate("tap");
-    context.announce(words.headings[knife.heading]);
+  // Where the handle leans: up the screen while the knife is upright; across, toward the
+  // middle of the screen, so it never ends up off screen (the knife cuts either way, so the
+  // side does not matter to the cut). Decided when the knife turns or is let go, never while
+  // a finger holds it. The angle is unwrapped so the handle swings the short way round.
+  function aimHandle() {
+    knife.headingAngle = 0; // the knife always stands the same way; the stone turns under it
   }
 
   function turn(direction) {
     if (knife.plunged) return;
     yawTarget = Math.round(yawTarget / QUARTER) * QUARTER + direction * QUARTER;
     sound.tap();
+    afterTurn();
+  }
+  // The stone came to rest at a new quarter: the knife's point may now lie on other lines.
+  function afterTurn() {
+    draftDirty = true;
+    knife.aimX = knife.targetX; knife.aimZ = knife.targetZ;
   }
 
   // Controls live where the finger already is: the knife's handle moves it and its grip
@@ -775,11 +837,11 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     if (bench?.viewOnly) hud.setCorner([{ id: "album", label: words.album }, { id: "back", label: words.back }]);
     else if (bench && currentStage() !== "done") hud.setCorner([{ id: "album", label: words.album }, { id: "redo", label: words.restart }]);
     else hud.setCorner([{ id: "album", label: words.album }]);
-    badgeKey = "";
+    badgeKey = null; // redraw the badges on the next frame
   }
 
   // Badge positions follow the knife each frame; the HUD is only touched when they move.
-  let badgeKey = "", lastMarker = "";
+  let badgeKey = null, lastMarker = "", shownBadges = [];
   const badgePoint = new THREE.Vector3();
   function placeBadges() {
     const list = [];
@@ -790,13 +852,13 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       const center = screenOf(...toWorld(0, 0));
       list.push({ id: "blow", label: words.blow, x: center[0], y: center[1], radius: 34, active: true });
     } else if (carvable() && !hud.modal) {
-      // Fixed beside the cutting point, below it, so they stay put when the knife turns.
+      // Undo, just beside and below the cutting point; the clearing has none.
       const tip = screenOf(knife.x, knife.z);
-      const turnAt = clamp([tip[0] - 50, tip[1] + 44], 18), undoAt = clamp([tip[0] + 50, tip[1] + 44], 18);
-      list.push({ id: "turn-knife", label: "⟳", x: turnAt[0], y: turnAt[1] });
-      if (bench.carving.strokes.length) list.push({ id: "undo", label: "↶", x: undoAt[0], y: undoAt[1] });
+      const undoAt = clamp([tip[0] + 52, tip[1] + 6], 18); // to the right, clear of the handle below
+      if (currentStage() !== "clear" && bench.carving.strokes.length) list.push({ id: "undo", label: "↶", x: undoAt[0], y: undoAt[1] });
     }
-    const key = list.map((entry) => `${entry.id}${Math.round(entry.x)},${Math.round(entry.y)}`).join(";");
+    shownBadges = list;
+    const key = list.map((entry) => `${entry.id}${Math.round(entry.x)},${Math.round(entry.y)}`).join(";") || "none";
     if (key !== badgeKey) { badgeKey = key; hud.setBadges(list); }
     // The cutting point, where the groove will start, its width and its way.
     if (carvable()) {
@@ -806,7 +868,10 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       const angle = Math.atan2(-(ahead[1] - tip[1]), ahead[0] - tip[0]);
       const edge = WIDTHS[STAGE_WIDTH[currentStage()]] * pixelsPer().x;
       const markerKey = `${tip[0].toFixed(1)},${tip[1].toFixed(1)},${angle.toFixed(2)},${edge.toFixed(1)},${knife.plunged}`;
-      if (markerKey !== lastMarker) { lastMarker = markerKey; hud.setMarker({ x: tip[0], y: tip[1], angle, edge, active: knife.plunged }); }
+      const clearing = currentStage() === "clear";
+      const radius = clearing ? SCRAPE_RADIUS * pixelsPer().x : 0;
+      const twin = currentStage() === "glyphs" ? bench.carving.relief.twin * pixelsPer().x : 0;
+      if (markerKey + clearing + knife.scraping !== lastMarker) { lastMarker = markerKey + clearing + knife.scraping; hud.setMarker({ x: tip[0], y: tip[1], angle, edge, twin, active: knife.plunged || knife.scraping, radius }); }
     } else if (lastMarker) { lastMarker = ""; hud.setMarker(null); }
   }
 
@@ -842,13 +907,12 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       case "right": turn(-1); break;
       case "blow": blow(1); break;
       case "undo": undo(); break;
-      case "turn-knife": turnKnife(); break;
       case "redo": openRedo(); break;
       case "redo-cancel": closeCard(); break;
       case "redo-seal":
         closeCard();
         lift(true);
-        state.seals[bench.seal.id] = { cuts: null, done: false };
+        state.seals[bench.seal.id] = { cuts: null, clear: null, done: false };
         refreshPrint(bench.seal);
         checkpoints.length = 0;
         carveSeal(bench.seal);
@@ -868,7 +932,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       case "recarve": confirmRecarve = true; openCard(cardSeal, "seal"); break;
       case "recarve-sure": {
         const seal = cardSeal;
-        state.seals[seal.id] = { cuts: null, done: false };
+        state.seals[seal.id] = { cuts: null, clear: null, done: false };
         refreshPrint(seal);
         closeCard(); closeAlbum();
         carveSeal(seal);
@@ -899,11 +963,11 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     const stage = currentStage();
     const title = bench.viewOnly ? words.viewing(text(bench.seal.text)) : `${text(bench.seal.text)} · ${words.nth(seals.indexOf(bench.seal))}`;
     // The five steps, the current one filled by how much of it is cut.
-    const order = ["bevel", "border", "cross", "glyphs", "dust"];
+    const order = ["bevel", "border", "cross", "glyphs", "clear", "dust"];
     const at = stage === "done" ? order.length : order.indexOf(stage);
     const steps = bench.viewOnly ? [] : order.map((name, index) => {
       const cuts = bench.carving.cuts.filter((cut) => cut.stage === name);
-      const fill = cuts.length ? cuts.reduce((sum, cut) => sum + cut.carved / cut.count, 0) / cuts.length : 0;
+      const fill = name === "clear" ? Math.min(1, bench.carving.clearCoverage() / CLEAR_FINISH) : cuts.length ? cuts.reduce((sum, cut) => sum + cut.carved / cut.count, 0) / cuts.length : 0;
       return { name: words.stepNames[name], state: index < at ? "done" : index === at ? "current" : "todo", fill };
     });
     hud.setStatus({ title, steps, hint: bench.viewOnly || stage === "done" ? "" : words.hints[stage] });
@@ -940,6 +1004,33 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   // Line assist: when the cutting point comes within a few pixels of an open draft line of this
   // step that lies along the knife's axis, it settles onto the line, and onto its end when near
   // one. The marker shows where it settled, so what is shown is what will be cut.
+  // What the cutting point settles onto: open lines of the step; for the characters, the
+  // centre lines of strokes whose outline is not yet cut (the two-edged knife follows them).
+  function snapLines() {
+    const { carving } = bench;
+    if (currentStage() !== "glyphs") return carving.cuts.filter((cut) => cut.stage === currentStage() && !cut.done);
+    return spineLines().filter((spine) => spine.open);
+  }
+  let spineCache = null;
+  function spineLines() {
+    const { carving } = bench;
+    if (!spineCache || spineCache.carving !== carving) {
+      // Each spine with the outline cuts it can reach: parallel, a twin's width to either side.
+      const list = carving.relief.spines.map(({ a, b }) => {
+        const dx = b[0] - a[0], dy = b[1] - a[1], length = Math.hypot(dx, dy);
+        const spine = { a, b, length, direction: [dx / length, dy / length], normal: [-dy / length, dx / length], width: FACE.glyphWidth };
+        spine.cuts = carving.cuts.filter((cut) => cut.stage === "glyphs" && Math.abs(cut.direction[0] * spine.direction[0] + cut.direction[1] * spine.direction[1]) > 0.98).filter((cut) => {
+          const middle = [(cut.a[0] + cut.b[0]) / 2, (cut.a[1] + cut.b[1]) / 2];
+          const { t, distance } = carving.project(spine, middle[0], middle[1]);
+          return Math.abs(Math.abs(distance) - carving.relief.twin) < 0.004 && t > -0.05 && t < 1.05;
+        });
+        return spine;
+      });
+      spineCache = { carving, list };
+    }
+    for (const spine of spineCache.list) spine.open = spine.cuts.some((cut) => !cut.done);
+    return spineCache.list;
+  }
   function snapAim() {
     if (context.options["line-assist"] === false || knife.plunged || !carvable() || knife.aimX === undefined) return;
     knife.targetX = knife.aimX; knife.targetZ = knife.aimZ;
@@ -948,8 +1039,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     const axis = [scratch.x, scratch.z];
     const scale = pixelsPer().x;
     let best = null, bestDistance = SNAP_PX;
-    for (const cut of bench.carving.cuts) {
-      if (cut.stage !== currentStage() || cut.done) continue;
+    for (const cut of snapLines()) {
       if (Math.abs(cut.direction[0] * axis[0] + cut.direction[1] * axis[1]) < 0.98) continue;
       const { t, distance } = bench.carving.project(cut, u, v);
       const outside = Math.max(0, -t, t - 1) * cut.length * scale;
@@ -960,8 +1050,9 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     if (!best) return;
     const { cut } = best;
     let t = Math.max(0, Math.min(1, best.t));
-    if (t * cut.length * scale < SNAP_PX) t = 0;
-    else if ((1 - t) * cut.length * scale < SNAP_PX) t = 1;
+    // Onto the nearer end only, so a short line never sends the point to its far end.
+    if (t < 0.5 && t * cut.length * scale < SNAP_PX) t = 0;
+    else if (t >= 0.5 && (1 - t) * cut.length * scale < SNAP_PX) t = 1;
     const [x, z] = toWorld(...bench.carving.point(cut, t));
     knife.targetX = x; knife.targetZ = z;
   }
@@ -1009,7 +1100,12 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     if (hud.modal || pointers.size > 1) return;
     if (currentStage() === "dust") { entry.role = "dust"; return; }
     const zone = carvable() ? knifeZone(x, y) : null;
-    if (zone === "cut") {
+    if (zone === "cut" && currentStage() === "clear") {
+      // Clearing: the knife scrapes flat wherever the finger takes it.
+      entry.role = "scrape";
+      knife.scraping = true;
+      scrapeAlong(knife.x, knife.z, knife.x, knife.z);
+    } else if (zone === "cut") {
       // Pressing the grip drives the knife in; it carves while the finger swipes.
       entry.role = "cut";
       plunge();
@@ -1018,7 +1114,15 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       entry.role = "move";
       const tip = screenOf(knife.x, knife.z);
       entry.grab = [tip[0] - x, tip[1] - y];
-    } else if (carvable()) hint(words.holdKnife);
+    } else if (!knife.plunged && !knife.scraping && bench && !bench.viewOnly && showcase <= 0) {
+      // Anywhere else: the finger turns the stone about its centre, like a hand turning it.
+      entry.role = "spin";
+      const center = screenOf(...toWorld(0, 0));
+      entry.center = center;
+      entry.angle = Math.atan2(y - center[1], x - center[0]);
+      entry.yawStart = yaw;
+      entry.lastDetent = Math.round(yaw / QUARTER);
+    }
     context.invalidate();
   }, { signal });
 
@@ -1039,7 +1143,44 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       const across = knife.dir[0] ? dy / scale.z : dx / scale.x;
       push(along);
       knife.wobble = clampWobble(knife.wobble + across * 0.03);
+    } else if (entry.role === "scrape" && knife.scraping) {
+      const scale = pixelsPer();
+      const fromX = knife.x, fromZ = knife.z;
+      knife.targetX = knife.x = fromX + dx / scale.x;
+      knife.targetZ = knife.z = fromZ + dy / scale.z;
+      clampAim();
+      knife.x = knife.targetX; knife.z = knife.targetZ;
+      scrapeAlong(fromX, fromZ, knife.x, knife.z);
     } else if (entry.role === "move") aimAt(x + entry.grab[0], y + entry.grab[1]);
+    else if (entry.role === "spin") {
+      // Near the centre the angle is unsteady: a sideways drag turns it instead.
+      const r = Math.hypot(x - entry.center[0], y - entry.center[1]);
+      let turned;
+      if (r > SPIN_MIN_PX) {
+        const angle = Math.atan2(y - entry.center[1], x - entry.center[0]);
+        let delta = angle - entry.angle;
+        delta -= Math.round(delta / (Math.PI * 2)) * Math.PI * 2;
+        entry.turned = (entry.turned ?? 0) + delta;
+        entry.angle = angle;
+        turned = entry.turned;
+      } else {
+        entry.turned = (entry.turned ?? 0) + dx / SPIN_DRAG_PX * QUARTER;
+        entry.angle = Math.atan2(y - entry.center[1], x - entry.center[0]);
+        turned = entry.turned;
+      }
+      // Screen angles run clockwise; the stone turns with the finger.
+      let next = entry.yawStart - turned;
+      // 角度依附: near a quarter turn the stone settles onto it, with a soft click.
+      const detent = Math.round(next / QUARTER);
+      if (Math.abs(next - detent * QUARTER) < DETENT) next = detent * QUARTER;
+      if (next === detent * QUARTER && detent !== entry.lastDetent) {
+        entry.lastDetent = detent;
+        sound.tap();
+        context.haptics.vibrate("tap");
+      }
+      yaw = yawTarget = next;
+      draftDirty = true;
+    }
     context.invalidate();
   }, { signal });
 
@@ -1049,6 +1190,13 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     pointers.delete(event.pointerId);
     // The stroke ends; the knife stays in, set for the next one (which may take a new track).
     if (entry.role === "cut") lift();
+    if (entry.role === "scrape") { knife.scraping = false; knife.aimX = knife.x; knife.aimZ = knife.z; save(); }
+    if (entry.role === "cut" || entry.role === "move") aimHandle();
+    if (entry.role === "spin") {
+      // Let go: onto the nearest quarter.
+      yawTarget = Math.round(yaw / QUARTER) * QUARTER;
+      afterTurn();
+    }
     context.invalidate();
   }
   canvas.addEventListener("pointerup", release, { signal });
@@ -1096,7 +1244,6 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     else if (code === "KeyE") { event.preventDefault(); act("right"); }
     else if (code === "KeyA") { event.preventDefault(); act("album"); }
     else if (code === "KeyZ") { event.preventDefault(); act("undo"); }
-    else if (code === "KeyR") { event.preventDefault(); act("turn-knife"); }
     context.invalidate();
   }, { signal });
   canvas.addEventListener("keyup", (event) => {
@@ -1113,8 +1260,28 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   let demo = null; // { phase, start: [x, z], length }
   function demoStep() {
     if (!carvable() || !settled()) return;
+    if (currentStage() === "clear") {
+      // Scrape toward the nearest ground still standing.
+      const { carving } = bench;
+      const [u, v] = toLocal(knife.x, knife.z);
+      let best = -1, bestDistance = Infinity;
+      for (let index = 0; index < carving.cleared.length; index += 3) {
+        if (!carving.clearable[index] || carving.cleared[index]) continue;
+        const [cu, cv] = carving.clearCell(index);
+        const d = Math.hypot(cu - u, cv - v);
+        if (d < bestDistance) { bestDistance = d; best = index; }
+      }
+      if (best < 0) return;
+      const [x, z] = toWorld(...carving.clearCell(best));
+      const step = Math.min(1, 0.02 / Math.max(bestDistance, 1e-6));
+      const nx = knife.x + (x - knife.x) * step, nz = knife.z + (z - knife.z) * step;
+      knife.scraping = true;
+      scrapeAlong(knife.x, knife.z, nx, nz);
+      knife.x = knife.targetX = nx; knife.z = knife.targetZ = nz;
+      return;
+    }
     if (!demo) {
-      const open = bench.carving.cuts.filter((cut) => cut.stage === currentStage() && !cut.done);
+      const open = snapLines();
       const ready = open.filter(aligned);
       if (!ready.length) { if (open.length) turn(-1); return; }
       const cut = ready[0];
@@ -1123,9 +1290,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       const across = Math.abs(a[0] - b[0]) > Math.abs(a[1] - b[1]);
       const start = across ? (a[0] < b[0] ? a : b) : (a[1] > b[1] ? a : b);
       demo = { phase: "aim", start, length: cut.length };
-      knife.heading = across ? 1 : 0;
-      knife.headingAngle = across ? -Math.PI / 2 : 0;
-      // Which way along the knife's axis leads from the start to the other end.
+      // Which way along the knife's (upright) axis leads from the start to the other end.
       const [hx, hz] = HEADINGS[knife.heading];
       demo.sign = Math.sign((across ? (start === a ? b : a)[0] - start[0] : (start === a ? b : a)[1] - start[1]) * (across ? hx : hz)) || 1;
       knife.targetX = demo.start[0]; knife.targetZ = demo.start[1];
@@ -1140,10 +1305,10 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     }
   }
 
-  // Knife pose: seen from above, the handle leans back from the tip, away from the way the
-  // knife pushes (up the screen at first), turned with the knife's heading. The hand grips it firmly: the pull and cracks barely move it.
+  // Knife pose, as in the video's 冲刀: the handle leans back toward the carver (down the
+  // screen) and the hand pushes the edge up and away; the ground ahead stays in sight. The hand grips it firmly: the pull and cracks barely move it.
   let gripHint = 6; // seconds the grip breathes: at the start and after each lift
-  const knifeTilt = new THREE.Euler(-0.6, 0, -0.12, "YXZ"); // lean, then turn to the heading
+  const knifeTilt = new THREE.Euler(0.6, 0, -0.12, "YXZ"); // the handle leans back toward the carver
   function poseKnife(delta) {
     if (!knife.plunged) {
       knife.x += (knife.targetX - knife.x) * Math.min(1, delta * 22);
@@ -1152,12 +1317,12 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     const aiming = pointers.size > 0 || hovering < 1.5 || held.size > 0;
     // In the stone the corner sinks below the face (the face hides it, as the groove would).
     const liftTarget = knife.plunged ? -0.007 : aiming ? 0.025 : 0.06;
-    knife.lift += (liftTarget - knife.lift) * Math.min(1, delta * 24);
+    knife.lift += ((knife.scraping ? -0.004 : liftTarget) - knife.lift) * Math.min(1, delta * 24);
     // The knife is put down once there is nothing left to cut.
     knifeModel.group.visible = carvable();
     knifeModel.group.position.set(knife.x, knife.lift, knife.z);
     const lean = knife.plunged ? Math.min(1, knife.tension) * 0.025 : 0;
-    knifeTilt.x += (-0.6 - lean - knifeTilt.x) * Math.min(1, delta * 30);
+    knifeTilt.x += (0.6 + lean - knifeTilt.x) * Math.min(1, delta * 30);
     const turnTo = knife.headingAngle;
     knifeTilt.y = reducedMotion ? turnTo : knifeTilt.y + (turnTo - knifeTilt.y) * Math.min(1, delta * 14);
     // A crack is felt as the faintest tremor in the blade, settled at once by the grip.
@@ -1167,17 +1332,42 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     knifeModel.group.rotation.x += knife.shake;
     knifeModel.group.updateMatrixWorld();
     // While cutting the knife is half see-through, so the groove under it shows.
-    knifeModel.fade = knife.plunged ? 0.4 : 1;
+    knifeModel.fade = knife.plunged || knife.scraping ? 0.4 : 1;
     // The grip breathes while it waits to be pressed, and stays lit while the knife is in.
     gripHint = Math.max(0, gripHint - delta);
     const breathing = carvable() && !knife.plunged && gripHint > 0 && !reducedMotion;
-    knifeModel.gripGlow = knife.plunged ? 1 : breathing ? 0.15 + 0.15 * Math.sin(elapsed * 3.5) : 0;
+    knifeModel.gripGlow = knife.plunged || knife.scraping ? 1 : breathing ? 0.15 + 0.15 * Math.sin(elapsed * 3.5) : 0;
     // Fresh stone glows under the tip while cutting, then dulls.
     const fresh = bench.stone.uniforms.fresh.value;
     const [u, v] = toLocal(knife.x, knife.z);
     fresh.x = u + 0.5; fresh.y = 0.5 - v;
     fresh.z += ((knife.plunged ? 1 : 0) - fresh.z) * Math.min(1, delta * (knife.plunged ? 10 : 1.5));
     return breathing || Math.abs(knife.headingAngle - knifeTilt.y) > 0.001 || Math.abs(liftTarget - knife.lift) > 0.001 || Math.hypot(knife.targetX - knife.x, knife.targetZ - knife.z) > 0.0005 || Math.abs(knife.shake) > 1e-4 || fresh.z > 0.01;
+  }
+
+  function testView() {
+    const point = (vector) => { badgePoint.copy(vector).applyMatrix4(knifeModel.group.matrixWorld); return screenOf(badgePoint.x, badgePoint.z, badgePoint.y); };
+    const grip = point(knifeModel.grip.center);
+    const top = point(knifeModel.top);
+    return {
+      stage: currentStage(), progress: bench.carving.progress(), heading: knife.heading, plunged: knife.plunged,
+      yaw, center: screenOf(...toWorld(0, 0)),
+      tip: screenOf(knife.x, knife.z), grip, handle: [grip[0] + (top[0] - grip[0]) * 0.55, grip[1] + (top[1] - grip[1]) * 0.55],
+      badges: shownBadges.map(({ id, x, y }) => ({ id, x, y })),
+      cuts: bench.carving.cuts.filter((cut) => cut.stage === currentStage() && !cut.done).map((cut) => ({ index: cut.index, a: screenOf(...toWorld(...cut.a)), b: screenOf(...toWorld(...cut.b)), coverage: bench.carving.coverage(cut) })),
+      ground: (() => {
+        const points = [];
+        if (currentStage() !== "clear") return points;
+        const { carving } = bench;
+        for (let index = 0; index < carving.cleared.length && points.length < 60; index += 37) {
+          if (carving.clearable[index] && !carving.cleared[index]) points.push(screenOf(...toWorld(...carving.clearCell(index))));
+        }
+        return points;
+      })(),
+      clearCoverage: bench.carving.clearCoverage(),
+      spines: currentStage() === "glyphs" ? spineLines().map((spine, index) => ({ index: 1000 + index, a: screenOf(...toWorld(...spine.a)), b: screenOf(...toWorld(...spine.b)), open: spine.open })) : [],
+      viewport: { width: viewport.width, height: viewport.height }, stageTop: hud.stage.top, modal: hud.modal, snap: context.options["line-assist"] !== false,
+    };
   }
 
   // Start.
@@ -1261,10 +1451,18 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       if (albumOpen) openAlbum();
     },
     optionChanged(id) {
+      // Debug: a read-only view of the bench in screen space, for playtest scripts.
+      if (id === "test-hook") canvas.sealTest = context.options["test-hook"] ? testView : undefined;
       if (id === "finish-step" && bench && !bench.viewOnly) {
         lift();
         const stage = currentStage();
         if (stage === "dust") { blownOnce = true; blow(1); }
+        else if (stage === "clear") {
+          bench.painter.paintClear(bench.carving.finishClear());
+          maskDirty = true;
+          afterCuts();
+          save();
+        }
         else if (stage !== "done") {
           for (const cut of bench.carving.cuts) {
             if (cut.stage !== stage || cut.done) continue;

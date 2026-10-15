@@ -1,5 +1,5 @@
 // The saved game: which seal is on the bench, and for every seal begun so far its carving
-// (see carve.js serialize) and whether it is finished. Snapshots stay a few kilobytes.
+// (see carve.js serialize), its cleared ground (serializeClear) and whether it is finished. Snapshots stay a few kilobytes.
 import { seals } from "./seals.js";
 
 export const SCHEMA = 1;
@@ -20,6 +20,7 @@ export function deserialize(snapshot) {
     if (!entry || typeof entry !== "object") continue;
     state.seals[seal.id] = {
       cuts: typeof entry.cuts === "string" ? entry.cuts : null,
+      clear: typeof entry.clear === "string" ? entry.clear : null,
       done: entry.done === true,
     };
   }

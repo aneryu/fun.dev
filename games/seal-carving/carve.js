@@ -21,8 +21,16 @@ export function hash(a, b = 0, c = 0) {
   return (h >>> 0) / 4294967296;
 }
 
+// The ground cleared around the raised characters is tracked on a CLEAR × CLEAR grid over the
+// face; it counts as cleared at CLEAR_FINISH, and the last of it is cleared for the carver.
+export const CLEAR = 128;
+export const CLEAR_FINISH = 0.85;
+
+const inside = (rects, u, v, margin = 0) => rects.some(([u0, v0, u1, v1]) => u >= u0 - margin && u <= u1 + margin && v >= v0 - margin && v <= v1 + margin);
+
 // widths: groove width for each stroke width code (the blade differs per step).
-export function createCarving(segments, widths) {
+// relief: { keep, cells } from layoutRelief: the raised strokes and the grounds around them.
+export function createCarving(segments, widths, relief = { keep: [], cells: [] }) {
   const cuts = segments.map((segment, index) => {
     const dx = segment.b[0] - segment.a[0], dy = segment.b[1] - segment.a[1];
     const length = Math.hypot(dx, dy);
@@ -38,6 +46,14 @@ export function createCarving(segments, widths) {
   });
   const total = cuts.reduce((sum, cut) => sum + cut.count, 0);
   const strokes = [];
+  // The ground: grid cells inside a character's cell and clear of its strokes.
+  const clearable = new Uint8Array(CLEAR * CLEAR), cleared = new Uint8Array(CLEAR * CLEAR);
+  let clearTotal = 0, clearCount = 0, clearDone = false;
+  const gridCentre = (i) => (i + 0.5) / CLEAR - 0.5;
+  for (let j = 0; j < CLEAR; j++) for (let i = 0; i < CLEAR; i++) {
+    const u = gridCentre(i), v = gridCentre(j);
+    if (inside(relief.cells, u, v) && !inside(relief.keep, u, v, 0.5 / CLEAR)) { clearable[j * CLEAR + i] = 1; clearTotal++; }
+  }
 
   // The point at parameter t (0..1) along a cut, offset sideways by `offset` face units.
   function point(cut, t, offset = 0) {
@@ -127,11 +143,51 @@ export function createCarving(segments, widths) {
     return finished;
   }
 
-  // The first step that still has unfinished cuts ("dust" once everything is carved).
+  // The first step that still has unfinished cuts, then the clearing ("dust" once all is done).
   function stage() {
     for (const name of STAGES.slice(0, 4)) if (cuts.some((cut) => cut.stage === name && !cut.done)) return name;
-    return "dust";
+    return clearDone || !clearTotal ? "dust" : "clear";
   }
+
+  // Clears the ground within `radius` of (u, v). Returns the newly cleared grid indices.
+  function scrape(u, v, radius) {
+    const fresh = [];
+    const i0 = Math.max(0, Math.floor((u - radius + 0.5) * CLEAR)), i1 = Math.min(CLEAR - 1, Math.floor((u + radius + 0.5) * CLEAR));
+    const j0 = Math.max(0, Math.floor((v - radius + 0.5) * CLEAR)), j1 = Math.min(CLEAR - 1, Math.floor((v + radius + 0.5) * CLEAR));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const index = j * CLEAR + i;
+      if (!clearable[index] || cleared[index] || Math.hypot(gridCentre(i) - u, gridCentre(j) - v) > radius) continue;
+      cleared[index] = 1; clearCount++; fresh.push(index);
+    }
+    return fresh;
+  }
+  const clearCoverage = () => clearTotal ? clearCount / clearTotal : 1;
+  // Clears what is left of the ground; returns those indices.
+  function finishClear() {
+    const fresh = [];
+    for (let index = 0; index < cleared.length; index++) if (clearable[index] && !cleared[index]) { cleared[index] = 1; clearCount++; fresh.push(index); }
+    clearDone = true;
+    return fresh;
+  }
+  function resetClear() { cleared.fill(0); clearCount = 0; clearDone = false; }
+  // Saved form of the ground: one bit per grid cell, base64.
+  function serializeClear() {
+    const bytes = new Uint8Array(CLEAR * CLEAR / 8);
+    for (let index = 0; index < cleared.length; index++) if (cleared[index]) bytes[index >> 3] |= 1 << (index & 7);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 4096) binary += String.fromCharCode(...bytes.subarray(i, i + 4096));
+    return btoa(binary);
+  }
+  function restoreClear(encoded) {
+    const binary = atob(encoded);
+    if (binary.length !== CLEAR * CLEAR / 8) throw new Error("Malformed ground.");
+    resetClear();
+    for (let index = 0; index < cleared.length; index++) {
+      if (clearable[index] && binary.charCodeAt(index >> 3) & (1 << (index & 7))) { cleared[index] = 1; clearCount++; }
+    }
+    clearDone = clearCount === clearTotal;
+  }
+  const clearCell = (index) => [gridCentre(index % CLEAR), gridCentre(Math.floor(index / CLEAR))];
 
   const progress = () => cuts.reduce((sum, cut) => sum + cut.carved, 0) / total;
 
@@ -152,7 +208,7 @@ export function createCarving(segments, widths) {
     settle(changed);
   }
   const rewind = (count) => rebuild(strokes.slice(0, Math.max(0, count)));
-  const removeStage = (stage) => rebuild(strokes.filter((stroke) => stroke.stage !== STAGES.indexOf(stage)));
+  const removeStage = (stage) => stage === "clear" ? resetClear() : rebuild(strokes.filter((stroke) => stroke.stage !== STAGES.indexOf(stage)));
 
   // Saved form: per stroke int16 u, int16 v, uint8 axis + 4 × width + 16 × step, uint16 count, then int8
   // offsets; all strokes concatenated and base64-encoded.
@@ -196,13 +252,27 @@ export function createCarving(segments, widths) {
     settle(changed);
   }
 
-  return { cuts, strokes, total, widths, point, project, coverage, strokePoint, beginStroke, extend, finish, settle, stage, progress, serialize, restore, rewind, removeStage };
+  return { cuts, strokes, total, widths, point, project, coverage, strokePoint, beginStroke, extend, finish, settle, stage, progress, serialize, restore, rewind, removeStage,
+    relief, clearable, cleared, scrape, clearCoverage, finishClear, serializeClear, restoreClear, clearCell,
+    get clearDone() { return clearDone; } };
 }
 
 // Paints strokes into a 2D canvas context whose square of `size` pixels is the face. The
 // mask is white where stone was cut away: grooves with chipped edges, and the chamfer.
 export function createMaskPainter(carving, context2d, size) {
   const px = (value) => (value + 0.5) * size;
+  // The raised strokes stand however the knife strays: after grooves or clearing are painted,
+  // the strokes are painted back as uncut stone. (A clip path would do the same, but a canvas
+  // once clipped this way uploads to the GPU very slowly ever after.)
+  const keep = carving.relief.keep.map(([u0, v0, u1, v1]) => [px(u0), px(v0), px(u1) - px(u0), px(v1) - px(v0)]);
+  const protect = (draw) => {
+    draw();
+    if (!keep.length) return;
+    const fill = context2d.fillStyle;
+    context2d.fillStyle = "#000";
+    for (const rect of keep) context2d.fillRect(...rect);
+    context2d.fillStyle = fill;
+  };
 
   // One point's piece of groove, from halfway to the previous point to halfway to the next,
   // so pieces join without gaps; the stroke's first and last points get square caps.
@@ -248,11 +318,29 @@ export function createMaskPainter(carving, context2d, size) {
 
   function paint(stroke, points) {
     context2d.fillStyle = "#fff";
-    for (const k of points) {
-      // The previous point's piece is redrawn so the join follows the new point's wobble.
-      if (k > 0 && !points.includes(k - 1)) paintPoint(stroke, k - 1);
-      paintPoint(stroke, k);
-    }
+    const draw = () => {
+      for (const k of points) {
+        // The previous point's piece is redrawn so the join follows the new point's wobble.
+        if (k > 0 && !points.includes(k - 1)) paintPoint(stroke, k - 1);
+        paintPoint(stroke, k);
+      }
+    };
+    // Character outlines never cut into the strokes they surround.
+    if (STAGES[stroke.stage] === "glyphs") protect(draw); else draw();
+  }
+
+  // Cleared ground: each grid cell a little larger than itself, unevenly, so the floor reads
+  // as scraped stone rather than squares.
+  function paintClear(indices) {
+    const cell = size / CLEAR;
+    context2d.fillStyle = "#fff";
+    protect(() => {
+      for (const index of indices) {
+        const [u, v] = carving.clearCell(index);
+        const grow = cell * (0.7 + 0.5 * hash(index, 3));
+        context2d.fillRect(px(u) - cell / 2 - grow / 2, px(v) - cell / 2 - grow / 2, cell + grow, cell + grow);
+      }
+    });
   }
 
   function clear() {
@@ -263,7 +351,10 @@ export function createMaskPainter(carving, context2d, size) {
   function paintAll() {
     clear();
     for (const stroke of carving.strokes) paint(stroke, stroke.offsets.map((_, k) => k));
+    const done = [];
+    for (let index = 0; index < carving.cleared.length; index++) if (carving.cleared[index]) done.push(index);
+    if (done.length) paintClear(done);
   }
 
-  return { paint, paintAll, clear };
+  return { paint, paintClear, paintAll, clear };
 }

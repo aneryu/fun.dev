@@ -10,7 +10,7 @@ test("saves round-trip and drop what they do not know", () => {
   snapshot.data.seals.gone = { cuts: "x", done: true };
   snapshot.data.extra = 1;
   const again = saving.deserialize(JSON.parse(JSON.stringify(snapshot)));
-  assert.deepEqual(again.seals, { [seals[0].id]: { cuts: "AAAA", done: true } });
+  assert.deepEqual(again.seals, { [seals[0].id]: { cuts: "AAAA", clear: null, done: true } });
   assert.equal(again.current, seals[0].id);
 });
 

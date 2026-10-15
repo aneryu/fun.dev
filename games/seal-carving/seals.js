@@ -4,6 +4,10 @@
 // to fill the cell evenly. Each glyph sits on a 20 × 20 grid (y down) and is written as
 // polylines: "M x,y" starts one, then r/l/u/d n moves right/left/up/down by n units.
 // Glyphs are authored as they print; the face is carved mirrored, as a real seal is.
+//
+// The characters are 朱文, raised: each stroke is one grid unit wide and stays; the carver cuts
+// its outline (just outside it, so the stroke keeps its width) and then clears the ground
+// around it. The border and the cross are cut as grooves.
 
 export const GRID = 20;
 
@@ -20,7 +24,7 @@ export const FACE = {
 const CELL_ORDER = [[1, 0], [1, 1], [0, 0], [0, 1]];
 
 // Stages, in carving order. Each one's cuts must be finished before the next one's show.
-export const STAGES = ["bevel", "border", "cross", "glyphs", "dust", "done"];
+export const STAGES = ["bevel", "border", "cross", "glyphs", "clear", "dust", "done"];
 
 // Shared glyphs: 天, 大, 平, 好 and others appear twice in a seal, drawn alike (as carvers do,
 // though a master varies them a little).
@@ -35,7 +39,7 @@ const G = {
   天: ["M3,1 r14", "M1,5 r18", "M10,5 d4", "M10,9 l9 d3 r6 d3 l6 d4", "M10,9 r9 d3 l6 d3 r6 d4"],
   开: ["M1,3 r18", "M1,9 r18", "M6,3 d9 l5 d7", "M14,3 d16", "M14,14 r5", "M9,13 d6"],
   心: ["M2,4 d13 r16 u13", "M5,4 d10 r10 u10", "M10,1 d14", "M2,4 r1", "M18,4 l1", "M7,1 r6"],
-  大: ["M2,7 r16", "M10,1 d7", "M10,8 l4 d4 l4 d6", "M10,8 r4 d4 r4 d6"],
+  大: ["M2,6 r16", "M10,1 d8", "M10,9 l3 d4 l4 d5", "M10,9 r3 d4 r4 d5"],
   平: ["M1,1 r18", "M1,10 r18", "M10,1 d18", "M3,4 d4 r4", "M17,4 d4 l4", "M3,13 r5 d6", "M17,13 l5 d6"],
   安: ["M10,1 d2", "M1,6 u3 r18 d3", "M2,8 r16", "M12,8 d5 l9 d6", "M7,13 d6", "M2,16 r16"],
   吃: ["M1,4 r6 d8 l6 u8", "M10,1 r9", "M9,5 r10", "M11,9 r8 d4 l8 d6 r9"],
@@ -89,6 +93,94 @@ function cellBox(column, row) {
 
 // Every cut of a seal as straight segments: { stage, a: [u, v], b: [u, v], width, stroke }.
 // `stroke` groups the segments of one polyline, so short folds can be cut in one go.
+// The shortest side of a stroke (in grid units) the carver outlines with the knife.
+const MIN_RUN = 4;
+
+// The grid cells (by integer centre) a glyph's strokes fill.
+function filledCells(strokes) {
+  const filled = new Set();
+  for (const points of parseGlyph(strokes)) {
+    for (let i = 1; i < points.length; i++) {
+      const [x0, y0] = points[i - 1], [x1, y1] = points[i];
+      for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) filled.add(`${x},${y}`);
+    }
+  }
+  return filled;
+}
+
+// The outline of a glyph's filled cells, as straight runs on the grid (short sides left out),
+// each pushed outward by
+// `offset` grid units (and lengthened by it at both ends, so corners close): [[x, y], [x, y]].
+function outline(filled, offset) {
+  const edges = new Map(); // "h|v,line,side" → sorted positions along the line
+  const has = (x, y) => filled.has(`${x},${y}`);
+  for (const key of filled) {
+    const [x, y] = key.split(",").map(Number);
+    for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      if (has(x + dx, y + dy)) continue;
+      // A horizontal edge (dy) at y ± 0.5 spanning x; a vertical one (dx) at x ± 0.5 spanning y.
+      const id = dy ? `h,${y + dy / 2},${dy}` : `v,${x + dx / 2},${dx}`;
+      if (!edges.has(id)) edges.set(id, []);
+      edges.get(id).push(dy ? x : y);
+    }
+  }
+  const runs = [];
+  for (const [id, positions] of edges) {
+    const [kind, lineText, sideText] = id.split(",");
+    const line = Number(lineText) + Number(sideText) * offset;
+    positions.sort((p, q) => p - q);
+    let start = positions[0];
+    for (let i = 1; i <= positions.length; i++) {
+      if (i < positions.length && positions[i] === positions[i - 1] + 1) continue;
+      const from = start - 0.5 - offset, to = positions[i - 1] + 0.5 + offset;
+      // Short sides (a stroke's end, a step in a fold) are left to the clearing, which never
+      // touches the stroke; only the long sides are cut with the knife.
+      if (positions[i - 1] - start >= MIN_RUN - 1) runs.push(kind === "h" ? [[from, line], [to, line]] : [[line, from], [line, to]]);
+      start = positions[i];
+    }
+  }
+  return runs;
+}
+
+// What stays of the characters and where the ground is cleared, in face coordinates:
+// { keep: [[u0, v0, u1, v1]] (the strokes, as row runs), cells: [[u0, v0, u1, v1]] (the four
+// cells' grounds), spines: [{ a, b }] (each straight stroke's centre line, lengthened to its
+// outline's ends: the line a two-edged cut follows), twin: the distance from a spine to the
+// outline on either side }.
+export function layoutRelief(seal) {
+  const keep = [], cells = [], spines = [];
+  let twin = 0;
+  [...seal.text.zh].forEach((character, index) => {
+    const [column, row] = CELL_ORDER[index];
+    const box = cellBox(column, row);
+    const toFace = (x, y) => [-(box.u + x / GRID * box.size), box.v + y / GRID * box.size];
+    const rect = (x0, y0, x1, y1) => {
+      const [a0, b0] = toFace(x0, y0), [a1, b1] = toFace(x1, y1);
+      return [Math.min(a0, a1), Math.min(b0, b1), Math.max(a0, a1), Math.max(b0, b1)];
+    };
+    cells.push(rect(0, 0, GRID, GRID));
+    const reach = 0.5 + FACE.glyphWidth / 2 / (box.size / GRID); // grid units from centre to outline
+    twin = reach * box.size / GRID;
+    for (const points of parseGlyph(seal.glyphs[character])) {
+      for (let i = 1; i < points.length; i++) {
+        const [x0, y0] = points[i - 1], [x1, y1] = points[i];
+        const dx = Math.sign(x1 - x0), dy = Math.sign(y1 - y0);
+        spines.push({ a: toFace(x0 - dx * reach, y0 - dy * reach), b: toFace(x1 + dx * reach, y1 + dy * reach) });
+      }
+    }
+    const filled = filledCells(seal.glyphs[character]);
+    for (let y = 0; y <= GRID; y++) {
+      for (let x = 0; x <= GRID; x++) {
+        if (!filled.has(`${x},${y}`) || filled.has(`${x - 1},${y}`)) continue;
+        let end = x;
+        while (filled.has(`${end + 1},${y}`)) end++;
+        keep.push(rect(x - 0.5, y - 0.5, end + 0.5, y + 0.5));
+      }
+    }
+  });
+  return { keep, cells, spines, twin };
+}
+
 export function layoutSeal(seal) {
   const segments = [];
   let stroke = 0;
@@ -107,7 +199,9 @@ export function layoutSeal(seal) {
   characters.forEach((character, index) => {
     const [column, row] = CELL_ORDER[index];
     const box = cellBox(column, row);
-    for (const points of parseGlyph(seal.glyphs[character])) {
+    // The outline of the raised strokes, cut just outside them: half a groove out.
+    const offset = FACE.glyphWidth / 2 / (box.size / GRID);
+    for (const points of outline(filledCells(seal.glyphs[character]), offset)) {
       // Print side to face: the face is the mirror image, so u flips.
       add("glyphs", points.map(([x, y]) => [-(box.u + x / GRID * box.size), box.v + y / GRID * box.size]), FACE.glyphWidth);
     }
