@@ -1,0 +1,34 @@
+{
+  "id": "seal-carving",
+  "version": "1.0.0",
+  "apiVersion": 2,
+  "title": {
+    "zh": "刻一方印",
+    "en": "Carve a Seal"
+  },
+  "description": {
+    "zh": "握刀、推刀，刻完吹一口",
+    "en": "Hold the knife, push, blow the dust away"
+  },
+  "category": "Toy",
+  "platforms": [
+    "mobile",
+    "desktop"
+  ],
+  "orientation": "any",
+  "howToPlay": {
+    "zh": "照着篆刻师傅的工序刻一方四字印：先倒边，再刻边框、刻十字分成四格，最后一笔一笔刻字。在屏幕上拖动就是移刀，刀跟着手指的移动走；把刀尖放在亮着的稿线的近端，按住刀柄上的红色握点往上推，刀就压进石头一顿一顿地往前刻，松手提刀。刀只能往前（屏幕上方）推，横着的线要先按 ‹ › 转动印石。手一偏、推过头，刀痕都会如实留在印上，不会刻坏。刻完按「吹」把石粉吹干净，印石转一圈展示，印蜕收进右上角的「印谱」，同时解锁下一方。印面上刻的是反字，盖出来才是正的。电脑上：鼠标移动就是移刀，按住左键往上拖就是刻。键盘：方向键移刀，按住空格下刀，再按上方向键往前推、下方向键往回拉，Q 和 E 转动印石，B 吹粉，A 打开印谱。",
+    "en": "Carve a four-character seal the way a seal carver does: chamfer the face's edges, cut the border, cut a cross into four cells, then carve the characters stroke by stroke. Dragging anywhere moves the knife with your finger. Set its tip at the near end of a bright draft line, hold the red grip on the handle and push up: the knife bites into the stone and cuts ahead flake by flake; let go to lift it. The knife only pushes forward (up the screen), so turn the stone with ‹ › for lines across. Wobbles and overruns stay in the stone as they were cut, but nothing can be ruined. When all is cut, Blow clears the powder, the stone turns once, and the print goes into Seals (top right) and the next seal opens. The face is carved mirrored so that it prints the right way round. With a mouse: move to aim, hold the button and drag up to carve. Keyboard: arrow keys move the knife; hold Space to press it in, then Up pushes and Down pulls back; Q and E turn the stone, B blows, A opens your seals."
+  },
+  "files": [
+    "game.js",
+    "seals.js",
+    "carve.js",
+    "stone.js",
+    "knife.js",
+    "sound.js",
+    "hud.js",
+    "effects.js",
+    "save.js"
+  ]
+}
