@@ -90,7 +90,41 @@ export function createHud({ THREE, camera, scene, track, kit }) {
   const hint = label({ size: 12, color: css(BROWN), order: 100 });
   const STEPS = 5;
   const steps = Array.from({ length: STEPS }, () => ({ track: box(BROWN, 100, 0.25), bar: box(INK, 101), name: label({ size: 11, color: css(BROWN), order: 100 }) }));
-  const corner = { border: box(INK, 100), fill: box(CREAM, 101), text: label({ size: 13, weight: 700, order: 102 }) };
+  const corners = Array.from({ length: 2 }, () => ({ border: box(INK, 100), fill: box(CREAM, 101), text: label({ size: 13, weight: 700, order: 102 }) }));
+  // The cutting point: where the knife's edge meets the face. A thin ring round it, a bar as
+  // wide as the groove the edge will cut, across the way it goes, and a small arrow ahead.
+  // Yellow while the knife hovers, red while it is in the stone; dark outlines keep it legible
+  // on ink and on cut stone alike.
+  const marker = new THREE.Group();
+  const markerParts = [];
+  const markerPart = (geometry, color, order) => {
+    const mesh = new THREE.Mesh(geometry, track(new THREE.MeshBasicMaterial({ color, transparent: true, depthTest: false, depthWrite: false })));
+    mesh.renderOrder = order; mesh.frustumCulled = false;
+    marker.add(mesh);
+    markerParts.push(mesh);
+    return mesh;
+  };
+  const centered = track(new THREE.PlaneGeometry(1, 1));
+  const triangle = track(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(-0.5, -0.5, 0), new THREE.Vector3(0.5, -0.5, 0)]));
+  const ringOutline = markerPart(track(new THREE.RingGeometry(9, 13, 32)), INK, 96);
+  const ring = markerPart(track(new THREE.RingGeometry(10, 12, 32)), 0xffd43b, 97);
+  const barOutline = markerPart(centered, INK, 96), bar = markerPart(centered, 0xffd43b, 97);
+  const arrowOutline = markerPart(triangle, INK, 96), arrow = markerPart(triangle, 0xffd43b, 97);
+  marker.visible = false;
+  root.add(marker);
+
+  // Badges: small round buttons that ride along with the knife (turn, undo) or sit on the face
+  // (blow), so the finger never travels far from what it works on.
+  const disc = track(new THREE.CircleGeometry(1, 32));
+  const badges = Array.from({ length: 3 }, () => {
+    const material = (color, order) => {
+      const mesh = new THREE.Mesh(disc, track(new THREE.MeshBasicMaterial({ color, transparent: true, depthTest: false, depthWrite: false })));
+      mesh.renderOrder = order; mesh.frustumCulled = false; mesh.visible = false;
+      root.add(mesh);
+      return mesh;
+    };
+    return { ring: material(INK, 103), fill: material(CREAM, 104), text: label({ size: 17, weight: 700, order: 105 }) };
+  });
   const toastFill = box(INK, 104), toastText = label({ size: 15, weight: 700, color: css(CREAM), order: 105 });
   const BUTTONS = 5;
   const buttons = Array.from({ length: BUTTONS }, () => ({ border: box(INK, 100), fill: box(CREAM, 101), text: label({ size: 17, weight: 700, order: 102 }) }));
@@ -107,7 +141,9 @@ export function createHud({ THREE, camera, scene, track, kit }) {
 
   let viewport = { width: 390, height: 700, safeArea: { top: 0, right: 0, bottom: 0, left: 0 } };
   let status = { title: "", steps: [], hint: "" }; // steps: [{ name, state: "done" | "current" | "todo", fill }]
-  let cornerModel = null; // { id, label }: the small button at the top right
+  let cornerModel = []; // [{ id, label }]: small buttons stacked at the top right
+  let badgeModel = []; // [{ id, label, x, y, radius, active }]
+  let markerModel = null; // { x, y, angle, edge, active }
   let buttonModel = []; // [{ id, label, active }]
   const TOP = 84; // status height below the safe area
   let card = null; // { title, detail, picture, buttons: [{ id, label }] }
@@ -134,15 +170,49 @@ export function createHud({ THREE, camera, scene, track, kit }) {
       part.name.set(entry.name, x + w / 2, top + 48, css(entry.state === "current" ? INK : BROWN));
     });
     hint.set(modal ? "" : status.hint, width / 2, top + 66);
-    // The corner button, on the title's line.
-    if (cornerModel && !modal) {
-      // Level with the player's menu button when the safe area leaves room for it.
-      const bw = 56, bh = 40, x = width - safeArea.right - bw - 12, y = top > 56 ? top - 50 : 8;
-      corner.border.set(x, y, bw, bh); corner.fill.set(x + 2, y + 2, bw - 4, bh - 4);
-      corner.text.set(cornerModel.label, x + bw / 2, y + bh / 2);
-      regions.push({ x, y, w: bw, h: bh, action: cornerModel.id });
-      if (focus === cornerModel.id) focusRing.set(x, y, bw, bh);
-    } else for (const part of Object.values(corner)) part.hide();
+    // The corner buttons, the first level with the player's menu button, the rest below it.
+    corners.forEach((part, index) => {
+      const entry = modal ? null : cornerModel[index];
+      if (!entry) { for (const piece of Object.values(part)) piece.hide(); return; }
+      const bw = 56, bh = 40, x = width - safeArea.right - bw - 12, y = (top > 56 ? top - 50 : 8) + index * (bh + 8);
+      part.border.set(x, y, bw, bh); part.fill.set(x + 2, y + 2, bw - 4, bh - 4);
+      part.text.set(entry.label, x + bw / 2, y + bh / 2);
+      regions.push({ x, y, w: bw, h: bh, action: entry.id });
+      if (focus === entry.id) focusRing.set(x, y, bw, bh);
+    });
+  }
+
+  function layoutMarker() {
+    if (!markerModel || card || album) { marker.visible = false; return; }
+    const { x, y, angle, edge, active } = markerModel;
+    marker.visible = true;
+    marker.position.set(x, -y, 0);
+    marker.rotation.z = angle; // the cut goes along +x of the marker
+    const color = active ? 0xff4a3a : 0xffd43b;
+    for (const mesh of [ring, bar, arrow]) mesh.material.color.setHex(color);
+    // The edge: across the cut, as wide as its groove (never thinner than legible).
+    const length = Math.max(10, edge);
+    bar.scale.set(3, length, 1); barOutline.scale.set(5, length + 2, 1);
+    // The arrow: just outside the ring, pointing the way the knife goes.
+    arrow.position.set(19, 0, 0); arrow.rotation.z = -Math.PI / 2; arrow.scale.set(8, 7, 1);
+    arrowOutline.position.copy(arrow.position); arrowOutline.rotation.z = arrow.rotation.z; arrowOutline.scale.set(11, 10, 1);
+  }
+
+  function layoutBadges() {
+    badges.forEach((part, index) => {
+      const entry = card || album ? null : badgeModel[index];
+      if (!entry) { part.ring.visible = part.fill.visible = false; part.text.hide(); return; }
+      const r = entry.radius ?? 22;
+      part.ring.visible = part.fill.visible = true;
+      part.ring.position.set(entry.x, -entry.y, 0); part.ring.scale.setScalar(r);
+      part.fill.position.set(entry.x, -entry.y, 0); part.fill.scale.setScalar(r - 2);
+      part.fill.material.color.setHex(entry.active ? INK : CREAM);
+      part.text.set(entry.label, entry.x, entry.y, css(entry.active ? CREAM : INK));
+      // The touch area is at least 44 px across.
+      const hit = Math.max(r, 24);
+      regions.unshift({ x: entry.x - hit, y: entry.y - hit, w: hit * 2, h: hit * 2, action: entry.id });
+      if (focus === entry.id) focusRing.set(entry.x - r, entry.y - r, r * 2, r * 2);
+    });
   }
 
   function layoutButtons() {
@@ -235,6 +305,8 @@ export function createHud({ THREE, camera, scene, track, kit }) {
     focusRing.hide();
     layoutCard();
     layoutButtons();
+    layoutBadges();
+    layoutMarker();
     layoutToast();
     layoutStatus();
   }
@@ -243,7 +315,7 @@ export function createHud({ THREE, camera, scene, track, kit }) {
     // The area left for the stone, in CSS pixels.
     get stage() {
       const { height, width, safeArea } = viewport;
-      const bottom = height - safeArea.bottom - 66;
+      const bottom = height - safeArea.bottom - (buttonModel.length ? 66 : 16);
       return { top: safeArea.top + TOP, bottom, left: safeArea.left, right: width - safeArea.right };
     },
     get modal() { return Boolean(card || album); },
@@ -251,6 +323,9 @@ export function createHud({ THREE, camera, scene, track, kit }) {
     setStatus(next) { status = { ...status, ...next }; layout(); },
     setButtons(model) { buttonModel = model; layout(); },
     setCorner(model) { cornerModel = model; layout(); },
+    setBadges(model) { badgeModel = model; layout(); },
+    // The cutting point: { x, y (CSS px), angle (radians, the cut's way on screen), edge (px), active }.
+    setMarker(model) { markerModel = model; layoutMarker(); },
     root,
     setCard(model) { card = model; layout(); },
     setAlbum(model) { album = model; layout(); },
@@ -258,7 +333,7 @@ export function createHud({ THREE, camera, scene, track, kit }) {
     get focusable() {
       if (card) return card.buttons.map((entry) => entry.id);
       if (album) return [...album.cells.filter((entry) => entry.picture || entry.current || entry.open).map((entry) => `seal:${entry.id}`), ...album.buttons.map((entry) => entry.id)];
-      return [...buttonModel.map((entry) => entry.id), ...(cornerModel ? [cornerModel.id] : [])];
+      return [...badgeModel.map((entry) => entry.id), ...buttonModel.map((entry) => entry.id), ...cornerModel.map((entry) => entry.id)];
     },
     setFocus(id) { focus = id; layout(); },
     toast(text) { toast = text; toastTime = TOAST_TIME; layout(); },

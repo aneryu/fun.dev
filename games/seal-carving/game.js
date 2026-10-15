@@ -18,11 +18,11 @@ const copy = {
     steps: { bevel: "倒边", border: "刻边框", cross: "分格", glyphs: "刻字", dust: "吹去石粉", done: "完成" },
     stepNames: { bevel: "倒边", border: "边框", cross: "十字", glyphs: "刻字", dust: "吹粉" },
     hints: {
-      bevel: "刀柄移刀，握把刻；刀只往刀口方向刻，「转刀」换方向",
-      border: "按住红色握把往刀口方向划；「转刀」换方向",
+      bevel: "拖刀柄移刀，按住红色握把往刀口方向划；⟳ 转刀",
+      border: "按住红色握把往刀口方向划；⟳ 转刀，↶ 撤销",
       cross: "刻一个十字，分成四格",
-      glyphs: "刀口朝哪就往哪刻，「转刀」转 90°",
-      dust: "按「吹」或在屏幕上划一下",
+      glyphs: "刀口朝哪就往哪刻；⟳ 转刀，↶ 撤销",
+      dust: "点印面上的「吹」，或在屏幕上划一下",
       done: "刻好了",
     },
     stepDone: (name) => `${name}完成`,
@@ -46,11 +46,11 @@ const copy = {
     steps: { bevel: "Chamfer", border: "Border", cross: "Divide", glyphs: "Characters", dust: "Blow", done: "Done" },
     stepNames: { bevel: "Edge", border: "Border", cross: "Cross", glyphs: "Glyphs", dust: "Blow" },
     hints: {
-      bevel: "Handle moves, grip carves the way the edge points; Turn turns it",
-      border: "Hold the red grip, swipe the way the edge points",
+      bevel: "Drag the handle; hold the red grip, swipe the way the edge points; ⟳ turns",
+      border: "Hold the red grip, swipe the way the edge points; ⟳ turns, ↶ undoes",
       cross: "Cut a cross into four cells",
-      glyphs: "It carves the way the edge points; Turn turns it 90°",
-      dust: "Press Blow or swipe the screen",
+      glyphs: "It carves the way the edge points; ⟳ turns, ↶ undoes",
+      dust: "Tap Blow on the face, or swipe the screen",
       done: "Finished",
     },
     stepDone: (name) => `${name} done`,
@@ -748,20 +748,56 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     sound.tap();
   }
 
-  // Controls: the knife is dragged by hand; the bottom row turns the stone, undoes the last
-  // swipe, switches between moving and cutting (blows in the last step) and redoes; the album
-  // sits in the corner.
+  // Controls live where the finger already is: the knife's handle moves it and its grip
+  // carves; turn and undo badges ride either side of the grip; in the
+  // last step a Blow badge sits on the face. Only the rare actions (album, redo) wait in the
+  // top corner.
   function layoutButtons() {
-    const list = [{ id: "left", label: words.left }];
-    if (bench?.viewOnly) list.push({ id: "back", label: words.back });
-    else if (bench && currentStage() !== "done") {
-      list.push({ id: "undo", label: words.undo });
-      list.push(currentStage() === "dust" ? { id: "blow", label: words.blow, active: true } : { id: "turn-knife", label: words.turnKnife });
-      list.push({ id: "redo", label: words.restart });
+    hud.setButtons([]);
+    if (bench?.viewOnly) hud.setCorner([{ id: "album", label: words.album }, { id: "back", label: words.back }]);
+    else if (bench && currentStage() !== "done") hud.setCorner([{ id: "album", label: words.album }, { id: "redo", label: words.restart }]);
+    else hud.setCorner([{ id: "album", label: words.album }]);
+    badgeKey = "";
+  }
+
+  // Badge positions follow the knife each frame; the HUD is only touched when they move.
+  let badgeKey = "", lastMarker = "";
+  const badgePoint = new THREE.Vector3();
+  function placeBadges() {
+    const list = [];
+    const { width, height, safeArea } = viewport;
+    const stage = hud.stage;
+    const clamp = ([x, y], r) => [Math.max(safeArea.left + r + 6, Math.min(width - safeArea.right - r - 6, x)), Math.max(stage.top + r, Math.min(height - safeArea.bottom - r - 6, y))];
+    if (bench && !bench.viewOnly && currentStage() === "dust") {
+      const center = screenOf(...toWorld(0, 0));
+      list.push({ id: "blow", label: words.blow, x: center[0], y: center[1], radius: 34, active: true });
+    } else if (carvable() && !hud.modal) {
+      badgePoint.copy(knifeModel.top).applyMatrix4(knifeModel.group.matrixWorld);
+      const top = screenOf(badgePoint.x, badgePoint.z, badgePoint.y);
+      badgePoint.copy(knifeModel.grip.center).applyMatrix4(knifeModel.group.matrixWorld);
+      const grip = screenOf(badgePoint.x, badgePoint.z, badgePoint.y);
+      const ax = top[0] - grip[0], ay = top[1] - grip[1], length = Math.hypot(ax, ay) || 1;
+      // Both sit right beside the grip, one each side, within a thumb's reach: turn on one side,
+      // undo on the other. Near a screen edge they swap sides.
+      const nx = -ay / length, ny = ax / length, gap = 58;
+      let left = [grip[0] - nx * gap, grip[1] - ny * gap], right = [grip[0] + nx * gap, grip[1] + ny * gap];
+      if (left[0] > right[0]) [left, right] = [right, left];
+      const turnAt = clamp(left, 22), undoAt = clamp(right, 22);
+      list.push({ id: "turn-knife", label: "⟳", x: turnAt[0], y: turnAt[1] });
+      if (bench.carving.strokes.length) list.push({ id: "undo", label: "↶", x: undoAt[0], y: undoAt[1] });
     }
-    list.push({ id: "right", label: words.right });
-    hud.setButtons(list);
-    hud.setCorner({ id: "album", label: words.album });
+    const key = list.map((entry) => `${entry.id}${Math.round(entry.x)},${Math.round(entry.y)}`).join(";");
+    if (key !== badgeKey) { badgeKey = key; hud.setBadges(list); }
+    // The cutting point, where the groove will start, its width and its way.
+    if (carvable()) {
+      const tip = screenOf(knife.x, knife.z);
+      const [hx, hz] = HEADINGS[knife.heading];
+      const ahead = screenOf(knife.x + hx * 0.05, knife.z + hz * 0.05);
+      const angle = Math.atan2(-(ahead[1] - tip[1]), ahead[0] - tip[0]);
+      const edge = WIDTHS[STAGE_WIDTH[currentStage()]] * pixelsPer().x;
+      const markerKey = `${tip[0].toFixed(1)},${tip[1].toFixed(1)},${angle.toFixed(2)},${edge.toFixed(1)},${knife.plunged}`;
+      if (markerKey !== lastMarker) { lastMarker = markerKey; hud.setMarker({ x: tip[0], y: tip[1], angle, edge, active: knife.plunged }); }
+    } else if (lastMarker) { lastMarker = ""; hud.setMarker(null); }
   }
 
   // The redo card: this step again, or the whole seal.
@@ -1091,7 +1127,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     // The grip breathes while it waits to be pressed, and stays lit while the knife is in.
     gripHint = Math.max(0, gripHint - delta);
     const breathing = carvable() && !knife.plunged && gripHint > 0 && !reducedMotion;
-    knifeModel.gripGlow = knife.plunged ? 1 : breathing ? 0.2 + 0.18 * Math.sin(elapsed * 3.5) : 0.15;
+    knifeModel.gripGlow = knife.plunged ? 1 : breathing ? 0.15 + 0.15 * Math.sin(elapsed * 3.5) : 0;
     // Fresh stone glows under the tip while cutting, then dulls.
     const fresh = bench.stone.uniforms.fresh.value;
     const [u, v] = toLocal(knife.x, knife.z);
@@ -1153,6 +1189,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
         }
       }
       busy = poseKnife(delta) || busy;
+      placeBadges();
       updateAimed();
       busy = bench.effects.update(delta) || busy;
       if (labelsDirty) { labelsDirty = false; labels(); }

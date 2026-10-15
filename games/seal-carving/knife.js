@@ -1,11 +1,11 @@
 // The carving knife (印刀): a flat steel blade ground on both faces to a fine edge, set in a
-// handle wrapped tightly with pale cord, a red cloth grip and a dark rivet above it. Built from primitives
+// handle wrapped tightly with pale cord, dyed cinnabar where it is gripped, a dark rivet above. Built from primitives
 // with procedural detail. Its origin is the cutting corner of the edge (the corner that goes
 // into the stone when the knife is rolled, as carvers hold it) and +Y runs up the handle.
 // As in the video: a square-ish steel bar, narrow and thick, dark and matte, with a bright
 // ground facet at the tip; a lumpy cloth-wrapped grip that swells above the blade.
 const BLADE = { width: 0.1, thickness: 0.045, length: 0.55, bevel: 0.06 };
-const HANDLE = { radius: 0.065, length: 1.0 };
+const HANDLE = { radius: 0.065, length: 0.72 };
 
 export function createKnife({ THREE, track }) {
   const group = new THREE.Group();
@@ -80,14 +80,22 @@ metalnessFactor = mix(metalnessFactor, 0.0, dust);`);
     hp.setXYZ(i, x * lump - BLADE.width / 2, y, z * lump * 0.9);
   }
   handleGeometry.computeVertexNormals();
+  // The grip: the same cloth, its wraps on the swell dyed cinnabar where the fingers hold the
+  // knife. Pressing it drives the knife into the stone; it glows faintly while pressed.
+  const GRIP = { y: base + 0.1, length: 0.16 };
+  const gripUniforms = { gripRange: { value: new THREE.Vector2(GRIP.y - GRIP.length / 2, GRIP.y + GRIP.length / 2) }, gripGlow: { value: 0 } };
   const cord = track(new THREE.MeshStandardMaterial({ color: 0xdcd4c4, roughness: 0.9 }));
   cord.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, gripUniforms);
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", "#include <common>\nvarying vec3 vCordPosition;")
       .replace("#include <begin_vertex>", "#include <begin_vertex>\nvCordPosition = position;");
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `#include <common>
 varying vec3 vCordPosition;
+uniform vec2 gripRange;
+uniform float gripGlow;
+float gripBand;
 float cordHash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 float cordNoise(vec2 p) { vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(cordHash(i), cordHash(i + vec2(1, 0)), f.x), mix(cordHash(i + vec2(0, 1)), cordHash(i + vec2(1, 1)), f.x), f.y); }`)
@@ -99,7 +107,14 @@ float ridge = abs(fract(turns) - 0.5) * 2.0;
 float stain = smoothstep(0.45, 0.8, cordNoise(vec2(around * 6.0, vCordPosition.y * 9.0)) * 0.7 + cordNoise(vec2(around * 25.0, vCordPosition.y * 40.0)) * 0.3);
 float fleck = step(0.9, cordHash(floor(vec2(around * 160.0, vCordPosition.y * 260.0))));
 diffuseColor.rgb *= (0.84 + 0.16 * (1.0 - ridge * ridge));
-diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5, 0.38, 0.27), stain * 0.6 + fleck * 0.35);`)
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5, 0.38, 0.27), stain * 0.6 + fleck * 0.35);
+// The dyed band ends along the wraps, a little ragged, as dyed thread would.
+float edge = cordNoise(vec2(around * 12.0, 4.0)) * 0.012;
+gripBand = smoothstep(gripRange.x - 0.004, gripRange.x + 0.004, vCordPosition.y + edge) * (1.0 - smoothstep(gripRange.y - 0.004, gripRange.y + 0.004, vCordPosition.y - edge));
+vec3 dyed = vec3(0.42, 0.07, 0.05) * (0.72 + 0.28 * (1.0 - ridge * ridge)) * mix(1.0, 0.7, stain);
+diffuseColor.rgb = mix(diffuseColor.rgb, dyed, gripBand);`)
+      .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+totalEmissiveRadiance += vec3(0.55, 0.1, 0.06) * gripGlow * gripBand;`)
       .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
 normal = normalize(normal + vec3(0.0, (fract(vCordPosition.y * 55.0 + atan(vCordPosition.z, vCordPosition.x) / 6.2831853 * 1.5) - 0.5) * 0.35, 0.0));`);
   };
@@ -107,15 +122,6 @@ normal = normalize(normal + vec3(0.0, (fract(vCordPosition.y * 55.0 + atan(vCord
   const handle = new THREE.Mesh(handleGeometry, cord);
   handle.castShadow = true;
   group.add(handle);
-
-  // The grip: a band of red cloth round the swell where the fingers hold the knife. Pressing
-  // it drives the knife into the stone; it glows while pressed.
-  const GRIP = { y: base + 0.12, length: 0.13, radius: HANDLE.radius * 1.62 };
-  const gripMaterial = track(new THREE.MeshStandardMaterial({ color: 0xb8231d, roughness: 0.85, emissive: 0xff5a3c, emissiveIntensity: 0 }));
-  const grip = new THREE.Mesh(track(new THREE.CylinderGeometry(GRIP.radius, GRIP.radius * 0.97, GRIP.length, 28, 1, true)), gripMaterial);
-  grip.position.set(-BLADE.width / 2, GRIP.y, 0);
-  grip.scale.set(1, 1, 0.9);
-  group.add(grip);
 
   // The dark rivet (or knot) just above the grip, as in the video.
   const rivet = new THREE.Mesh(track(new THREE.SphereGeometry(HANDLE.radius * 0.24, 12, 8)), track(new THREE.MeshStandardMaterial({ color: 0x2a2420, roughness: 0.5, metalness: 0.3 })));
@@ -126,11 +132,11 @@ normal = normalize(normal + vec3(0.0, (fract(vCordPosition.y * 55.0 + atan(vCord
   return {
     group,
     // The grip band's centre and radius in the knife's own space, for hit testing.
-    grip: { center: grip.position.clone(), radius: GRIP.radius, length: GRIP.length },
+    grip: { center: new THREE.Vector3(-BLADE.width / 2, GRIP.y, 0), radius: HANDLE.radius * 1.35, length: GRIP.length },
     // The top of the handle, in the knife's own space: the handle is where the knife is dragged.
     top: new THREE.Vector3(-BLADE.width / 2, base + HANDLE.length, 0),
     // 0..1: how lit the grip is (pressed).
-    set gripGlow(value) { gripMaterial.emissiveIntensity = value * 0.6; },
+    set gripGlow(value) { gripUniforms.gripGlow.value = value * 0.5; },
     // 0..1: how much stone powder clings to the blade.
     set dust(value) { uniforms.knifeDust.value = value; },
     get dust() { return uniforms.knifeDust.value; },

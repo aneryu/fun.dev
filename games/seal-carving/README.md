@@ -12,17 +12,20 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
 ## How it plays
 
 - The face is seen square from above (about 78°, so a sliver of the sides gives depth).
-- The knife has two zones: dragging its wrapped handle moves it (the touched spot stays under
-  the finger); holding its red grip or blade drives it into the stone, and the finger then
+- No button row: everything is on or beside the knife, so the finger stays where it works.
+  The knife has two zones: dragging its wrapped handle moves it (the touched spot stays under
+  the finger); holding its cinnabar-dyed grip or blade drives it into the stone, and the finger then
   pushes it one to one. It carves only the way its edge points (away from the handle), and
-  slides back down its groove the other way; letting go lifts it. Turn (转刀, R) turns it a
-  quarter clockwise in place, so its four headings cover every line. Nothing
+  slides back down its groove the other way; letting go lifts it. ⟳ beside the grip (or R)
+  turns it a quarter clockwise in place, so its four headings cover every line; ↶ on the
+  other side undoes. A marker on the face shows the cutting point: a ring, a bar as wide as
+  the groove, and an arrow the way it cuts (yellow hovering, red in the stone). Nothing
   snaps to the draft: grooves go where the knife goes. A draft line counts as cut where a
   groove runs over it; at 90% coverage its last gaps are cut when the knife lifts.
 - Undo takes back the last swipe (repeatedly, this session; one stroke at a time for a seal
-  reopened from a save). Redo opens a card: redo the current step (or the last step cut, if
+  reopened from a save). Redo, top right under the album, opens a card: redo the current step (or the last step cut, if
   nothing of the current one is), or the whole seal. Each saved stroke records its step.
-  ‹ › turn the stone. The player's Restart keeps progress, as in every game.
+  Q/E still turn the stone on a keyboard. The player's Restart keeps progress, as in every game.
 - The knife in the stone is a stick-slip system tuned to the video's sound (pushes of
   0.25–0.45 s, cracks 15–40 ms apart): the hand pulls the tip through a spring, the tip
   stays stuck until the pull passes the stone's strength, then a flake breaks off. Each
