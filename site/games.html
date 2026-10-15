@@ -3,16 +3,18 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="description" content="fun.dev — 小游戏，随时玩。" data-i18n-content="description">
+    <meta name="description" content="fun.dev — 做着玩的小游戏，点开就玩。" data-i18n-content="description">
     <meta name="theme-color" content="#ffd43b">
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://fun.dev/games/">
+    <meta property="og:url" content="https://fun.dev/games">
+    <link rel="canonical" href="https://fun.dev/games">
     <meta property="og:title" content="fun.dev">
-    <meta property="og:description" content="fun.dev — 小游戏，随时玩。" data-i18n-content="description">
+    <meta property="og:description" content="fun.dev — 做着玩的小游戏，点开就玩。" data-i18n-content="description">
     <link rel="canonical" href="https://fun.dev/games/">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <script src="/i18n-boot.js"></script>
     <link rel="stylesheet" href="/platform.css">
     <script type="module" src="/app.js"></script>
     <title>fun.dev</title>
@@ -21,7 +23,7 @@
     <a class="skip-link" href="#games" data-i18n="skip">跳到游戏</a>
     <header class="site-header page-width">
       <h1><a class="wordmark" href="/" aria-label="fun.dev 首页" data-i18n-aria="home" data-language-link>fun.dev</a></h1>
-      <select class="language-toggle" id="language-toggle" aria-label="语言" data-i18n-aria="language" hidden><option value="auto" data-i18n="languageAuto">自动</option><option value="zh" lang="zh-CN">中文</option><option value="en" lang="en">English</option></select>
+      <select class="language-toggle" id="language-toggle" aria-label="语言" data-i18n-aria="language"><option value="auto" data-i18n="languageAuto">自动</option><option value="zh" lang="zh-CN">中文</option><option value="en" lang="en">English</option></select>
     </header>
     <main class="page-width">
       <section class="catalog" id="games" aria-labelledby="games-title">
@@ -57,5 +59,6 @@
         <noscript><p class="message-state">请开启 JavaScript。<br><span lang="en">Please enable JavaScript.</span></p></noscript>
       </section>
     </main>
+    <script src="/i18n-boot.js"></script>
   </body>
 </html>

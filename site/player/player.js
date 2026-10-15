@@ -1,4 +1,4 @@
-import { API_VERSION, bundlePath, compatible, gameText, loadCatalog } from "../catalog.js";
+import { API_VERSION, bundlePath, compatible, gameText, loadCatalog, playPath } from "../catalog.js";
 import { getLocale, initLocale, onLocaleChange, t } from "../i18n.js";
 import { transferProgress } from "../progress-config.js";
 import { ProgressClient } from "../progress/client.js";
@@ -287,7 +287,8 @@ optionsDialog.addEventListener("close", () => {
 
 async function openGame() {
   try {
-    const id = new URLSearchParams(window.location.search).get("game");
+    // The page is /games/<id>; the build writes one per game.
+    const id = decodeURIComponent(window.location.pathname.match(/^\/games\/([^/]+)$/)?.[1] ?? "");
     if (!id) { showError("chooseGame"); return; }
     const signal = AbortSignal.any([pageScope.signal, AbortSignal.timeout(10000)]);
     const catalog = await loadCatalog(signal);
@@ -382,7 +383,8 @@ share.addEventListener("click", async () => {
   if (!game) return;
   const locale = getLocale();
   const text = host?.shareText(locale) || t("shareDefault", gameText(game.title, locale));
-  const url = new URL(`/s/${game.id}/${locale === "en" ? "en/" : ""}`, window.location.origin).href;
+  // The game's own address is its share link; English shares keep the visitor's language.
+  const url = new URL(`${playPath(game)}${locale === "en" ? "?lang=en" : ""}`, window.location.origin).href;
   actionErrorKey = actionKey = null;
   try {
     if (navigator.share) await navigator.share({ title: gameText(game.title, locale), text, url });

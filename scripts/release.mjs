@@ -52,8 +52,8 @@ const deployed = deployments[0]?.Source;
 const known = deployed && spawnSync("git", ["cat-file", "-e", `${deployed}^{commit}`], { cwd: root }).status === 0;
 const changed = known ? git("diff", "--name-only", deployed, head).split("\n").filter(Boolean) : null;
 const touches = (pattern) => !changed || changed.some((file) => pattern.test(file));
-const siteChanged = touches(/^(?:site|skills|functions|server|migrations)\/|^scripts\/(?:build|check|csp|share-pages|local-games|game-release)\.mjs$|^package(?:-lock)?\.json$|^wrangler\.jsonc$/);
-const transferChanged = touches(/^(?:site\/progress|site\/play|server|functions|migrations)\//);
+const siteChanged = touches(/^(?:site|skills|functions|server|migrations)\/|^scripts\/(?:build|check|csp|game-pages|local-games|game-release)\.mjs$|^package(?:-lock)?\.json$|^wrangler\.jsonc$/);
+const transferChanged = touches(/^(?:site\/progress|site\/player|server|functions|migrations)\//);
 
 const migrations = must(wrangler("d1", "migrations", "list", "DB", "--remote", "--env", "production", "--env-file", "/dev/null"), "Listing D1 migrations");
 const pendingMigrations = !/No migrations to apply/i.test(migrations);
@@ -65,7 +65,7 @@ const local = await loadLocalGames();
 const publish = local.filter(({ game }) => remoteCatalog.find((entry) => entry.id === game.id)?.release !== game.release);
 const remoteOnly = remoteCatalog.filter((entry) => !local.some(({ game }) => game.id === entry.id));
 const apiChange = publish.some(({ game }) => remoteCatalog.find((entry) => entry.id === game.id)?.apiVersion !== game.apiVersion && remoteCatalog.some((entry) => entry.id === game.id));
-const deploySite = siteChanged || publish.length > 0; // new releases also refresh the share pages
+const deploySite = siteChanged || publish.length > 0; // new releases also refresh the game pages and sitemap
 
 console.log(`
 Release plan for ${head.slice(0, 7)} (live site: ${deployed ?? "unknown"})

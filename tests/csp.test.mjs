@@ -12,8 +12,8 @@ test("remote origin joins script, connect, image and media sources in every poli
 });
 test("only the player relaxes CSP for loaders; the site keeps workers same-origin", async () => {
   const rules = parseHeaders(addOriginToHeaders(await readFile(new URL("../site/_headers", import.meta.url), "utf8"), origin));
-  const site = headersFor(rules, "/games/")["content-security-policy"];
-  const player = headersFor(rules, "/play/")["content-security-policy"];
+  const site = headersFor(rules, "/games")["content-security-policy"];
+  const player = headersFor(rules, "/games/muyu")["content-security-policy"];
   assert.doesNotMatch(site, /wasm-unsafe-eval|blob:/);
   assert.match(site, /worker-src 'self'(;|$)/);
   assert.match(player, /script-src 'self' 'wasm-unsafe-eval'/);

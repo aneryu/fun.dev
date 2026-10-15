@@ -2,7 +2,7 @@
 
 fun.dev owns the page and the Three.js runtime. A game delivers an ES module and
 its assets. It does not create an HTML document, renderer, or animation loop.
-The lobby and `/play/?game=<id>` player are shared across all games.
+The lobby (`/games`) and the player (one page per game at `/games/<id>`) are shared across all games.
 
 Apart from Three.js and this container API, games must be self-contained. Keep
 game resources, UI copy, development tools and tests within their bundle.
@@ -83,7 +83,7 @@ languages. The published `cyber-muyu` bundle is a complete bilingual example,
 including procedurally synthesized audio and audio cleanup on pause/disposal.
 
 The player resolves the entry to `/games/<id>/<version>/game.js`. Asset paths
-are relative to this bundle, never to the player's `/play/` URL. Keep published
+are relative to this bundle, never to the game page's URL. Keep published
 version directories immutable and bump `version` when changing code or assets.
 
 ## Game interface
@@ -250,8 +250,8 @@ export const options = [
 - The platform's own switches (mute, volume, haptics) are not game options.
 
 `shareText(locale)` may return up to 280 characters for the player's **Share**
-button, e.g. a score. The player appends the game's share link `/s/<id>/`, whose
-static page carries the title, description and cover for link previews.
+button, e.g. a score. The player appends the game's address `/games/<id>`, whose page
+carries the title, description and cover (in Chinese) for link previews.
 
 ## Runtime kit
 
@@ -359,7 +359,7 @@ builds bundle no games and read the R2 catalog instead.
 Keep game assets inside their bundle. Remote-origin builds permit the configured
 game origin for scripts, fetches, images and media; default local builds permit
 same-origin scripts, styles, and resources. Both disallow inline scripts/styles,
-eval, data URLs and unrelated external assets. Only the player (`/play/*`) also
+eval, data URLs and unrelated external assets. Only game pages (`/games/*`) also
 allows `blob:` images and fetches, Blob URL workers and WebAssembly compilation
 (`'wasm-unsafe-eval'`), which the glTF, Draco and KTX2 loaders need; the rest of
 the site keeps workers same-origin for the service worker. Verify other loaders

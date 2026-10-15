@@ -62,8 +62,9 @@ export function coverURL(game, origin = gameOrigin) {
   return game.cover ? `${bundleBase(game, origin)}${game.cover}` : null;
 }
 
+// Each game has its own page and path (/games/<id>), which page analytics count separately.
 export function playPath(game) {
-  return `/play/?game=${encodeURIComponent(game.id)}`;
+  return `/games/${encodeURIComponent(game.id)}`;
 }
 
 export async function loadCatalog(signal) {

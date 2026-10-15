@@ -77,7 +77,7 @@ Each module is written together with the first game that needs it.
 - Three.js addons served by the platform at the same pinned version:
   `GLTFLoader`, `DRACOLoader`, and `KTX2Loader`, with self-hosted decoders.
   Their loaders create Blob URL workers and compile WebAssembly, so only
-  `/play/*` relaxes CSP with `img-src`/`connect-src blob:`, `worker-src blob:`,
+  game pages (`/games/*`) relax CSP with `img-src`/`connect-src blob:`, `worker-src blob:`,
   and `'wasm-unsafe-eval'`. The site-wide policy is detached with
   `! Content-Security-Policy` and replaced; adding a second policy would only
   narrow it.
@@ -89,10 +89,8 @@ Each module is written together with the first game that needs it.
   pause/resume, language switch, restart, and error-free cleanup when leaving.
   Routine kit/host changes test the live R2 catalog through a local proxy;
   contract upgrades test the local game sources about to be published.
-- Share previews: the build fetches the R2 catalog and generates static
-  `/s/<id>/` pages with per-game Open Graph tags and a meta refresh to the
-  player. A 404 fallback redirects unknown IDs and games published since the
-  last deployment. Cards follow the sharer's language.
+- Share previews: the build fetches the R2 catalog and writes each game's page at
+  `/games/<id>` with its Open Graph tags (Chinese), so the game's address is its share link.
 - PWA: web app manifest (installable, `display: standalone`, which is the
   only near-fullscreen mode on iPhone) and a Service Worker for offline play of
   previously opened games. Pages, host, and catalog are network-first with a

@@ -108,8 +108,8 @@ respect `prefers-reduced-motion`. The player passes this preference to games.
 
 On phones and tablets, fill the available dynamic viewport with the game and
 put platform controls in a small menu. Respect display cutouts and safe areas
-in both orientations. Desktop keeps a yellow header and footer. The wooden-fish
-demo uses the yellow canvas, brown wood, and simple dark text without neon effects.
+in both orientations. Desktop keeps a yellow header and footer. Wooden Fish
+(敲木鱼) uses the yellow canvas, brown wood, and simple dark text without neon effects.
 Platform controls remain keyboard accessible,
 including pause, restart, fullscreen (where supported), and return to the lobby.
 Loading, pause, and error messages are plain text in a high-contrast inset.

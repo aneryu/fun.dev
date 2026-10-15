@@ -8,7 +8,7 @@ import { prepareRelease, publishRelease, unregisterGame } from "../scripts/game-
 import { gameOrigin } from "../scripts/game-origin.mjs";
 import { loadLocalGames, localCatalog } from "../scripts/local-games.mjs";
 
-const manifest = fileURLToPath(new URL("../games/cyber-muyu/game.json", import.meta.url));
+const manifest = fileURLToPath(new URL("../games/muyu/game.json", import.meta.url));
 function memoryStore() {
   const objects = new Map(); let sequence = 0;
   return {
@@ -78,7 +78,7 @@ test("source origin configuration rejects URL injection and local endpoints", ()
 });
 test("local game sources build an unhashed preview catalog and require matching directory IDs", async () => {
   const [release] = await loadLocalGames();
-  assert.equal(release.game.id, "cyber-muyu");
+  assert.equal(release.game.id, "muyu");
   assert.ok(release.assets.every((asset) => !/^(?:dev\/|package\.json|README\.md)/.test(asset.path)));
   assert.equal(localCatalog([release])[0].release, undefined);
   const dir = await mkdtemp(join(tmpdir(), "fundev-games-"));

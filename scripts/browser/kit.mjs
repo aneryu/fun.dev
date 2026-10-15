@@ -49,7 +49,7 @@ export async function kitChecks({ browser, base }) {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(`${base}/play/`);
+  await page.goto(`${base}/games/muyu`);
   await page.evaluate(() => {
     window.__violations = [];
     document.addEventListener("securitypolicyviolation", (event) => window.__violations.push(`${event.violatedDirective} ${event.blockedURI}`));

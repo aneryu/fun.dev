@@ -47,7 +47,7 @@ async function check(browser, base, game, name, gameOrigin) {
     if (state !== "running") throw new Error(`${step}: ${await page.locator("#player-status").textContent()}`);
   }
   try {
-    await page.goto(`${base}/play/?game=${encodeURIComponent(game.id)}&lang=en`);
+    await page.goto(`${base}/games/${encodeURIComponent(game.id)}?lang=en`);
     await running("open");
 
     await page.waitForTimeout(500);

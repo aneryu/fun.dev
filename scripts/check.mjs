@@ -6,7 +6,7 @@ import { loadLocalGames } from "./local-games.mjs";
 
 const root = resolve(fileURLToPath(new URL("../site/", import.meta.url)));
 const errors = [];
-const generated = new Set(["/vendor/three/three.module.js", "/skills/fun-dev-games.tar.gz"]);
+const generated = new Set(["/vendor/three/three.module.js", "/skills/fun-dev-games.tar.gz", "/i18n-boot.js"]);
 
 async function checkReference(source, value) {
   if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(value)) return;
@@ -15,7 +15,9 @@ async function checkReference(source, value) {
   let target = resolve(root, `.${decodeURIComponent(url.pathname)}`);
   if (!target.startsWith(`${root}/`) && target !== root) throw new Error("Reference escapes site directory.");
   try {
-    if ((await stat(target)).isDirectory()) target = join(target, "index.html");
+    // Like Pages, /x serves x.html when it exists.
+    if (!extname(target) && await stat(`${target}.html`).then((info) => info.isFile(), () => false)) target = `${target}.html`;
+    else if ((await stat(target)).isDirectory()) target = join(target, "index.html");
     if (!(await stat(target)).isFile()) throw new Error("Not a file");
     if (url.hash && extname(target) === ".html") {
       const html = await readFile(target, "utf8");

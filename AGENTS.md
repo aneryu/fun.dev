@@ -29,7 +29,7 @@ Do not introduce a framework unless the task benefits materially from it.
 - Keep content, interaction, and visual design aligned with the "just for fun"
   theme.
 - Prioritize mobile layouts, touch input, and game performance; adapt to desktop.
-- On mobile, let `/play` fill the available viewport and keep platform controls in a menu.
+- On mobile, let game pages (`/games/<id>`) fill the available viewport and keep platform controls in a menu.
 - Use semantic HTML, keyboard-accessible controls, visible focus states, and
   sufficient color contrast.
 - Respect `prefers-reduced-motion` when adding animation.

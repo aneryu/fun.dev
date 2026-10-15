@@ -219,7 +219,7 @@ provides same-origin coordination across tabs.
 `POST /api/session/link` creates a random 256-bit token, stores only its hash,
 and replaces the previous link issued by this browser session. It expires after
 10 minutes and is revoked when its source session is revoked or expires.
-The player copies a `/play/?game=...#connect=...` URL. Treat the link as private:
+The player copies a `/games/<id>#connect=...` URL. Treat the link as private:
 whoever opens it can connect. There is no third-party link/QR service.
 
 A blocking first-party script removes the fragment from browser history before

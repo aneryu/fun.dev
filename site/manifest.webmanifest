@@ -1,8 +1,8 @@
 {
   "name": "fun.dev",
   "short_name": "fun.dev",
-  "description": "Little games. Play anytime.",
-  "start_url": "/games/",
+  "description": "Little games, made for fun.",
+  "start_url": "/games",
   "scope": "/",
   "display": "standalone",
   "background_color": "#ffd43b",

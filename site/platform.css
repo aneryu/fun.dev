@@ -91,3 +91,6 @@ h3 { font-size: 1.25rem; }
   .game-link .play-label span { transition: transform 160ms ease; }
   .game-link:hover .play-label span { transform: translate(2px, -2px); }
 }
+
+/* Until i18n-boot.js has translated a page into a language other than its static Chinese. */
+html[data-i18n-pending] [data-i18n] { visibility: hidden; }

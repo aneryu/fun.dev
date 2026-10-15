@@ -97,7 +97,8 @@ The design and its reasons are in `DESIGN-economy.md`. Modules:
   the pacing.
 - `zen.js`: one rhythm detector for the chant and the zen meter. Three knocks warm up the
   chant (南无阿弥陀佛, one syllable per strike); steady beats deepen zen, which multiplies
-  merit and warms the scene; two seconds without a strike break the chant and zen ebbs.
+  merit and brightens the glow behind the fish (the background stays the site's Duck Yellow);
+  two seconds without a strike break the chant and zen ebbs.
 - `altar.js`: relics on a shallow arc in front of the fish (tallest at the far ends),
   draggable and switchable; each is a copy of its node in `assets/relics.glb`, with effect
   points and animated pivots. The relic models load in the background, so a new player

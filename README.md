@@ -1,18 +1,13 @@
 # fun.dev
 
-A personal Web game platform, built just for fun. One Three.js container runs
-versioned game bundles; games do not ship their own HTML pages.
+Little games, made for fun (做着玩的小游戏，点开就玩). A personal Web game platform:
+one Three.js container runs versioned game bundles; games do not ship their own HTML pages.
+Each game plays at `/games/<id>`, so page analytics count every game on its own path.
 
-The catalog includes **Wooden Fish / 敲木鱼**: tap the wooden fish to earn merit, with
-procedural Web Audio knocks. The lobby, player, and demo support Chinese and English.
-
-The demo's original mesh has a hollow belly, a narrow slit, round sound holes,
-and a tapered tail, with a plain wood-colored material. Its shape reference is
-[this wooden-fish model preview](https://booth.pm/ja/items/2154190); no vendor mesh
-or texture is included. Its self-contained source, tools and tests are documented
-in [the game README](games/cyber-muyu/README.md). To regenerate the mesh:
-`npm --prefix games/cyber-muyu run model`. Blender 4.0 is optional for
-model editing and is not required to build or run the site.
+The catalog includes **敲木鱼 / Wooden Fish** (`muyu`): tap the wooden fish for merit,
+keep a steady beat to reach samadhi, collect twelve relics and draw a daily fortune lot.
+Everything on the site and in the game supports Chinese and English. Its self-contained
+source, tools and tests are documented in [the game README](games/muyu/README.md).
 
 ## Develop, test, release
 
@@ -29,17 +24,20 @@ reference commands and operations. Requires Node.js 22+ and `tar`.
 ## Platform structure
 
 - `site/index.html`: original personal homepage, with a Games entry.
-- `site/games/index.html`: game lobby, with search and category filtering.
-- `site/play/`: shared player, opened as `/play/?game=<id>`.
+- `site/games.html`: game lobby at `/games`, with search and category filtering.
+- `site/player/`: shared player. Its `index.html` is a template: the build writes one page per
+  game to `/games/<id>` with that game's title, description, canonical URL and Chinese Open
+  Graph tags, so a game's address is also its share link. The build also writes
+  `sitemap.xml` (home, lobby, games) and `i18n-boot.js`, which sets the visitor's language
+  before the first paint. Addresses have no trailing slash (`_redirects`).
 - `site/runtime/`: Three.js host (API v2: lifecycle, shared audio, options,
   safe area, announcements, haptics), the runtime kit (`kit/`: text, input,
   fixed-step loop, assets, seeded random) and built loaders (`addons/`: glTF,
   Draco, KTX2 with self-hosted decoders).
 - `site/sw.js`, `site/manifest.webmanifest`, `site/icons/`: installable app and
   offline play for games opened before. The build writes the precache list.
-- `site/404.html`: not-found page; it also forwards share links `/s/<id>/` that
-  have no generated page yet. The production build generates `/s/<id>/` and
-  `/s/<id>/en/` share pages with Open Graph tags from the R2 catalog.
+- `site/404.html`: not-found page, also for unknown game IDs. The production build reads the
+  R2 catalog for the game pages and stops if it is unavailable.
 - `games/<id>/`: each game's source, one directory per game; `game.json` holds its
   catalog metadata, version, and runtime file list. Local builds generate the
   preview catalog and bundles from it; production reads the independent R2 catalog.
@@ -131,7 +129,7 @@ is compiled too. The build includes the game-development Skill at
 ## Analytics
 
 Use **Cloudflare Web Analytics** for unified page-view, visitor, and Web Vitals
-reporting across `/`, `/games/`, and `/play/`. The existing `fun.dev` analytics
+reporting across `/`, `/games` and each game's `/games/<id>`. The existing `fun.dev` analytics
 site injects the beacon through the domain's automatic setup. Pages project
 analytics is disabled to avoid duplicate snippets. Do not add another script to
 individual pages or game bundles. Site identifiers stay in Cloudflare settings.

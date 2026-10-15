@@ -408,9 +408,8 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
   let lotCard = null; // { index, fresh } while a lot card is open
   let lotOpenedAt = 0;
   let floatBag = []; // floats.js words, shuffled, drawn without repeats
-  // Zen colors the whole scene: the yellow warms and deepens as zen grows, then eases back.
-  const calmColor = scene.background.clone();
-  const deepColor = new THREE.Color(0xe9a13a);
+  // Zen eases in and out (mood) for the glow and the lamp; the background stays Duck Yellow, the
+  // site's own color.
   let mood = 0;
 
   // The mallet is a damped spring between rest (0) and contact (1). A press kicks it down; at
@@ -981,7 +980,6 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
       const target = zen.level;
       const moodMoving = Math.abs(target - mood) > 0.002;
       mood += (target - mood) * Math.min(1, delta * 1.5);
-      scene.background.lerpColors(calmColor, deepColor, mood * 0.55);
       const relicsBusy = relics.update(delta, { zen: mood, samadhi: zen.samadhi, petals: activeLuck()?.id === "chance" });
       const flying = altar.update(delta, landed);
       const hudBusy = hud.update(delta);

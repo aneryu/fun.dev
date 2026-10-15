@@ -1,0 +1,4 @@
+# Addresses have no trailing slash: the lobby is /games (games.html) and each game is
+# /games/<id> (games/<id>.html, written by the build).
+/games/ /games 301
+/games/:id/ /games/:id 301

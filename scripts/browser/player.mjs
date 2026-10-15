@@ -16,7 +16,7 @@ export async function playerChecks({ browser, base, dist }) {
     page.setDefaultTimeout(20000);
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
-    await page.goto(`${base}/play/?game=cyber-muyu&lang=en${query}`);
+    await page.goto(`${base}/games/muyu?lang=en${query}`);
     return page;
   }
   const running = (page) => page.waitForFunction(() => document.querySelector("#player-message").hidden && document.querySelector(".game-surface canvas"));
@@ -43,7 +43,7 @@ export async function playerChecks({ browser, base, dist }) {
   await page.locator("#close-options").click();
   await running(page);
   assert.equal(await merit(page), 1001, "cheat action reaches the game");
-  assert.deepEqual(await page.evaluate(() => [JSON.parse(localStorage.getItem("fun.dev.settings.cyber-muyu")).rings, JSON.parse(localStorage.getItem("fun.dev.audio")).muted]), [false, true]);
+  assert.deepEqual(await page.evaluate(() => [JSON.parse(localStorage.getItem("fun.dev.settings.muyu")).rings, JSON.parse(localStorage.getItem("fun.dev.audio")).muted]), [false, true]);
 
   // Share text comes from the game and notes cheats; without Web Share the link is copied.
   // The site's Permissions-Policy forbids clipboard reads, so record the write instead.
@@ -54,7 +54,7 @@ export async function playerChecks({ browser, base, dist }) {
   await page.locator("#share").click();
   await page.waitForFunction(() => document.querySelector("#action-status").textContent.includes("copied"));
   const shared = await page.evaluate(() => window.__copied);
-  assert.match(shared, /1001 merit and 0\/12 relics on Wooden Fish at fun\.dev \(with cheats\) http:\/\/127\.0\.0\.1:\d+\/s\/cyber-muyu\/en\/$/);
+  assert.match(shared, /1001 merit and 0\/12 relics on Wooden Fish at fun\.dev \(with cheats\) http:\/\/127\.0\.0\.1:\d+\/games\/muyu\?lang=en$/);
 
   // Restart keeps settings and saved merit, and starts a session without cheats.
   await page.locator("#restart").click();

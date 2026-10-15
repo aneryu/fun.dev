@@ -99,7 +99,7 @@ export function createProgressUI(client, { pause, resume, reload }) {
     for (const name of ["reset", "clear", "newIdentity"]) $("[data-action=" + name + "]").disabled = busy || !client.local || (pending && client.status !== "transfer_unknown") || (name === "reset" && !active);
     $("#progress-file").disabled = busy || !client.local || (pending && client.status !== "transfer_unknown");
     const link = client.link(); $("#progress-link").hidden = !link;
-    if (link) { const url = new URL("/play/", location.origin); url.searchParams.set("game", client.gameId); url.searchParams.set("lang", getLocale()); url.hash = `transfer=${link}`; $("#progress-link-value").value = url.href; }
+    if (link) { const url = new URL(`/games/${encodeURIComponent(client.gameId)}`, location.origin); url.searchParams.set("lang", getLocale()); url.hash = `transfer=${link}`; $("#progress-link-value").value = url.href; }
     if (["writer_busy", "writer_changed", "moved", "transfer_unknown", "legacy_unknown"].includes(client.status)) $("#progress-more").open = true;
     for (const node of document.querySelectorAll("[data-open-progress]")) {
       node.textContent = text("title") + (!["local", "loading", "unsupported"].includes(client.status) ? " !" : "");

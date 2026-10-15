@@ -24,7 +24,7 @@ try {
   assert.ok(output.includes('Ready on'), output);
   browser = await chromium.launch({ args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const errors = [];
-  async function makePage(context, url = `${origin}/play/?game=cyber-muyu&lang=en`) {
+  async function makePage(context, url = `${origin}/games/muyu?lang=en`) {
     const page = await context.newPage(); page.setDefaultTimeout(15000);
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error' && !message.text().includes('net::ERR_INTERNET_DISCONNECTED') && !message.text().includes('status of 409 (Conflict)')) errors.push(message.text()); });
@@ -67,7 +67,7 @@ try {
   await action(b,'receive'); await merit(b,3); assert.equal(claims,1);
   const saved = await b.evaluate(async()=>{const {openLocal}=await import('/progress/local.js');const local=await openLocal();const rows=await local.all();local.close();return rows;});
   assert.ok(saved.some(row=>row.gameId==='other-game'&&row.snapshot.data.merit===88));
-  assert.ok(saved.some(row=>row.gameId==='cyber-muyu'&&row.snapshot.data.merit===1),'previous target profile retained');
+  assert.ok(saved.some(row=>row.gameId==='muyu'&&row.snapshot.data.merit===1),'previous target profile retained');
   await a.bringToFront(); await action(a,'retry'); assert.match(await a.locator('#progress-status').innerText(),/Transferred/);
   await action(a,'close'); await a.reload(); await menu(a); assert.match(await a.locator('#progress-status').innerText(),/Transferred/);
   // The new device can play offline without progress API traffic.

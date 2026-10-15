@@ -4,7 +4,8 @@ import { gameOrigin } from "./game-origin.mjs";
 import { loadLocalGames, localCatalog } from "./local-games.mjs";
 import { validateCatalog } from "../site/catalog.js";
 import { addOriginToHeaders } from "./csp.mjs";
-import { sharePages } from "./share-pages.mjs";
+import { gamePages, sitemap } from "./game-pages.mjs";
+import { chooseLocale, messages } from "../site/i18n.js";
 import { createHash } from "node:crypto";
 import { readdir } from "node:fs/promises";
 import { relative } from "node:path";
@@ -47,6 +48,35 @@ execFileSync("tar", ["-czf", fileURLToPath(new URL("skills/fun-dev-games.tar.gz"
 await writeFile(new URL("game-source.js", output), `export const gameOrigin = ${JSON.stringify(origin)};\n`);
 await writeFile(new URL("progress-config.js", output), `export const transferProgress = ${process.env.FUNDEV_TRANSFER === "1"};\n`);
 await writeFile(new URL("pwa-config.js", output), `export const serviceWorker = ${process.env.FUNDEV_NO_SW !== "1"};\n`);
+// Language before the first paint. Translated pages load this classic script twice: in <head> it
+// picks the language and, when that is not the static Chinese, hides the marked texts; at the
+// end of <body> it translates them and the language menu and shows them again. A visitor never
+// sees one language flash to the other, however the HTML arrives. i18n.js takes over later.
+const staticMessages = Object.fromEntries(Object.entries(messages).map(([locale, table]) =>
+  [locale, Object.fromEntries(Object.entries(table).filter(([, value]) => typeof value === "string"))]));
+await writeFile(new URL("i18n-boot.js", output), `(() => {
+  const messages = ${JSON.stringify(staticMessages)};
+  const chooseLocale = ${chooseLocale.toString()};
+  let saved = null;
+  try { saved = localStorage.getItem("fun.dev.language"); } catch { /* Preferences are optional. */ }
+  const query = new URLSearchParams(location.search).get("lang");
+  const preference = ["zh", "en"].includes(query) ? query : ["zh", "en"].includes(saved) ? saved : "auto";
+  const locale = chooseLocale(preference, null, navigator.languages || []);
+  const text = messages[locale];
+  const root = document.documentElement;
+  root.lang = locale === "zh" ? "zh-CN" : "en";
+  if (!document.body) { if (locale !== "zh") root.dataset.i18nPending = ""; return; }
+  for (const node of document.querySelectorAll("[data-i18n]")) if (text[node.dataset.i18n]) node.textContent = text[node.dataset.i18n];
+  for (const [attribute, key] of [["aria-label", "i18nAria"], ["placeholder", "i18nPlaceholder"], ["content", "i18nContent"]]) {
+    for (const node of document.querySelectorAll("[data-" + key.replace(/[A-Z]/g, (letter) => "-" + letter.toLowerCase()) + "]")) {
+      if (text[node.dataset[key]]) node.setAttribute(attribute, text[node.dataset[key]]);
+    }
+  }
+  const toggle = document.querySelector("#language-toggle");
+  if (toggle) toggle.value = preference;
+  delete root.dataset.i18nPending;
+})();
+`);
 let catalog = [];
 if (!origin) {
   // Local previews bundle each game's listed runtime files; development files stay in games/<id>/.
@@ -66,18 +96,21 @@ if (!origin) {
   // The deployed website bundles no registry or games; it reads them from the R2 origin.
   const path = new URL("_headers", output);
   await writeFile(path, addOriginToHeaders(await readFile(path, "utf8"), origin));
-  // Share pages need the live catalog; without it, the 404 page forwards share links.
-  try {
-    const response = await fetch(`${origin}/games.json`, { signal: AbortSignal.timeout(10000) });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    catalog = validateCatalog(await response.json());
-  } catch (error) { console.warn(`Share pages skipped: catalog unavailable (${error.message}).`); }
+  // Game pages need the live catalog: without them no game could be played, so a deploy stops.
+  const response = await fetch(`${origin}/games.json`, { signal: AbortSignal.timeout(10000) });
+  if (!response.ok) throw new Error(`Game pages need the live catalog: HTTP ${response.status}`);
+  catalog = validateCatalog(await response.json());
 }
-for (const page of sharePages(catalog, { origin })) {
+// Each game's page at /games/<id> is the player template with its meta; the template itself is
+// not a page.
+const template = new URL("player/index.html", output);
+for (const page of gamePages(catalog, await readFile(template, "utf8"), { origin })) {
   const target = new URL(page.path, output);
   await mkdir(new URL("./", target), { recursive: true });
   await writeFile(target, page.html);
 }
+await rm(template);
+await writeFile(new URL("sitemap.xml", output), sitemap(catalog));
 
 // The service worker precaches the platform shell as one versioned set.
 async function files(directory) {
@@ -92,11 +125,14 @@ async function files(directory) {
 const outputPath = fileURLToPath(output);
 const shell = (await files(output))
   .map((file) => `/${relative(outputPath, fileURLToPath(file)).split("\\").join("/")}`)
-  .filter((path) => !/^\/(?:games\/[^/]+\/|s\/|skills\/|runtime\/addons\/(?:draco|basis)\/|vendor\/three\/LICENSE|_headers|robots\.txt|sitemap\.xml|games\.json|sw\.js)/.test(path))
-  .map((path) => path.replace(/(?:^|\/)index\.html$/, "/").replace(/^\/\//, "/"))
+  .filter((path) => !/^\/(?:games\/[^/]+\/|skills\/|runtime\/addons\/(?:draco|basis)\/|vendor\/three\/LICENSE|_headers|_redirects|robots\.txt|sitemap\.xml|games\.json|sw\.js)/.test(path))
+  .map((path) => path.replace(/(?:^|\/)index\.html$/, "/").replace(/^\/\//, "/").replace(/^(\/games(?:\/[^/]+)?)\.html$/, "$1"))
   .sort();
+// Cached under the addresses pages are visited at: "/x/" for x/index.html, "/games" and
+// "/games/<id>" for the lobby and game pages.
+const fileOf = (path) => (path.endsWith("/") ? `${path}index.html` : /^\/games(?:\/[^/.]+)?$/.test(path) ? `${path}.html` : path);
 const hash = createHash("sha256");
-for (const path of shell) hash.update(path).update(await readFile(new URL(`.${path.endsWith("/") ? `${path}index.html` : path}`, output)));
+for (const path of shell) hash.update(path).update(await readFile(new URL(`.${fileOf(path)}`, output)));
 const worker = new URL("sw.js", output);
 await writeFile(worker, (await readFile(worker, "utf8")).replace(/^const BUILD = .*$/m, `const BUILD = ${JSON.stringify({ version: hash.digest("hex").slice(0, 16), shell, gameOrigin: origin })};`));
 console.log("Built dist/ with the pinned, locally served Three.js runtime.");

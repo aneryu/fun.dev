@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { smoke } from "./smoke.mjs";
 
 // Post-deployment checks against the public site: the deployed build is the expected one,
-// security headers and share pages are in place, then every game passes the smoke test.
+// security headers and game pages are in place, then every game passes the smoke test.
 export async function liveCheck({ browser, site, games, version, log = console.log }) {
   const text = async (path) => {
     const response = await fetch(new URL(path, site), { cache: "no-store" });
@@ -17,13 +17,12 @@ export async function liveCheck({ browser, site, games, version, log = console.l
     await new Promise((done) => setTimeout(done, 3000));
   }
   assert.match((await text("/pwa-config.js")).body, /serviceWorker = true/, "service worker enabled");
-  const player = (await text("/play/")).headers.get("content-security-policy") ?? "";
-  assert.match(player, /'wasm-unsafe-eval'/, "player CSP allows the loaders");
-  assert.doesNotMatch((await text("/games/")).headers.get("content-security-policy") ?? "", /wasm-unsafe-eval/, "site CSP stays strict");
+  assert.doesNotMatch((await text("/games")).headers.get("content-security-policy") ?? "", /wasm-unsafe-eval/, "site CSP stays strict");
   for (const game of games) {
-    const share = (await text(`/s/${game.id}/en/`)).body;
-    assert.ok(share.includes('property="og:title"'), `share page for ${game.id}`);
+    const page = await text(`/games/${game.id}`);
+    assert.match(page.headers.get("content-security-policy") ?? "", /'wasm-unsafe-eval'/, `game page CSP for ${game.id}`);
+    assert.ok(page.body.includes('property="og:title"') && page.body.includes(`href="https://fun.dev/games/${game.id}"`), `game page for ${game.id}`);
   }
-  log("  ok   build, headers, share pages");
+  log("  ok   build, headers, game pages");
   await smoke({ browser, base: site, games, log });
 }

@@ -9,7 +9,7 @@ const game = {
 test("empty catalog and versioned bundles share a player URL", () => {
   assert.deepEqual(validateCatalog([]), []);
   assert.deepEqual(validateCatalog([game]), [game]);
-  assert.equal(playPath(game), "/play/?game=test-game");
+  assert.equal(playPath(game), "/games/test-game");
   assert.equal(bundlePath(game), "/games/test-game/1.0.0/game.js");
 });
 test("reject incompatible APIs, unsafe paths, duplicates, and invalid metadata", () => {

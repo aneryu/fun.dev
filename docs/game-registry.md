@@ -52,7 +52,7 @@ Each game's source directory `games/<id>/` has a `game.json` beside `game.js`:
 
 `npm run release` publishes every game whose content differs from the live
 catalog (see [workflow](workflow.md)); `npm run game:remove -- my-game` removes an
-entry. To inspect a release without publishing:
+entry; its page `/games/my-game` and sitemap entry go with the next website deploy. To inspect a release without publishing:
 
 ```sh
 node scripts/publish-game.mjs publish games/my-game/game.json --dry-run

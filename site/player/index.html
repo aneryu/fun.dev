@@ -4,14 +4,15 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#ffd43b">
-    <meta name="robots" content="noindex">
+    <!-- game-meta -->
     <script src="/progress/link-entry.js"></script>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <script src="/i18n-boot.js"></script>
     <link rel="stylesheet" href="/platform.css">
-    <link rel="stylesheet" href="/play/player.css">
-    <script type="module" src="/play/player.js"></script>
+    <link rel="stylesheet" href="/player/player.css">
+    <script type="module" src="/player/player.js"></script>
     <title>开玩 — fun.dev</title>
   </head>
   <body class="player-page">
@@ -21,14 +22,14 @@
     </dialog>
     <header class="player-header">
       <a class="wordmark" href="/" data-language-link>fun.dev</a>
-      <a class="back-link" href="/games/" data-language-link data-i18n="back">← 游戏</a>
+      <a class="back-link" href="/games" data-language-link data-i18n="back">← 游戏</a>
       <h1 id="game-title">开玩</h1>
-      <select class="language-toggle" id="language-toggle" aria-label="语言" data-i18n-aria="language" hidden><option value="auto" data-i18n="languageAuto">自动</option><option value="zh" lang="zh-CN">中文</option><option value="en" lang="en">English</option></select>
+      <select class="language-toggle" id="language-toggle" aria-label="语言" data-i18n-aria="language"><option value="auto" data-i18n="languageAuto">自动</option><option value="zh" lang="zh-CN">中文</option><option value="en" lang="en">English</option></select>
       <div class="player-actions" aria-label="游戏控制" data-i18n-aria="controls">
-        <button class="button" id="pause" type="button" disabled>暂停</button>
+        <button class="button" id="pause" type="button" data-i18n="pause" disabled>暂停</button>
         <button class="button" id="restart" type="button" data-i18n="restart" disabled>重开</button>
-        <button class="button" id="fullscreen" type="button" hidden>全屏</button>
-        <button class="button" id="open-progress" type="button" data-open-progress disabled>我的进度</button>
+        <button class="button" id="fullscreen" type="button" data-i18n="fullscreen" hidden>全屏</button>
+        <button class="button" id="open-progress" type="button" data-open-progress data-i18n="myProgress" disabled>我的进度</button>
         <button class="button" id="open-options" type="button" data-i18n="options" disabled>选项</button>
         <button class="button" id="share" type="button" data-i18n="share" disabled>分享</button>
       </div>
@@ -36,11 +37,11 @@
     <main class="player-main" id="player">
       <div class="game-stage" id="game-stage" aria-label="游戏区域" data-i18n-aria="gameArea"></div>
       <div class="player-message" id="player-message" role="status" aria-live="polite">
-        <p id="player-status">加载中…</p>
+        <p id="player-status" data-i18n="loading">加载中…</p>
         <progress id="player-loading" max="1" aria-label="加载进度" data-i18n-aria="loadingProgress" hidden></progress>
         <button class="button" id="resume" type="button" data-i18n="resume" hidden>继续</button>
-        <button class="button" id="open-progress-message" type="button" data-open-progress hidden>我的进度</button>
-        <a id="error-back" href="/games/" data-language-link data-i18n="errorBack" hidden>返回游戏</a>
+        <button class="button" id="open-progress-message" type="button" data-open-progress data-i18n="myProgress" hidden>我的进度</button>
+        <a id="error-back" href="/games" data-language-link data-i18n="errorBack" hidden>返回游戏</a>
         <noscript><p>请开启 JavaScript。<br><span lang="en">Please enable JavaScript.</span></p></noscript>
       </div>
     </main>
@@ -63,5 +64,6 @@
       <p id="game-description"></p>
       <p id="action-status" role="status" aria-live="polite"></p>
     </footer>
+    <script src="/i18n-boot.js"></script>
   </body>
 </html>

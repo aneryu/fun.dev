@@ -90,5 +90,5 @@ const server = createPreviewServer({
   },
 });
 const { port, host } = await listen(server);
-const page = id ? `play/?game=${id}&debug=1` : "";
+const page = id ? `games/${id}?debug=1` : "";
 console.log(`Dev: http://127.0.0.1:${port}/${page} (listening on ${host}:${port}; rebuilding on changes to site/, games/, scripts/, skills/)`);

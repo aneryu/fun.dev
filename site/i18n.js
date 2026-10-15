@@ -2,7 +2,7 @@ export const messages = {
   zh: {
     language: "语言", languageAuto: "自动",
     home: "fun.dev 首页", skip: "跳到游戏", games: "游戏", gameList: "游戏列表",
-    description: "fun.dev — 小游戏，随时玩。",
+    description: "fun.dev — 做着玩的小游戏，点开就玩。",
     search: "搜索", searchPlaceholder: "搜索游戏", category: "分类", allCategories: "全部分类",
     random: "随便玩", play: "开始玩", empty: "游戏即将上线。", noResults: "没有找到游戏。",
     clear: "清除筛选", loadError: "加载失败，请重试。", retry: "重试", loading: "加载中…",
@@ -17,13 +17,13 @@ export const messages = {
     options: "选项", closeOptions: "关闭选项", howToPlay: "怎么玩", soundHaptics: "声音与震动", mute: "静音", volume: "音量",
     haptics: "震动反馈", settings: "设置", cheats: "秘籍", debugOptions: "调试", share: "分享", shareCopied: "分享链接已复制。",
     shareError: "无法分享，请手动复制地址。", rotatePortrait: "请把设备竖过来。", rotateLandscape: "请把设备横过来。",
-    platformUpdated: "fun.dev 已更新，请刷新页面。", gameOutdated: "这个游戏正在升级，请稍后再来。", loadingProgress: "加载进度",
+    myProgress: "我的进度", platformUpdated: "fun.dev 已更新，请刷新页面。", gameOutdated: "这个游戏正在升级，请稍后再来。", loadingProgress: "加载进度",
     shareDefault: (title) => `来 fun.dev 玩「${title}」`,
   },
   en: {
     language: "Language", languageAuto: "Auto",
     home: "fun.dev home", skip: "Skip to games", games: "Games", gameList: "Game list",
-    description: "fun.dev — Little games. Play anytime.",
+    description: "fun.dev — Little games, made for fun.",
     search: "Search", searchPlaceholder: "Search games", category: "Category", allCategories: "All categories",
     random: "Surprise me", play: "Play", empty: "Games coming soon.", noResults: "No games found.",
     clear: "Clear filters", loadError: "Couldn't load games. Try again.", retry: "Retry", loading: "Loading…",
@@ -38,7 +38,7 @@ export const messages = {
     options: "Options", closeOptions: "Close options", howToPlay: "How to play", soundHaptics: "Sound & haptics", mute: "Mute", volume: "Volume",
     haptics: "Haptic feedback", settings: "Settings", cheats: "Cheats", debugOptions: "Debug", share: "Share", shareCopied: "Share link copied.",
     shareError: "Couldn't share. Copy the address instead.", rotatePortrait: "Turn your device to portrait.", rotateLandscape: "Turn your device to landscape.",
-    platformUpdated: "fun.dev has been updated. Reload the page.", gameOutdated: "This game is being updated. Try again later.", loadingProgress: "Loading progress",
+    myProgress: "My progress", platformUpdated: "fun.dev has been updated. Reload the page.", gameOutdated: "This game is being updated. Try again later.", loadingProgress: "Loading progress",
     shareDefault: (title) => `Play ${title} on fun.dev`,
   },
 };
@@ -84,6 +84,7 @@ export function onLocaleChange(listener) {
 
 function translatePage() {
   document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
+  delete document.documentElement.dataset.i18nPending;
   for (const node of document.querySelectorAll("[data-i18n]")) node.textContent = t(node.dataset.i18n);
   for (const [attribute, dataset] of [["aria-label", "i18nAria"], ["placeholder", "i18nPlaceholder"], ["content", "i18nContent"]]) {
     const selector = `data-${dataset.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;

@@ -18,7 +18,7 @@ Setup once: Node.js 22+, `npm ci`, `npx playwright install chromium`, and
 
 ```sh
 npm run dev                  # http://127.0.0.1:8000, rebuilds and reloads on save
-npm run dev -- cyber-muyu    # prints the player URL for one game, with ?debug=1
+npm run dev -- muyu          # prints the player URL for one game, with ?debug=1
 ```
 
 - Platform code: `site/` (pages, player, host and runtime kit), `scripts/build.mjs`.
@@ -39,11 +39,11 @@ npm run dev -- cyber-muyu    # prints the player URL for one game, with ?debug=1
 
 | Suite | Checks |
 | --- | --- |
-| unit | `node --test`: catalog, publisher, CSP, kit, share pages, progress protocol with local D1, game tests |
+| unit | `node --test`: catalog, publisher, CSP, kit, game pages, progress protocol with local D1, game tests |
 | smoke | every game at phone and desktop size: runs, not blank, language switch, pause/resume, restart, clean exit, no console errors |
 | kit | text/HUD placement, pointer/keyboard/joystick, glTF with embedded textures, Draco/KTX2 under the player CSP |
 | player | loading bar, announcements, options/settings/cheats, mute, share, restart, debug panel, rotation prompt, API mismatch |
-| site | lobby covers, share pages and 404 forwarding, manifest/icons, offline play through the service worker |
+| site | lobby covers, game pages and their redirects, sitemap, 404, manifest/icons, offline play through the service worker |
 
 `npm run verify -- smoke player` runs only some browser suites;
 `npm run verify -- smoke --game=<id>` smoke-tests a single game;
@@ -64,7 +64,7 @@ npm run release -- --check   # only the live checks against fun.dev
 prints a plan: which commit fun.dev runs, pending D1 migrations, whether the
 cleanup Worker changed (or is missing), which games differ from the R2 catalog
 (by content hash), and whether the website needs deploying (site code changed or
-games were published, which refreshes the share pages). After confirmation:
+games were published, which refreshes the game pages and sitemap). After confirmation:
 
 1. `verify` (plus the transfer test when progress, player, server, functions or
    migrations changed). Failure stops before any remote change.
@@ -76,7 +76,7 @@ games were published, which refreshes the share pages). After confirmation:
    the previous catalog is restored and nothing else changes.
 6. Deploy `dist/` to Pages with the commit hash (the next release diffs from it).
 7. Wait until fun.dev serves the new build, then check the service worker flag,
-   player and site CSP, share pages, and the smoke test on fun.dev itself.
+   game-page and site CSP, game pages, and the smoke test on fun.dev itself.
 8. Push `main` to GitHub.
 
 Nothing is "half released" before step 6: a failure leaves the previous site

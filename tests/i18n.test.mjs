@@ -10,8 +10,8 @@ test("explicit language overrides a saved choice and browser preferences", () =>
   assert.equal(chooseLocale(null, null, ["fr"]), "en");
 });
 test("language links preserve the game ID and anchors", () => {
-  assert.equal(languagePath("/play/?game=cyber-muyu&lang=zh#scene", "auto"), "/play/?game=cyber-muyu#scene");
-  assert.equal(languagePath("/play/?game=cyber-muyu", "en"), "/play/?game=cyber-muyu&lang=en");
+  assert.equal(languagePath("/games/muyu?lang=zh#scene", "auto"), "/games/muyu#scene");
+  assert.equal(languagePath("/games/muyu", "en"), "/games/muyu?lang=en");
   assert.equal(languagePath("/?lang=en#games", "zh"), "/?lang=zh#games");
 });
 test("both interface languages have complete messages and correct counts", () => {
