@@ -27,7 +27,14 @@ test("every cut is straight along the face's axes, inside the face, in a known s
 });
 
 test("the face is carved mirrored: the first character sits on the face's left", () => {
-  const cuts = layoutSeal(seals[0]).filter((cut) => cut.stage === "glyphs");
+  const cuts = layoutSeal(seals.find((seal) => seal.id === "just-for-fun")).filter((cut) => cut.stage === "glyphs");
   const first = cuts.slice(0, 4);
   assert.ok(first.every((cut) => cut.a[0] < 0 && cut.a[1] < 0), "只 is carved top-left so it prints top-right");
+});
+
+test("the first seal is the easiest to carve", () => {
+  const glyphCuts = (seal) => layoutSeal(seal).filter((cut) => cut.stage === "glyphs").length;
+  const first = glyphCuts(seals[0]);
+  assert.ok(first <= 24, `the first seal has ${first} glyph cuts`);
+  for (const seal of seals.slice(1)) assert.ok(glyphCuts(seal) > first, `${seal.id} is easier than the first`);
 });

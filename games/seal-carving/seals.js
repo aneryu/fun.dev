@@ -25,6 +25,9 @@ export const STAGES = ["bevel", "border", "cross", "glyphs", "dust", "done"];
 // Shared glyphs: 天, 大, 平, 好 and others appear twice in a seal, drawn alike (as carvers do,
 // though a master varies them a little).
 const G = {
+  // The first seal's characters: a few straight cuts each, hardly folded, to learn on.
+  上: ["M10,2 d16", "M10,9 r6", "M2,18 r16"],
+  吉: ["M2,4 r16", "M10,1 d7", "M5,8 r10", "M4,11 r12 d7 l12 u7"],
   只: ["M1,1 r18 d8 l18 u8", "M5,3 r10 d4 l10 u2", "M9,9 d2 l8 d2 r6 d2 l6 d2 r6 d2", "M11,9 d2 r8 d2 l6 d2 r6 d2 l6 d2"],
   是: ["M1,1 r18 d6 l18 u6", "M1,4 r18", "M1,9 r18", "M9,9 d8", "M11,11 r8 d2 l6 d2 r6", "M7,11 l6 d4 r4", "M1,15 d4 r18"],
   好: ["M1,1 r7 d5 l5 d4 r5 d9", "M1,9 r8", "M1,13 d6 r4", "M11,1 r8 d4 l4 d14 l4 u2", "M11,3 r6", "M11,9 r8"],
@@ -32,9 +35,7 @@ const G = {
   天: ["M3,1 r14", "M1,5 r18", "M10,5 d4", "M10,9 l9 d3 r6 d3 l6 d4", "M10,9 r9 d3 l6 d3 r6 d4"],
   开: ["M1,3 r18", "M1,9 r18", "M6,3 d9 l5 d7", "M14,3 d16", "M14,14 r5", "M9,13 d6"],
   心: ["M2,4 d13 r16 u13", "M5,4 d10 r10 u10", "M10,1 d14", "M2,4 r1", "M18,4 l1", "M7,1 r6"],
-  大: ["M1,6 r18", "M10,1 d7", "M1,3 r6", "M19,3 l6", "M10,8 l4 d4 l5 d7", "M10,8 r4 d4 r5 d7", "M6,15 d4", "M14,15 d4"],
-  吉: ["M1,2 r18", "M10,2 d5", "M4,6 r12", "M2,9 r16 d10 l16 u10", "M5,12 r10 d4 l10 u4"],
-  利: ["M1,2 r9", "M1,6 r11", "M6,2 d17", "M6,9 l5 d4", "M6,9 r5 d4", "M15,2 d10", "M18,1 d18 l3"],
+  大: ["M2,7 r16", "M10,1 d7", "M10,8 l4 d4 l4 d6", "M10,8 r4 d4 r4 d6"],
   平: ["M1,1 r18", "M1,10 r18", "M10,1 d18", "M3,4 d4 r4", "M17,4 d4 l4", "M3,13 r5 d6", "M17,13 l5 d6"],
   安: ["M10,1 d2", "M1,6 u3 r18 d3", "M2,8 r16", "M12,8 d5 l9 d6", "M7,13 d6", "M2,16 r16"],
   吃: ["M1,4 r6 d8 l6 u8", "M10,1 r9", "M9,5 r10", "M11,9 r8 d4 l8 d6 r9"],
@@ -47,9 +48,9 @@ const G = {
 const glyphs = (text) => Object.fromEntries([...text].map((character) => [character, G[character]]));
 
 export const seals = [
-  { id: "just-for-fun", text: { zh: "只是好玩", en: "Just for fun" }, stone: "shoushan-red", glyphs: glyphs("只是好玩") },
-  { id: "happy-every-day", text: { zh: "天天开心", en: "Happy every day" }, stone: "qingtian", glyphs: glyphs("天天开心") },
-  { id: "great-luck", text: { zh: "大吉大利", en: "Great luck" }, stone: "chicken-blood", glyphs: glyphs("大吉大利") },
+  { id: "best-of-luck", text: { zh: "上上大吉", en: "Best of luck" }, stone: "shoushan-red", glyphs: glyphs("上上大吉") },
+  { id: "just-for-fun", text: { zh: "只是好玩", en: "Just for fun" }, stone: "qingtian", glyphs: glyphs("只是好玩") },
+  { id: "happy-every-day", text: { zh: "天天开心", en: "Happy every day" }, stone: "chicken-blood", glyphs: glyphs("天天开心") },
   { id: "safe-and-sound", text: { zh: "平平安安", en: "Safe and sound" }, stone: "furong", glyphs: glyphs("平平安安") },
   { id: "eat-well", text: { zh: "好好吃饭", en: "Eat well" }, stone: "tianhuang", glyphs: glyphs("好好吃饭") },
   { id: "all-as-wished", text: { zh: "万事如意", en: "All as you wish" }, stone: "black-jade", glyphs: glyphs("万事如意") },
