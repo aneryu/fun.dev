@@ -67,6 +67,7 @@ const copy = {
 };
 
 const GRIP_HIT_PX = 34; // the grip answers a finger at least this far from its centre
+const NEAR_EDGE_AT = 0.72; // where the face's near edge sits, as a fraction down the stage
 const QUARTER = Math.PI / 2;
 const STAGE_WIDTH = { bevel: 0, border: 1, cross: 1, glyphs: 2 }; // blade per step
 const WIDTHS = [FACE.bevel, FACE.frameWidth, FACE.glyphWidth];
@@ -148,7 +149,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   scene.add(stoneRoot);
   const knifeModel = createKnife({ THREE, track });
   // As large against the face as in the video, where the grip is about a quarter of its width.
-  knifeModel.group.scale.setScalar(1.4);
+  knifeModel.group.scale.setScalar(1.1);
   scene.add(knifeModel.group);
   const anisotropy = Math.min(8, context.renderer.capabilities.getMaxAnisotropy());
 
@@ -337,13 +338,16 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     camera.position.addScaledVector(cameraUp, shiftY * perPixel).addScaledVector(cameraRight, -shiftX * perPixel);
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
-    // When the stage is taller than the stone needs (a phone held upright), the face moves
-    // up to just under the status instead of floating in the middle.
+    // Pushing the knife happens above the face: the grip sits up and to the left of the tip
+    // and the hand pushes it on up, as far as the face is long. So the face sits low in the
+    // stage, its near edge at about four fifths of the way down, leaving that room above.
     if (showcase <= 0) {
-      const farEdge = screenOf(0, -0.55)[1];
-      const spare = farEdge - (stage.top + 18);
-      if (spare > 0) {
-        camera.position.addScaledVector(cameraUp, -spare * perPixel);
+      const nearEdge = screenOf(0, 0.5)[1], farEdge = screenOf(0, -0.5)[1];
+      const wanted = stage.top + (stage.bottom - stage.top) * NEAR_EDGE_AT;
+      // Never so low that the near edge falls behind the buttons.
+      const shift = Math.min(wanted, stage.bottom - 8) - nearEdge;
+      if (farEdge + shift > stage.top) {
+        camera.position.addScaledVector(cameraUp, shift * perPixel);
         camera.updateMatrixWorld();
       }
     }
@@ -396,7 +400,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
 
   // The knife, in world coordinates (it stays with the hand while the stone turns under it).
   const knife = {
-    x: 0, z: 0.3, targetX: 0, targetZ: 0.3, lift: 0.05,
+    x: 0, z: 0.38, targetX: 0, targetZ: 0.38, lift: 0.05, // ready at the near edge, under the hand
     plunged: false, origin: null, stroke: null, travel: 0, touched: new Set(), cut: false,
     wobble: 0, kick: 0, speed: 0, tension: 0, shake: 0, shakeVelocity: 0,
     at: 0, hand: 0, strength: 0.006, hard: false, refractory: 0,
@@ -427,6 +431,8 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   function lift() {
     if (!knife.plunged) return;
     knife.plunged = false;
+    // The knife stays where the cut ended.
+    knife.targetX = knife.x; knife.targetZ = knife.z;
     const finished = [];
     for (const cut of knife.touched) {
       if (cut.done || bench.carving.coverage(cut) < FINISH) continue;
@@ -436,6 +442,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     }
     if (finished.length) afterCuts();
     if (knife.cut) save();
+    gripHint = 6;
   }
 
   // The knife in the stone is a stick-slip system, tuned to the carving video's sound (pushes
@@ -941,6 +948,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   // Knife pose, matched to the video's frames: the blade's face to the viewer, the handle's
   // top leaning toward the viewer and to the upper left, so the grip looms large and the
   // blade slants down to the tip. The hand grips it firmly: the pull and cracks barely move it.
+  let gripHint = 6; // seconds the grip breathes: at the start and after each lift
   const knifeTilt = new THREE.Euler(0.2, 0, 0.14);
   function poseKnife(delta) {
     if (!knife.plunged) {
@@ -962,13 +970,16 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     knifeModel.group.rotation.copy(knifeTilt);
     knifeModel.group.rotation.x += knife.shake;
     knifeModel.group.updateMatrixWorld();
-    knifeModel.gripGlow = knife.plunged ? 1 : 0;
+    // The grip breathes while it waits to be pressed, and stays lit while the knife is in.
+    gripHint = Math.max(0, gripHint - delta);
+    const breathing = carvable() && !knife.plunged && gripHint > 0 && !reducedMotion;
+    knifeModel.gripGlow = knife.plunged ? 1 : breathing ? 0.2 + 0.18 * Math.sin(elapsed * 3.5) : 0.15;
     // Fresh stone glows under the tip while cutting, then dulls.
     const fresh = bench.stone.uniforms.fresh.value;
     const [u, v] = toLocal(knife.x, knife.z);
     fresh.x = u + 0.5; fresh.y = 0.5 - v;
     fresh.z += ((knife.plunged ? 1 : 0) - fresh.z) * Math.min(1, delta * (knife.plunged ? 10 : 1.5));
-    return Math.abs(liftTarget - knife.lift) > 0.001 || Math.hypot(knife.targetX - knife.x, knife.targetZ - knife.z) > 0.0005 || Math.abs(knife.shake) > 1e-4 || fresh.z > 0.01;
+    return breathing || Math.abs(liftTarget - knife.lift) > 0.001 || Math.hypot(knife.targetX - knife.x, knife.targetZ - knife.z) > 0.0005 || Math.abs(knife.shake) > 1e-4 || fresh.z > 0.01;
   }
 
   // Start.
