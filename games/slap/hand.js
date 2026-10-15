@@ -23,7 +23,16 @@ export async function createHands(context) {
   geometry.setAttribute("uv", new THREE.BufferAttribute(arrays.renderUv, 2));
   geometry.setIndex(new THREE.BufferAttribute(arrays.index, 1));
   geometry.computeVertexNormals();
-  const material = track(new THREE.MeshStandardMaterial({ map, roughness: 0.62, metalness: 0 }));
+  // The forearm fades out towards its cut end, as if it came from outside the picture.
+  let minY = Infinity;
+  for (let i = 1; i < positions.length; i += 3) minY = Math.min(minY, positions[i]);
+  const colors = new Float32Array(source.length * 4);
+  for (let r = 0; r < source.length; r++) {
+    const t = Math.min(1, Math.max(0, (positions[r * 3 + 1] - minY - 0.01) / 0.07));
+    colors.set([1, 1, 1, t * t * (3 - 2 * t)], r * 4);
+  }
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 4));
+  const material = track(new THREE.MeshStandardMaterial({ map, roughness: 0.62, metalness: 0, vertexColors: true, transparent: true }));
   const root = new THREE.Group();
   const mesh = new THREE.Mesh(geometry, material);
   root.add(mesh);

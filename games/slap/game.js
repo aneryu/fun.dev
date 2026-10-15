@@ -13,7 +13,7 @@ export const options = [
   { id: "forget-photo", section: "settings", type: "action", label: { zh: "删除照片", en: "Delete photo" } },
   { id: "anchor", section: "settings", audience: "debug", type: "range", min: 100, max: 2000, step: 50, default: 600, label: { zh: "回弹刚度", en: "Anchor stiffness" } },
   { id: "coupling", section: "settings", audience: "debug", type: "range", min: 1000, max: 30000, step: 500, default: 9000, label: { zh: "肉波传导", en: "Wave coupling" } },
-  { id: "damping", section: "settings", audience: "debug", type: "range", min: 0.5, max: 20, step: 0.5, default: 4.5, label: { zh: "阻尼", en: "Damping" } },
+  { id: "damping", section: "settings", audience: "debug", type: "range", min: 0.5, max: 20, step: 0.1, default: 3.2, label: { zh: "阻尼", en: "Damping" } },
   { id: "punch", section: "settings", audience: "debug", type: "range", min: 0.2, max: 3, step: 0.1, default: 1, label: { zh: "冲量", en: "Impulse" } },
   { id: "view", section: "cheats", audience: "debug", type: "choice", default: "normal", label: { zh: "调试视图", en: "Debug view" },
     choices: [{ value: "normal", label: { zh: "正常", en: "Normal" } }, { value: "cavity", label: { zh: "口腔", en: "Mouth" } }, { value: "photo", label: { zh: "照片权重", en: "Photo weight" } }, { value: "texture", label: { zh: "贴图", en: "Texture" } }] },
@@ -48,7 +48,7 @@ const copy = {
   },
 };
 
-const NECK = { stiffness: 190, damping: 5.5 };
+const NECK = { stiffness: 190, damping: 3.8 };
 const COMBO_GAP = 0.9, HEAL_DELAY = 2.5, HEAL_RATE = 0.05, HIT_STOP = 0.045;
 const smoothstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const localDay = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
@@ -368,8 +368,9 @@ export async function createGame(context) {
     for (let s = 1; s <= 3 && !hit; s++) hit = pick(p.x + (dx * s) / 3, p.y + (dy * s) / 3);
     const speed = Math.hypot(p.vx, p.vy);
     // A new slap needs the stroke to enter the face, or to turn around inside it.
-    const reversed = hit && p.inside && p.lastDir && Math.sign(p.vx) !== p.lastDir && Math.abs(p.vx) > 300;
-    if (hit && (!p.inside || reversed) && speed > 350 && event.timeStamp - p.lastSlap > 90) {
+    const reversed = hit && p.inside && p.lastDir && Math.sign(p.vx) !== p.lastDir && Math.abs(p.vx) > 250;
+    // Even an unhurried stroke lands as a light pat; speed only sets how hard.
+    if (hit && (!p.inside || reversed) && speed > 180 && event.timeStamp - p.lastSlap > 90) {
       p.lastSlap = event.timeStamp;
       p.lastDir = Math.sign(p.vx);
       slap(hit, { x: p.vx / speed, y: p.vy / speed }, THREE.MathUtils.clamp((speed - 250) / 2500, 0.12, 1));
