@@ -30,7 +30,7 @@ const copy = {
     nth: (n) => `第${["一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二"][n] ?? n + 1}方`,
     blow: "吹", album: "印谱", left: "‹", right: "›",
     finished: (title) => `「${title}」刻成`, cardDetail: (stone) => `${stone} · 已收入印谱`,
-    next: "刻下一方", stay: "再看看", close: "关闭", back: "回去刻", view: "看印石", recarve: "重刻这一方", sure: "确定重刻？",
+    next: "刻下一方", stay: "再看看", close: "关闭", back: "回去刻", view: "看印石", recarve: "重刻这一方", sure: "确定重刻？", restart: "重刻", sureShort: "确定？", restarted: "这一方重新开始",
     albumTitle: (count, total) => `印谱 ${count}/${total}`, albumDetail: "点一方印：刻完的看印蜕，没刻完的接着刻", locked: "？",
     allDone: "全部刻完了！可以在印谱里挑一方重刻",
     viewing: (title) => `看「${title}」`,
@@ -55,7 +55,7 @@ const copy = {
     nth: (n) => `Seal ${n + 1}`,
     blow: "Blow", album: "Seals", left: "‹", right: "›",
     finished: (title) => `“${title}” is carved`, cardDetail: (stone) => `${stone} · added to your seals`,
-    next: "Next seal", stay: "Look again", close: "Close", back: "Carve", view: "See stone", recarve: "Carve again", sure: "Sure?",
+    next: "Next seal", stay: "Look again", close: "Close", back: "Carve", view: "See stone", recarve: "Carve again", sure: "Sure?", restart: "Redo", sureShort: "Sure?", restarted: "Starting this seal over",
     albumTitle: (count, total) => `Seals ${count}/${total}`, albumDetail: "Tap a seal: finished ones show their print", locked: "?",
     allDone: "All seals carved! Pick one in Seals to carve it again",
     viewing: (title) => `Viewing “${title}”`,
@@ -631,6 +631,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   let cardKind = null; // "finished" | "seal" (opened from the album)
   let cardSeal = null;
   let confirmRecarve = false;
+  let restartArmed = 0; // seconds the bench's restart waits for its second tap
   function openCard(seal = bench.seal, kind = "finished") {
     cardKind = kind;
     cardSeal = seal;
@@ -695,7 +696,12 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   function layoutButtons() {
     const list = [{ id: "left", label: words.left }];
     if (bench?.viewOnly) list.push({ id: "back", label: words.back });
-    else list.push({ id: "blow", label: words.blow, active: currentStage() === "dust" });
+    else {
+      list.push({ id: "blow", label: words.blow, active: currentStage() === "dust" });
+      // Starting this seal over: the player's restart keeps progress, so it lives here, and
+      // takes a second tap within a few seconds.
+      if (bench && bench.carving.strokes.length) list.push({ id: "restart-seal", label: restartArmed > 0 ? words.sureShort : words.restart, active: restartArmed > 0 });
+    }
     list.push({ id: "right", label: words.right });
     hud.setButtons(list);
     hud.setCorner({ id: "album", label: words.album });
@@ -717,6 +723,16 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       case "left": turn(1); break;
       case "right": turn(-1); break;
       case "blow": blow(1); break;
+      case "restart-seal":
+        if (restartArmed > 0) {
+          restartArmed = 0;
+          lift();
+          state.seals[bench.seal.id] = { cuts: null, done: false };
+          refreshPrint(bench.seal);
+          carveSeal(bench.seal);
+          hud.toast(words.restarted);
+        } else { restartArmed = 3; layoutButtons(); }
+        break;
       case "album": openAlbum(); break;
       case "close-album": closeAlbum(); break;
       case "back": carveSeal(seals.find((seal) => seal.id === state.current)); break;
@@ -1024,6 +1040,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       chipClock -= delta; buzzClock -= delta; hintClock -= delta; hovering += delta;
       blowCooldown = Math.max(0, blowCooldown - delta);
       let busy = false;
+      if (restartArmed > 0) { restartArmed = Math.max(0, restartArmed - delta); if (restartArmed === 0) layoutButtons(); busy = true; }
       if (context.options["auto-carve"] === true) { demoStep(); busy = true; }
       if (held.has("carve") && !knife.plunged) plunge();
       // Keyboard: Up pushes while Space holds the knife in, Down pulls back.
