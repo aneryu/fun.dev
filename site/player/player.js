@@ -12,7 +12,6 @@ const $ = (selector) => document.querySelector(selector);
 const title = $("#game-title");
 const status = $("#player-status");
 const message = $("#player-message");
-const pause = $("#pause");
 const restart = $("#restart");
 const resume = $("#resume");
 const fullscreen = $("#fullscreen");
@@ -29,7 +28,6 @@ const header = $(".player-header");
 const compact = window.matchMedia("(max-width: 64rem), (pointer: coarse)");
 const portrait = window.matchMedia("(orientation: portrait)");
 const debug = new URLSearchParams(window.location.search).get("debug") === "1";
-let manualPaused = false;
 let host;
 let game;
 let progress;
@@ -40,6 +38,7 @@ let state = "loading";
 let errorKey = null;
 let actionErrorKey = null;
 let actionKey = null;
+let actionTimer = null;
 let left = false;
 let wakeLock = null;
 const pageScope = new AbortController();
@@ -68,19 +67,16 @@ function rotateKey() {
 }
 
 function blocked() {
-  return manualPaused || menu.open || optionsDialog.open || !!progressUI?.open || !!progress?.frozen || !!rotateKey();
+  return menu.open || optionsDialog.open || !!progressUI?.open || !!progress?.frozen || !!rotateKey();
 }
 function syncPause() { host?.setPaused(blocked()); }
 
 function renderText() {
   title.textContent = game ? gameText(game.title, getLocale()) : t("playerTitle");
   document.title = `${title.textContent} — fun.dev`;
-  $("#game-description").textContent = game ? gameText(game.description, getLocale()) : "";
-  pause.disabled = state !== "running" && state !== "paused";
   restart.disabled = !host || !game || state === "loading";
   share.disabled = !game || !!errorKey;
   openOptions.disabled = !host || !!errorKey;
-  pause.textContent = t(manualPaused ? "resume" : "pause");
   const rotate = !errorKey && rotateKey();
   message.hidden = state === "running" && !rotate;
   resume.hidden = state !== "paused" || !!rotate;
@@ -147,7 +143,8 @@ function safeArea(rect) {
     bottom: parseFloat(probe.paddingBottom) - (window.innerHeight - rect.bottom),
     left: parseFloat(probe.paddingLeft) - rect.left,
   };
-  if (!menuToggle.hidden) insets.top = Math.max(insets.top, menuToggle.getBoundingClientRect().bottom - rect.top + 8);
+  // On phones the menu button floats over the game's top-left corner.
+  if (compact.matches) insets.top = Math.max(insets.top, menuToggle.getBoundingClientRect().bottom - rect.top + 8);
   return insets;
 }
 
@@ -162,14 +159,17 @@ menuToggle.addEventListener("click", () => {
 $("#close-controls").addEventListener("click", closeMenu);
 menu.addEventListener("close", () => {
   syncPause();
-  if (compact.matches && !optionsDialog.open && !progressUI?.open) menuToggle.focus({ preventScroll: true });
+  if (!optionsDialog.open && !progressUI?.open) menuToggle.focus({ preventScroll: true });
 });
 menu.addEventListener("click", (event) => { if (event.target === menu) closeMenu(); });
+// The progress dialog opens from the (then closed) menu: focus returns to the menu button.
+document.addEventListener("close", (event) => {
+  if (event.target.classList?.contains("progress-dialog")) menuToggle.focus({ preventScroll: true });
+}, true);
 function adaptControls() {
   closeMenu();
-  if (compact.matches) menu.append(header);
+  if (compact.matches) menu.insertBefore(header, $("#player-controls"));
   else document.body.insertBefore(header, $("#player"));
-  menuToggle.hidden = !compact.matches;
   renderText();
   syncPause();
 }
@@ -282,7 +282,7 @@ $("#close-options").addEventListener("click", () => optionsDialog.close());
 optionsDialog.addEventListener("click", (event) => { if (event.target === optionsDialog) optionsDialog.close(); });
 optionsDialog.addEventListener("close", () => {
   syncPause();
-  if (!compact.matches) openOptions.focus({ preventScroll: true });
+  menuToggle.focus({ preventScroll: true });
 });
 
 async function openGame() {
@@ -361,21 +361,13 @@ for (const button of document.querySelectorAll("[data-open-progress]")) button.a
   progressUI?.show();
 });
 
-pause.addEventListener("click", () => {
-  manualPaused = !manualPaused;
-  closeMenu();
-  syncPause();
-  renderText();
-});
 resume.addEventListener("click", () => {
-  manualPaused = false;
   syncPause();
   renderText();
   document.querySelector(".game-surface canvas")?.focus();
 });
 restart.addEventListener("click", () => {
   if (!host || !game) return;
-  manualPaused = false;
   closeMenu();
   void loadWithProgress({ launchReason: "restart" }).catch(() => showError("gameError"));
 });
@@ -394,6 +386,9 @@ share.addEventListener("click", async () => {
     if (error?.name !== "AbortError") actionErrorKey = "shareError";
   }
   renderText();
+  // The message shows briefly over the game, then clears.
+  clearTimeout(actionTimer);
+  actionTimer = setTimeout(() => { actionErrorKey = actionKey = null; renderText(); }, 3000);
 });
 if (document.fullscreenEnabled) fullscreen.hidden = false;
 fullscreen.addEventListener("click", async () => {

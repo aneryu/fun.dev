@@ -86,7 +86,7 @@ Each module is written together with the first game that needs it.
 
 - Regression gate: a Playwright smoke test for every catalog game at mobile and
   desktop sizes: reaches running, no console errors, non-blank canvas,
-  pause/resume, language switch, restart, and error-free cleanup when leaving.
+  menu pause/resume, language switch, restart, and error-free cleanup when leaving.
   Routine kit/host changes test the live R2 catalog through a local proxy;
   contract upgrades test the local game sources about to be published.
 - Share previews: the build fetches the R2 catalog and writes each game's page at

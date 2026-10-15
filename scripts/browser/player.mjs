@@ -33,7 +33,7 @@ export async function playerChecks({ browser, base, dist }) {
   await page.waitForFunction(() => document.querySelector("#game-announcer").textContent.includes("MERIT 1"));
 
   // Options: how to play, platform sound/haptics, settings and player cheats; debug items hidden.
-  await page.locator("#open-options").click();
+  await page.locator("#menu-toggle").click(); await page.locator("#open-options").click();
   assert.match(await page.locator("#how-to-play-text").textContent(), /strike the wooden fish/);
   assert.equal(await page.locator("#options-debug").isHidden(), true);
   assert.equal(await page.locator("#player-message").isVisible(), true, "opening options pauses the game");
@@ -51,16 +51,16 @@ export async function playerChecks({ browser, base, dist }) {
     Object.defineProperty(navigator, "share", { value: undefined });
     navigator.clipboard.writeText = async (text) => { window.__copied = text; };
   });
-  await page.locator("#share").click();
+  await page.locator("#menu-toggle").click(); await page.locator("#share").click();
   await page.waitForFunction(() => document.querySelector("#action-status").textContent.includes("copied"));
   const shared = await page.evaluate(() => window.__copied);
   assert.match(shared, /1001 merit and 0\/12 relics on Wooden Fish at fun\.dev \(with cheats\) http:\/\/127\.0\.0\.1:\d+\/games\/muyu\?lang=en$/);
 
   // Restart keeps settings and saved merit, and starts a session without cheats.
-  await page.locator("#restart").click();
+  await page.locator("#menu-toggle").click(); await page.locator("#restart").click();
   await running(page);
   assert.equal(await merit(page), 1001);
-  await page.locator("#open-options").click();
+  await page.locator("#menu-toggle").click(); await page.locator("#open-options").click();
   assert.equal(await page.locator("#option-rings").isChecked(), false, "settings persist across sessions");
   assert.equal(await page.locator("#pref-mute").isChecked(), true);
   await page.locator("#close-options").click();
@@ -71,7 +71,7 @@ export async function playerChecks({ browser, base, dist }) {
   const debug = await open(desktop, "&debug=1");
   await running(debug);
   await debug.waitForFunction(() => /fps \d+/.test(document.querySelector("#debug-panel").textContent));
-  await debug.locator("#open-options").click();
+  await debug.locator("#menu-toggle").click(); await debug.locator("#open-options").click();
   assert.equal(await debug.locator("#options-debug").isVisible(), true);
   await debug.locator("#option-auto-strike").check();
   await debug.locator("#close-options").click();

@@ -106,12 +106,15 @@ respect `prefers-reduced-motion`. The player passes this preference to games.
 
 ### Shared player
 
-On phones and tablets, fill the available dynamic viewport with the game and
-put platform controls in a small menu. Respect display cutouts and safe areas
-in both orientations. Desktop keeps a yellow header and footer. Wooden Fish
+Platform controls live in one ☰ menu on every screen: restart, fullscreen (where
+supported), My progress, options, share and the language. Opening it pauses the game.
+On phones and tablets the game fills the available dynamic viewport, the menu button
+floats at the top left and the site link, back link and title move into the menu;
+respect display cutouts and safe areas in both orientations. Desktop keeps a slim
+yellow header (wordmark, back link, title, menu button at the right) and no footer;
+short action messages show briefly over the bottom of the game. Wooden Fish
 (敲木鱼) uses the yellow canvas, brown wood, and simple dark text without neon effects.
-Platform controls remain keyboard accessible,
-including pause, restart, fullscreen (where supported), and return to the lobby.
+All of it stays keyboard accessible, including the return to the lobby.
 Loading, pause, and error messages are plain text in a high-contrast inset.
 Game options (how to play, sound and haptics, settings, cheats) open in a dialog
 styled like My progress: Duck Yellow surface, Duck Ink border, plain fieldsets.

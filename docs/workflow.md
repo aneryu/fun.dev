@@ -40,7 +40,7 @@ npm run dev -- muyu          # prints the player URL for one game, with ?debug=1
 | Suite | Checks |
 | --- | --- |
 | unit | `node --test`: catalog, publisher, CSP, kit, game pages, progress protocol with local D1, game tests |
-| smoke | every game at phone and desktop size: runs, not blank, language switch, pause/resume, restart, clean exit, no console errors |
+| smoke | every game at phone and desktop size: runs, not blank, language switch, menu pause/resume, restart, clean exit, no console errors |
 | kit | text/HUD placement, pointer/keyboard/joystick, glTF with embedded textures, Draco/KTX2 under the player CSP |
 | player | loading bar, announcements, options/settings/cheats, mute, share, restart, debug panel, rotation prompt, API mismatch |
 | site | lobby covers, game pages and their redirects, sitemap, 404, manifest/icons, offline play through the service worker |

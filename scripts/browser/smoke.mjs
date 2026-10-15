@@ -37,7 +37,7 @@ async function check(browser, base, game, name, gameOrigin) {
   page.on("dialog", (dialog) => { errors.push(`Unexpected dialog: ${dialog.message()}`); void dialog.dismiss(); });
   const press = (selector) => name === "mobile" ? page.locator(selector).tap() : page.locator(selector).click();
   async function openMenu() {
-    if (await page.locator("#menu-toggle").isVisible()) await press("#menu-toggle");
+    if (!await page.locator("#controls-dialog").evaluate((dialog) => dialog.open)) await press("#menu-toggle");
   }
   async function running(step) {
     const state = await page.waitForFunction(() => {
@@ -62,10 +62,10 @@ async function check(browser, base, game, name, gameOrigin) {
     if (await page.locator("#controls-dialog").evaluate((dialog) => dialog.open)) await press("#close-controls");
     await running("language switch");
 
+    // The menu pauses the game; closing it resumes.
     await openMenu();
-    await press("#pause");
-    await page.locator("#resume").waitFor({ state: "visible" });
-    await press("#resume");
+    await page.locator("#player-message").waitFor({ state: "visible" });
+    await press("#close-controls");
     await running("resume");
 
     const before = await page.locator(".game-surface canvas").elementHandle();
