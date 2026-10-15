@@ -20,11 +20,12 @@ await page.waitForTimeout(500);
 await page.screenshot({ path: `${out}/00-rest.png` });
 
 const canvas = page.locator(".game-surface canvas");
-const slowmo = process.env.SLOWMO, view = process.env.VIEW;
-if (slowmo || view) {
+const slowmo = process.env.SLOWMO, view = process.env.VIEW, shape = process.env.SHAPE;
+if (slowmo || view || shape) {
   await page.locator("#menu-toggle").tap(); await page.locator("#open-options").tap();
   if (slowmo) await page.locator("#option-slowmo").fill(slowmo);
   if (view) await page.locator("#option-view").selectOption(view);
+  if (shape) await page.locator("#option-shape").fill(shape);
   await page.locator("#close-options").tap();
   await page.waitForFunction(() => document.querySelector("#player-message")?.hidden);
 }

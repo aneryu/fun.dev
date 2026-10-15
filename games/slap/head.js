@@ -315,10 +315,11 @@ export async function createHead(context, onProgress = () => {}) {
   const morphNames = meta.morphs;
   const morphWeights = Object.fromEntries(morphNames.map((name) => [name, 0]));
   const swell = new Float32Array(count);
+  const shape = new Float32Array(count * 3); // A photo's face shape (shape.js), or zeros.
   let restDirty = true;
 
   function rebuildRest() {
-    rest.set(base);
+    for (let i = 0; i < rest.length; i++) rest[i] = base[i] + shape[i];
     for (const name of morphNames) {
       const w = morphWeights[name];
       if (Math.abs(w) < 1e-4) continue;
@@ -349,14 +350,14 @@ export async function createHead(context, onProgress = () => {}) {
       const pos = acc.geometry.attributes.position.array;
       if (acc.sockets) {
         const offsets = acc.sockets.map((near) => {
+          // Eyes move fully with the face shape, and partly with flesh and swelling.
           const o = [0, 0, 0];
-          for (const i of near) { o[0] += current[i * 3] - base[i * 3]; o[1] += current[i * 3 + 1] - base[i * 3 + 1]; o[2] += current[i * 3 + 2] - base[i * 3 + 2]; }
-          // Eyes follow flesh and swelling but not eyelid expressions.
+          for (const i of near) for (let k = 0; k < 3; k++) o[k] += shape[i * 3 + k] + (current[i * 3 + k] - base[i * 3 + k] - shape[i * 3 + k]) * 0.6;
           return o.map((v) => v / Math.max(1, near.length));
         });
         for (let r = 0; r < acc.source.length; r++) {
           const o = offsets[acc.eyeOf[r]];
-          pos[r * 3] = acc.rest[r * 3] + o[0] * 0.6; pos[r * 3 + 1] = acc.rest[r * 3 + 1] + o[1] * 0.6; pos[r * 3 + 2] = acc.rest[r * 3 + 2] + o[2] * 0.6;
+          pos[r * 3] = acc.rest[r * 3] + o[0]; pos[r * 3 + 1] = acc.rest[r * 3 + 1] + o[1]; pos[r * 3 + 2] = acc.rest[r * 3 + 2] + o[2];
         }
       } else {
         for (let r = 0; r < acc.source.length; r++) {
@@ -398,6 +399,16 @@ export async function createHead(context, onProgress = () => {}) {
       return any;
     },
     clearSwelling() { swell.fill(0); restDirty = true; },
+    // offsets: per-vertex shape (flat xyz) or null for the default face.
+    setShape(offsets) {
+      shape.fill(0);
+      if (offsets) shape.set(offsets);
+      for (let i = 0; i < rest.length; i++) rest[i] = base[i] + shape[i];
+      computeNormals(rest, restPhysNormals);
+      for (let r = 0; r < renderCount; r++) restNormal.set(restPhysNormals.subarray(source[r] * 3, source[r] * 3 + 3), r * 3);
+      geometry.attributes.restNormal.needsUpdate = true;
+      restDirty = true;
+    },
     setHeadMatrix(matrix) { for (const m of materials) m.uniforms.headMatrix.value.copy(matrix); },
     setMarksAmount(value) { material.uniforms.marksAmount.value = value; },
     setView(value) { material.uniforms.debugView.value = value; },

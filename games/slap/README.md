@@ -54,14 +54,26 @@ rejected.
 ### Mapping
 
 The head keeps MakeHuman's topology; the photo is a second texture. Offline,
-the default face is rendered frontally and MediaPipe finds its 468 landmarks.
-Every head and eye vertex visible in that render is located in a Delaunay
-triangle of those landmarks (triangle + barycentric weights). At runtime a
-photo's landmarks reuse the same weights, so each vertex gets a photo UV.
-The photo fades out over 9% of the face width towards the face outline, and the
-rest of the head is tinted by the ratio of the photo's skin tone to the default
-face's, measured on the same cheek and forehead landmarks. Brows and lashes are
-hidden in photo mode (the photo has its own).
+the default face is rendered frontally and MediaPipe finds its 468 landmarks;
+a synthetic ring outside the face outline (pushed out 10%, up to 40% towards the
+hair, barely down to the neck) extends them. Every head and eye vertex on the
+front of the face is located in a Delaunay triangle of those points (triangle +
+barycentric weights). At runtime a photo's landmarks, extended the same way,
+reuse the weights, so each vertex gets a photo UV. The photo fades out over 10%
+of the face width at the ring; ears always keep the default skin.
+
+In photo mode the smug rest pose is undone (a `neutral` morph), the photo's
+broad lighting is evened out on a 6×6 grid inside the face outline, and the rest
+of the head is tinted by the ratio of the photo's skin tone to the default
+face's, both sampled just inside the outline from cheek to cheek. Brows and
+lashes are hidden (the photo has its own).
+
+`shape.js` can also reshape the head to the photo: MediaPipe's 3D landmarks are
+aligned to the default face (Horn), symmetrised, and the residual moves nearby
+vertices. Selfies are perspective-distorted (a near chin looks long), so the
+default strength is 0.3; `?debug=1` exposes it as “照片脸型”.
+`dev/likeness.mjs` compares landmarks of a photo and a screenshot, but in the
+front view the texture decides where features land, so judge likeness by eye.
 
 ## Physics
 

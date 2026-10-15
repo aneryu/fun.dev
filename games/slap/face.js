@@ -24,7 +24,8 @@ export async function createLandmarker(asset) {
   ));
 }
 
-// Returns 468 landmarks as [x0, y0, x1, y1, ...] in 0..1 image coordinates for the largest face, or null.
+// Returns the largest face as { points: [x0, y0, x1, y1, ...] in 0..1 image coordinates, depth:
+// [z0, z1, ...] in image-width units (smaller is nearer) }, or null.
 export function detect(landmarker, image) {
   const faces = quietlySync(() => landmarker.detect(image)).faceLandmarks ?? [];
   let best = null;
@@ -39,7 +40,7 @@ export function detect(landmarker, image) {
     if (area > bestArea) { bestArea = area; best = face; }
   }
   if (!best) return null;
-  const out = new Float32Array(LANDMARKS * 2);
-  for (let i = 0; i < LANDMARKS; i++) { out[i * 2] = best[i].x; out[i * 2 + 1] = best[i].y; }
-  return out;
+  const points = new Float32Array(LANDMARKS * 2), depth = new Float32Array(LANDMARKS);
+  for (let i = 0; i < LANDMARKS; i++) { points[i * 2] = best[i].x; points[i * 2 + 1] = best[i].y; depth[i] = best[i].z; }
+  return { points, depth };
 }

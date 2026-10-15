@@ -5,7 +5,8 @@ import { createHands } from "./hand.js";
 import { createSound } from "./sound.js";
 import { createHud } from "./hud.js";
 import { clearHandprints, createDaze, paintHandprint } from "./effects.js";
-import { cropFace, decode, defaultAnchors, encode, gainFor, landmarksFromAnchors, skinTone } from "./photo.js";
+import { cropFace, decode, defaultAnchors, encode, evenLighting, extendLandmarks, gainFor, landmarksFromAnchors, skinTone } from "./photo.js";
+import { fitShape } from "./shape.js";
 
 export const options = [
   { id: "jelly", section: "settings", type: "range", min: 0.5, max: 2, step: 0.1, default: 1, label: { zh: "Q 弹程度", en: "Jiggle" } },
@@ -17,6 +18,7 @@ export const options = [
   { id: "punch", section: "settings", audience: "debug", type: "range", min: 0.2, max: 3, step: 0.1, default: 1, label: { zh: "冲量", en: "Impulse" } },
   { id: "view", section: "cheats", audience: "debug", type: "choice", default: "normal", label: { zh: "调试视图", en: "Debug view" },
     choices: [{ value: "normal", label: { zh: "正常", en: "Normal" } }, { value: "cavity", label: { zh: "口腔", en: "Mouth" } }, { value: "photo", label: { zh: "照片权重", en: "Photo weight" } }, { value: "texture", label: { zh: "贴图", en: "Texture" } }] },
+  { id: "shape", section: "settings", audience: "debug", type: "range", min: 0, max: 1, step: 0.1, default: 0.3, label: { zh: "照片脸型", en: "Photo face shape" } },
   { id: "slowmo", section: "cheats", audience: "debug", type: "range", min: 0.05, max: 1, step: 0.05, default: 1, label: { zh: "慢动作", en: "Slow motion" } },
   { id: "max-damage", section: "cheats", audience: "debug", type: "action", label: { zh: "直接打满", en: "Max damage" } },
 ];
@@ -268,12 +270,22 @@ export async function createGame(context) {
     texture.flipY = false;
     texture.anisotropy = 4;
     photo?.texture.dispose();
-    photo = { ...face, texture };
+    photo = { ...face, texture, gain: gainFor(skinTone(face.canvas, face.landmarks), head.meta.skinTone) };
+    reshape();
     showFace();
+  }
+  function reshape() {
+    if (photo) photo.shape = fitShape({ landmarks: photo.landmarks, depth: photo.depth, reference: head.arrays.landmarks3d, vertices: head.base, strength: context.options.shape });
   }
   function showFace() {
     const on = photo && context.options["use-photo"];
-    head.setPhoto(on ? { texture: photo.texture, landmarks: photo.landmarks, gain: gainFor(skinTone(photo.canvas, photo.landmarks), head.meta.skinTone) } : null);
+    head.setPhoto(on ? { texture: photo.texture, landmarks: extendLandmarks(photo.landmarks), gain: photo.gain } : null);
+    head.setShape(on ? photo.shape : null);
+    // Picking follows the reshaped face.
+    head.sync();
+    hitMesh.geometry.attributes.position.array.set(head.mesh.geometry.attributes.position.array);
+    hitMesh.geometry.attributes.position.needsUpdate = true;
+    hitMesh.geometry.computeBoundingSphere();
     context.updateOption("use-photo", { disabled: !photo });
     context.updateOption("forget-photo", { disabled: !photo });
     labels();
@@ -291,7 +303,7 @@ export async function createGame(context) {
       const image = new OffscreenCanvas(bitmap.width, bitmap.height);
       image.getContext("2d").drawImage(bitmap, 0, 0);
       toast(words.detecting);
-      let points = null;
+      let points = null, depth = null;
       try {
         if (!landmarker) {
           const face = await import("./face.js");
@@ -300,7 +312,7 @@ export async function createGame(context) {
         }
         signal.throwIfAborted();
         // MediaPipe gets the decoded bitmap: every browser accepts it as an image source.
-        points = landmarker.detect(landmarker.instance, bitmap);
+        ({ points, depth } = landmarker.detect(landmarker.instance, bitmap) ?? {});
       } catch (error) {
         if (signal.aborted) return;
         console.warn("Face detection unavailable:", error);
@@ -312,7 +324,7 @@ export async function createGame(context) {
         if (!placed) return;
         points = landmarksFromAnchors(head.arrays.defaultLandmarks, placed);
       }
-      const face = cropFace(image, points);
+      const face = evenLighting(cropFace(image, points, depth));
       if (context.options["use-photo"] === false) context.updateOption("use-photo", { value: true });
       applyFace(face);
       toast(words.stays, 2.5);
@@ -501,6 +513,7 @@ export async function createGame(context) {
     },
     optionChanged(id, value) {
       if (id === "view") head.setView(["normal", "cavity", "photo", "texture"].indexOf(value));
+      else if (id === "shape") { reshape(); showFace(); }
       else if (id === "use-photo") showFace();
       else if (id === "forget-photo") void forgetFace();
       else if (id === "max-damage") { damage = 0.98; climaxReady = true; idle = 0; }

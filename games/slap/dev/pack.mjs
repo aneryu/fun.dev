@@ -6,10 +6,11 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { extendLandmarks } from "../photo.js";
 
 const game = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const out = join(game, "dev/out");
-const FEATHER = 0.09; // Photo fades in over this fraction of the face width from the face outline.
+const FEATHER = 0.1; // Photo fades in over this fraction of the face width from the face outline.
 
 function readBlob(meta, bin) {
   const arrays = {};
@@ -118,7 +119,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const arrays = readBlob(meta, await readFile(join(out, "head.bin")));
   const { width, height, points, tone } = JSON.parse(await readFile(join(out, "landmarks.json"), "utf8"));
   const aspect = width / height;
-  const triangles = delaunay(points.map((value, i) => (i % 2 ? value : value * aspect)));
+  // The face's landmarks plus a synthetic ring outside the outline (forehead, cheeks, jaw edge).
+  const extended = extendLandmarks(Float32Array.from(points), aspect);
+  const triangles = delaunay([...extended].map((value, i) => (i % 2 ? value : value * aspect)));
   const writer = new Writer();
   const skip = new Set(["front", "eyes_front", "brows_front", "lashes_front"]);
   for (const [name, array] of Object.entries(arrays)) if (!skip.has(name)) writer.add(name, array);
@@ -136,13 +139,26 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // Front of the face: within 5 cm of the eyes' depth (game +Z faces the camera).
   const eyeZ = (meta.eyes[0][2] + meta.eyes[1][2]) / 2;
   const facing = Float32Array.from({ length: meta.vertices }, (_, i) => (arrays.position[i * 3 + 2] > eyeZ - 0.05 && cavity[i] !== 1 ? 1 : 0));
-  const head = register(arrays.front, points, aspect, triangles, facing);
+  const head = register(arrays.front, extended, aspect, triangles, facing);
+  // Ears keep the default skin: at the head's sides a photo shows only its background.
+  head.weight.forEach((w, i) => { head.weight[i] = w * (1 - Math.min(1, arrays.group_ears[i] * 1.5)); });
   writer.add("cavity", cavity);
   writer.add("photoTri", head.tri); writer.add("photoBary", head.bary); writer.add("photoWeight", head.weight);
-  const eyes = register(arrays.eyes_front, points, aspect, triangles);
+  const eyes = register(arrays.eyes_front, extended, aspect, triangles);
   // Visible eyeballs show the photo's eyes in full; the eyelids already blend at the lid edge.
   eyes.weight.forEach((w, i) => { eyes.weight[i] = eyes.tri[i] >= 0 ? 1 : 0; });
   writer.add("eyes_photoTri", eyes.tri); writer.add("eyes_photoBary", eyes.bary); writer.add("eyes_photoWeight", eyes.weight);
+  // The default face's landmarks in 3D (head frame): the mean of the three visible head vertices
+  // nearest to each landmark in the frontal render. Photos reshape the head from these.
+  const landmarks3d = new Float32Array(468 * 3);
+  const visible = [];
+  for (let v = 0; v < meta.vertices; v++) if (arrays.front[v * 3 + 2] > 0.5) visible.push(v);
+  for (let i = 0; i < 468; i++) {
+    const lx = points[i * 2] * aspect, ly = points[i * 2 + 1];
+    const nearest = visible.map((v) => [Math.hypot(arrays.front[v * 3] * aspect - lx, arrays.front[v * 3 + 1] - ly), v]).sort((a, b) => a[0] - b[0]).slice(0, 3);
+    for (const [, v] of nearest) for (let k = 0; k < 3; k++) landmarks3d[i * 3 + k] += arrays.position[v * 3 + k] / 3;
+  }
+  writer.add("landmarks3d", landmarks3d);
   // Skin-tone reference: the default face's landmarks, for sampling matching regions of a photo.
   writer.add("defaultLandmarks", Float32Array.from(points));
   const covered = [...head.weight].filter((w) => w > 0).length;

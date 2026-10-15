@@ -24,8 +24,9 @@ const result = await page.evaluate(async () => {
   const { createLandmarker, detect } = await import("/face.js");
   const landmarker = await createLandmarker((path) => new URL(path, location.origin + "/").href);
   const bitmap = await createImageBitmap(await (await fetch("/image")).blob());
-  const points = detect(landmarker, bitmap);
-  if (!points) return null;
+  const found = detect(landmarker, bitmap);
+  if (!found) return null;
+  const points = found.points;
   const { skinTone } = await import("/photo.js");
   const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
   canvas.getContext("2d").drawImage(bitmap, 0, 0);

@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
 import { createSoftBody, edgesFromTriangles } from "../softbody.js";
-import { anchorsOf, defaultAnchors, landmarksFromAnchors } from "../photo.js";
+import { anchorsOf, defaultAnchors, extendLandmarks, landmarksFromAnchors } from "../photo.js";
+import { align, fitShape, mirrors } from "../shape.js";
 import { delaunay, register } from "./pack.mjs";
 
 const root = new URL("../", import.meta.url);
@@ -46,13 +47,14 @@ test("head assets are consistent", async () => {
   for (const name of meta.morphs) assert.equal(arrays[`morph_${name}`].length, n * 3);
   assert.equal(arrays.faceTriangles.length, meta.faceTriangles * 3);
   assert.ok(arrays.photoTri.every((t) => t >= -1 && t < meta.faceTriangles));
+  assert.equal(arrays.landmarks3d.length, 468 * 3);
   for (let i = 0; i < n; i++) {
     if (arrays.photoTri[i] < 0) { assert.equal(arrays.photoWeight[i], 0); continue; }
     const u = arrays.photoBary[i * 2], v = arrays.photoBary[i * 2 + 1];
     assert.ok(u >= -1e-4 && v >= -1e-4 && u + v <= 1 + 1e-4);
   }
   const covered = arrays.photoWeight.filter((w) => w > 0.5).length;
-  assert.ok(covered > 1000 && covered < n / 2, `photo covers the face only (${covered})`);
+  assert.ok(covered > 1500 && covered < n * 0.6, `photo covers the face and hair line only (${covered})`);
   assert.ok(arrays.cavity.some(Boolean) && arrays.cavity.filter(Boolean).length < 400);
   assert.equal(meta.skinTone.length, 3);
 });
@@ -113,4 +115,31 @@ test("registration locates points inside the landmark triangulation", () => {
   assert.equal(tri[1], -1, "outside the face");
   assert.equal(tri[2], -1, "hidden in the frontal render");
   assert.ok(bary[0] >= 0 && bary[1] >= 0 && bary[0] + bary[1] <= 1);
+});
+
+test("photo shape: alignment recovers a similarity, mirrors pair up, a scaled photo leaves the head as is", async () => {
+  const { meta, arrays } = await pack("head");
+  const reference = arrays.landmarks3d;
+  const angle = 0.3, scale = 4;
+  const moved = new Float32Array(reference.length);
+  for (let i = 0; i < 468; i++) {
+    const [x, y, z] = reference.slice(i * 3, i * 3 + 3);
+    moved.set([scale * (Math.cos(angle) * x + Math.sin(angle) * z) + 1, scale * y - 2, scale * (-Math.sin(angle) * x + Math.cos(angle) * z) + 3], i * 3);
+  }
+  const map = align(moved, reference);
+  for (let i = 0; i < 468; i += 37) {
+    const p = map([moved[i * 3], moved[i * 3 + 1], moved[i * 3 + 2]]);
+    for (let k = 0; k < 3; k++) assert.ok(Math.abs(p[k] - reference[i * 3 + k]) < 1e-4);
+  }
+  const mirror = mirrors(reference);
+  assert.equal(mirror[mirror[33]], 33);
+  assert.ok(Math.abs(reference[mirror[33] * 3] + reference[33 * 3]) < 0.004, "left and right eye corners pair up");
+  // A photo that is just a scaled copy of the reference face changes nothing.
+  const landmarks = new Float32Array(468 * 2), depth = new Float32Array(468);
+  for (let i = 0; i < 468; i++) { landmarks[i * 2] = reference[i * 3] * 3 + 0.5; landmarks[i * 2 + 1] = -reference[i * 3 + 1] * 3 + 0.5; depth[i] = -reference[i * 3 + 2] * 3; }
+  const offsets = fitShape({ landmarks, depth, reference, vertices: arrays.position });
+  assert.ok(offsets.every((v) => Math.abs(v) < 1e-4));
+  assert.equal(fitShape({ landmarks, depth: null, reference, vertices: arrays.position }), null);
+  assert.equal(extendLandmarks(landmarks).length, (468 + 36) * 2);
+  assert.equal(meta.faceTriangles * 3, arrays.faceTriangles.length);
 });
