@@ -147,6 +147,8 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   const stoneRoot = new THREE.Group(); // turned by the player
   scene.add(stoneRoot);
   const knifeModel = createKnife({ THREE, track });
+  // As large against the face as in the video, where the grip is about a quarter of its width.
+  knifeModel.group.scale.setScalar(1.4);
   scene.add(knifeModel.group);
   const anisotropy = Math.min(8, context.renderer.capabilities.getMaxAnisotropy());
 
@@ -318,8 +320,9 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     const stageWidth = stage.right - stage.left, stageHeight = stage.bottom - stage.top;
     const tan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     // Visible height and width (world units at the target) needed for the face and some side.
-    const needH = 1.36 / (2 * tan) * (height / stageHeight);
-    const needW = 1.16 / (2 * tan * (width / height)) * (width / stageWidth);
+    // As in the video, the face takes about two thirds of the width, with room around it.
+    const needH = 1.8 / (2 * tan) * (height / stageHeight);
+    const needW = 1.6 / (2 * tan * (width / height)) * (width / stageWidth);
     view.distance = Math.max(needH, needW, 2);
     const { elevation, azimuth, distance, target } = view;
     camera.position.set(target.x + Math.sin(azimuth) * Math.cos(elevation) * distance, target.y + Math.sin(elevation) * distance, target.z + Math.cos(azimuth) * Math.cos(elevation) * distance);
@@ -935,10 +938,10 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     }
   }
 
-  // Knife pose, matched to the video's frames: upright with the blade's face to the viewer,
-  // the whole blade showing below the grip, the top a touch away from the viewer. The hand
-  // grips it firmly: the pull and the cracks barely move it.
-  const knifeTilt = new THREE.Euler(-0.08, 0, -0.06);
+  // Knife pose, matched to the video's frames: the blade's face to the viewer, the handle's
+  // top leaning toward the viewer and to the upper left, so the grip looms large and the
+  // blade slants down to the tip. The hand grips it firmly: the pull and cracks barely move it.
+  const knifeTilt = new THREE.Euler(0.2, 0, 0.14);
   function poseKnife(delta) {
     if (!knife.plunged) {
       knife.x += (knife.targetX - knife.x) * Math.min(1, delta * 22);
@@ -952,7 +955,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     knifeModel.group.visible = carvable();
     knifeModel.group.position.set(knife.x, knife.lift, knife.z);
     const lean = knife.plunged ? Math.min(1, knife.tension) * 0.025 : 0;
-    knifeTilt.x += (-0.08 + lean - knifeTilt.x) * Math.min(1, delta * 30);
+    knifeTilt.x += (0.2 + lean - knifeTilt.x) * Math.min(1, delta * 30);
     // A crack is felt as the faintest tremor in the blade, settled at once by the grip.
     knife.shakeVelocity += (-900 * knife.shake - 28 * knife.shakeVelocity) * Math.min(delta, 0.02);
     knife.shake += knife.shakeVelocity * Math.min(delta, 0.02);
