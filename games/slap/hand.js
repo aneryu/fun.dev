@@ -61,7 +61,7 @@ export async function createHands(context) {
         contact: palm,
         end: palm.clone().addScaledVector(direction, 0.22).addScaledVector(towardCamera, 0.2).add(new THREE.Vector3(0, 0.03, 0)),
         direction: direction.clone(), toward: towardCamera.clone(),
-        // The palm meets the cheek: local +Z (the back of the hand) follows the cheek's normal.
+        // The palm meets the cheek: the back of the hand faces along the cheek's normal.
         back: (surface ? surface.clone() : towardCamera.clone()).multiplyScalar(0.75).addScaledVector(direction, -0.45).normalize(),
         control1: null, control2: null,
       };
@@ -87,9 +87,10 @@ export async function createHands(context) {
         roll = -t * 0.6;
         if (t >= 1) { swing = null; root.visible = false; return false; }
       }
-      // Palm (local -Z) on the cheek, fingers (local +Y) up and leaning into the swing; the forearm
+      // Palm on the cheek, fingers (local +Y) up and leaning into the swing; the forearm
       // comes from the slapper (the camera), so fingers lean away from it.
-      axisZ.copy(s.back);
+      // The mesh's +Z is the palm's normal (MakeHuman A-pose), so it points into the cheek.
+      axisZ.copy(s.back).negate();
       axisY.set(0, 0.85, 0).addScaledVector(s.direction, 0.3).addScaledVector(s.toward, -0.45);
       axisY.addScaledVector(axisZ, -axisY.dot(axisZ)).normalize();
       axisX.crossVectors(axisY, axisZ);

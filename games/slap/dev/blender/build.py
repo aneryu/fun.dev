@@ -41,13 +41,14 @@ DETAILS = {  # MakeHuman modifier targets: file -> weight
 # Expression units (FACS-like, symmetric unless suffixed @L / @R for one side of the face).
 SMUG = {"mouth-corner-puller@L": 1.0, "mouth-upward-retraction@L": 0.15, "mouth-compression": 0.25, "eyebrows-left-up": 1.0, "eyebrows-right-down": 0.45,
         "eye-left-slit": 0.15, "eye-right-slit": 0.35, "nose-left-elevation": 0.25}
+# Expressions relative to a neutral face; "neutral" undoes the smug rest pose (photos, and
+# whenever another expression takes over).
 MORPHS = {
-    "shock": {"eyebrows-left-up": 0.2, "eyebrows-right-up": 1.0, "eyebrows-right-down": -0.45, "eye-left-opened-up": 0.9, "eye-right-opened-up": 0.9,
-              "eye-left-slit": -0.15, "eye-right-slit": -0.35, "mouth-open": 0.55, "mouth-corner-puller@L": -1.0, "mouth-upward-retraction@L": -0.15, "mouth-compression": -0.25},
-    "sad": {"eyebrows-left-inner-up": 1.0, "eyebrows-right-inner-up": 1.0, "eyebrows-left-up": -0.8, "eyebrows-right-down": -0.45,
-            "mouth-depression": 0.8, "mouth-corner-puller@L": -1.0, "mouth-upward-retraction@L": -0.15, "mouth-pursing": 0.3, "eye-left-slit": 0.25, "eye-right-slit": 0.1, "neck-platysma": 0.3},
-    "wince": {"eye-left-closure": 0.9, "eye-right-closure": 0.9, "nose-compression": 0.6, "mouth-retraction": 0.6, "eyebrows-left-up": -0.7,
-              "eyebrows-right-down": 0.3, "mouth-corner-puller@L": -0.6},
+    "neutral": {name: -weight for name, weight in SMUG.items()},
+    "shock": {"eyebrows-left-up": 1.0, "eyebrows-right-up": 1.0, "eye-left-opened-up": 0.9, "eye-right-opened-up": 0.9, "mouth-open": 0.55},
+    "sad": {"eyebrows-left-inner-up": 1.0, "eyebrows-right-inner-up": 1.0, "eyebrows-left-up": 0.2, "mouth-depression": 0.8, "mouth-pursing": 0.3,
+            "eye-left-slit": 0.4, "eye-right-slit": 0.45, "neck-platysma": 0.3},
+    "wince": {"eye-left-closure": 0.9, "eye-right-closure": 0.9, "nose-compression": 0.6, "mouth-retraction": 0.6, "eyebrows-left-down": 0.4, "eyebrows-right-down": 0.4},
 }
 
 

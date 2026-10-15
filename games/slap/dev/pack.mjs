@@ -68,7 +68,7 @@ function segmentDistance(x, y, ax, ay, bx, by) {
 }
 
 // Registers image-space points (x, y in 0..1, visibility) against the landmark triangulation.
-export function register(front, landmarks, aspect, triangles) {
+export function register(front, landmarks, aspect, triangles, depth = null) {
   const P = (i) => [landmarks[i * 2] * aspect, landmarks[i * 2 + 1]];
   // Hull edges are triangle edges used once.
   const count = new Map();
@@ -83,7 +83,8 @@ export function register(front, landmarks, aspect, triangles) {
   const bary = new Float32Array(vertices * 2);
   const weight = new Float32Array(vertices);
   for (let v = 0; v < vertices; v++) {
-    if (front[v * 3 + 2] < 0.5) continue;
+    // Hidden in the frontal render: skip the back of the head, but keep folds and creases of the face.
+    if (front[v * 3 + 2] < 0.5 && !(depth && depth[v] > 0)) continue;
     const x = front[v * 3] * aspect, y = front[v * 3 + 1];
     for (let t = 0; t < triangles.length; t++) {
       const [a, b, c] = triangles[t];
@@ -122,12 +123,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const skip = new Set(["front", "eyes_front", "brows_front", "lashes_front"]);
   for (const [name, array] of Object.entries(arrays)) if (!skip.has(name)) writer.add(name, array);
   writer.add("faceTriangles", Uint16Array.from(triangles.flat()));
-  const head = register(arrays.front, points, aspect, triangles);
-  writer.add("photoTri", head.tri); writer.add("photoBary", head.bary); writer.add("photoWeight", head.weight);
-  const eyes = register(arrays.eyes_front, points, aspect, triangles);
-  // Visible eyeballs show the photo's eyes in full; the eyelids already blend at the lid edge.
-  eyes.weight.forEach((w, i) => { eyes.weight[i] = eyes.tri[i] >= 0 ? 1 : 0; });
-  writer.add("eyes_photoTri", eyes.tri); writer.add("eyes_photoBary", eyes.bary); writer.add("eyes_photoWeight", eyes.weight);
   // Mouth cavity: hidden in the frontal render and close to the lips.
   const lips = arrays.group_lips, pos = arrays.position;
   const centre = [0, 0, 0]; let lipCount = 0;
@@ -138,7 +133,16 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const d = Math.hypot(pos[i * 3] - centre[0], pos[i * 3 + 1] - centre[1], pos[i * 3 + 2] - centre[2]);
     if (arrays.front[i * 3 + 2] < 0.5 && d < 0.035) cavity[i] = 1;
   }
+  // Front of the face: within 5 cm of the eyes' depth (game +Z faces the camera).
+  const eyeZ = (meta.eyes[0][2] + meta.eyes[1][2]) / 2;
+  const facing = Float32Array.from({ length: meta.vertices }, (_, i) => (arrays.position[i * 3 + 2] > eyeZ - 0.05 && cavity[i] !== 1 ? 1 : 0));
+  const head = register(arrays.front, points, aspect, triangles, facing);
   writer.add("cavity", cavity);
+  writer.add("photoTri", head.tri); writer.add("photoBary", head.bary); writer.add("photoWeight", head.weight);
+  const eyes = register(arrays.eyes_front, points, aspect, triangles);
+  // Visible eyeballs show the photo's eyes in full; the eyelids already blend at the lid edge.
+  eyes.weight.forEach((w, i) => { eyes.weight[i] = eyes.tri[i] >= 0 ? 1 : 0; });
+  writer.add("eyes_photoTri", eyes.tri); writer.add("eyes_photoBary", eyes.bary); writer.add("eyes_photoWeight", eyes.weight);
   // Skin-tone reference: the default face's landmarks, for sampling matching regions of a photo.
   writer.add("defaultLandmarks", Float32Array.from(points));
   const covered = [...head.weight].filter((w) => w > 0).length;

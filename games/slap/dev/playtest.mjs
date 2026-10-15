@@ -58,7 +58,7 @@ if (scenario === "slap") {
   await page.screenshot({ path: `${out}/combo-after.png` });
   console.log(await label());
 } else if (scenario === "photo" || scenario === "noface") {
-  const file = new URL(scenario === "photo" ? "./fixtures/stranger.jpg" : "./fixtures/no-face.png", import.meta.url).pathname;
+  const file = process.env.PHOTO ?? new URL(scenario === "photo" ? "./fixtures/stranger.jpg" : "./fixtures/no-face.png", import.meta.url).pathname;
   const [chooser] = await Promise.all([page.waitForEvent("filechooser"), page.touchscreen.tap(box.x + box.width / 2, box.y + box.height - 62)]);
   await chooser.setFiles(file);
   const started = Date.now();

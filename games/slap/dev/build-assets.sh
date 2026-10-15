@@ -4,6 +4,7 @@
 # into MPFB's user data directory, Python 3 with Pillow, and this repository's Playwright.
 set -e
 cd "$(dirname "$0")"
+mkdir -p out
 blender -b --addons bl_ext.user_default.mpfb -P blender/build.py > out/blender.log 2>&1 || { tail -30 out/blender.log; exit 1; }
 grep -E "PHYS_VERTS|HAND_VERTS" out/blender.log
 node register.mjs

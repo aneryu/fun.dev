@@ -290,7 +290,6 @@ export async function createGame(context) {
       if (!bitmap) return;
       const image = new OffscreenCanvas(bitmap.width, bitmap.height);
       image.getContext("2d").drawImage(bitmap, 0, 0);
-      bitmap.close();
       toast(words.detecting);
       let points = null;
       try {
@@ -300,11 +299,12 @@ export async function createGame(context) {
           context.onCleanup(() => landmarker?.instance.close());
         }
         signal.throwIfAborted();
-        points = landmarker.detect(landmarker.instance, image);
+        // MediaPipe gets the decoded bitmap: every browser accepts it as an image source.
+        points = landmarker.detect(landmarker.instance, bitmap);
       } catch (error) {
         if (signal.aborted) return;
         console.warn("Face detection unavailable:", error);
-      }
+      } finally { bitmap.close(); }
       toast(null);
       if (!points) {
         const placed = await hud.align(image, defaultAnchors(head.arrays.defaultLandmarks, head.meta.frontSize, image.width, image.height));
@@ -348,11 +348,14 @@ export async function createGame(context) {
 
   // --- Input ------------------------------------------------------------------------------
   const pointers = new Map();
+  let buttonPointer = null;
   canvas.addEventListener("pointerdown", (event) => {
     if (paused) return;
     const x = event.offsetX, y = event.offsetY;
     if (hud.aligning) { hud.alignPointer("down", x, y); invalidate(); return; }
-    if (hud.hitButton(x, y)) { choosePhoto(); return; }
+    // Touch only grants the user activation a file picker needs on pointerup, so the button
+    // fires on release (keys and mouse could open it here, but one path keeps it simple).
+    if (hud.hitButton(x, y)) { buttonPointer = event.pointerId; return; }
     pointers.set(event.pointerId, { x, y, t: event.timeStamp, start: event.timeStamp, inside: !!pick(x, y), lastSlap: -1e9, lastDir: 0, vx: 0, vy: 0, moved: 0 });
   }, { signal });
   canvas.addEventListener("pointermove", (event) => {
@@ -380,6 +383,11 @@ export async function createGame(context) {
   }, { signal });
   const release = (event) => {
     if (hud.aligning) { hud.alignPointer("up", event.offsetX, event.offsetY); return; }
+    if (buttonPointer === event.pointerId) {
+      buttonPointer = null;
+      if (event.type === "pointerup" && hud.hitButton(event.offsetX, event.offsetY)) choosePhoto();
+      return;
+    }
     const p = pointers.get(event.pointerId);
     pointers.delete(event.pointerId);
     if (!p || paused || event.type === "pointercancel") return;
@@ -452,6 +460,8 @@ export async function createGame(context) {
       const sum = weights.reduce((a, b) => a + b, 0);
       if (sum > 1) weights = weights.map((w) => w / sum);
       head.setMorph("shock", weights[0]); head.setMorph("sad", weights[1]); head.setMorph("wince", weights[2]);
+      // The smug rest pose gives way to other expressions, and to a photo's own face.
+      head.setMorph("neutral", photo && context.options["use-photo"] ? 1 : Math.min(1, weights[0] + weights[1] + weights[2]));
       head.setMarksAmount(damage > 0 ? Math.min(1, 0.55 + damage) : 0);
       busy = busy || shock > 0 || wince > 0;
       stepRigid(delta);

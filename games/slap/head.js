@@ -92,6 +92,10 @@ const fragmentShader = /* glsl */ `
       // Linear values: the mouth red has almost no green (g/r ≈ 0.02); lips ≈ 0.3, skin ≈ 0.5.
       float ratio = max(texel.g, texel.b) / max(texel.r, 0.001);
       float mouth = max(vCavity, (1.0 - smoothstep(0.06, 0.16, ratio)) * step(0.01, texel.r));
+      #ifdef PHOTO
+        // Where the photo shows, its own lips and mouth stand in for the skin texture's.
+        mouth = max(vCavity, mouth * (1.0 - photoMix * vPhotoWeight));
+      #endif
       colour = mix(colour, vec3(0.09, 0.035, 0.035), mouth * 0.85);
     #endif
     vec3 n = normalize(vNormal);
