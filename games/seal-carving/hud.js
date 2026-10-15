@@ -101,7 +101,7 @@ export function createHud({ THREE, camera, scene, track, kit }) {
   const cardBorder = box(INK, 110), cardFill = box(CREAM, 111);
   const cardTitle = label({ size: 18, weight: 700, order: 112 }), cardDetail = label({ size: 13, color: css(BROWN), order: 112 });
   const cardPicture = picture(112);
-  const cardButtons = Array.from({ length: 2 }, () => ({ border: box(INK, 112), fill: box(INK, 113), text: label({ size: 15, weight: 700, color: css(CREAM), order: 114 }) }));
+  const cardButtons = Array.from({ length: 3 }, () => ({ border: box(INK, 112), fill: box(INK, 113), text: label({ size: 15, weight: 700, color: css(CREAM), order: 114 }) }));
   const ALBUM = 12;
   const albumCells = Array.from({ length: ALBUM }, () => ({ border: box(INK, 112), fill: box(CREAM, 113), picture: picture(114), text: label({ size: 13, weight: 700, color: css(BROWN), order: 114 }) }));
 
@@ -196,7 +196,7 @@ export function createHud({ THREE, camera, scene, track, kit }) {
     const W = Math.min(width - 32, 360);
     const X = (width - W) / 2;
     if (card) {
-      const P = Math.min(W - 120, height * 0.32, 200);
+      const P = card.picture ? Math.min(W - 120, height * 0.32, 200) : 0;
       const H = 64 + P + 52 + 60;
       const Y = Math.max(safeArea.top + 10, (height - H) / 2);
       cardBorder.set(X - 2, Y - 2, W + 4, H + 4); cardFill.set(X, Y, W, H);

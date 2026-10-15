@@ -9,7 +9,7 @@ const axisOf = (cut) => AXES.findIndex(([dx, dy]) => dx * cut.direction[0] + dy 
 
 // Carves a cut the way the knife does: one stroke from its start along its axis.
 function cutAlong(carving, cut, offset = 0) {
-  const stroke = carving.beginStroke(cut.a[0], cut.a[1], axisOf(cut), CODE[cut.stage]);
+  const stroke = carving.beginStroke(cut.a[0], cut.a[1], axisOf(cut), CODE[cut.stage], ["bevel", "border", "cross", "glyphs"].indexOf(cut.stage));
   const { cuts } = carving.extend(stroke, cut.length, offset);
   carving.settle(cuts);
   return stroke;
@@ -71,4 +71,32 @@ test("the painter fills the groove for every carved point", () => {
   const context = new Proxy({}, { get: (target, key) => key in target ? target[key] : key === "fill" ? () => { fills++; } : () => {}, set: (target, key, value) => { target[key] = value; return true; } });
   createMaskPainter(carving, context, 256).paint(stroke, stroke.offsets.map((_, k) => k));
   assert.ok(fills >= stroke.offsets.length);
+});
+
+test("undo rewinds strokes and coverage; a step can be redone alone", () => {
+  const carving = createCarving(layoutSeal(seals[0]), WIDTHS);
+  const bevel = carving.cuts.filter((cut) => cut.stage === "bevel");
+  for (const cut of bevel) {
+    const stroke = carving.beginStroke(cut.a[0], cut.a[1], axisOf(cut), 0, 0);
+    carving.settle(carving.extend(stroke, cut.length, 0).cuts);
+  }
+  assert.equal(carving.stage(), "border");
+  const border = carving.cuts.find((cut) => cut.stage === "border");
+  const stroke = carving.beginStroke(border.a[0], border.a[1], axisOf(border), 1, 1);
+  carving.settle(carving.extend(stroke, border.length, 0).cuts);
+  assert.equal(border.done, true);
+  carving.rewind(carving.strokes.length - 1);
+  assert.equal(border.carved, 0);
+  assert.equal(carving.stage(), "border");
+  carving.rewind(carving.strokes.length - 1);
+  assert.equal(carving.stage(), "bevel", "undoing into a finished step reopens it");
+  carving.removeStage("bevel");
+  assert.equal(carving.strokes.length, 0);
+  // The step travels with the save.
+  const again = createCarving(layoutSeal(seals[0]), WIDTHS);
+  const kept = again.beginStroke(border.a[0], border.a[1], axisOf(border), 1, 1);
+  again.extend(kept, 0.1, 0);
+  const restored = createCarving(layoutSeal(seals[0]), WIDTHS);
+  restored.restore(again.serialize());
+  assert.equal(restored.strokes[0].stage, 1);
 });

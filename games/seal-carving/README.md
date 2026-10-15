@@ -11,23 +11,26 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
 
 ## How it plays
 
-- Two states, switched by the Cut/Lift button (下刀/提刀) or Space. Moving: dragging brings
-  the knife along, tip just above the fingertip. Cutting: the knife stays in the stone and a
-  swipe anywhere pushes it from where it stands; the first clear swipe picks the track, up
-  the screen (a 冲刀 push) or across it, along which it carves, back along which it slides
-  down its groove. Lifting the finger leaves it in the stone for the next swipe. ‹ › turn the
-  stone to a comfortable angle; Redo starts the seal on the bench over (the player's Restart
-  keeps progress). Nothing snaps to the draft: grooves go where the knife goes, wobbles and
-  overruns stay. A draft line counts as cut where a groove runs over it; at 90% coverage its
-  last gaps are cut at the end of the swipe.
+- The face is seen square from above (about 78°, so a sliver of the sides gives depth).
+- Two states, switched by the Cut/Lift button (下刀/提刀) or Space. Moving: holding the knife
+  itself drags it. Cutting: the knife stays in the stone and a swipe anywhere pushes it from
+  where it stands; the first clear part of each swipe picks up, down, left or right, along
+  which it carves, back along which it slides down its groove. Lifting the finger leaves it in
+  the stone for the next swipe. Nothing snaps to the draft: grooves go where the knife goes.
+  A draft line counts as cut where a groove runs over it; at 90% coverage its last gaps are cut
+  at the end of the swipe.
+- Undo takes back the last swipe (repeatedly, this session; one stroke at a time for a seal
+  reopened from a save). Redo opens a card: redo the current step (or the last step cut, if
+  nothing of the current one is), or the whole seal. Each saved stroke records its step.
+  ‹ › turn the stone. The player's Restart keeps progress, as in every game.
 - The knife in the stone is a stick-slip system tuned to the video's sound (pushes of
   0.25–0.45 s, cracks 15–40 ms apart): the hand pulls the tip through a spring, the tip
   stays stuck until the pull passes the stone's strength, then a flake breaks off. Each
   crack sounds, vibrates, throws a flake and powder at once. Stones differ in hardness,
   flake size and hard grains (`stones[*].carve` in `stone.js`).
-- Mouse: move or drag to move the knife; with it in, drag along a line to carve. Keyboard:
-  arrows move the knife, Space puts it in or lifts it; with it in, Up, Left or Right pushes
-  and the opposite key pulls back; Q/E turn, B blows, A opens
+- Mouse: drag the knife to move it; with it in, drag along a line to carve. Keyboard: arrows
+  move the knife, Space puts it in or lifts it; with it in, an arrow pushes and the opposite
+  one pulls back; Z undoes; Q/E turn, B blows, A opens
   the album.
 
 ## Files
@@ -48,7 +51,7 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
 
 With `context.progress` v1 the game saves `{schemaVersion: 1, data: {current, seals,
 unlockAll}}`. Each seal keeps its strokes as base64 (`carve.js` `serialize`: per stroke
-an int16 start, its axis and blade, and int8 wobble every 0.006 face units); six finished
+an int16 start, its axis, blade and step, and int8 wobble every 0.006 face units); six finished
 seals stay under 40 KB. It saves whenever the knife lifts and when a seal is finished.
 Unsupported saves are refused before play and stay exportable through the player; without
 the capability the game plays and its label says saving is unavailable.

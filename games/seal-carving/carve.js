@@ -78,8 +78,9 @@ export function createCarving(segments, widths) {
     return changed;
   }
 
-  function beginStroke(u, v, axis, width) {
-    const stroke = { index: strokes.length, u: Math.round(u * POSITION) / POSITION, v: Math.round(v * POSITION) / POSITION, axis, width, offsets: [] };
+  // `stage` is the index in STAGES of the step the stroke was cut in, for redoing a step.
+  function beginStroke(u, v, axis, width, stage = 0) {
+    const stroke = { index: strokes.length, u: Math.round(u * POSITION) / POSITION, v: Math.round(v * POSITION) / POSITION, axis, width, stage, offsets: [] };
     strokes.push(stroke);
     return stroke;
   }
@@ -109,7 +110,7 @@ export function createCarving(segments, widths) {
       let end = k;
       while (end + 1 < cut.count && !cut.covered[end + 1]) end++;
       const start = point(cut, Math.max(0, (k - 1) / (cut.count - 1)));
-      const stroke = beginStroke(start[0], start[1], axis, width);
+      const stroke = beginStroke(start[0], start[1], axis, width, STAGES.indexOf(cut.stage));
       const { points } = extend(stroke, (end - k + 2) / (cut.count - 1) * cut.length, 0);
       made.push({ stroke, points });
       k = end + 1;
@@ -134,7 +135,26 @@ export function createCarving(segments, widths) {
 
   const progress = () => cuts.reduce((sum, cut) => sum + cut.carved, 0) / total;
 
-  // Saved form: per stroke int16 u, int16 v, uint8 axis + 4 × width, uint16 count, then int8
+  // Keeps only the given strokes (in order) and works out the draft's coverage again: undoing
+  // the last strokes, or a whole step.
+  function rebuild(kept) {
+    const old = kept.map((stroke) => ({ ...stroke, offsets: stroke.offsets.slice() }));
+    strokes.length = 0;
+    for (const cut of cuts) { cut.covered.fill(0); cut.carved = 0; cut.done = false; }
+    const changed = new Set();
+    for (const entry of old) {
+      const stroke = beginStroke(entry.u, entry.v, entry.axis, entry.width, entry.stage);
+      for (let k = 0; k < entry.offsets.length; k++) {
+        stroke.offsets.push(entry.offsets[k]);
+        for (const cut of cover(stroke, k)) changed.add(cut);
+      }
+    }
+    settle(changed);
+  }
+  const rewind = (count) => rebuild(strokes.slice(0, Math.max(0, count)));
+  const removeStage = (stage) => rebuild(strokes.filter((stroke) => stroke.stage !== STAGES.indexOf(stage)));
+
+  // Saved form: per stroke int16 u, int16 v, uint8 axis + 4 × width + 16 × step, uint16 count, then int8
   // offsets; all strokes concatenated and base64-encoded.
   function serialize() {
     const size = strokes.reduce((sum, stroke) => sum + 7 + stroke.offsets.length, 0);
@@ -143,7 +163,7 @@ export function createCarving(segments, widths) {
     let at = 0;
     for (const stroke of strokes) {
       view.setInt16(at, Math.round(stroke.u * POSITION)); view.setInt16(at + 2, Math.round(stroke.v * POSITION));
-      view.setUint8(at + 4, stroke.axis + 4 * stroke.width); view.setUint16(at + 5, stroke.offsets.length);
+      view.setUint8(at + 4, stroke.axis + 4 * stroke.width + 16 * stroke.stage); view.setUint16(at + 5, stroke.offsets.length);
       at += 7;
       for (const offset of stroke.offsets) view.setInt8(at++, offset);
     }
@@ -165,8 +185,9 @@ export function createCarving(segments, widths) {
       const u = view.getInt16(at) / POSITION, v = view.getInt16(at + 2) / POSITION;
       const code = view.getUint8(at + 4), count = view.getUint16(at + 5);
       at += 7;
-      if (code % 4 > 3 || Math.floor(code / 4) >= widths.length || at + count > bytes.length) throw new Error("Malformed carving.");
-      const stroke = beginStroke(u, v, code % 4, Math.floor(code / 4));
+      const width = Math.floor(code / 4) % 4, stage = Math.floor(code / 16);
+      if (width >= widths.length || stage > 3 || at + count > bytes.length) throw new Error("Malformed carving.");
+      const stroke = beginStroke(u, v, code % 4, width, stage);
       for (let k = 0; k < count; k++) {
         stroke.offsets.push(view.getInt8(at++));
         for (const cut of cover(stroke, k)) changed.add(cut);
@@ -175,7 +196,7 @@ export function createCarving(segments, widths) {
     settle(changed);
   }
 
-  return { cuts, strokes, total, widths, point, project, coverage, strokePoint, beginStroke, extend, finish, settle, stage, progress, serialize, restore };
+  return { cuts, strokes, total, widths, point, project, coverage, strokePoint, beginStroke, extend, finish, settle, stage, progress, serialize, restore, rewind, removeStage };
 }
 
 // Paints strokes into a 2D canvas context whose square of `size` pixels is the face. The
