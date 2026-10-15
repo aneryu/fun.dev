@@ -137,6 +137,16 @@ normal = normalize(normal + vec3(0.0, (fract(vCordPosition.y * 55.0 + atan(vCord
     top: new THREE.Vector3(-BLADE.width / 2, base + HANDLE.length, 0),
     // 0..1: how lit the grip is (pressed).
     set gripGlow(value) { gripUniforms.gripGlow.value = value * 0.5; },
+    // 0..1: how opaque the knife is (it fades while cutting, so the groove shows).
+    set fade(value) {
+      group.traverse((object) => {
+        if (!object.material || object.material.opacity === value) return;
+        const transparent = value < 1;
+        if (object.material.transparent !== transparent) { object.material.transparent = transparent; object.material.needsUpdate = true; }
+        object.material.opacity = value;
+        object.material.depthWrite = !transparent;
+      });
+    },
     // 0..1: how much stone powder clings to the blade.
     set dust(value) { uniforms.knifeDust.value = value; },
     get dust() { return uniforms.knifeDust.value; },

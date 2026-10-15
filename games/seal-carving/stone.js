@@ -319,7 +319,7 @@ diffuseColor.rgb *= mix(0.22, 1.0, texture2D(normalMap, vNormalMapUv).a);
     carveMap: { value: maskTexture }, draftMap: { value: draftTexture }, dustMap: { value: dustTexture },
     carveTexel: { value: 1 / MASK },
     inkColor: { value: color(0x1a1817) }, grooveColor: { value: color(look.groove) }, bevelColor: { value: color(look.light).lerp(color(look.groove), 0.82) },
-    draftColor: { value: color(0xd8574a) }, highlightColor: { value: color(0xffd43b) },
+    draftColor: { value: color(0xe8503c) }, highlightColor: { value: color(0xffd43b) },
     bevelWidth: { value: FACE.bevel },
     highlightPulse: { value: 1 },
     // The knife's tip on the face (uv) and how fresh the cut there is: newly opened stone is
@@ -373,7 +373,7 @@ bool inBevel = faceEdge() < bevelWidth;
 if (inBevel) groove = bevelColor * (0.78 + 0.15 * grain);
 vec3 faceColor = mix(ink, groove, cut);
 float onInk = 1.0 - cut;
-faceColor = mix(faceColor, draftColor, layer.r * onInk * 0.55);
+faceColor = mix(faceColor, draftColor, layer.r * onInk * 0.85);
 faceColor = mix(faceColor, highlightColor, layer.g * onInk * highlightPulse);
 faceColor = mix(faceColor, grooveColor * (0.85 + 0.25 * grain), min(1.0, powder * 1.1));
 diffuseColor.rgb *= faceColor;`)

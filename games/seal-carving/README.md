@@ -14,14 +14,17 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
 - The face is seen square from above (about 78°, so a sliver of the sides gives depth).
 - No button row: everything is on or beside the knife, so the finger stays where it works.
   The knife has two zones: dragging its wrapped handle moves it (the touched spot stays under
-  the finger); holding its cinnabar-dyed grip or blade drives it into the stone, and the finger then
-  pushes it one to one. It carves only the way its edge points (away from the handle), and
-  slides back down its groove the other way; letting go lifts it. ⟳ beside the grip (or R)
-  turns it a quarter clockwise in place, so its four headings cover every line; ↶ on the
-  other side undoes. A marker on the face shows the cutting point: a ring, a bar as wide as
-  the groove, and an arrow the way it cuts (yellow hovering, red in the stone). Nothing
-  snaps to the draft: grooves go where the knife goes. A draft line counts as cut where a
-  groove runs over it; at 90% coverage its last gaps are cut when the knife lifts.
+  the finger); holding its cinnabar-dyed grip or blade drives it into the stone, and the finger
+  then pushes it one to one along the knife's axis, either way; it slides along ground already
+  cut and carves beyond; letting go lifts it (holding again carries on). The knife is upright
+  (cuts up and down) or across (left and right); ⟳ just below the cutting point (or R) switches,
+  ↶ beside it undoes. While cutting the knife is see-through, so the groove shows.
+- A marker shows the cutting point: a ring, a bar as wide as the groove, arrows both ways along
+  the axis (yellow hovering, red in the stone). Line assist (a setting, on by default): within
+  12 CSS px of an open draft line of the step that lies along the knife, the point settles onto
+  it, and onto its end when near one, so a phone finger can place it; the aimed line turns
+  yellow. Nothing snaps while cutting: grooves go where the knife goes. A draft line counts as
+  cut where a groove runs over it; at 90% coverage its last gaps are cut when the knife lifts.
 - Undo takes back the last swipe (repeatedly, this session; one stroke at a time for a seal
   reopened from a save). Redo, top right under the album, opens a card: redo the current step (or the last step cut, if
   nothing of the current one is), or the whole seal. Each saved stroke records its step.
@@ -32,7 +35,7 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
   crack sounds, vibrates, throws a flake and powder at once. Stones differ in hardness,
   flake size and hard grains (`stones[*].carve` in `stone.js`).
 - Mouse: the same two zones. Keyboard: arrows move the knife, R turns it; hold Space to put
-  it in, the arrow its edge points to pushes, the opposite pulls back, let go to lift; Z undoes; Q/E turn, B blows, A opens
+  it in, an arrow along the knife pushes either way, let go to lift; Z undoes; Q/E turn, B blows, A opens
   the album.
 
 ## Files

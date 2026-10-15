@@ -92,7 +92,7 @@ export function createHud({ THREE, camera, scene, track, kit }) {
   const steps = Array.from({ length: STEPS }, () => ({ track: box(BROWN, 100, 0.25), bar: box(INK, 101), name: label({ size: 11, color: css(BROWN), order: 100 }) }));
   const corners = Array.from({ length: 2 }, () => ({ border: box(INK, 100), fill: box(CREAM, 101), text: label({ size: 13, weight: 700, order: 102 }) }));
   // The cutting point: where the knife's edge meets the face. A thin ring round it, a bar as
-  // wide as the groove the edge will cut, across the way it goes, and a small arrow ahead.
+  // wide as the groove the edge will cut, and arrows along the two ways it can go.
   // Yellow while the knife hovers, red while it is in the stone; dark outlines keep it legible
   // on ink and on cut stone alike.
   const marker = new THREE.Group();
@@ -110,6 +110,7 @@ export function createHud({ THREE, camera, scene, track, kit }) {
   const ring = markerPart(track(new THREE.RingGeometry(10, 12, 32)), 0xffd43b, 97);
   const barOutline = markerPart(centered, INK, 96), bar = markerPart(centered, 0xffd43b, 97);
   const arrowOutline = markerPart(triangle, INK, 96), arrow = markerPart(triangle, 0xffd43b, 97);
+  const backOutline = markerPart(triangle, INK, 96), back = markerPart(triangle, 0xffd43b, 97);
   marker.visible = false;
   root.add(marker);
 
@@ -189,24 +190,29 @@ export function createHud({ THREE, camera, scene, track, kit }) {
     marker.position.set(x, -y, 0);
     marker.rotation.z = angle; // the cut goes along +x of the marker
     const color = active ? 0xff4a3a : 0xffd43b;
-    for (const mesh of [ring, bar, arrow]) mesh.material.color.setHex(color);
+    for (const mesh of [ring, bar, arrow, back]) mesh.material.color.setHex(color);
     // The edge: across the cut, as wide as its groove (never thinner than legible).
     const length = Math.max(10, edge);
     bar.scale.set(3, length, 1); barOutline.scale.set(5, length + 2, 1);
     // The arrow: just outside the ring, pointing the way the knife goes.
     arrow.position.set(19, 0, 0); arrow.rotation.z = -Math.PI / 2; arrow.scale.set(8, 7, 1);
     arrowOutline.position.copy(arrow.position); arrowOutline.rotation.z = arrow.rotation.z; arrowOutline.scale.set(11, 10, 1);
+    // The knife cuts both ways along its axis: a second arrow behind.
+    back.position.set(-19, 0, 0); back.rotation.z = Math.PI / 2; back.scale.copy(arrow.scale);
+    backOutline.position.copy(back.position); backOutline.rotation.z = back.rotation.z; backOutline.scale.copy(arrowOutline.scale);
   }
 
   function layoutBadges() {
     badges.forEach((part, index) => {
       const entry = card || album ? null : badgeModel[index];
       if (!entry) { part.ring.visible = part.fill.visible = false; part.text.hide(); return; }
-      const r = entry.radius ?? 22;
+      const r = entry.radius ?? 18;
       part.ring.visible = part.fill.visible = true;
       part.ring.position.set(entry.x, -entry.y, 0); part.ring.scale.setScalar(r);
       part.fill.position.set(entry.x, -entry.y, 0); part.fill.scale.setScalar(r - 2);
       part.fill.material.color.setHex(entry.active ? INK : CREAM);
+      // Small and a little see-through, so the draft under them still shows.
+      part.fill.material.opacity = entry.active ? 1 : 0.8; part.ring.material.opacity = entry.active ? 1 : 0.8;
       part.text.set(entry.label, entry.x, entry.y, css(entry.active ? CREAM : INK));
       // The touch area is at least 44 px across.
       const hit = Math.max(r, 24);
