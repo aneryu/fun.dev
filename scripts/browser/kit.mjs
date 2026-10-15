@@ -111,7 +111,7 @@ export async function kitChecks({ browser, base }) {
   await page.mouse.up();
   await page.mouse.move(250, 50);
   await page.mouse.down();
-  await page.waitForTimeout(650);
+  await page.waitForFunction(() => window.__events.some(([type]) => type === "longpress"));
   await page.mouse.up();
   const events = await page.evaluate(() => window.__events);
   assert.deepEqual(events.find(([type]) => type === "tap"), ["tap", 100, 50, 0]);

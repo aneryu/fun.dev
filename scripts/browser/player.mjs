@@ -95,6 +95,42 @@ export async function playerChecks({ browser, base, dist }) {
   await running(phone);
   await mobile.close();
 
+  // pickImage: opened from a gesture, decoded upright and scaled; cancel resolves null.
+  const picker = await browser.newContext({ serviceWorkers: "block" });
+  await picker.route("**/pick-fixture/game.js", (route) => route.fulfill({ contentType: "text/javascript", body: `
+    export function createGame(context) {
+      window.__results = [];
+      context.canvas.addEventListener("pointerdown", () => {
+        context.pickImage({ maxSize: 64 }).then((image) => {
+          window.__results.push(image && [image.width, image.height]);
+          image?.close();
+        });
+      }, { signal: context.signal });
+      return {};
+    }` }));
+  const pick = await picker.newPage();
+  pick.on("pageerror", (error) => errors.push(error.message));
+  await pick.goto(`${base}/`);
+  await pick.evaluate(async () => {
+    const { createGameHost } = await import("/runtime/core/host.js");
+    const THREE = await import("/runtime/three.js");
+    const stage = Object.assign(document.createElement("div"), { style: "position:fixed;inset:0;z-index:9" });
+    document.body.append(stage);
+    window.__host = createGameHost({ THREE, stage });
+    await window.__host.load("/pick-fixture/game.js");
+  });
+  const png = Buffer.from(await pick.evaluate(async () => {
+    const canvas = new OffscreenCanvas(200, 100);
+    canvas.getContext("2d").fillRect(0, 0, 200, 100);
+    return [...new Uint8Array(await (await canvas.convertToBlob()).arrayBuffer())];
+  }));
+  const [chooser] = await Promise.all([pick.waitForEvent("filechooser"), pick.locator("canvas").click()]);
+  await chooser.setFiles({ name: "face.png", mimeType: "image/png", buffer: png });
+  await pick.waitForFunction(() => window.__results.length === 1);
+  assert.deepEqual(await pick.evaluate(() => window.__results), [[64, 32]], "picked image is scaled to maxSize");
+  assert.equal(await pick.locator("input[type=file]").count(), 0, "picker input is removed");
+  await picker.close();
+
   // Catalog entries for another API version explain themselves instead of loading.
   for (const [apiVersion, text] of [[3, "has been updated"], [1, "being updated"]]) {
     const context = await browser.newContext({ serviceWorkers: "block" });

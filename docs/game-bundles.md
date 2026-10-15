@@ -132,6 +132,7 @@ ES modules are cached; restarting calls `createGame` again with a fresh context.
 | `audio` | `{ context, destination }`: the page's shared `AudioContext` and this session's gain node. Connect all game sound to `destination`; never create another `AudioContext`. The host unlocks audio on the first gesture, suspends it while paused, applies the player's mute/volume, and disconnects the session at teardown. Absent if Web Audio is unavailable. |
 | `announce(text)` | Screen-reader announcement through the player's live region (up to 200 characters). The player coalesces rapid announcements. |
 | `haptics.vibrate(pattern)` | `"tap"`, `"success"`, `"fail"`, or up to 8 durations in ms. Ignored while paused, when the player turned haptics off, or where unsupported (iOS Safari). |
+| `pickImage({ maxSize })` | Opens the system image picker (library, camera, files). Call it synchronously from a pointer or key handler; browsers require a user gesture. Resolves an upright `ImageBitmap` whose longer side is at most `maxSize` (default 1024, 16–4096), or `null` when cancelled, paused, already picking, or after the session ends; rejects if the file cannot be decoded. The game owns the bitmap: `close()` it when done. Images never leave the device unless the game sends them. |
 | `reportLoading(fraction)` | 0–1 progress shown on the loading screen while `createGame` runs. |
 | `options` | Read-only live values of the module's `options` (see below). |
 | `cheatsUsed` | `true` once any cheat was used in this session. |

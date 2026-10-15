@@ -7,6 +7,46 @@ const hooks = ["update", "resize", "pause", "resume", "dispose", "localeChanged"
 const hapticPatterns = { tap: [12], success: [20, 40, 30], fail: [70] };
 const resolutionScales = [1, 0.8, 0.65, 0.5];
 
+// Opens the system image picker (photo library, camera, files) from a user gesture and
+// decodes the choice upright (EXIF orientation), scaled so its longer side fits maxSize.
+// Resolves null when cancelled or when the session ends first.
+function pickImage(surface, signal, maxSize) {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.hidden = true;
+    const done = new AbortController();
+    const finish = (value, error) => {
+      done.abort();
+      input.remove();
+      if (error) reject(error); else resolve(value);
+    };
+    signal.addEventListener("abort", () => finish(null), { signal: done.signal });
+    input.addEventListener("cancel", () => finish(null), { signal: done.signal });
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      if (!file) return finish(null);
+      try {
+        const original = await createImageBitmap(file, { imageOrientation: "from-image" });
+        const scale = Math.min(1, maxSize / Math.max(original.width, original.height));
+        let image = original;
+        if (scale < 1) {
+          image = await createImageBitmap(original, {
+            resizeWidth: Math.max(1, Math.round(original.width * scale)),
+            resizeHeight: Math.max(1, Math.round(original.height * scale)),
+            resizeQuality: "high",
+          });
+          original.close();
+        }
+        if (signal.aborted) { image.close(); finish(null); } else finish(image);
+      } catch { finish(null, new Error("The image could not be read.")); }
+    }, { signal: done.signal });
+    surface.append(input);
+    input.click();
+  });
+}
+
 export function createGameHost({
   THREE, stage, onState = () => {}, onError = console.error, locale = "en", canvasLabel = "Game canvas. Press Tab to leave",
   bundleOrigin = window.location.origin, runtimeBase = new URL("/runtime/", window.location.origin),
@@ -235,6 +275,12 @@ export function createGameHost({
         },
         announce(text) {
           if (session === current && !scope.signal.aborted && typeof text === "string" && text.trim()) announce(text.trim().slice(0, 200));
+        },
+        pickImage({ maxSize = 1024 } = {}) {
+          if (!Number.isFinite(maxSize) || maxSize < 16 || maxSize > 4096) return Promise.reject(new TypeError("maxSize must be 16–4096."));
+          if (!running() || session.picking) return Promise.resolve(null);
+          session.picking = true;
+          return pickImage(surface, scope.signal, maxSize).finally(() => { session.picking = false; });
         },
         haptics: Object.freeze({
           vibrate(pattern) {
