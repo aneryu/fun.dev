@@ -33,6 +33,10 @@ rejected.
   text. There are no goals, levels or unlocks.
 - **Sound.** Synthesized per slap (crack, body thump, room tail) in four tiers,
   with a soft rubbery “duang” on hard hits; no recorded files and no human voice.
+- **Look.** fun.dev's Duck palette (DESIGN.md): a Duck Yellow ground, ink text,
+  Beak Deep accents, ink buttons with cream text. Today/total counts sit top right
+  on the yellow (the bottom is the dark T-shirt); dazed stars are Beak Deep glyphs
+  because yellow emoji stars vanish on the ground.
 - **Accessibility.** Canvas label with counts; `announce` for combo phrases,
   the climax and face changes; haptics per hit; reduced motion turns off the
   hit-stop, camera shake and climax spin, and softens the jelly.

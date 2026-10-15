@@ -75,7 +75,7 @@ export async function createGame(context) {
   const sound = createSound(context.audio);
   context.onCleanup(() => sound.stop());
 
-  scene.background = new THREE.Color(0x1d1d20);
+  scene.background = new THREE.Color(0xffd43b); // Duck Yellow, as on fun.dev
   scene.add(head.object, hands.object, hands.lights, camera);
   camera.fov = 30;
   const lookAt = new THREE.Vector3();

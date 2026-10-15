@@ -57,8 +57,9 @@ export function clearHandprints(head) {
 export function createDaze(context, { createText }, head) {
   const { THREE, track } = context;
   const group = new THREE.Group();
-  const icons = ["⭐", "🐦", "⭐", "🐦", "✨"].map((emoji) => {
-    const t = track(createText({ text: emoji, size: 64, sprite: true, unitsPerPixel: 0.00045 }));
+  // Glyph stars in Beak Deep: yellow emoji stars would vanish on the Duck Yellow ground.
+  const icons = [["★", "#9C3A12"], ["🐦"], ["★", "#9C3A12"], ["🐦"], ["✦", "#211F17"]].map(([glyph, color]) => {
+    const t = track(createText({ text: glyph, size: 64, weight: 700, sprite: true, unitsPerPixel: 0.00045, ...(color ? { color } : {}) }));
     t.object.material.depthTest = true;
     group.add(t.object);
     return t;
@@ -66,7 +67,7 @@ export function createDaze(context, { createText }, head) {
   group.visible = false;
   // Tears: instanced drops from the outer eye corners.
   const drops = 24;
-  const tearMaterial = track(new THREE.MeshBasicMaterial({ color: 0x9fd4ff, transparent: true, opacity: 0.75 }));
+  const tearMaterial = track(new THREE.MeshBasicMaterial({ color: 0x4ba3c7, transparent: true, opacity: 0.85 }));
   const tears = new THREE.InstancedMesh(track(new THREE.SphereGeometry(0.0028, 8, 6)), tearMaterial, drops);
   tears.frustumCulled = false;
   const state = Array.from({ length: drops }, () => ({ life: 0, p: new THREE.Vector3(), v: new THREE.Vector3() }));

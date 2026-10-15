@@ -1,16 +1,17 @@
 // Screen-space HUD drawn in Three.js with the platform text kit: combo, counts, the face
 // button, a status toast, and the five-point alignment screen for photos MediaPipe can't read.
-const YELLOW = "#FFD43B", INK = "#211F17";
+// fun.dev's Duck palette (DESIGN.md): yellow ground (the scene), ink text, Beak Deep for accents.
+const INK = "#211F17", BROWN = "#5C5133", CREAM = "#FFF7D6", BEAK_DEEP = "#9C3A12";
 
 export function createHud(context, { createText, createHudLayer }) {
   const { THREE, camera, track } = context;
   const layer = createHudLayer(camera);
   const text = (options) => track(createText({ hud: true, ...options }));
-  const combo = text({ text: "", size: 60, weight: 800, color: YELLOW, anchorX: 0.5, anchorY: 1 });
-  const phrase = text({ text: "", size: 24, weight: 700, color: "#ffffff", anchorX: 0.5, anchorY: 1 });
-  const counts = text({ text: "", size: 14, color: "#b9b3a2", anchorX: 0.5, anchorY: 0 });
-  const button = text({ text: "", size: 17, weight: 700, color: INK, background: YELLOW, padding: 13, anchorX: 0.5, anchorY: 0 });
-  const toast = text({ text: "", size: 16, weight: 600, color: "#ffffff", background: "rgba(20,20,22,0.82)", padding: 12, maxWidth: 300, anchorX: 0.5, anchorY: 0.5 });
+  const combo = text({ text: "", size: 60, weight: 800, color: INK, anchorX: 0.5, anchorY: 1 });
+  const phrase = text({ text: "", size: 24, weight: 700, color: BEAK_DEEP, anchorX: 0.5, anchorY: 1 });
+  const counts = text({ text: "", size: 14, weight: 600, color: BROWN, anchorX: 1, anchorY: 1 });
+  const button = text({ text: "", size: 17, weight: 700, color: CREAM, background: INK, padding: 13, anchorX: 0.5, anchorY: 0 });
+  const toast = text({ text: "", size: 16, weight: 600, color: CREAM, background: INK, padding: 12, maxWidth: 300, anchorX: 0.5, anchorY: 0.5 });
   for (const item of [combo, phrase, counts, button, toast]) layer.place(item.object);
   toast.object.visible = false;
   let viewport = context.viewport;
@@ -24,12 +25,12 @@ export function createHud(context, { createText, createHudLayer }) {
   const photoMaterial = track(new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false, transparent: true }));
   const photoPlane = new THREE.Mesh(track(new THREE.PlaneGeometry(1, 1)), photoMaterial);
   photoPlane.renderOrder = 90;
-  const shade = new THREE.Mesh(track(new THREE.PlaneGeometry(1, 1)), track(new THREE.MeshBasicMaterial({ color: 0x111113, depthTest: false, depthWrite: false, transparent: true, opacity: 0.94 })));
+  const shade = new THREE.Mesh(track(new THREE.PlaneGeometry(1, 1)), track(new THREE.MeshBasicMaterial({ color: 0xffd43b, depthTest: false, depthWrite: false, transparent: true, opacity: 0.97 })));
   shade.renderOrder = 89;
   align.add(shade, photoPlane);
   const markerNames = { zh: ["左眼", "右眼", "鼻尖", "左嘴角", "右嘴角"], en: ["Left eye", "Right eye", "Nose tip", "Left mouth corner", "Right mouth corner"] };
   const markers = markerNames.zh.map(() => {
-    const ring = new THREE.Mesh(track(new THREE.RingGeometry(9, 13, 32)), track(new THREE.MeshBasicMaterial({ color: 0xffd43b, depthTest: false, depthWrite: false, transparent: true })));
+    const ring = new THREE.Mesh(track(new THREE.RingGeometry(9, 13, 32)), track(new THREE.MeshBasicMaterial({ color: 0x211f17, depthTest: false, depthWrite: false, transparent: true })));
     const dot = new THREE.Mesh(track(new THREE.CircleGeometry(2.5, 16)), ring.material);
     const group = new THREE.Group();
     group.add(ring, dot);
@@ -38,14 +39,14 @@ export function createHud(context, { createText, createHudLayer }) {
     return group;
   });
   const markerLabels = markerNames.zh.map(() => {
-    const label = text({ text: "", size: 13, weight: 700, color: INK, background: YELLOW, padding: 4, anchorX: 0.5, anchorY: 0 });
+    const label = text({ text: "", size: 13, weight: 700, color: CREAM, background: INK, padding: 4, anchorX: 0.5, anchorY: 0 });
     label.object.renderOrder = 96;
     align.add(label.object);
     return label;
   });
-  const alignTitle = text({ text: "", size: 16, weight: 600, color: "#ffffff", maxWidth: 300, anchorX: 0.5, anchorY: 1 });
-  const alignOk = text({ text: "", size: 17, weight: 700, color: INK, background: YELLOW, padding: 13, anchorX: 0, anchorY: 0 });
-  const alignCancel = text({ text: "", size: 17, weight: 700, color: "#ffffff", background: "rgba(255,255,255,0.14)", padding: 13, anchorX: 1, anchorY: 0 });
+  const alignTitle = text({ text: "", size: 16, weight: 600, color: INK, maxWidth: 300, anchorX: 0.5, anchorY: 1 });
+  const alignOk = text({ text: "", size: 17, weight: 700, color: CREAM, background: INK, padding: 13, anchorX: 0, anchorY: 0 });
+  const alignCancel = text({ text: "", size: 17, weight: 700, color: INK, background: CREAM, padding: 13, anchorX: 1, anchorY: 0 });
   for (const item of [alignTitle, alignOk, alignCancel]) { item.object.renderOrder = 97; align.add(item.object); }
   let alignState = null; // { image size, rect, points (image 0..1), resolve, focus }
 
@@ -56,7 +57,8 @@ export function createHud(context, { createText, createHudLayer }) {
     const top = safeArea.top + 64;
     layer.place(combo.object, { x: 0, y: top, from: "top-center" });
     layer.place(phrase.object, { x: 0, y: top + 74, from: "top-center" });
-    layer.place(counts.object, { x: 0, y: 14, from: "bottom-center" });
+    // Top right, on the yellow: the bottom of the screen is the dark T-shirt.
+    layer.place(counts.object, { x: 16, y: 22, from: "top-right" });
     layer.place(button.object, { x: 0, y: 40, from: "bottom-center" });
     layer.place(toast.object, { x: 0, y: -height * 0.12, from: "middle-center" });
     const bx = width / 2, by = height - safeArea.bottom - 40;
