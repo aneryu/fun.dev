@@ -131,7 +131,10 @@ and renders only while something moves.
 - The camera frames the fish, the resting mallet and the shown relics (points near their
   silhouettes) in the stage the HUD leaves free and eases over about a second as relics
   arrive or the panel opens; a drag holds it. Relics are 2.2× their modeled size.
-- Panel labels shrink to fit their cells.
+- The HUD follows the player's own controls (DESIGN.md): Duck Yellow surfaces with a 2px Duck
+  Ink border, 44px square buttons with a 1px border (the 法物 button mirrors the menu button),
+  ink-filled "on" cells, brown disabled ones, the player's dialog backdrop behind the lot card
+  and Beak Deep instead of gold for 福报. Labels shrink to fit their cells and cards.
 
 ## Local development
 

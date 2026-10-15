@@ -1,4 +1,4 @@
-import { createHud } from "./hud.js";
+import { ACCENT, createHud } from "./hud.js";
 import { createChantVoice, createKnockAudio } from "./sound.js";
 import { createZen } from "./zen.js";
 import { createAltar } from "./altar.js";
@@ -547,7 +547,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
     const word = floatBag.pop();
     const at = crownPoint().project(camera);
     // Up and to the left of the crown, clear of the mallet on the right.
-    hud.float(word, (at.x + 1) / 2 * viewport.width - 50, (1 - at.y) / 2 * viewport.height - 30, fortune ? "#7a5000" : "#211f17");
+    hud.float(word, (at.x + 1) / 2 * viewport.width - 50, (1 - at.y) / 2 * viewport.height - 30, fortune ? ACCENT : "#211f17");
   }
 
   // 每日一签: the lot is drawn (and saved) at once; a stick flies out of the fish's mouth and
