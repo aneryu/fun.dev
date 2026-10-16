@@ -1,7 +1,6 @@
 # Edge: fun.dev in mainland China
 
-Status: decided on 2026-10-16. Code is ready; the Cloudflare setup and the DNS switch are
-listed below.
+Status: live since 2026-10-16. `fun.dev` is an `A 45.194.22.14` record, DNS only, TTL 600 s.
 
 Cloudflare's free plan has no nodes in mainland China, and fun.dev is not ICP-filed, so pages
 served by Cloudflare load slowly there (about 1–4 s per page, with timeouts on some networks).
@@ -15,8 +14,10 @@ still serves every other file.
 | `api.fun.dev` | Pages project `fundev` (custom domain, proxied) | the transfer API, `/api/transfers/*` |
 | `games.fun.dev` | R2 (unchanged) | game releases and blobs |
 
-Measured from 12 mainland probes on 2026-10-16, a page through the server took a median of
-0.22 s (12/12 succeeded); from Cloudflare, 1.1 s (11/12).
+Measured from 15 mainland probes after the switch (HTTPS, `/games`): through the server a median
+of 0.71 s (14/15), of which DNS lookup was most (0.15–0.48 s, the zone's nameservers are
+Cloudflare's, abroad); connection, TLS and first byte took 0.23–0.34 s. The same page from
+Cloudflare: 1.2 s, up to 3.3 s. Resolvers that have cached the record skip the DNS part.
 
 ## How it works
 
@@ -68,7 +69,11 @@ the next thing to improve (a mainland-friendly asset origin is one variable away
 
 Point `fun.dev` back at Pages: a proxied `CNAME fun.dev → fundev.pages.dev` (keep `fun.dev` as a
 custom domain of the Pages project). The split hostnames keep working behind it, so nothing
-else needs to change.
+else needs to change. Resolvers may keep the server's address for up to the TTL (10 minutes).
+
+While a resolver still has the old address after a switch either way, the visitor reaches the
+wrong side: on 2026-10-16 Cloudflare answered the unproxied `fun.dev` with a redirect loop for
+about five minutes.
 
 ## Server
 
