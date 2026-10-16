@@ -27,6 +27,8 @@ export function validateModels(data) {
 
 export async function loadModels(signal) {
   const response = await fetch(`${gameOrigin}/models.json`, { cache: "no-store", credentials: "omit", redirect: "error", signal });
+  // The console writes the catalog at the first approval; until then the library is empty.
+  if (response.status === 404) return [];
   if (!response.ok) throw new Error(`Model catalog request failed: ${response.status}`);
   return validateModels(await response.json());
 }
