@@ -51,7 +51,8 @@ const head = git("rev-parse", "HEAD");
 console.log("Reading the live state…");
 
 const deployments = JSON.parse(must(wrangler("pages", "deployment", "list", "--project-name", PROJECT, "--environment", "production", "--json"), "Listing Pages deployments"));
-const deployed = deployments[0]?.Source;
+// The live site is the newest deployment that did not fail (a failed one never served).
+const deployed = deployments.find((deployment) => !/fail|cancel|error/i.test(deployment.Status ?? ""))?.Source;
 const known = deployed && spawnSync("git", ["cat-file", "-e", `${deployed}^{commit}`], { cwd: root }).status === 0;
 const changed = known ? git("diff", "--name-only", deployed, head).split("\n").filter(Boolean) : null;
 const touches = (pattern) => !changed || changed.some((file) => pattern.test(file));
