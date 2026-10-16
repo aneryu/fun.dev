@@ -393,10 +393,11 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   function easeFocus(delta) {
     const want = wantedFocus();
     const rate = reducedMotion ? 1 : Math.min(1, delta * 4);
-    const before = focus.x + focus.z + focus.scale;
+    const before = { ...focus };
     focus.x += (want.x - focus.x) * rate; focus.z += (want.z - focus.z) * rate; focus.scale += (want.scale - focus.scale) * rate;
     if (Math.abs(want.x - focus.x) + Math.abs(want.z - focus.z) + Math.abs(want.scale - focus.scale) < 1e-4) Object.assign(focus, want);
-    const moved = Math.abs(focus.x + focus.z + focus.scale - before) > 1e-6;
+    // Each part on its own: a diagonal glide (x up, z down) leaves their sum unchanged.
+    const moved = Math.abs(focus.x - before.x) + Math.abs(focus.z - before.z) + Math.abs(focus.scale - before.scale) > 1e-6;
     if (moved) placeCamera();
     // The knife keeps its size on screen however close the camera comes.
     knifeModel.group.scale.setScalar(KNIFE_SCALE * focus.scale);
