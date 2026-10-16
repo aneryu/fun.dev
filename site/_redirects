@@ -7,3 +7,5 @@
 /models/ /models 301
 /models/:id/ /models/:id 301
 /models/:id /model 200
+# model.html is only a template; its own address goes to the library, on fun.dev.
+/model https://fun.dev/models 301
