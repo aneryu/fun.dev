@@ -1,9 +1,8 @@
 import { GLBError, glbStats, readGLB } from "./glb.js";
-import { equal } from "./security.js";
 import { LIMITS, MAX_FILE, PUBLIC_FILES, typeProblem, validFile, validId, validKit, validName, validTags, VERSION } from "./model-rules.js";
 
-// The model library (docs/models.md): the pipeline's upload API on api.fun.dev, and the
-// review actions used by the console Worker on console.fun.dev. D1 (MODELS_DB) holds the
+// The model library (docs/models.md): uploads and review for the console Worker on
+// console.fun.dev. D1 (MODELS_DB) holds the
 // catalog; uploads stay in the private bucket (MODELS_SOURCES) until approval copies the
 // public files to the game bucket (MODELS_PUBLIC) as content-addressed blobs.
 export { FILE, ID, LIMITS, MAX_FILE, MODEL_TYPES, PUBLIC_FILES, SUPPORTED_TYPES, VERSION, validKit, validName, validTags } from "./model-rules.js";
@@ -143,17 +142,6 @@ export async function routeUpload(request, env, path) {
   try { data = JSON.parse(new TextDecoder().decode(await readBody(request, MAX_METADATA))); }
   catch (error) { if (error instanceof ModelError) throw error; fail("invalid_metadata", 400, "the body is not valid JSON"); }
   return json(await putMetadata(env, id, version, data));
-}
-
-/** The pipeline's API on api.fun.dev: /api/models/<id>/<version>[/<file>] with the bearer token. */
-export async function handleModelUpload(request, env) {
-  try {
-    if (!env.MODELS_TOKEN || !env.MODELS_DB || !env.MODELS_SOURCES) fail("unavailable", 503);
-    if (!equal(request.headers.get("Authorization") ?? "", `Bearer ${env.MODELS_TOKEN}`)) fail("unauthorized", 401);
-    return await routeUpload(request, env, new URL(request.url).pathname.slice("/api/models".length));
-  } catch (error) {
-    return errorResponse(error, "Model upload failure");
-  }
 }
 
 // ── Review (console) ─────────────────────────────────────────────────────────

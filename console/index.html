@@ -33,12 +33,16 @@
           </label>
         </div>
         <p class="muted" id="list-status" role="status" aria-live="polite"></p>
+        <div class="bulk" id="bulk" hidden>
+          <label class="check"><input type="checkbox" id="select-all"> 全选</label>
+          <button class="button" type="button" id="approve-selected" disabled>通过选中的 0 个</button>
+        </div>
         <ul class="rows" id="rows"></ul>
       </section>
 
       <section id="upload-view" aria-labelledby="upload-title" hidden>
         <h2 id="upload-title">上传模型</h2>
-        <p class="muted">每个版本是一个 <code>&lt;id&gt;/&lt;version&gt;/</code> 文件夹，里面有 meta.json、model.glb、preview.png，可选 source.blend、qa.json 等。规则见 docs/models-api.md。</p>
+        <p class="muted">每个版本是一个 <code>&lt;id&gt;/&lt;version&gt;/</code> 文件夹，里面有 meta.json、model.glb、preview.png，可选 source.blend、qa.json 等。规则见 docs/models-upload.md。</p>
         <div class="pickers">
           <label class="button secondary picker">选择 zip（可多个）<input type="file" id="zip-input" accept=".zip,application/zip" multiple></label>
           <label class="button secondary picker">或选择文件夹<input type="file" id="folder-input" webkitdirectory multiple></label>

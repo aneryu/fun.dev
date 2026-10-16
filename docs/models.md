@@ -1,15 +1,13 @@
 # Model library
 
-Status: decided and implemented on 2026-10-16; not yet deployed (see [Setup](#setup)). fun.dev keeps a public library of 3D models
-so games use models instead of building them. Models are made by a Blender pipeline outside
-this repository, uploaded through an API, reviewed by hand, and published under CC0.
+Status: live since 2026-10-16. fun.dev keeps a public library of 3D models so games use models
+instead of building them. Models are made by a Blender pipeline outside this repository,
+uploaded and reviewed in one console, and published under CC0.
 
 ```
-pipeline ── PUT ──▶ api.fun.dev/api/models/…   (token)      ──▶ D1 fundev-models + private R2
-you      ── review ▶ console.fun.dev            (Access)     ──▶ approve
-approve  ─────────────────────────────────────────────────────▶ games.fun.dev/blobs/<sha256>.<ext>
-                                                                 games.fun.dev/models.json
-players  ◀── fun.dev/models, fun.dev/models/<id> (static pages that read catalog.json)
+upload   ──▶ console.fun.dev 上传 (Access)  ──▶ D1 fundev-models + private R2
+review   ──▶ console.fun.dev 审核 (Access)  ──▶ games.fun.dev/blobs/<sha256>.<ext>, games.fun.dev/models.json
+players  ◀── fun.dev/models, fun.dev/models/<id> (static pages that read models.json)
 games    ◀── https://games.fun.dev/blobs/<sha256>.glb
 ```
 
@@ -84,27 +82,22 @@ The D1 database `fundev-models` is the source of truth for the catalog:
 `name`, `kit` and `tags` belong to the model and can be edited during review. Uploaded files
 are kept in the private bucket `fundev-sources` under `models/<id>/<version>/<file>`.
 
-## Upload
+## Console
 
-The upload API is described for the pipeline in [models-api](models-api.md). It is a Pages
-Function on `api.fun.dev`, authorised by one bearer token (Pages secret `MODELS_TOKEN`) that
-can only upload and read status. A version is pending once its metadata, `model.glb` and
-`preview.png` are present. The server checks only that the GLB is valid glTF 2.0 binary with no
-external references and within the size limit, and computes the stats shown in review.
-Approved versions cannot be changed.
-
-## Review
+There is one way in, for uploads and review alike: `console.fun.dev`.
 
 `console.fun.dev` is a Worker (`fundev-console`, `wrangler.console.jsonc`) serving the console
 page and its API. The whole host is behind Cloudflare Access (email one-time PIN for the
 owner), and the Worker verifies the Access JWT on every request as well. `fun.dev` itself
 cannot host it: it is DNS-only to the CN2 server ([edge](edge.md)), so Access does not apply.
 
-The console's upload page takes zips or folders, checks them in the browser with the server's
-rules (`server/model-rules.js`) and uploads through `/api/upload/…`, so a person signed in
-through Access can upload without the token. The console lists pending versions with their preview and stats, shows the model in 3D, and
-lets the owner edit `name`, `kit` and `tags`, approve, or reject with a note the pipeline can
-read.
+- **上传** takes zips or folders in the layout of [models-upload](models-upload.md), checks
+  them in the browser with the server's rules (`server/model-rules.js`) and uploads through
+  `/api/upload/…`. A version is pending once its metadata, `model.glb` and `preview.png` are
+  there; the server rechecks the GLB and computes the stats shown in review.
+- **审核** lists versions by status with their preview, stats and placement warnings, shows
+  the model in 3D, lets the owner edit `name`, `type`, `kit`, `tags` and listing, and approve,
+  or reject with a note. Approved versions cannot change.
 
 ## Publishing
 
@@ -124,7 +117,8 @@ Unlisting a model only removes it from the catalog.
 Both are static pages from the build (`site/models.html`, and `site/model.html`, which
 `_redirects` serves at every `/models/<id>`) that render `models.json` in the browser, so an
 approval is live at once without a deploy. The 3D view is `site/model-viewer.js`, shared with the
-console. Model files must not require Draco, KTX2 or meshopt decoders; the API rejects them.
+console. Model files must not require Draco, KTX2 or meshopt decoders; uploads reject them.
+The pages work on `fun.dev` only: `games.fun.dev` allows that origin, not `cdn.fun.dev`.
 
 ## Using a model in a game
 
@@ -142,32 +136,24 @@ development needs a network connection.
 
 | Piece | Files |
 | --- | --- |
-| Upload API (Pages Function) | `functions/api/[[path]].js` → `server/models.js`, GLB checks in `server/glb.js` |
-| Console Worker | `server/console.js`, `console/` (built by `npm run console:build` into `dist-console/`), `wrangler.console.jsonc` |
-| Database | `migrations-models/`, binding `MODELS_DB` in `wrangler.jsonc` and `wrangler.console.jsonc` |
+| Console Worker | `server/console.js` (routes, Access check), `server/models.js` (upload, review, publishing), `server/model-rules.js` and `server/glb.js` (checks), `console/` (built by `npm run console:build` into `dist-console/`), `wrangler.console.jsonc` |
+| Database | `migrations-models/`, binding `MODELS_DB` in `wrangler.console.jsonc` |
 | Pages | `site/models.html`, `site/model.html`, `site/models.js`, `site/model.js`, `site/models-catalog.js`, `site/model-viewer.js` |
-| Command-line tool | `scripts/fundev-models.mjs`, shared rules in `server/model-rules.js`; the build bundles it into `dist/tools/fundev-models.mjs` |
-| Tests | `tests/models.test.mjs`, `tests/models-upload.test.mjs` (API, review, publishing and Access checks over local D1 and R2) |
+| Tests | `tests/models.test.mjs` (upload, review, publishing and Access checks over local D1 and R2), `tests/console-zip.test.mjs` |
 
 `npm run release` applies `migrations-models/` and deploys the console Worker when it changed.
 Locally, the build writes an empty `dist/models.json`.
 
 ## Setup
 
-Once, before the first release that contains the library:
+Done on 2026-10-16:
 
-1. Create the D1 database `fundev-models` (done 2026-10-16, location hint APAC; its id is in
-   `wrangler.jsonc` and `wrangler.console.jsonc`).
-2. Pages project `fundev`: the secret `MODELS_TOKEN` (done 2026-10-16; a copy for the pipeline is
-   kept outside the repository).
-3. Zero Trust: the self-hosted Access application "fun.dev console" on `console.fun.dev`
-   allows only the owner's email with one-time PIN, sessions of 30 days. The console Worker's
-   secrets `ACCESS_TEAM`, `ACCESS_AUD` and `CONSOLE_EMAIL` match it (done 2026-10-16; a new
-   application needs a new `ACCESS_AUD`).
-4. CN2 server: install the updated `config/Caddyfile` ([edge](edge.md)), which lets `/models`
-   through to Pages.
-5. `npm run release` applies the migration, deploys the console Worker on `console.fun.dev` and
-   the site with the upload API.
+1. D1 `fundev-models` (location hint APAC); its id is in `wrangler.console.jsonc`.
+2. Zero Trust: the self-hosted Access application "fun.dev console" on `console.fun.dev` allows
+   only the owner's email with one-time PIN, sessions of 30 days. The console Worker's secrets
+   `ACCESS_TEAM`, `ACCESS_AUD` and `CONSOLE_EMAIL` match it; a new application needs a new
+   `ACCESS_AUD`.
+3. CN2 server: `config/Caddyfile` lets `/models` through to Pages ([edge](edge.md)).
 
 ## Later
 

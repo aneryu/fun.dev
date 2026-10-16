@@ -9,16 +9,7 @@
       "database_name": "fun-dev-progress-local",
       "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "./migrations"
-    },
-    {
-      "binding": "MODELS_DB",
-      "database_name": "fundev-models-local",
-      "database_id": "00000000-0000-0000-0000-000000000000",
-      "migrations_dir": "./migrations-models"
     }
-  ],
-  "r2_buckets": [
-    { "binding": "MODELS_SOURCES", "bucket_name": "fundev-sources-local" }
   ],
   "vars": {
     "TRANSFER_ENABLED": "false",
@@ -37,17 +28,7 @@
           "database_name": "fundev-progress-production",
           "database_id": "f227dd84-b491-4445-a69c-acc9a989e20a",
           "migrations_dir": "./migrations"
-        },
-        {
-          "binding": "MODELS_DB",
-          "database_name": "fundev-models",
-          "database_id": "0db96f73-1f1e-459d-aa41-a8b6772a4e70",
-          "migrations_dir": "./migrations-models"
         }
-      ],
-      // The model upload API (docs/models-api.md); its token is the Pages secret MODELS_TOKEN.
-      "r2_buckets": [
-        { "binding": "MODELS_SOURCES", "bucket_name": "fundev-sources" }
       ],
       "vars": {
         "TRANSFER_ENABLED": "true",
@@ -57,7 +38,6 @@
     },
     "preview": {
       "d1_databases": [],
-      "r2_buckets": [],
       "vars": {
         "TRANSFER_ENABLED": "false",
         "TRANSFER_ORIGIN": "https://fun.dev"

@@ -59,8 +59,9 @@ const siteChanged = touches(/^(?:site|skills|functions|server|migrations|migrati
 const transferChanged = touches(/^(?:site\/progress|site\/player|server|functions|migrations)\//);
 
 // Two databases: DB (progress and transfers) and MODELS_DB (the model library, docs/models.md).
-const databases = ["DB", "MODELS_DB"];
-const pendingDatabases = databases.filter((binding) => !/No migrations to apply/i.test(must(wrangler("d1", "migrations", "list", binding, "--remote", "--env", "production", "--env-file", "/dev/null"), `Listing ${binding} migrations`)));
+// MODELS_DB is bound to the console Worker, so its migrations are read through that config.
+const databases = [["DB", "wrangler.jsonc"], ["MODELS_DB", "wrangler.console.jsonc"]];
+const pendingDatabases = databases.filter(([binding, config]) => !/No migrations to apply/i.test(must(wrangler("d1", "migrations", "list", binding, "--config", config, "--remote", "--env", "production", "--env-file", "/dev/null"), `Listing ${binding} migrations`)));
 const pendingMigrations = pendingDatabases.length > 0;
 const workerMissing = /does not exist/i.test(wrangler("deployments", "list", "--config", "wrangler.cleanup.jsonc", "--env", "production", "--env-file", "/dev/null").stderr ?? "");
 const workerChanged = workerMissing || touches(/^server\/|^wrangler\.cleanup\.jsonc$/);
@@ -79,7 +80,7 @@ console.log(`
 Release plan for ${head.slice(0, 7)} (live site: ${deployed ?? "unknown"})
   1. verify locally            unit tests + browser checks${transferChanged ? " + account transfer" : ""}
      back up assets           ${backups.length ? `${backups.length} new files to the private bucket` : "all backed up"}
-  2. D1 migrations             ${pendingMigrations ? `apply pending migrations (${pendingDatabases.join(", ")})` : "none pending"}
+  2. D1 migrations             ${pendingMigrations ? `apply pending migrations (${pendingDatabases.map(([binding]) => binding).join(", ")})` : "none pending"}
   3. cleanup Worker            ${workerChanged ? (workerMissing ? "deploy (not deployed yet)" : "redeploy (server code changed)") : "unchanged"}
      console Worker            ${consoleChanged ? (consoleMissing ? "deploy (not deployed yet)" : "redeploy (console changed)") : "unchanged"}
   4. games                     ${publish.length ? publish.map(({ game }) => `publish ${game.id}@${game.version}`).join(", ") : "no changes"}
@@ -113,7 +114,7 @@ if (backups.length) {
 
 if (pendingMigrations) {
   step("Apply D1 migrations");
-  for (const binding of pendingDatabases) console.log(must(wrangler("d1", "migrations", "apply", binding, "--remote", "--env", "production", "--env-file", "/dev/null"), `Applying ${binding} migrations`).trim().split("\n").slice(-3).join("\n"));
+  for (const [binding, config] of pendingDatabases) console.log(must(wrangler("d1", "migrations", "apply", binding, "--config", config, "--remote", "--env", "production", "--env-file", "/dev/null"), `Applying ${binding} migrations`).trim().split("\n").slice(-3).join("\n"));
 }
 if (workerChanged) {
   step("Deploy cleanup Worker");

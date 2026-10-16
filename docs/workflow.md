@@ -126,7 +126,6 @@ again.
 | `npm run game:remove -- <id>` | Remove a game from the live catalog |
 | `npm run transfer:preview` | Local transfer stack: build, local D1, `wrangler pages dev` on https://localhost:8788 |
 | `npm run transfer:types` | Regenerate `server/env.d.ts` from Wrangler bindings |
-| `npm run models -- check\|upload\|status\|login …` | The model library tool, also published as `cdn.fun.dev/tools/fundev-models.mjs` ([models-api](models-api.md)) |
 | `npm run console:build` | Build the model review console into `dist-console/` ([models](models.md)) |
 
 Build environment variables (set by the commands above, not by `.env`):
@@ -143,8 +142,8 @@ hostnames, [edge](edge.md); empty = same-origin),
   private R2 bucket `fundev-sources` (blob backups, no public domain);
   D1 `fundev-progress-production`; Worker `fundev-transfer-cleanup-production`
   (hourly; no HTTP endpoint). The model library ([models](models.md)): D1 `fundev-models`,
-  Worker `fundev-console-production` on `console.fun.dev` behind Cloudflare Access, the upload
-  API on `api.fun.dev`.
+  Worker `fundev-console-production` on `console.fun.dev` behind Cloudflare Access (upload and
+  review).
 - The cleanup Worker bounds transfer retention. Check its cron runs in the
   Cloudflare dashboard (Workers → `fundev-transfer-cleanup-production` → Logs)
   after it is first deployed or changed. Local cron tests can use

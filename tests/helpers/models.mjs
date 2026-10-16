@@ -33,20 +33,20 @@ export function boxGLB({ size = [1, 1, 1], lift = 0, extra = {} } = {}) {
   return out;
 }
 
-// The upload API (as on api.fun.dev) and the console Worker (console.fun.dev) over one local D1
-// and two local R2 buckets. Console requests carry a JWT signed by a test Access key.
+// The console Worker (console.fun.dev) over one local D1 and two local R2 buckets. Requests carry
+// a JWT signed by a test Access key.
 export async function modelStack() {
   const pair = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
   const jwk = { ...(await crypto.subtle.exportKey("jwk", pair.publicKey)), kid: "test", alg: "RS256" };
   const bundle = await build({
-    stdin: { contents: 'import console from "./server/console.js"; import { handleModelUpload } from "./server/models.js"; export default { fetch(r, e) { return new URL(r.url).hostname === "api.test" ? handleModelUpload(r, e) : console.fetch(r, e); } };', resolveDir: process.cwd() },
+    stdin: { contents: 'export { default } from "./server/console.js";', resolveDir: process.cwd() },
     bundle: true, write: false, format: "esm", platform: "browser",
   });
   const runtime = new Miniflare(convertV4MiniflareOptions({
     modules: true, script: bundle.outputFiles[0].text, compatibilityDate: "2026-10-13",
     d1Databases: ["MODELS_DB"], r2Buckets: ["MODELS_SOURCES", "MODELS_PUBLIC"],
     serviceBindings: { ASSETS: () => new Response("console page") },
-    bindings: { MODELS_TOKEN: "secret-token", ACCESS_TEAM: "team.test", ACCESS_AUD: "aud", CONSOLE_EMAIL: "owner@fun.dev", ACCESS_CERTS: JSON.stringify({ keys: [jwk] }) },
+    bindings: { ACCESS_TEAM: "team.test", ACCESS_AUD: "aud", CONSOLE_EMAIL: "owner@fun.dev", ACCESS_CERTS: JSON.stringify({ keys: [jwk] }) },
   }));
   const db = await runtime.getD1Database("MODELS_DB");
   for (const name of (await readdir(new URL("../../migrations-models/", import.meta.url))).filter((file) => file.endsWith(".sql")).sort()) {
@@ -60,12 +60,13 @@ export async function modelStack() {
     const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", pair.privateKey, new TextEncoder().encode(`${head}.${body}`));
     return `${head}.${body}.${b64(signature)}`;
   }
-  const upload = (path, body, { method = "PUT", type, auth = "Bearer secret-token" } = {}) => runtime.dispatchFetch(`https://api.test/api/models/${path}`, {
-    method, body, headers: { ...(auth ? { Authorization: auth } : {}), ...(type ? { "Content-Type": type } : {}) },
-  });
   const consoleFetch = async (path, { method = "GET", body, jwt, headers = {} } = {}) => runtime.dispatchFetch(`https://console.test${path}`, {
     method, body: body === undefined ? undefined : JSON.stringify(body),
     headers: { "Cf-Access-Jwt-Assertion": jwt ?? await token(), ...(method === "GET" ? {} : { "X-Fun-Console": "1", "Content-Type": "application/json" }), ...headers },
+  });
+  // The console page's upload routes: PUT /api/upload/<id>/<version>[/<file>], GET for the status.
+  const upload = async (path, body, { method = "PUT", type } = {}) => runtime.dispatchFetch(`https://console.test/api/upload/${path}`, {
+    method, body, headers: { "Cf-Access-Jwt-Assertion": await token(), ...(method === "GET" ? {} : { "X-Fun-Console": "1" }), ...(type ? { "Content-Type": type } : {}) },
   });
   return { runtime, db, upload, console: consoleFetch, token, publicBucket: () => runtime.getR2Bucket("MODELS_PUBLIC") };
 }

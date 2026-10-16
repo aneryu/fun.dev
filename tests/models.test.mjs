@@ -20,9 +20,7 @@ test("GLB stats: size, bounds and triangles from accessor bounds and node transf
   assert.throws(() => readGLB(boxGLB({ extra: { extensionsRequired: ["EXT_meshopt_compression"] } })), /unsupported/);
 });
 
-test("uploads need the token and valid addresses", async () => {
-  assert.equal((await stack.upload("desk_chair_01/v001", metadata(), { type: "application/json", auth: null })).status, 401);
-  assert.equal((await stack.upload("desk_chair_01/v001", metadata(), { type: "application/json", auth: "Bearer wrong" })).status, 401);
+test("uploads need valid addresses, metadata and GLBs", async () => {
   assert.equal((await (await stack.upload("Desk-Chair/v001", metadata(), { type: "application/json" })).json()).error, "invalid_id");
   assert.equal((await (await stack.upload("desk_chair_01/1", metadata(), { type: "application/json" })).json()).error, "invalid_version");
   assert.equal((await stack.upload("desk_chair_01/v001/../x", png)).status, 400, "dot segments resolve to another, invalid address");
@@ -33,7 +31,7 @@ test("uploads need the token and valid addresses", async () => {
   assert.deepEqual([noType.error, noType.detail], ["invalid_metadata", "type must be one of prop, piece"]);
   const planned = await (await stack.upload("desk_chair_01/v001", metadata("书椅", { type: "character" }), { type: "application/json" })).json();
   assert.equal(planned.detail, "type character is planned but not accepted yet");
-  assert.equal((await stack.upload("desk_chair_01/v001", undefined, { method: "GET" })).status, 404);
+  assert.equal((await (await stack.upload("desk_chair_01/v001", undefined, { method: "GET" })).json()).status, "new");
 });
 
 test("a version is pending with metadata, model.glb and preview.png; review approves and publishes it", async () => {
@@ -106,9 +104,8 @@ test("the console accepts only a valid Access token for the owner, and same-orig
   forged[1] = Buffer.from(JSON.stringify({ aud: ["aud"], iss: "https://team.test", email: "owner@fun.dev", exp: 9e9, admin: true })).toString("base64url");
   assert.equal((await stack.console("/", { jwt: forged.join(".") })).status, 403);
   assert.equal(await (await stack.console("/")).text(), "console page");
-  // The console's upload routes reach the same store; an unseen version reads as new.
-  assert.equal((await (await stack.console("/api/upload/never_seen_01/v001")).json()).status, "new");
-  assert.equal((await stack.console("/api/upload/never_seen_01/v001", { method: "PUT", body: { name: { zh: "新", en: "New" }, type: "prop" } })).status, 200);
+  // Uploads are console changes too: signed in, same origin, with the header.
+  assert.equal((await stack.console("/api/upload/never_seen_01/v001", { method: "PUT", body: { name: { zh: "新", en: "New" }, type: "prop" }, jwt: "" })).status, 403);
   assert.equal((await stack.console("/api/upload/never_seen_01/v001", { method: "PUT", body: { name: { zh: "新", en: "New" }, type: "prop" }, headers: { "X-Fun-Console": "" } })).status, 403);
   assert.equal((await stack.console("/api/models/desk_chair_01", { method: "PATCH", body: { listed: true }, headers: { "X-Fun-Console": "" } })).status, 403);
   assert.equal((await stack.console("/api/models/desk_chair_01", { method: "PATCH", body: { listed: true }, headers: { "Sec-Fetch-Site": "cross-site" } })).status, 403);

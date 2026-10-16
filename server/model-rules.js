@@ -1,6 +1,6 @@
 import { GLBError, glbStats, readGLB } from "./glb.js";
 
-// Rules for library uploads (docs/models-api.md), shared by the upload API, the console's upload
+// Rules for library uploads (docs/models-upload.md), shared by the console Worker and its upload
 // page and the upload tool, so a local check and the server agree.
 export const ID = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
 export const VERSION = /^v\d{3}$/;

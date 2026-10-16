@@ -123,12 +123,40 @@ async function showList() {
           element("span", { className: "muted", textContent: `${item.id} ${item.version} · ${item.type ?? "未填类别"} · ${size(item.stats)} · ${item.stats?.triangles ?? "—"} 三角形${item.kit ? ` · ${item.kit}` : ""}` }),
           ...(problems.length ? [element("span", { className: "muted warn", textContent: ` · ${problems.length} 个问题` })] : [])));
       row.addEventListener("click", () => showModel(item.id, item.version));
-      return element("li", {}, row);
+      if (item.status !== "pending") return element("li", {}, row);
+      const box = element("input", { type: "checkbox", value: `${item.id}/${item.version}` });
+      box.setAttribute("aria-label", `选择 ${item.id} ${item.version}`);
+      box.addEventListener("change", updateBulk);
+      return element("li", {}, box, row);
     }));
     $("#list-status").textContent = versions.length ? `${versions.length} 个` : "没有";
+    $("#bulk").hidden = !versions.some((item) => item.status === "pending");
+    $("#select-all").checked = false;
+    updateBulk();
   } catch (error) {
     $("#list-status").textContent = `加载失败：${error.message}`;
   }
+}
+
+// Approving several pending versions at once, one request after another.
+const selected = () => [...document.querySelectorAll("#rows input[type=checkbox]:checked")].map((box) => box.value);
+function updateBulk() {
+  const count = selected().length;
+  $("#approve-selected").textContent = `通过选中的 ${count} 个`;
+  $("#approve-selected").disabled = count === 0;
+}
+async function approveSelected() {
+  const items = selected();
+  $("#approve-selected").disabled = true;
+  let done = 0;
+  const failed = [];
+  for (const value of items) {
+    $("#list-status").textContent = `通过中 ${done + failed.length + 1}/${items.length}：${value}`;
+    try { await api(`/api/models/${value}/approve`, { method: "POST", body: {} }); done++; }
+    catch (error) { failed.push(`${value}（${error.message}）`); }
+  }
+  await showList();
+  $("#list-status").textContent = `已通过 ${done} 个${failed.length ? `；失败 ${failed.length} 个：${failed.join("、")}` : ""}。`;
 }
 
 async function showModel(id, version) {
@@ -209,6 +237,8 @@ $("#reject").addEventListener("click", () => act(async () => {
   await showModel(current.model.id, current.entry.version);
 }, "已退回"));
 $("#back").addEventListener("click", showList);
+$("#select-all").addEventListener("change", (event) => { for (const box of document.querySelectorAll("#rows input[type=checkbox]")) box.checked = event.target.checked; updateBulk(); });
+$("#approve-selected").addEventListener("click", approveSelected);
 $("#tab-review").addEventListener("click", () => showTab("review"));
 $("#tab-upload").addEventListener("click", () => showTab("upload"));
 for (const input of [$("#zip-input"), $("#folder-input")]) input.addEventListener("change", () => { if (input.files.length) prepare([...input.files]); input.value = ""; });

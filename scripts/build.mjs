@@ -45,12 +45,6 @@ for (const [directory, files] of [["draco", ["draco_wasm_wrapper.js", "draco_dec
   for (const file of files) await cp(new URL(`node_modules/three/examples/jsm/libs/${directory}/${file}`, root), new URL(`${directory}/${file}`, addons));
 }
 await buildVision(root, output);
-// The model library's command-line tool as one self-contained file, for machines without this
-// repository (docs/models-api.md).
-await build({
-  entryPoints: [fileURLToPath(new URL("scripts/fundev-models.mjs", root))], outfile: fileURLToPath(new URL("tools/fundev-models.mjs", output)),
-  bundle: true, platform: "node", format: "esm", target: "node20", legalComments: "none", logLevel: "warning", banner: { js: "#!/usr/bin/env node" },
-});
 const skillFiles = ["SKILL.md", "agents/openai.yaml", "assets/game.js", "references/runtime.md", "references/release.md", "references/security.md"];
 const skillOutput = new URL("skills/fun-dev-games/", output);
 for (const file of skillFiles) {
@@ -156,7 +150,7 @@ async function files(directory) {
 const outputPath = fileURLToPath(output);
 const shell = (await files(output))
   .map((file) => `/${relative(outputPath, fileURLToPath(file)).split("\\").join("/")}`)
-  .filter((path) => !/^\/(?:games\/[^/]+\/|blobs\/|skills\/|tools\/|runtime\/vision\/|runtime\/addons\/(?:draco|basis)\/|vendor\/three\/LICENSE|_headers|_redirects|robots\.txt|sitemap\.xml|games\.json|models\.json|sw\.js)/.test(path))
+  .filter((path) => !/^\/(?:games\/[^/]+\/|blobs\/|skills\/|runtime\/vision\/|runtime\/addons\/(?:draco|basis)\/|vendor\/three\/LICENSE|_headers|_redirects|robots\.txt|sitemap\.xml|games\.json|models\.json|sw\.js)/.test(path))
   .map((path) => path.replace(/(?:^|\/)index\.html$/, "/").replace(/^\/\//, "/").replace(/^(\/games(?:\/[^/]+)?|\/models?)\.html$/, "$1"))
   .sort();
 // Cached under the addresses pages are visited at: "/x/" for x/index.html, "/games" and

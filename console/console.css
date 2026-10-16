@@ -32,7 +32,11 @@ main { padding: 1rem; max-width: 64rem; margin: 0 auto; }
 .filter { font-size: 0.75rem; display: grid; gap: 0.25rem; }
 select, input, textarea { min-height: 44px; border: 1px solid var(--brown); border-radius: 0; padding: 0.5rem; background: var(--cream); width: 100%; }
 .rows { list-style: none; margin: 1rem 0; padding: 0; }
-.rows li { border-bottom: 1px solid var(--brown); }
+.rows li { display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid var(--brown); }
+.rows li .row { flex: 1; }
+.rows input[type="checkbox"], .bulk input[type="checkbox"] { width: 1.4rem; height: 1.4rem; min-height: 0; flex: none; }
+.bulk { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.5rem 0; border-bottom: 2px solid var(--ink); }
+.bulk .check { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; min-height: 44px; }
 .row { display: grid; grid-template-columns: 5rem 1fr; gap: 1rem; width: 100%; padding: 0.75rem 0; border: 0; background: none; text-align: left; cursor: pointer; min-height: 44px; }
 .row img { width: 5rem; height: 5rem; object-fit: cover; border: 2px solid var(--ink); background: var(--cream); }
 .row strong { display: block; }
