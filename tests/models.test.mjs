@@ -106,6 +106,10 @@ test("the console accepts only a valid Access token for the owner, and same-orig
   forged[1] = Buffer.from(JSON.stringify({ aud: ["aud"], iss: "https://team.test", email: "owner@fun.dev", exp: 9e9, admin: true })).toString("base64url");
   assert.equal((await stack.console("/", { jwt: forged.join(".") })).status, 403);
   assert.equal(await (await stack.console("/")).text(), "console page");
+  // The console's upload routes reach the same store; an unseen version reads as new.
+  assert.equal((await (await stack.console("/api/upload/never_seen_01/v001")).json()).status, "new");
+  assert.equal((await stack.console("/api/upload/never_seen_01/v001", { method: "PUT", body: { name: { zh: "新", en: "New" }, type: "prop" } })).status, 200);
+  assert.equal((await stack.console("/api/upload/never_seen_01/v001", { method: "PUT", body: { name: { zh: "新", en: "New" }, type: "prop" }, headers: { "X-Fun-Console": "" } })).status, 403);
   assert.equal((await stack.console("/api/models/desk_chair_01", { method: "PATCH", body: { listed: true }, headers: { "X-Fun-Console": "" } })).status, 403);
   assert.equal((await stack.console("/api/models/desk_chair_01", { method: "PATCH", body: { listed: true }, headers: { "Sec-Fetch-Site": "cross-site" } })).status, 403);
 });

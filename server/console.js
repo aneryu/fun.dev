@@ -1,4 +1,4 @@
-import { approveVersion, editModel, errorResponse, getModel, ID, json, listVersions, ModelError, rejectVersion, typeOf, VERSION } from "./models.js";
+import { approveVersion, editModel, errorResponse, getModel, ID, json, listVersions, ModelError, rejectVersion, routeUpload, typeOf, VERSION } from "./models.js";
 
 // console.fun.dev (docs/models.md): the review console. Cloudflare Access guards the whole host;
 // every request is checked here again against the Access JWT, so a misconfigured Access
@@ -67,6 +67,12 @@ export default {
         const status = url.searchParams.get("status") ?? "pending";
         if (!["pending", "rejected", "approved", "incomplete", "all"].includes(status)) throw new ModelError("invalid_request");
         return json({ versions: await listVersions(env.MODELS_DB, status) });
+      }
+      // Uploads from the console page, signed in through Access: the same routes as api.fun.dev.
+      if (path.startsWith("/api/upload/")) {
+        try { return await routeUpload(request, env, path.slice("/api/upload".length)); }
+        // The page asks before uploading; a version not seen yet is not an error there.
+        catch (error) { if (request.method === "GET" && error.code === "not_found") return json({ status: "new", note: null, files: {}, stats: null }); throw error; }
       }
       // /api/models/<id> (GET, PATCH) and /api/models/<id>/<version>/(approve|reject) (POST)
       const segments = path.split("/").slice(3).map(decodeURIComponent);

@@ -14,6 +14,10 @@
       <h1>fun.dev <span>console</span></h1>
       <p class="muted" id="who"></p>
     </header>
+    <nav class="tabs" aria-label="后台">
+      <button class="tab" type="button" id="tab-review" aria-pressed="true">审核</button>
+      <button class="tab" type="button" id="tab-upload" aria-pressed="false">上传</button>
+    </nav>
     <main>
       <section id="list-view" aria-labelledby="list-title">
         <div class="heading">
@@ -30,6 +34,18 @@
         </div>
         <p class="muted" id="list-status" role="status" aria-live="polite"></p>
         <ul class="rows" id="rows"></ul>
+      </section>
+
+      <section id="upload-view" aria-labelledby="upload-title" hidden>
+        <h2 id="upload-title">上传模型</h2>
+        <p class="muted">每个版本是一个 <code>&lt;id&gt;/&lt;version&gt;/</code> 文件夹，里面有 meta.json、model.glb、preview.png，可选 source.blend、qa.json 等。规则见 docs/models-api.md。</p>
+        <div class="pickers">
+          <label class="button secondary picker">选择 zip（可多个）<input type="file" id="zip-input" accept=".zip,application/zip" multiple></label>
+          <label class="button secondary picker">或选择文件夹<input type="file" id="folder-input" webkitdirectory multiple></label>
+        </div>
+        <p class="muted" id="upload-status" role="status" aria-live="polite"></p>
+        <ul class="checks" id="upload-rows"></ul>
+        <button class="button" type="button" id="upload-start" hidden>上传</button>
       </section>
 
       <section id="detail-view" aria-labelledby="detail-title" hidden>

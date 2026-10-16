@@ -1,4 +1,6 @@
 import { createViewer } from "../site/model-viewer.js";
+import { inspectVersion } from "../server/model-rules.js";
+import { groupVersions, readZip } from "./zip.js";
 
 // The review console (docs/models.md). It talks only to its own Worker; Access signs requests in.
 const $ = (selector) => document.querySelector(selector);
@@ -30,6 +32,81 @@ function warnings(stats) {
 }
 const STATUS = { incomplete: "未传完", pending: "待审", approved: "已通过", rejected: "已退回" };
 const size = (stats) => stats ? stats.size.map((value) => value.toFixed(2)).join(" × ") + " m" : "—";
+
+function showTab(name) {
+  $("#tab-review").setAttribute("aria-pressed", String(name === "review"));
+  $("#tab-upload").setAttribute("aria-pressed", String(name === "upload"));
+  $("#upload-view").hidden = name !== "upload";
+  if (name === "review") showList(); else { $("#list-view").hidden = true; $("#detail-view").hidden = true; }
+}
+
+// ── Upload: the same checks as the server, then the console's upload routes ──
+let prepared = [];
+const hex = (buffer) => [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+
+function renderChecks() {
+  $("#upload-rows").replaceChildren(...prepared.map((item) => {
+    const ok = !item.problems.length;
+    const size = item.stats ? ` · ${item.stats.size.map((value) => value.toFixed(2)).join(" × ")} m · ${item.stats.triangles} 三角形` : "";
+    const lines = [element("strong", { textContent: `${ok ? "✓" : "✗"} ${item.id} ${item.version}` }), element("span", { className: "muted", textContent: `${item.meta?.type ?? ""}${item.meta?.kit ? ` · ${item.meta.kit}` : ""}${size}${item.result ? ` · ${item.result}` : ""}` })];
+    for (const text of item.problems) lines.push(element("div", { className: "bad", textContent: text }));
+    for (const text of item.warnings) lines.push(element("div", { className: "bad", textContent: `提醒：${text}` }));
+    return element("li", {}, ...lines);
+  }));
+  const ready = prepared.filter((item) => !item.problems.length && (!item.result || item.retry));
+  $("#upload-start").hidden = !ready.length;
+  $("#upload-start").textContent = `上传 ${ready.length} 个通过检查的版本`;
+}
+
+async function prepare(files) {
+  $("#upload-status").textContent = "读取中…";
+  try {
+    const entries = [];
+    for (const file of files) {
+      if (file.name.toLowerCase().endsWith(".zip")) entries.push(...await readZip(file));
+      else entries.push({ path: file.webkitRelativePath || file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+    }
+    prepared = groupVersions(entries).map((version) => ({ ...version, ...inspectVersion(version), result: null }));
+    const bad = prepared.filter((item) => item.problems.length).length;
+    $("#upload-status").textContent = prepared.length ? `找到 ${prepared.length} 个版本，${prepared.length - bad} 个通过检查${bad ? `，${bad} 个没通过（不会上传）` : ""}。` : "没有找到 <id>/<version>/ 文件夹。";
+  } catch (error) {
+    prepared = [];
+    $("#upload-status").textContent = `读取失败：${error.message}`;
+  }
+  renderChecks();
+}
+
+async function uploadOne(item) {
+  const base = `/api/upload/${item.id}/${item.version}`;
+  const current = await api(base);
+  if (current?.status === "approved") return "已通过，跳过";
+  await api(base, { method: "PUT", body: item.meta });
+  let sent = 0;
+  for (const file of item.files) {
+    if (current?.files?.[file.name]?.sha256 === hex(await crypto.subtle.digest("SHA-256", file.bytes))) continue;
+    const response = await fetch(`${base}/${file.name}`, { method: "PUT", credentials: "same-origin", headers: { "X-Fun-Console": "1" }, body: file.bytes });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(`${file.name}: ${data.detail || data.error || response.status}`);
+    sent++;
+  }
+  const status = await api(base);
+  return `${{ pending: "待审", incomplete: "未传完", rejected: "已退回" }[status.status] ?? status.status}（传了 ${sent} 个文件）`;
+}
+
+async function uploadAll() {
+  $("#upload-start").disabled = true;
+  const ready = prepared.filter((item) => !item.problems.length && (!item.result || item.retry));
+  let done = 0, failed = 0;
+  for (const item of ready) {
+    $("#upload-status").textContent = `上传中 ${done + failed + 1}/${ready.length}：${item.id} ${item.version}`;
+    try { item.result = await uploadOne(item); item.retry = false; done++; }
+    catch (error) { item.result = `失败：${error.message}`; item.retry = true; failed++; }
+    renderChecks();
+  }
+  $("#upload-status").textContent = `完成：${done} 个成功${failed ? `，${failed} 个失败（可再点一次上传重试）` : ""}。到“审核”里查看。`;
+  renderChecks();
+  $("#upload-start").disabled = false;
+}
 
 async function showList() {
   $("#detail-view").hidden = true;
@@ -132,6 +209,10 @@ $("#reject").addEventListener("click", () => act(async () => {
   await showModel(current.model.id, current.entry.version);
 }, "已退回"));
 $("#back").addEventListener("click", showList);
+$("#tab-review").addEventListener("click", () => showTab("review"));
+$("#tab-upload").addEventListener("click", () => showTab("upload"));
+for (const input of [$("#zip-input"), $("#folder-input")]) input.addEventListener("change", () => { if (input.files.length) prepare([...input.files]); input.value = ""; });
+$("#upload-start").addEventListener("click", uploadAll);
 $("#filter").addEventListener("change", showList);
 api("/api/session").then(({ email }) => { $("#who").textContent = email; }).catch(() => {});
 showList();

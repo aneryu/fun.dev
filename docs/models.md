@@ -100,7 +100,9 @@ page and its API. The whole host is behind Cloudflare Access (email one-time PIN
 owner), and the Worker verifies the Access JWT on every request as well. `fun.dev` itself
 cannot host it: it is DNS-only to the CN2 server ([edge](edge.md)), so Access does not apply.
 
-The console lists pending versions with their preview and stats, shows the model in 3D, and
+The console's upload page takes zips or folders, checks them in the browser with the server's
+rules (`server/model-rules.js`) and uploads through `/api/upload/…`, so a person signed in
+through Access can upload without the token. The console lists pending versions with their preview and stats, shows the model in 3D, and
 lets the owner edit `name`, `kit` and `tags`, approve, or reject with a note the pipeline can
 read.
 

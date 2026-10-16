@@ -19,6 +19,14 @@ box's floor, no external files.
 - `<id>`: `<name>_<NN>`, lowercase letters, digits and `_`, e.g. `desk_chair_01`.
 - `<version>`: `v` and three digits, e.g. `v002`. A revision is a new version of the same id.
 
+## Console upload page
+
+Signed in to `console.fun.dev` (Cloudflare Access), **上传** takes one or more zips or a folder
+with the layout below, runs the same checks as the server in the browser, and uploads the
+versions that pass through the console's own routes (`/api/upload/…`, the same as the API
+below). No token is involved; files the server already has are skipped, so uploading again is
+safe. This is the way for anyone who must not handle the token.
+
 ## Command-line tool
 
 `fundev-models` checks prepared models and uploads them, so whoever prepares models never needs
