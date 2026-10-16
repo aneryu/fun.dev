@@ -4,6 +4,7 @@ import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPreviewServer, listen } from "./preview-server.mjs";
+import { sync } from "./blobs.mjs";
 
 // Development only: rebuild dist/ on source changes and reload open pages.
 // The reload script is injected by this server and never written into dist/.
@@ -17,6 +18,10 @@ if (id) {
   try { await access(new URL(`games/${id}/game.json`, root)); }
   catch { console.error(`Unknown game: games/${id}/game.json does not exist.`); process.exit(1); }
 }
+
+// Bring games/<id>/assets/ and sources/ up to date with their locks (never edits a lock).
+const { problems } = await sync({ mode: "restore" });
+for (const problem of problems) console.warn(problem);
 
 const clients = new Set();
 const reloadScript = 'new EventSource("/__dev/events").addEventListener("reload", () => location.reload());\n';

@@ -63,12 +63,17 @@ export async function siteChecks({ browser, base }) {
   await page.keyboard.press("Space");
   await page.waitForFunction(() => document.querySelector(".game-surface canvas").getAttribute("aria-label").includes("MERIT 1."));
   await page.waitForFunction(async (version) => {
-    const cache = await caches.open("releases-v1");
+    const cache = await caches.open("releases-v2");
     const cached = (await cache.keys()).map((request) => new URL(request.url).pathname);
     const list = await cache.match(`${location.origin}/games/muyu/${version}/files.json`);
-    if (!list) return false;
-    const { files } = await list.json();
-    return files.every((file) => cached.includes(`/games/muyu/${version}/${file}`));
+    const index = await cache.match(`${location.origin}/__sw/cache-index`);
+    if (!list || !index) return false;
+    const { files, blobs } = await list.json();
+    const { entries, sizes } = await index.json();
+    const entry = entries.find((item) => item.key === `muyu/${version}/`);
+    // assets/ files are cached at their content-addressed /blobs/ address.
+    const paths = files.map((file) => (blobs[file] ? `/blobs/${blobs[file]}` : `/games/muyu/${version}/${file}`));
+    return paths.every((path) => cached.includes(path) && entry?.urls.includes(`${location.origin}${path}`) && sizes[`${location.origin}${path}`] > 0);
   }, version, { polling: 250 });
   await pwa.setOffline(true);
   await page.reload();

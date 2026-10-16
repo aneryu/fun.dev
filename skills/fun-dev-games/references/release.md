@@ -6,7 +6,10 @@ Export browser ESM at `game.js`, relative modules and assets. Do not publish the
 game's own HTML/CSS, another Three.js copy, source secrets, node_modules or build
 tools. Source tooling may live in bundle-root `dev/`, `package.json` and README;
 the platform build omits these development files. Other files remain publishable,
-so inspect the complete artifact, not only the entry module.
+so inspect the complete artifact, not only the entry module. Files under `assets/`
+are published as content-addressed blobs: load them only through `asset()`, keep
+them free of relative references to each other (`.glb`, not `.gltf` with side
+files) and do not import them statically.
 
 ## Independent game publication
 

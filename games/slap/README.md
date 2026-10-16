@@ -126,11 +126,10 @@ linked into MPFB's user data (`~/.config/blender/5.2/extensions/.user/user_defau
 Python 3 with Pillow, and this repository's Playwright.
 
 First load is about 0.9 MB (head 515 KB + 215 KB texture, hand 80 KB, small
-textures); MediaPipe loads only for photos, and lives under `assets/lazy/` so the
-service worker doesn't precache it with the release. Its files in `assets/lazy/mediapipe/` are
-`@mediapipe/tasks-vision` 1.1.1 and `face_landmarker.task` (float16), both
-Apache-2.0 (`assets/lazy/mediapipe/LICENSE.txt`); the model is renamed `.bin` for the
-publisher's file types.
+textures); MediaPipe Face Landmarker comes from the platform (`kit/vision.js`,
+`@mediapipe/tasks-vision` 1.1.1 and `face_landmarker` float16, Apache-2.0) and
+loads only for photos. `dev/register.mjs` and `dev/likeness.mjs` serve the same
+files from `node_modules/` and `sources/mediapipe/`.
 
 `dev/fixtures/` holds CC0 renders of other MakeHuman characters
 (`dev/blender/test-photo.py`) and a drawn smiley for testing photos; no real

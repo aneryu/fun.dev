@@ -17,3 +17,7 @@
 
 /sw.js
   Cache-Control: no-cache
+
+# The vision runtime's address is its content hash.
+/runtime/vision/*
+  Cache-Control: public, max-age=31536000, immutable

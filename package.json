@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "assets": "node --env-file-if-exists=.env scripts/assets.mjs",
     "test": "node --test",
     "verify": "node scripts/verify.mjs",
     "release": "node --env-file-if-exists=.env scripts/release.mjs",
@@ -18,6 +19,7 @@
     "node": ">=22"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "1.1.1",
     "three": "0.186.1"
   },
   "devDependencies": {

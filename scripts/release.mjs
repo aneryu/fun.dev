@@ -9,10 +9,11 @@ import { smoke } from "./browser/smoke.mjs";
 import { publishRelease } from "./game-release.mjs";
 import { createWranglerStore } from "./r2-wrangler-store.mjs";
 import { loadLocalGames } from "./local-games.mjs";
+import { pendingBackups, pushBlobs } from "./assets.mjs";
 
 // One-command release: npm run release [-- --yes] | [-- --check]
 // Reads the live state, prints a plan, then (after confirmation) runs it in a safe order:
-// verify → D1 migrations → cleanup Worker → changed games → production build + smoke
+// verify → asset backup → D1 migrations → cleanup Worker → changed games → production build + smoke
 // against the live catalog → Pages deploy → checks on fun.dev → git push.
 const SITE = "https://fun.dev";
 const GAME_ORIGIN = "https://games.fun.dev";
@@ -52,7 +53,7 @@ const deployed = deployments[0]?.Source;
 const known = deployed && spawnSync("git", ["cat-file", "-e", `${deployed}^{commit}`], { cwd: root }).status === 0;
 const changed = known ? git("diff", "--name-only", deployed, head).split("\n").filter(Boolean) : null;
 const touches = (pattern) => !changed || changed.some((file) => pattern.test(file));
-const siteChanged = touches(/^(?:site|skills|functions|server|migrations)\/|^scripts\/(?:build|check|csp|game-pages|local-games|game-release)\.mjs$|^package(?:-lock)?\.json$|^wrangler\.jsonc$/);
+const siteChanged = touches(/^(?:site|skills|functions|server|migrations)\/|^scripts\/(?:build|check|csp|game-pages|local-games|game-release|vision)\.mjs$|^package(?:-lock)?\.json$|^wrangler\.jsonc$|^config\/mediapipe-LICENSE\.txt$|^sources\/sources\.lock$/);
 const transferChanged = touches(/^(?:site\/progress|site\/player|server|functions|migrations)\//);
 
 const migrations = must(wrangler("d1", "migrations", "list", "DB", "--remote", "--env", "production", "--env-file", "/dev/null"), "Listing D1 migrations");
@@ -60,6 +61,7 @@ const pendingMigrations = !/No migrations to apply/i.test(migrations);
 const workerMissing = /does not exist/i.test(wrangler("deployments", "list", "--config", "wrangler.cleanup.jsonc", "--env", "production", "--env-file", "/dev/null").stderr ?? "");
 const workerChanged = workerMissing || touches(/^server\/|^wrangler\.cleanup\.jsonc$/);
 
+const backups = await pendingBackups();
 const remoteCatalog = await catalogNow();
 const local = await loadLocalGames();
 const publish = local.filter(({ game }) => remoteCatalog.find((entry) => entry.id === game.id)?.release !== game.release);
@@ -70,6 +72,7 @@ const deploySite = siteChanged || publish.length > 0; // new releases also refre
 console.log(`
 Release plan for ${head.slice(0, 7)} (live site: ${deployed ?? "unknown"})
   1. verify locally            unit tests + browser checks${transferChanged ? " + account transfer" : ""}
+     back up assets           ${backups.length ? `${backups.length} new files to the private bucket` : "all backed up"}
   2. D1 migrations             ${pendingMigrations ? "apply pending migrations" : "none pending"}
   3. cleanup Worker            ${workerChanged ? (workerMissing ? "deploy (not deployed yet)" : "redeploy (server code changed)") : "unchanged"}
   4. games                     ${publish.length ? publish.map(({ game }) => `publish ${game.id}@${game.version}`).join(", ") : "no changes"}
@@ -78,7 +81,7 @@ Release plan for ${head.slice(0, 7)} (live site: ${deployed ?? "unknown"})
   7. live checks on ${SITE}, then git push`);
 if (remoteOnly.length) console.log(`  note: in the live catalog but not in games/: ${remoteOnly.map((game) => game.id).join(", ")} (left untouched; npm run game:remove -- <id>)`);
 if (apiChange) console.log(`  note: games change API version: the live lobby cannot read the catalog from step 4 until step 6 (a few minutes).`);
-if (!publish.length && !deploySite && !workerChanged && !pendingMigrations) {
+if (!publish.length && !deploySite && !workerChanged && !pendingMigrations && !backups.length) {
   console.log("\nNothing to release. Run npm run release -- --check to re-check fun.dev.");
   process.exit(0);
 }
@@ -94,6 +97,12 @@ if (!args.includes("--yes")) {
 const step = (title) => console.log(`\n▶ ${title}`);
 step("Verify locally");
 if (spawnSync(process.execPath, ["scripts/verify.mjs", ...(transferChanged ? ["--transfer"] : [])], { cwd: root, stdio: "inherit" }).status !== 0) fail("Local verification failed; nothing was changed remotely.");
+
+if (backups.length) {
+  step("Back up assets");
+  try { await pushBlobs({ log: (line) => console.log(line) }); }
+  catch (error) { fail(`Asset backup failed; nothing was released: ${error.message}`); }
+}
 
 if (pendingMigrations) {
   step("Apply D1 migrations");
@@ -115,7 +124,7 @@ async function restoreCatalog() {
 }
 if (publish.length) {
   step("Publish games");
-  gameStore = createWranglerStore();
+  gameStore = createWranglerStore(undefined, { publicOrigin: GAME_ORIGIN });
   try {
     previousCatalog = await gameStore.get("games.json");
     for (const release of publish) {

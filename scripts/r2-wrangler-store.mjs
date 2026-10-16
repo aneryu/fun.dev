@@ -13,7 +13,9 @@ const cli = fileURLToPath(new URL("../node_modules/wrangler/bin/wrangler.js", im
 const env = { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false", WRANGLER_SEND_METRICS: "false" };
 const digest = (body) => `"${createHash("sha256").update(body).digest("hex")}"`;
 
-export function createWranglerStore(bucket = process.env.R2_BUCKET || "fundev-games") {
+// publicOrigin, when the bucket has one, answers exists() with a cheap HEAD request instead of
+// downloading the object.
+export function createWranglerStore(bucket = process.env.R2_BUCKET || "fundev-games", { publicOrigin = null } = {}) {
   if (!bucket || !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucket)) throw new Error("Set R2_BUCKET to the R2 bucket name.");
   const directory = mkdtempSync(join(tmpdir(), "fundev-r2-"));
   function get(key) {
@@ -27,6 +29,13 @@ export function createWranglerStore(bucket = process.env.R2_BUCKET || "fundev-ga
   }
   return {
     async get(key) { return get(key); },
+    async exists(key) {
+      if (!publicOrigin) return get(key) !== null;
+      const response = await fetch(`${publicOrigin}/${key}`, { method: "HEAD", cache: "no-store", signal: AbortSignal.timeout(15000) });
+      if (response.ok) return true;
+      if (response.status === 404) return false;
+      throw new Error(`Cannot check ${key}: HTTP ${response.status}.`);
+    },
     async put(key, body, options) {
       const current = options.ifMatch || options.ifNoneMatch ? get(key) : null;
       if ((options.ifNoneMatch === "*" && current) || (options.ifMatch && current?.etag !== options.ifMatch)) {

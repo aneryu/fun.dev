@@ -1,6 +1,6 @@
 {
   "id": "slap",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "apiVersion": 2,
   "title": {
     "zh": "扇耳光",
@@ -44,11 +44,6 @@
     "assets/hand.json",
     "assets/hand.bin",
     "assets/hand.jpg",
-    "assets/lazy/mediapipe/vision_bundle.mjs",
-    "assets/lazy/mediapipe/vision_wasm_internal.js",
-    "assets/lazy/mediapipe/vision_wasm_internal.wasm",
-    "assets/lazy/mediapipe/face_landmarker.bin",
-    "assets/lazy/mediapipe/LICENSE.txt",
     "assets/cover.jpg"
   ],
   "cover": "assets/cover.jpg"

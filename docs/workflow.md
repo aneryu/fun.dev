@@ -11,7 +11,9 @@ npm run release              # ship to fun.dev (plan → confirm → execute →
 
 Setup once: Node.js 22+, `npm ci`, `npx playwright install chromium`, and
 `npx wrangler login` (an account with access to the `fundev` Pages project, the
-`fundev-games` R2 bucket and the production D1 database). `.env` is optional; see
+`fundev-games` and `fundev-sources` R2 buckets and the production D1 database).
+Binary files are not in Git: on a new machine, `npm run assets -- --pull` fetches
+them (see [assets](assets.md)). `.env` is optional; see
 [Credentials](#credentials).
 
 ## 1. Develop
@@ -31,6 +33,9 @@ npm run dev -- muyu          # prints the player URL for one game, with ?debug=1
   machine's address; `PORT` and `HOST` change where it listens.
 - Change a game's `version` in `game.json` when its code or assets change: each
   version is an immutable release once published.
+- `games/<id>/assets/` and `sources/` are not in Git. After adding or changing such
+  files, or after a merge, run `npm run assets` and commit the changed locks; see
+  [assets](assets.md). `npm run dev` restores missing files on start.
 - `npm test` (~20 s) runs only the unit tests, including each game's `dev/` tests.
 
 ## 2. Verify
@@ -39,16 +44,18 @@ npm run dev -- muyu          # prints the player URL for one game, with ?debug=1
 
 | Suite | Checks |
 | --- | --- |
+| assets | `npm run assets -- --check`: every file matches its lock |
 | unit | `node --test`: catalog, publisher, CSP, kit, game pages, progress protocol with local D1, game tests |
 | smoke | every game at phone and desktop size: runs, not blank, language switch, menu pause/resume, restart, clean exit, no console errors |
-| kit | text/HUD placement, pointer/keyboard/joystick, glTF with embedded textures, Draco/KTX2 under the player CSP |
+| kit | text/HUD placement, pointer/keyboard/joystick, glTF with embedded textures, Draco/KTX2 and the MediaPipe vision runtime under the player CSP |
 | player | loading bar, announcements, options/settings/cheats, mute, share, restart, debug panel, rotation prompt, API mismatch |
 | site | lobby covers, game pages and their redirects, sitemap, 404, manifest/icons, offline play through the service worker |
 
 `npm run verify -- smoke player` runs only some browser suites;
 `npm run verify -- smoke --game=<id>` smoke-tests a single game;
 `npm run verify -- --transfer` adds the slower account-transfer test (local D1 with
-`wrangler pages dev`). Screenshots go to `test-results/`. Commit when it passes.
+`wrangler pages dev`). Screenshots go to `test-results/`. It also prints each game's
+download size (first load and `lazy/`), for information. Commit when it passes.
 
 ## 3. Release
 
@@ -67,11 +74,13 @@ cleanup Worker changed (or is missing), which games differ from the R2 catalog
 games were published, which refreshes the game pages and sitemap). After confirmation:
 
 1. `verify` (plus the transfer test when progress, player, server, functions or
-   migrations changed). Failure stops before any remote change.
+   migrations changed). Failure stops before any remote change. Then back up new
+   asset and source blobs to the private `fundev-sources` bucket.
 2. Apply pending D1 migrations.
 3. Deploy the cleanup Worker if it changed or does not exist.
-4. Publish changed games to R2: files under a content-hashed path, a
-   `files.json` list, then the catalog.
+4. Publish changed games to R2: `assets/` files as content-addressed blobs (only
+   those not uploaded yet), code under a content-hashed release path, a
+   `files.json` index, then the catalog.
 5. Build for production and smoke-test it against the live catalog. If this fails,
    the previous catalog is restored and nothing else changes.
 6. Deploy `dist/` to Pages with the commit hash (the next release diffs from it).
@@ -110,6 +119,7 @@ again.
 
 | Command | Purpose |
 | --- | --- |
+| `npm run assets` | Sync binary files with their locks; `--check`, `--use-lock`/`--use-local`, `--push`/`--pull` ([assets](assets.md)) |
 | `npm run build` | Local build into `dist/` (games from `games/`, transfer off) |
 | `npm run build:production` | Production build (R2 catalog origin, transfer on) |
 | `npm run preview` | Serve `dist/` with the production headers |
@@ -125,6 +135,7 @@ Build environment variables (set by the commands above, not by `.env`):
 
 - Production: Pages project `fundev` (direct upload to the production environment from Git `main`, domains
   `fun.dev`, `fundev.pages.dev`); R2 bucket `fundev-games` at `games.fun.dev`;
+  private R2 bucket `fundev-sources` (blob backups, no public domain);
   D1 `fundev-progress-production`; Worker `fundev-transfer-cleanup-production`
   (hourly; no HTTP endpoint).
 - The cleanup Worker bounds transfer retention. Check its cron runs in the

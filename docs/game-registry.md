@@ -29,6 +29,10 @@ The public website and games have separate release lifecycles:
    `dist/`, writes the fixed read origin and permits it in CSP. No wildcard
    origins, query-selected origins or local-server connection are supported.
 
+6. Create a second, private bucket `fundev-sources` without a custom domain or
+   public access. It backs up binary files that are not in Git (see
+   [assets](assets.md)); `R2_SOURCES_BUCKET` overrides its name.
+
 Changing the resource origin or container API requires a website deployment.
 Registering, updating and removing compatible games does not.
 

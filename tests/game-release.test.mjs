@@ -14,6 +14,7 @@ function memoryStore() {
   return {
     objects,
     async get(key) { return objects.get(key) || null; },
+    async exists(key) { return objects.has(key); },
     async put(key, body, options) {
       const current = objects.get(key);
       if (options.ifNoneMatch === "*" && current || options.ifMatch && current?.etag !== options.ifMatch) throw Object.assign(new Error("Precondition"), {status:412});
@@ -27,16 +28,35 @@ test("publish/register/update/remove independently of site files; immutable retr
   await publishRelease(store, release);
   const first = JSON.parse(store.objects.get("games.json").body);
   assert.equal(first[0].release, release.game.release);
-  assert.equal(store.objects.size, release.assets.length + 2);
+  // assets/ files as blobs, code and the cover under the release, files.json and the catalog.
+  const blobs = release.assets.filter((asset) => asset.blob);
+  const code = release.assets.filter((asset) => !asset.blob);
+  const objectCount = blobs.length + code.length + 1 + 2;
+  assert.ok(blobs.length && code.length);
+  assert.equal(store.objects.size, objectCount);
   assert.equal(store.objects.get("games.json").cache, "no-store");
-  const listed = JSON.parse(store.objects.get(`games/${release.game.id}/${release.game.version}/${release.game.release}/files.json`).body);
+  const prefix = `games/${release.game.id}/${release.game.version}/${release.game.release}/`;
+  const listed = JSON.parse(store.objects.get(`${prefix}files.json`).body);
   assert.deepEqual(listed.files, release.assets.map((asset) => asset.path));
+  for (const asset of blobs) {
+    assert.equal(listed.blobs[asset.path], `${asset.hash}${asset.path.slice(asset.path.lastIndexOf("."))}`);
+    assert.equal(store.objects.get(`blobs/${asset.blob}`).cache, "public, max-age=31536000, immutable");
+    assert.equal(store.objects.has(prefix + asset.path), asset.path === release.game.cover, `${asset.path} lives only as a blob`);
+  }
+  // A new version with unchanged assets uploads none of them again.
+  const uploads = [];
+  const put = store.put.bind(store);
+  store.put = async (key, ...rest) => { uploads.push(key); return put(key, ...rest); };
+  await publishRelease(store, { ...release, game: { ...release.game, version: "9.9.9", release: "f".repeat(64) } });
+  assert.ok(!uploads.some((key) => key.startsWith("blobs/")), `no blob re-uploaded: ${uploads}`);
+  store.put = put;
+  for (const key of uploads) if (key !== "games.json") store.objects.delete(key);
   await publishRelease(store, release);
   await publishRelease(store, {...release, game:{...release.game, title:"Updated"}});
   assert.equal(JSON.parse(store.objects.get("games.json").body)[0].title, "Updated");
   await unregisterGame(store, release.game.id);
   assert.deepEqual(JSON.parse(store.objects.get("games.json").body), []);
-  assert.equal(store.objects.size, release.assets.length + 2);
+  assert.equal(store.objects.size, objectCount);
 });
 test("upload failure leaves catalog unchanged; concurrent publisher cannot overwrite it", async () => {
   const release = await prepareRelease(manifest);
@@ -70,6 +90,17 @@ test("explicit file list rejects traversal, secrets, missing imports and symlink
     await writeFile(path,JSON.stringify({...game,files:["game.js"]}));
     await writeFile(join(dir,"game.js"),"import './missing.js';");
     await assert.rejects(prepareRelease(path),/Unlisted/);
+    // assets/ files are served by content hash, so modules cannot import into or out of them.
+    await mkdir(join(dir,"assets"));
+    await writeFile(join(dir,"assets","lib.js"),"export const x = 1;");
+    await writeFile(join(dir,"game.js"),"import './assets/lib.js';");
+    await writeFile(path,JSON.stringify({...game,files:["game.js","assets/lib.js"]}));
+    await assert.rejects(prepareRelease(path),/across assets/);
+    await writeFile(join(dir,"game.js"),"export function createGame() { return {}; }");
+    await writeFile(join(dir,"assets","lib.js"),"import '../game.js';");
+    await assert.rejects(prepareRelease(path),/across assets/);
+    await writeFile(path,JSON.stringify({...game,files:["game.js","assets/absent.glb"]}));
+    await assert.rejects(prepareRelease(path),/missing; run npm run assets/);
   } finally { await rm(dir,{recursive:true,force:true}); }
 });
 test("source origin configuration rejects URL injection and local endpoints", () => {

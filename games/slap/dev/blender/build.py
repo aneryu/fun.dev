@@ -344,7 +344,7 @@ def skin_material(body):
     out = n("ShaderNodeOutputMaterial")
     bsdf = n("ShaderNodeBsdfPrincipled")
     img = n("ShaderNodeTexImage")
-    img.image = bpy.data.images.load(os.path.expanduser("~/tools/mh-assets/sys/skins/middleage_asian_male/middleage_lightskinned_male_diffuse2.png"))
+    img.image = bpy.data.images.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../../../sources/makehuman/skins/middleage_asian_male/middleage_lightskinned_male_diffuse2.png"))
     uv = n("ShaderNodeUVMap"); uv.uv_map = body.data.uv_layers[0].name
     masks = n("ShaderNodeAttribute"); masks.attribute_name = "masks"
     sep = n("ShaderNodeSeparateColor")

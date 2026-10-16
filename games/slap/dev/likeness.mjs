@@ -8,20 +8,28 @@ import { chromium } from "playwright";
 import { align } from "../shape.js";
 
 const game = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const repository = resolve(game, "../..");
+const visionFile = (name) => name.startsWith("models/") ? join(repository, "sources/mediapipe", name.slice(7))
+  : join(repository, "node_modules/@mediapipe/tasks-vision", name.endsWith(".mjs") ? name : `wasm/${name}`);
 const images = process.argv.slice(2).map((path) => resolve(path));
 const browser = await chromium.launch();
 const page = await browser.newPage();
 await page.route("http://slap.local/**", async (route) => {
   const path = new URL(route.request().url()).pathname;
   if (path === "/") return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>likeness</title>" });
-  const file = path.startsWith("/image/") ? images[Number(path.slice(7))] : join(game, path);
+  const file = path.startsWith("/image/") ? images[Number(path.slice(7))] : path.startsWith("/vision/") ? visionFile(path.slice(8)) : join(game, path);
   const type = { ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm" }[extname(file)] ?? "application/octet-stream";
   route.fulfill({ body: await readFile(file), contentType: type });
 });
 await page.goto("http://slap.local/");
 const found = await page.evaluate(async (count) => {
   const { createLandmarker, detect } = await import("/face.js");
-  const landmarker = await createLandmarker((path) => new URL(path, location.origin + "/").href);
+  // The platform's kit/vision.js, served from the pinned package and sources/mediapipe/.
+  const landmarker = await createLandmarker(async () => ({
+    load: () => import("/vision/vision_bundle.mjs"),
+    fileset: { wasmLoaderPath: "/vision/vision_wasm_internal.js", wasmBinaryPath: "/vision/vision_wasm_internal.wasm" },
+    model: (name) => `/vision/models/${name}.bin`,
+  }));
   const out = [];
   for (let i = 0; i < count; i++) {
     const bitmap = await createImageBitmap(await (await fetch(`/image/${i}`)).blob());

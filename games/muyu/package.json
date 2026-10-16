@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test dev/*.test.mjs",
-    "model": "node dev/decode-meshopt.mjs dev/tripo-source.glb /tmp/wooden-fish-plain.glb && blender -b --python dev/clean-model.py -- /tmp/wooden-fish-plain.glb /tmp/wooden-fish.glb && npx -y @gltf-transform/cli@4.5.1 draco /tmp/wooden-fish.glb assets/wooden-fish.glb --encode-speed 0 --decode-speed 5",
-    "relics": "python3 -I dev/fetch-blenderkit.py ~/.cache/fundev-blenderkit && blender -b --disable-autoexec --python dev/build-relics.py -- ~/.cache/fundev-blenderkit /tmp/wooden-fish.glb /tmp/relics.glb && npx -y @gltf-transform/cli@4.5.1 draco /tmp/relics.glb assets/relics.glb --encode-speed 0 --decode-speed 5",
+    "model": "node dev/decode-meshopt.mjs ../../sources/self/muyu/tripo-source.glb /tmp/wooden-fish-plain.glb && blender -b --python dev/clean-model.py -- /tmp/wooden-fish-plain.glb /tmp/wooden-fish.glb && npx -y @gltf-transform/cli@4.5.1 draco /tmp/wooden-fish.glb assets/wooden-fish.glb --encode-speed 0 --decode-speed 5",
+    "relics": "python3 -I dev/fetch-blenderkit.py ../../sources/blenderkit && blender -b --disable-autoexec --python dev/build-relics.py -- ../../sources/blenderkit /tmp/wooden-fish.glb /tmp/relics.glb && npx -y @gltf-transform/cli@4.5.1 draco /tmp/relics.glb assets/relics.glb --encode-speed 0 --decode-speed 5",
     "voice": "uv run --with numpy --with soundfile python dev/chant-voice.py",
     "simulate": "node dev/simulate.mjs"
   }

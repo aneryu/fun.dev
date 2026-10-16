@@ -1,4 +1,4 @@
-// Face landmarks with MediaPipe Face Landmarker (Apache-2.0, assets/lazy/mediapipe/LICENSE).
+// Face landmarks with MediaPipe Face Landmarker from the platform (kit/vision.js, Apache-2.0).
 // Loaded only when the player picks a photo; everything runs on the device.
 
 export const LANDMARKS = 468;
@@ -16,11 +16,13 @@ function quietlySync(task) {
   try { return task(); } finally { console.error = original; }
 }
 
-export async function createLandmarker(asset) {
-  const { FaceLandmarker } = await import(asset("assets/lazy/mediapipe/vision_bundle.mjs"));
+// runtime: context.runtime.
+export async function createLandmarker(runtime) {
+  const vision = await runtime("kit/vision.js");
+  const { FaceLandmarker } = await vision.load();
   return quietly(() => FaceLandmarker.createFromOptions(
-    { wasmLoaderPath: asset("assets/lazy/mediapipe/vision_wasm_internal.js"), wasmBinaryPath: asset("assets/lazy/mediapipe/vision_wasm_internal.wasm") },
-    { baseOptions: { modelAssetPath: asset("assets/lazy/mediapipe/face_landmarker.bin"), delegate: "CPU" }, runningMode: "IMAGE", numFaces: 4 },
+    vision.fileset,
+    { baseOptions: { modelAssetPath: vision.model("face_landmarker"), delegate: "CPU" }, runningMode: "IMAGE", numFaces: 4 },
   ));
 }
 

@@ -169,6 +169,24 @@ export async function kitChecks({ browser, base }) {
   assert.doesNotMatch(loaded.dracoError, /Content Security|Refused|worker/i);
   assert.deepEqual(loaded.violations, [], "the player CSP admits loader workers, WASM and blob images");
 
+  // vision.js: the platform's MediaPipe runtime and every listed model load under the player CSP.
+  const vision = await page.evaluate(async () => {
+    const vision = await import("/runtime/kit/vision.js");
+    const { FaceLandmarker } = await vision.load();
+    const landmarker = await FaceLandmarker.createFromOptions(vision.fileset, { baseOptions: { modelAssetPath: vision.model("face_landmarker"), delegate: "CPU" }, runningMode: "IMAGE" });
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 64;
+    canvas.getContext("2d").fillRect(0, 0, 64, 64);
+    const faces = landmarker.detect(canvas).faceLandmarks.length;
+    landmarker.close();
+    const models = await Promise.all(vision.models.map(async (name) => (await fetch(vision.model(name), { method: "HEAD" })).status));
+    return { faces, models, base: vision.fileset.wasmBinaryPath, violations: window.__violations };
+  });
+  assert.equal(vision.faces, 0, "the face landmarker runs");
+  assert.ok(vision.models.every((status) => status === 200), `every model is served: ${vision.models}`);
+  assert.match(vision.base, /\/runtime\/vision\/[a-f0-9]{16}\/vision_wasm_internal\.wasm$/);
+  assert.deepEqual(vision.violations, []);
+
   // Outside the player, the stricter site policy still refuses the same Blob worker.
   const home = await context.newPage();
   await home.goto(`${base}/games/`);

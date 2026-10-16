@@ -103,6 +103,13 @@ The player resolves the entry to `/games/<id>/<version>/game.js`. Asset paths
 are relative to this bundle, never to the game page's URL. Keep published
 version directories immutable and bump `version` when changing code or assets.
 
+Files under `assets/` are published as content-addressed blobs shared across
+versions and games (see [assets](assets.md)), so always load them through
+`asset()`. They must not reference each other by relative path (export `.glb`,
+not `.gltf` with side files), and modules cannot import from `assets/`
+statically; the publisher rejects both. In this repository `assets/` is not in
+Git: `npm run assets` records it in `games/<id>/assets.lock`.
+
 ## Game interface
 
 ```js
@@ -141,7 +148,7 @@ ES modules are cached; restarting calls `createGame` again with a fresh context.
 | `canvas` | Focusable canvas. Bind pointer/keyboard input here; preserve Tab navigation. |
 | `viewport` | Live `{ width, height, pixelRatio, safeArea }` values, in CSS pixels; DPR capped at 1.5 on mobile/compact screens and 2 on desktop, and lowered further by `adaptiveResolution`. `safeArea` is `{ top, right, bottom, left }`: display cutouts plus the player's menu button. Keep HUD and controls inside it. Treat as read-only. |
 | `invalidate()` | Request a frame for an on-demand game after input or an asynchronous scene change. |
-| `asset(path)` | Resolves a path inside this versioned bundle, e.g. `asset('assets/ball.webp')`. |
+| `asset(path)` | Resolves a path inside this bundle to its URL, e.g. `asset('assets/ball.webp')`; files under `assets/` resolve to their content-addressed blob. |
 | `signal` | Aborted when leaving, restarting, timing out, or failing. Use for fetches and DOM listeners. |
 | `track(resource)` | Registers a resource with `dispose()`, returns it, disposes it once at teardown. |
 | `onCleanup(fn)` | Registers synchronous cleanup for timers, audio, custom objects, etc. |
@@ -288,6 +295,7 @@ inside a game would resolve against the game origin instead.
 | `kit/loop.js` | `createFixedStep()` for fixed-step simulation with an interpolation `alpha`. |
 | `kit/assets.js` | `createAssets(context)` loads JSON, textures and glTF/GLB (with Draco and KTX2) with cancellation, `track` ownership and `reportLoading`. |
 | `kit/random.js` | `createRandom(seed)`, `hashString()` and `dailySeed({ timeZone })` (UTC days by default). |
+| `kit/vision.js` | MediaPipe Tasks Vision at the platform's pinned version: `load()` imports the library (`FaceLandmarker`, `ImageSegmenter`, …), `fileset` is its wasm, `model(name)` the URL of a platform model (`models`: `face_landmarker`, `hair_segmenter`, `selfie_segmenter`). About 17 MB, downloaded only when used. |
 | `addons/GLTFLoader.js`, `DRACOLoader.js`, `KTX2Loader.js` | Three.js loaders at the pinned version; decoders at `/runtime/addons/draco/` and `/runtime/addons/basis/`. |
 
 ```js

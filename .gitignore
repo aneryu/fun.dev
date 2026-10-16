@@ -8,3 +8,9 @@ dist/
 .dev.vars.*
 test-results/
 .claude/worktrees/
+# Binary files live in a content-addressed store; Git keeps their locks (docs/assets.md).
+/games/*/assets/
+/sources/*
+!/sources/README.md
+!/sources/sources.lock
+/.assets-state.json

@@ -310,7 +310,7 @@ export async function createGame(context) {
       try {
         if (!landmarker) {
           const face = await import("./face.js");
-          landmarker = { detect: face.detect, instance: await face.createLandmarker(asset) };
+          landmarker = { detect: face.detect, instance: await face.createLandmarker(context.runtime) };
           context.onCleanup(() => landmarker?.instance.close());
         }
         signal.throwIfAborted();

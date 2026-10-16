@@ -149,8 +149,9 @@ npm run relics
 npm run voice -- <recording.mp3>
 ```
 
-Tests need Node.js 22+; no install is needed. `assets/wooden-fish.glb` is included,
-so model regeneration is only needed after replacing `dev/tripo-source.glb`. It
+Tests need Node.js 22+; no install is needed. `assets/` and the pipeline inputs come from
+`npm run assets` at the repository root (they are not in Git), so model regeneration is
+only needed after replacing `sources/self/muyu/tripo-source.glb`. It
 needs Blender 4.2+ on PATH and the parent repository's `three` package:
 `dev/decode-meshopt.mjs` decodes the meshopt-compressed Tripo export (the
 platform has no meshopt decoder), then `dev/clean-model.py` names the meshes
@@ -164,8 +165,8 @@ Materials and the procedural wood grain are in `game.js`.
 
 `npm run relics` rebuilds `assets/relics.glb` (needs the uncompressed `/tmp/wooden-fish.glb`
 from `npm run model` for the rosewood mallet). `dev/fetch-blenderkit.py` downloads three free
-CC0 BlenderKit models into `~/.cache/fundev-blenderkit` (no account needed; the .blend files
-stay outside the repository), and `dev/build-relics.py` applies their modifiers, scales each
+CC0 BlenderKit models into the shared `sources/blenderkit/` library (no account needed; the
+.blend files are not in Git), and `dev/build-relics.py` applies their modifiers, scales each
 relic, reduces it to 800–1,800 triangles, bakes its colors (Cycles) and repaints each face
 with the nearest color of a shared palette, so no textures ship. It models the other relics (chanting box, bronze bowl, wind chime, mallet wrap, fortune sticks,
 little monk, prayer beads, temple bell) and reuses the fish's mallet for the rosewood mallet.

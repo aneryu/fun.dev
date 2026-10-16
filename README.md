@@ -13,6 +13,7 @@ source, tools and tests are documented in [the game README](games/muyu/README.md
 
 ```sh
 npm ci && npx playwright install chromium   # once; also: npx wrangler login
+npm run assets -- --pull                    # once per machine: binary files are not in Git
 npm run dev [-- <game-id>]                  # live-reloading local site
 npm run verify                              # unit + browser checks (~40 s)
 npm run release                             # plan → confirm → ship to fun.dev
@@ -32,7 +33,7 @@ reference commands and operations. Requires Node.js 22+ and `tar`.
   before the first paint. Addresses have no trailing slash (`_redirects`).
 - `site/runtime/`: Three.js host (API v2: lifecycle, shared audio, options,
   safe area, announcements, haptics), the runtime kit (`kit/`: text, input,
-  fixed-step loop, assets, seeded random) and built loaders (`addons/`: glTF,
+  fixed-step loop, assets, seeded random, MediaPipe vision) and built loaders (`addons/`: glTF,
   Draco, KTX2 with self-hosted decoders).
 - `site/sw.js`, `site/manifest.webmanifest`, `site/icons/`: installable app and
   offline play for games opened before. The build writes the precache list.
@@ -41,6 +42,9 @@ reference commands and operations. Requires Node.js 22+ and `tar`.
 - `games/<id>/`: each game's source, one directory per game; `game.json` holds its
   catalog metadata, version, and runtime file list. Local builds generate the
   preview catalog and bundles from it; production reads the independent R2 catalog.
+- `sources/`: shared library of asset pipeline inputs. It and each game's `assets/`
+  are not in Git; locks record them and `npm run assets` syncs them
+  ([docs/assets.md](docs/assets.md)).
 - `examples/spinning-cube/`: integration example, excluded from the build/catalog.
 - `docs/game-bundles.md`: bundle format, API, and publishing workflow.
 - `docs/platform-roadmap.md`: planned shared platform capabilities and their order.
@@ -48,7 +52,9 @@ reference commands and operations. Requires Node.js 22+ and `tar`.
 The frontend remains plain HTML/CSS/JavaScript. The small build exists to pin and
 serve one local copy of Three.js, without a CDN, remote import map, or duplicated
 engine in every game. `esbuild` minifies the engine files without bundling a UI
-framework. The default build works as a static site. Optional account transfer
+framework. `@mediapipe/tasks-vision` is pinned the same way, as the platform's
+vision runtime, so games share one copy instead of each bundling 17 MB. The
+default build works as a static site. Optional account transfer
 uses Pages Functions and D1 as a temporary relay.
 
 ## Local progress and account transfer

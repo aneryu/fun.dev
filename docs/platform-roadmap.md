@@ -1,8 +1,8 @@
 # Platform roadmap
 
-Status: decided on 2026-10-14. Phases 1–4 are implemented locally and
-validated; the API v2 cutover (publishing Wooden Fish 1.2.0 and deploying the
-site, see README “Production activation”) has not been performed. This records the shared
+Status: decided on 2026-10-14. Phases 1–4 are implemented and live (API v2
+shipped with Wooden Fish 1.2.0). Asset delivery and storage, added on
+2026-10-16, are described in [assets](assets.md). This records the shared
 capabilities fun.dev should provide as a small-game platform, the reasoning
 behind each choice, and the order of work. Items under [Later](#later) are
 deferred for future consideration, not rejected.
@@ -39,6 +39,7 @@ All contract changes ship together in one API v2 cutover.
 | Game options panel | See below. |
 | `pickImage()` | Added 2026-10-15 for Slap: the host owns the file input so games stay canvas-only; returns an upright, scaled `ImageBitmap` that stays on the device. |
 | `deviceStorage` | Added 2026-10-15 for Slap: per-game blobs that stay on this device, so a picked photo is remembered without entering progress, transfer or export. |
+| Vision runtime | Added 2026-10-16: MediaPipe Tasks Vision and its models are platform runtime (`kit/vision.js`), pinned like Three.js and downloaded only when used. See [assets](assets.md). |
 | Video recording | Added 2026-10-16 for Slap: manifest `recording` puts **Record video** in the menu. The host copies each rendered frame into a 9:16 canvas with a watermark and records it with the session's sound through `MediaRecorder`; the clip stays on the device until shared or saved. |
 | `shareText(locale)` | Optional lifecycle hook used by the platform share button. |
 | Manifest fields | `orientation`, bilingual `howToPlay` (shown in the player menu as real text), and `cover`. |
@@ -101,7 +102,9 @@ Each module is written together with the first game that needs it.
   takes over only after all tabs close; the host refuses catalog entries whose
   `apiVersion` differs and asks for a refresh. The publisher writes an
   immutable `files.json` per release so the worker can cache it completely.
-  The runtime is precached as one hashed set. Total cache size is bounded (LRU).
+  The runtime is precached as one hashed set. Total cache size is bounded (LRU):
+  since 2026-10-16 by 300 MB rather than a number of games, with blobs shared by
+  several games kept until none of them is cached (see [assets](assets.md)).
   Release files under a `lazy/` directory are cached on first use instead of with
   the release (added 2026-10-15 so Slap's 17 MB face model downloads only for photos).
 - `npm run dev`: watches `site/`, `games/`, and the kit, rebuilds `dist/`,

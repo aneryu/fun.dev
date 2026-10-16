@@ -176,6 +176,7 @@ export async function playerChecks({ browser, base, dist }) {
 
   // pickImage: opened from a gesture, decoded upright and scaled; cancel resolves null.
   const picker = await browser.newContext({ serviceWorkers: "block" });
+  await picker.route("**/pick-fixture/files.json", (route) => route.fulfill({ json: { files: ["game.js"], blobs: {} } }));
   await picker.route("**/pick-fixture/game.js", (route) => route.fulfill({ contentType: "text/javascript", body: `
     export function createGame(context) {
       window.__results = [];

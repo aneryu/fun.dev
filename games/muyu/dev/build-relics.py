@@ -1,5 +1,5 @@
 """Step 2 of the relic pipeline: build assets/relics.glb, the twelve 结缘 relics in one GLB.
-blender -b --disable-autoexec --python dev/build-relics.py -- ~/.cache/fundev-blenderkit /tmp/wooden-fish.glb /tmp/relics.glb
+blender -b --disable-autoexec --python dev/build-relics.py -- ../../sources/blenderkit /tmp/wooden-fish.glb /tmp/relics.glb
 npx @gltf-transform/cli@4.5.1 draco /tmp/relics.glb assets/relics.glb --encode-speed 0 --decode-speed 5
 The second argument is the fish before Draco (dev/clean-model.py's output): Blender here has no
 Draco library, so compression is a separate step. Three relics are CC0 BlenderKit models

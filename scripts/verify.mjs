@@ -6,6 +6,8 @@ import { kitChecks } from "./browser/kit.mjs";
 import { playerChecks } from "./browser/player.mjs";
 import { siteChecks } from "./browser/site.mjs";
 import { smoke } from "./browser/smoke.mjs";
+import { sync } from "./blobs.mjs";
+import { loadLocalGames } from "./local-games.mjs";
 
 // Everything checkable locally, with one build and one browser:
 //   npm run verify                      unit tests + all browser suites
@@ -34,6 +36,10 @@ async function step(name, task) {
   }
 }
 
+await step("assets match their locks", async () => {
+  const { changes, problems } = await sync({ mode: "check", log: () => {} });
+  if (problems.length || changes.length) throw new Error([...problems, ...changes, "Run npm run assets, then commit the locks."].join("\n  "));
+});
 await step("unit tests", () => {
   if (spawnSync(process.execPath, ["--test"], { cwd: root, stdio: "inherit" }).status !== 0) throw new Error("Unit tests failed.");
 });
@@ -60,6 +66,19 @@ if (args.includes("--transfer")) {
   await step("browser: account transfer", () => {
     if (spawnSync(process.execPath, ["scripts/progress-browser.mjs"], { cwd: root, stdio: "inherit" }).status !== 0) throw new Error("Transfer browser test failed.");
   });
+}
+
+// Download sizes, for information only: first load (cached with the release) and lazy/ files.
+const releases = await loadLocalGames().catch(() => []);
+if (releases.length) {
+  console.log("\nDownload sizes");
+  const mb = (bytes) => `${(bytes / 1048576).toFixed(1)} MB`;
+  for (const { game, assets } of releases.filter(({ game }) => !only || game.id === only)) {
+    const lazy = assets.filter((asset) => /(?:^|\/)lazy\//.test(asset.path));
+    const sum = (list) => list.reduce((total, asset) => total + asset.body.length, 0);
+    const largest = [...assets].sort((a, b) => b.body.length - a.body.length).slice(0, 3).map((asset) => `${asset.path} ${mb(asset.body.length)}`);
+    console.log(`  ${game.id.padEnd(14)} first load ${mb(sum(assets) - sum(lazy)).padStart(8)}${lazy.length ? `, lazy ${mb(sum(lazy))}` : ""}   largest: ${largest.join(", ")}`);
+  }
 }
 
 console.log("\nSummary");

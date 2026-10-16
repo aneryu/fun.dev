@@ -25,6 +25,7 @@ namespace), then creates a worktree from the current `main`:
 ```sh
 git worktree add ../fundev-wt/<id> -b game/<id> main
 ln -s "$PWD/node_modules" ../fundev-wt/<id>/node_modules
+(cd ../fundev-wt/<id> && npm run assets)   # binary files from the shared local cache
 ```
 
 The symlink shares the main checkout's dependencies (and Playwright's browser
@@ -41,10 +42,13 @@ directory. See [game bundles](game-bundles.md) and the
 
 ## Game agent rules
 
-- Change only `games/<id>/`. If the game needs a platform change (a new host
+- Change only `games/<id>/`, plus new files in the shared `sources/` library: add
+  them, never change or delete listed ones (see [assets](assets.md)). If the game needs a platform change (a new host
   capability, a kit helper, a player fix), stop and describe it to the
   coordinator instead of editing `site/`.
 - Bump the game's `version` in `game.json` when its code or assets change.
+- After adding or changing files in `assets/` or `sources/`, run `npm run assets` and
+  commit the locks. Never run `--push` or `--pull`: they use Wrangler.
 - While iterating: `npm run verify -- smoke --game=<id>` (all unit tests, the
   build, and the smoke test of this game only).
 - Before handing back: the full `npm run verify` must pass.
@@ -57,16 +61,19 @@ Each game agent already ran the full verify, so merging is only a scope check;
 verification runs once for the whole batch.
 
 ```sh
-git diff --name-only main...game/<id>    # must list only games/<id>/
+git diff --name-only main...game/<id>    # must list only games/<id>/ (and sources/sources.lock)
+git diff main...game/<id> -- sources/sources.lock | grep '^-[^-]'   # must print nothing: sources are only added
 git -C ../fundev-wt/<id> status --short  # must be clean (all work committed)
 git -C ../fundev-wt/<id> rebase main
 git merge --ff-only game/<id>            # in the main checkout, on main
+npm run assets                           # bring the merged files from the shared cache
 ```
 
 Repeat for each finished game, then run `npm run verify` once on `main` (or go
 straight to `npm run release`, whose first step is the same verify). Reject a
 branch that touches files outside its directory; move those changes to a platform
-branch. Game branches rebase without conflicts because they share no files.
+branch. Game branches rebase without conflicts because they share no files except
+`sources/sources.lock`, which merges as a union.
 If the batch verify fails, find the game with `npm run verify -- smoke --game=<id>`
 and `git revert` its commits rather than blocking the other games.
 

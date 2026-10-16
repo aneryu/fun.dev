@@ -1,8 +1,8 @@
 """Step 1 of the relic pipeline: download the free BlenderKit models used by dev/build-relics.py.
-python3 -I dev/fetch-blenderkit.py ~/.cache/fundev-blenderkit
+python3 -I dev/fetch-blenderkit.py ../../sources/blenderkit
 Free assets download without an account. Only CC0 models are used, so the processed
-assets/relics.glb can live in this public repository; the .blend files are large (50-80 MB)
-and stay out of it.
+assets/relics.glb can be published; the .blend files are large (50-80 MB) and live in the
+shared sources/ library, out of Git (npm run assets records them).
 """
 import json, os, sys, urllib.request, uuid
 

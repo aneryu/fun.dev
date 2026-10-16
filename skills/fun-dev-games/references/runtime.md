@@ -73,7 +73,8 @@ debug items show only with `?debug=1`. Read `context.options[id]`, react in
 Through `await context.runtime(name)`: `kit/text.js` (`createText`, system-font
 CanvasTexture text; `createHudLayer`, CSS-pixel HUD with safe-area corners),
 `kit/input.js` (`createPointer`, `createActions`, `createVirtualControls`),
-`kit/loop.js` (`createFixedStep`), `kit/assets.js` (`createAssets(context)` for
+`kit/loop.js` (`createFixedStep`), `kit/vision.js` (MediaPipe: `load()`, `fileset`,
+`model(name)`), `kit/assets.js` (`createAssets(context)` for
 JSON, textures, glTF with Draco/KTX2), `kit/random.js` (`createRandom`,
 `dailySeed`), and `addons/GLTFLoader.js`, `DRACOLoader.js`, `KTX2Loader.js`. Do not
 bundle these or import `/runtime/...` URLs directly: bundles load from the game

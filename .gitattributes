@@ -1,0 +1,3 @@
+# Branches only add files to the shared library, so their lock lines merge as a union;
+# npm run assets rejects a path listed twice.
+sources/sources.lock merge=union

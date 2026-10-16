@@ -20,15 +20,21 @@ export async function prepareRelease(manifestPath) {
   for (const path of [...files].sort()) {
     if (typeof path !== "string" || !/^[a-zA-Z0-9_-][a-zA-Z0-9_./-]*$/.test(path) || path.split("/").some((part) => !part || part.startsWith(".") || ["dev", "node_modules"].includes(part)) || ["package.json", "package-lock.json", "game.json", "files.json"].includes(path) || !types[extname(path)]) throw new Error(`Invalid runtime file: ${path}`);
     let target = root;
+    const missing = (error) => {
+      if (error.code === "ENOENT" && path.startsWith("assets/")) throw new Error(`${path} is missing; run npm run assets.`);
+      throw error;
+    };
     for (const part of path.split("/")) {
       target = join(target, part);
-      if ((await lstat(target)).isSymbolicLink()) throw new Error(`Symlinks are not allowed: ${path}`);
+      if ((await lstat(target).catch(missing)).isSymbolicLink()) throw new Error(`Symlinks are not allowed: ${path}`);
     }
     const info = await lstat(target);
     total += info.size;
     if (!info.isFile() || total > 64 * 1024 * 1024) throw new Error("Bundle must contain files totalling at most 64 MiB.");
     const body = await readFile(target);
-    assets.push({ path, body, type: types[extname(path)], hash: digest(body) });
+    const hash = digest(body);
+    // Files under assets/ are content-addressed blobs shared across versions and games.
+    assets.push({ path, body, type: types[extname(path)], hash, ...(path.startsWith("assets/") ? { blob: `${hash}${extname(path)}` } : {}) });
   }
   const release = digest(JSON.stringify(assets.map(({ path, hash }) => [path, hash])));
   const paths = new Set(files);
@@ -37,9 +43,17 @@ export async function prepareRelease(manifestPath) {
       const reference = match[1];
       const target = new URL(reference, `https://bundle.invalid/${asset.path}`);
       if (!reference.startsWith(".") || target.origin !== "https://bundle.invalid" || target.search || target.hash || !paths.has(target.pathname.slice(1))) throw new Error(`Unlisted or external module in ${asset.path}: ${reference}`);
+      // Blobs are served by content hash, so relative paths into or out of assets/ break.
+      if (asset.blob || target.pathname.startsWith("/assets/")) throw new Error(`Modules cannot import across assets/ (${asset.path}: ${reference}); load assets with import(asset(path)).`);
     }
   }
   return { game: { ...game, release }, assets, total };
+}
+
+// files.json: every runtime file (the service worker caches a release for offline play) and
+// where each assets/ file is served from (the host resolves asset() through it).
+export function fileIndex(assets) {
+  return { files: assets.map((asset) => asset.path), blobs: Object.fromEntries(assets.filter((asset) => asset.blob).map((asset) => [asset.path, asset.blob])) };
 }
 
 async function readCatalog(store) {
@@ -68,9 +82,15 @@ export async function publishRelease(store, release) {
   const index = games.findIndex((item) => item.id === game.id);
   // Files are content-addressed. Failed uploads cannot expose a partial release.
   const prefix = `games/${game.id}/${game.version}/${game.release}/`;
-  // files.json lets the site's service worker cache a whole release for offline play.
-  const fileList = Buffer.from(JSON.stringify({ files: assets.map((asset) => asset.path) }));
-  for (const asset of [...assets, { path: "files.json", body: fileList, type: "application/json", hash: digest(fileList) }]) {
+  for (const asset of assets.filter((file) => file.blob)) {
+    const key = `blobs/${asset.blob}`;
+    if (await store.exists(key)) continue;
+    await store.put(key, asset.body, { type: asset.type, cache: "public, max-age=31536000, immutable" });
+  }
+  const fileList = Buffer.from(JSON.stringify(fileIndex(assets)));
+  // Code, files.json and the cover (for lobby and share previews) stay under the release path.
+  const released = assets.filter((asset) => !asset.blob || asset.path === game.cover);
+  for (const asset of [...released, { path: "files.json", body: fileList, type: "application/json", hash: digest(fileList) }]) {
     const key = prefix + asset.path;
     try {
       await store.put(key, asset.body, { type: asset.type, cache: "public, max-age=31536000, immutable", ifNoneMatch: "*" });

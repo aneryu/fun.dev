@@ -2,6 +2,8 @@ import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { build, transform } from "esbuild";
 import { gameOrigin } from "./game-origin.mjs";
 import { loadLocalGames, localCatalog } from "./local-games.mjs";
+import { fileIndex } from "./game-release.mjs";
+import { buildVision } from "./vision.mjs";
 import { validateCatalog } from "../site/catalog.js";
 import { addOriginToHeaders } from "./csp.mjs";
 import { gamePages, sitemap } from "./game-pages.mjs";
@@ -37,6 +39,7 @@ for (const [directory, files] of [["draco", ["draco_wasm_wrapper.js", "draco_dec
   await mkdir(new URL(`${directory}/`, addons), { recursive: true });
   for (const file of files) await cp(new URL(`node_modules/three/examples/jsm/libs/${directory}/${file}`, root), new URL(`${directory}/${file}`, addons));
 }
+await buildVision(root, output);
 const skillFiles = ["SKILL.md", "agents/openai.yaml", "assets/game.js", "references/runtime.md", "references/release.md", "references/security.md"];
 const skillOutput = new URL("skills/fun-dev-games/", output);
 for (const file of skillFiles) {
@@ -82,13 +85,17 @@ if (!origin) {
   // Local previews bundle each game's listed runtime files; development files stay in games/<id>/.
   const releases = await loadLocalGames();
   for (const { game, assets } of releases) {
+    // The same layout the publisher uses: assets/ files as content-addressed blobs, code and
+    // the cover under the version.
     for (const asset of assets) {
-      const target = new URL(`games/${game.id}/${game.version}/${asset.path}`, output);
-      await mkdir(new URL("./", target), { recursive: true });
-      await writeFile(target, asset.body);
+      const paths = [...(asset.blob ? [`blobs/${asset.blob}`] : []), ...(!asset.blob || asset.path === game.cover ? [`games/${game.id}/${game.version}/${asset.path}`] : [])];
+      for (const path of paths) {
+        const target = new URL(path, output);
+        await mkdir(new URL("./", target), { recursive: true });
+        await writeFile(target, asset.body);
+      }
     }
-    // The same file list the publisher writes beside each release, for offline caching.
-    await writeFile(new URL(`games/${game.id}/${game.version}/files.json`, output), JSON.stringify({ files: assets.map((asset) => asset.path) }));
+    await writeFile(new URL(`games/${game.id}/${game.version}/files.json`, output), JSON.stringify(fileIndex(assets)));
   }
   catalog = localCatalog(releases);
   await writeFile(new URL("games.json", output), JSON.stringify(catalog, null, 2) + "\n");
@@ -125,7 +132,7 @@ async function files(directory) {
 const outputPath = fileURLToPath(output);
 const shell = (await files(output))
   .map((file) => `/${relative(outputPath, fileURLToPath(file)).split("\\").join("/")}`)
-  .filter((path) => !/^\/(?:games\/[^/]+\/|skills\/|runtime\/addons\/(?:draco|basis)\/|vendor\/three\/LICENSE|_headers|_redirects|robots\.txt|sitemap\.xml|games\.json|sw\.js)/.test(path))
+  .filter((path) => !/^\/(?:games\/[^/]+\/|blobs\/|skills\/|runtime\/vision\/|runtime\/addons\/(?:draco|basis)\/|vendor\/three\/LICENSE|_headers|_redirects|robots\.txt|sitemap\.xml|games\.json|sw\.js)/.test(path))
   .map((path) => path.replace(/(?:^|\/)index\.html$/, "/").replace(/^\/\//, "/").replace(/^(\/games(?:\/[^/]+)?)\.html$/, "$1"))
   .sort();
 // Cached under the addresses pages are visited at: "/x/" for x/index.html, "/games" and

@@ -25,8 +25,7 @@ test("runtime files are listed in game.json, stay in the bundle and avoid the DO
     seen.add(path);
     assert.ok(listed.has(path), `Not listed in game.json files: ${path}`);
     assert.ok((await stat(new URL(path, root))).isFile(), `Missing: ${path}`);
-    // Vendored MediaPipe is loaded as-is; only our own modules are checked.
-    if (!path.endsWith(".js") || path.startsWith("assets/lazy/mediapipe/")) return;
+    if (!path.endsWith(".js")) return;
     const source = await readFile(new URL(path, root), "utf8");
     assert.doesNotMatch(source, /\b(?:document|window)\b|\.innerHTML|\.style\b/, `${path} must not touch the DOM`);
     for (const match of source.matchAll(/\b(?:from\s*|import\s*\(\s*)["'](\.[^"']+)["']/g)) await visit(new URL(match[1], new URL(path, root)).href.slice(root.href.length));
@@ -34,8 +33,7 @@ test("runtime files are listed in game.json, stay in the bundle and avoid the DO
     for (const match of source.matchAll(/loadPack\(asset, "([a-z]+)"/g)) { await visit(`assets/${match[1]}.json`); await visit(`assets/${match[1]}.bin`); }
   }
   await visit("game.js");
-  for (const path of listed) assert.ok(seen.has(path) || path.startsWith("assets/lazy/mediapipe/") || path === manifest.cover, `Listed but unused: ${path}`);
-  assert.ok(seen.has("assets/lazy/mediapipe/vision_wasm_internal.wasm"), "MediaPipe is reachable from face.js");
+  for (const path of listed) assert.ok(seen.has(path) || path === manifest.cover, `Listed but unused: ${path}`);
 });
 
 test("head assets are consistent", async () => {

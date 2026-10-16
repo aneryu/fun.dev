@@ -212,8 +212,15 @@ export function createGameHost({
       const entryURL = new URL(entry, window.location.href);
       const baseURL = new URL("./", entryURL);
       if (entryURL.origin !== bundleOrigin) throw new Error("Game bundle origin is not allowed.");
-      const module = await import(entryURL.href);
+      // files.json says where each assets/ file is served: content-addressed blobs shared by
+      // releases and games.
+      const index = fetch(new URL("files.json", baseURL), { signal: scope.signal }).then((response) => {
+        if (!response.ok) throw new Error(`Bundle file index unavailable (HTTP ${response.status}).`);
+        return response.json();
+      });
+      const [module, { blobs = {} }] = await Promise.all([import(entryURL.href), index]);
       if (scope.signal.aborted) return;
+      const blobBase = new URL("/blobs/", entryURL);
       if (typeof module.createGame !== "function") throw new Error("Bundle must export createGame(context).");
       const list = validateOptions(module.options ?? []);
       let stored = {};
@@ -275,10 +282,14 @@ export function createGameHost({
         options: optionValues,
         get cheatsUsed() { return session.options.cheatsUsed; },
         invalidate() { session.invalidated = true; startLoop(session); },
-        asset(path) {
-          const url = new URL(path, baseURL);
+        asset(name) {
+          const url = new URL(name, baseURL);
           if (!url.href.startsWith(baseURL.href)) throw new Error("Assets must stay inside the game bundle.");
-          return url.href;
+          const path = url.pathname.slice(baseURL.pathname.length);
+          const blob = Object.hasOwn(blobs, path) ? blobs[path] : null;
+          if (blob === null) return url.href;
+          if (!/^[a-f0-9]{64}\.[a-z0-9]+$/.test(blob)) throw new Error(`Invalid blob for ${path}.`);
+          return new URL(blob, blobBase).href + url.search + url.hash;
         },
         runtime(name) {
           if (typeof name !== "string" || !/^(?:kit|addons)\/[a-zA-Z0-9-]+\.js$/.test(name)) return Promise.reject(new TypeError("Unknown runtime module."));
