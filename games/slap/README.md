@@ -31,6 +31,12 @@ rejected.
 - **Counting.** A combo (gap < 0.9 s) shows ×N with phrases at 5/10/20/35/50;
   today/total counts are saved through `context.progress` and power the share
   text. There are no goals, levels or unlocks.
+- **Video.** The manifest sets `recording`: the player's menu records a 9:16
+  clip with the slap sounds and a fun.dev watermark for Douyin and friends. The
+  frame centres the face (`recordingFocus`); the T-shirt and the yellow simply
+  continue where the frame reaches past the screen. With a photo in use, the
+  photo's face crop sits in a small frame at the top left (`recordingBadge`). The
+  clip stays on the device until the player shares or saves it.
 - **Sound.** Synthesized per slap (crack, body thump, room tail) in four tiers,
   with a soft rubbery “duang” on hard hits; no recorded files and no human voice.
 - **Look.** fun.dev's Duck palette (DESIGN.md): a Duck Yellow ground, ink text,

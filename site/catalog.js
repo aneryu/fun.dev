@@ -34,6 +34,7 @@ export function validateCatalog(data) {
     }
     if (game.orientation !== undefined && !orientations.includes(game.orientation)) fail("orientation must be any, portrait, or landscape.");
     if (game.keepAwake !== undefined && typeof game.keepAwake !== "boolean") fail("keepAwake must be a boolean.");
+    if (game.recording !== undefined && typeof game.recording !== "boolean") fail("recording must be a boolean.");
     if (game.cover !== undefined && (typeof game.cover !== "string" || !/^[a-zA-Z0-9_-][a-zA-Z0-9_/-]*(?:\.[a-zA-Z0-9_-]+)*\.(?:webp|png|jpe?g)$/.test(game.cover) || game.cover.split("/").some((part) => !part || part.startsWith(".")))) {
       fail("cover must be a relative .webp, .png or .jpg path inside the bundle.");
     }

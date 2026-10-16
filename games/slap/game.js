@@ -80,6 +80,9 @@ export async function createGame(context) {
   camera.fov = 30;
   const lookAt = new THREE.Vector3();
   const cameraBase = new THREE.Vector3();
+  // The middle of the face (between the eyes and the mouth) in viewport pixels, for the recorder.
+  const faceCentre = new THREE.Vector3(0, 0.08, 0.08);
+  const focus = { x: 0, y: 0 };
   const hud = createHud(context, kit);
   const daze = createDaze(context, kit, head);
   scene.add(daze.stars, daze.tears);
@@ -500,6 +503,10 @@ export async function createGame(context) {
       camera.position.copy(cameraBase);
       camera.lookAt(lookAt);
       camera.updateMatrixWorld();
+      // Measured at rest, so camera shake and head sway stay in the video.
+      const point = faceCentre.clone().project(camera);
+      focus.x = (point.x + 1) / 2 * viewport.width;
+      focus.y = (1 - point.y) / 2 * viewport.height;
       hud.resize(viewport);
       invalidate();
     },
@@ -520,6 +527,9 @@ export async function createGame(context) {
       else applyParams();
       invalidate();
     },
+    recordingFocus() { return focus; },
+    // Who is being slapped: the photo's face crop, top left in the video.
+    recordingBadge() { return photo && context.options["use-photo"] ? photo.canvas : null; },
     shareText(value) {
       const w = copy[value === "zh" ? "zh" : "en"];
       rollDay();

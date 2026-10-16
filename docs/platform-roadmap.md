@@ -39,6 +39,7 @@ All contract changes ship together in one API v2 cutover.
 | Game options panel | See below. |
 | `pickImage()` | Added 2026-10-15 for Slap: the host owns the file input so games stay canvas-only; returns an upright, scaled `ImageBitmap` that stays on the device. |
 | `deviceStorage` | Added 2026-10-15 for Slap: per-game blobs that stay on this device, so a picked photo is remembered without entering progress, transfer or export. |
+| Video recording | Added 2026-10-16 for Slap: manifest `recording` puts **Record video** in the menu. The host copies each rendered frame into a 9:16 canvas with a watermark and records it with the session's sound through `MediaRecorder`; the clip stays on the device until shared or saved. |
 | `shareText(locale)` | Optional lifecycle hook used by the platform share button. |
 | Manifest fields | `orientation`, bilingual `howToPlay` (shown in the player menu as real text), and `cover`. |
 

@@ -17,6 +17,10 @@ const restart = $("#restart");
 const resume = $("#resume");
 const fullscreen = $("#fullscreen");
 const share = $("#share");
+const record = $("#record");
+const recordStop = $("#record-stop");
+const recordDialog = $("#record-dialog");
+const recordVideo = $("#record-video");
 const openOptions = $("#open-options");
 const errorBack = $("#error-back");
 const actionStatus = $("#action-status");
@@ -42,6 +46,8 @@ let actionKey = null;
 let actionTimer = null;
 let left = false;
 let wakeLock = null;
+let recordTimer = null;
+let recording = null;
 const pageScope = new AbortController();
 window.addEventListener("fun-transfer-link", () => {
   const token = globalThis.__funTransferToken;
@@ -68,7 +74,7 @@ function rotateKey() {
 }
 
 function blocked() {
-  return menu.open || optionsDialog.open || !!progressUI?.open || !!progress?.frozen || !!rotateKey();
+  return menu.open || optionsDialog.open || recordDialog.open || !!progressUI?.open || !!progress?.frozen || !!rotateKey();
 }
 function syncPause() { host?.setPaused(blocked()); }
 
@@ -86,11 +92,36 @@ function renderText() {
   $("#open-progress-message").hidden = state !== "progress";
   loadingBar.hidden = state !== "loading" || loadingBar.value === 0 && !loadingBar.dataset.reported;
   fullscreen.textContent = t(document.fullscreenElement ? "exitFullscreen" : "fullscreen");
+  renderRecording();
   actionStatus.textContent = actionErrorKey ? t(actionErrorKey) : actionKey ? t(actionKey) : "";
   const howToPlay = game?.howToPlay ? gameText(game.howToPlay, getLocale()) : "";
   $("#how-to-play").hidden = !howToPlay;
   $("#how-to-play-text").textContent = howToPlay;
   renderOptions();
+}
+
+const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+
+// Shows a short message over the bottom of the game, then clears it.
+function flash(key, error = false) {
+  actionErrorKey = error ? key : null;
+  actionKey = error ? null : key;
+  renderText();
+  clearTimeout(actionTimer);
+  actionTimer = setTimeout(() => { actionErrorKey = actionKey = null; renderText(); }, 3000);
+}
+
+function renderRecording() {
+  const seconds = host?.recordingSeconds() ?? null;
+  record.hidden = !game?.recording || !host?.recordingSupported();
+  record.disabled = state === "loading" || !!errorKey;
+  record.textContent = t(seconds === null ? "recordVideo" : "stopRecording");
+  recordStop.hidden = seconds === null;
+  if (seconds !== null) {
+    $("#record-time").textContent = clock(seconds);
+    recordStop.setAttribute("aria-label", t("recordingTime", clock(seconds)));
+  }
+  if (recording) $("#record-note").textContent = t("recordNote", clock(recording.seconds));
 }
 
 function showError(key) {
@@ -309,6 +340,7 @@ async function openGame() {
         renderText();
       },
       onOptions(next) { options = next; renderOptions(); },
+      onRecorded: showRecording,
       onError(error) {
         console.error("Unable to run game:", error);
         showError("gameError");
@@ -387,10 +419,67 @@ share.addEventListener("click", async () => {
   } catch (error) {
     if (error?.name !== "AbortError") actionErrorKey = "shareError";
   }
+  if (actionErrorKey || actionKey) flash(actionErrorKey || actionKey, !!actionErrorKey);
+  else renderText();
+});
+
+// Video recording, for games whose manifest sets `recording`. The host records the canvas;
+// the player owns the controls and the finished clip, which never leaves the device unless shared.
+record.addEventListener("click", () => {
+  if (!host || !game) return;
+  closeMenu();
+  if (host.recordingSeconds() !== null) { host.stopRecording(); return; }
+  const watermark = { title: gameText(game.title, getLocale()), url: `fun.dev${playPath(game)}` };
+  if (!host.startRecording({ watermark })) { flash("recordError", true); return; }
+  clearInterval(recordTimer);
+  recordTimer = setInterval(renderRecording, 250);
   renderText();
-  // The message shows briefly over the game, then clears.
-  clearTimeout(actionTimer);
-  actionTimer = setTimeout(() => { actionErrorKey = actionKey = null; renderText(); }, 3000);
+});
+recordStop.addEventListener("click", () => host?.stopRecording());
+
+function discardRecording() {
+  if (!recording) return;
+  URL.revokeObjectURL(recording.url);
+  recording = null;
+  recordVideo.removeAttribute("src");
+  recordVideo.load();
+}
+
+async function showRecording(pending) {
+  clearInterval(recordTimer);
+  renderText();
+  let result;
+  try { result = await pending; }
+  catch (error) {
+    console.error("Recording failed:", error);
+    if (!left) flash("recordError", true);
+    return;
+  }
+  if (left || !game) return;
+  discardRecording();
+  const stamp = new Date().toISOString().slice(0, 19).replace(/\D/g, "");
+  const file = new File([result.blob], `${game.id}-${stamp}.${result.type === "video/mp4" ? "mp4" : "webm"}`, { type: result.type });
+  recording = { file, url: URL.createObjectURL(file), seconds: result.seconds };
+  recordVideo.src = recording.url;
+  Object.assign($("#record-save"), { href: recording.url, download: file.name });
+  $("#record-share").hidden = !navigator.canShare?.({ files: [file] });
+  for (const dialog of [menu, optionsDialog]) if (dialog.open) dialog.close();
+  host?.setPaused(true);
+  recordDialog.showModal();
+  renderText();
+}
+
+$("#record-share").addEventListener("click", async () => {
+  if (!recording) return;
+  try { await navigator.share({ files: [recording.file], title: gameText(game.title, getLocale()) }); }
+  catch (error) { if (error?.name !== "AbortError") $("#record-note").textContent = t("recordShareError"); }
+});
+for (const button of [$("#close-record"), $("#record-discard")]) button.addEventListener("click", () => recordDialog.close());
+recordDialog.addEventListener("close", () => {
+  recordVideo.pause();
+  discardRecording();
+  syncPause();
+  menuToggle.focus({ preventScroll: true });
 });
 if (document.fullscreenEnabled) fullscreen.hidden = false;
 fullscreen.addEventListener("click", async () => {
@@ -415,6 +504,7 @@ window.addEventListener("pagehide", () => {
   host?.dispose();
   void progress?.close();
   progressUI?.dispose();
+  discardRecording();
   void wakeLock?.release().catch(() => {});
 });
 window.addEventListener("pageshow", (event) => {

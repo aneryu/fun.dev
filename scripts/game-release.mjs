@@ -9,7 +9,7 @@ const digest = (body) => createHash("sha256").update(body).digest("hex");
 export async function prepareRelease(manifestPath) {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   const { files, ...game } = manifest;
-  if (Object.keys(game).some((key) => !["id", "version", "apiVersion", "title", "description", "category", "platforms", "orientation", "howToPlay", "cover", "keepAwake"].includes(key))) throw new Error("Unexpected manifest field.");
+  if (Object.keys(game).some((key) => !["id", "version", "apiVersion", "title", "description", "category", "platforms", "orientation", "howToPlay", "cover", "keepAwake", "recording"].includes(key))) throw new Error("Unexpected manifest field.");
   validateCatalog([game]);
   if (game.apiVersion !== API_VERSION) throw new Error(`apiVersion must be ${API_VERSION} for this platform.`);
   if (game.cover !== undefined && !files?.includes?.(game.cover)) throw new Error("cover must be listed in files.");

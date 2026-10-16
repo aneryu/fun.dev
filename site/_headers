@@ -10,10 +10,10 @@
   Cache-Control: public, max-age=86400
 
 # Game pages (/games/<id>) alone may run glTF/Draco/KTX2 loaders: Blob URL workers, embedded
-# Blob textures, and WebAssembly. Detach the site policy, then replace it.
+# Blob textures, recorded video previews (blob: media), and WebAssembly. Detach the site policy, then replace it.
 /games/*
   ! Content-Security-Policy
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com/beacon.min.js https://static.cloudflareinsights.com/beacon.min.js/; connect-src 'self' blob: https://cloudflareinsights.com/cdn-cgi/rum; img-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; frame-src 'none'; worker-src 'self' blob:
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com/beacon.min.js https://static.cloudflareinsights.com/beacon.min.js/; connect-src 'self' blob: https://cloudflareinsights.com/cdn-cgi/rum; img-src 'self' blob:; media-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; frame-src 'none'; worker-src 'self' blob:
 
 /sw.js
   Cache-Control: no-cache

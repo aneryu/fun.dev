@@ -81,6 +81,18 @@ Optional fields:
 - `cover`: a 1200×630 `.jpg`, `.png` or `.webp` inside the bundle and listed in
   `files`. The lobby shows it as a square thumbnail; share cards use it whole.
 - `keepAwake`: hold a screen wake lock while running (idle or watch-style games).
+- `recording`: offer **Record video** in the player menu. The player records the game
+  canvas (including the Three.js HUD, never platform controls) with the session's sound,
+  even when muted, as a 720×1280 portrait clip for short-video apps, up to 60 seconds. The
+  frame keeps the canvas's full width (wider, desktop canvases: a 3:4 slice) and centres the
+  game's focus vertically; where it reaches past the top or bottom, the edge rows are
+  stretched, so a plain background or a cut-off body continues. A watermark with the game
+  title and `fun.dev/games/<id>` sits at the top left. Recording pauses with the game. The clip is MP4 where the browser can encode it
+  (Safari, recent Chrome), otherwise WebM, and stays on the device unless the player
+  shares or saves it. Games need no code for it; two optional hooks refine it:
+  `recordingFocus()` returns `{ x, y }` in viewport pixels to centre in the video (Slap: the
+  face), and `recordingBadge()` returns an image (canvas, `ImageBitmap`, …) or `null`, shown
+  in a small ink frame at the top left with the watermark beside it (Slap: the photo in use).
 
 `title`, `description`, and `category` accept either a shared string (e.g. `Demo`)
 or an object containing both `zh` and `en` translations. Search matches both
@@ -106,6 +118,8 @@ export function createGame(context) {
     localeChanged(locale) {},
     optionChanged(id, value) {},
     shareText(locale) { return "…"; },
+    recordingFocus() { return { x, y }; }, // see manifest `recording`
+    recordingBadge() { return null; },
     dispose() {},
   };
 }

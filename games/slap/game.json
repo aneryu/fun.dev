@@ -19,6 +19,7 @@
     "desktop"
   ],
   "orientation": "portrait",
+  "recording": true,
   "howToPlay": {
     "zh": "在脸上快速划过就是一巴掌，划得越快越狠，来回划就是左右开弓；点一下脸是戳。扇多了会留掌印、脸肿、表情变委屈，打满还有惊喜，停手一会儿会慢慢消肿。点「换成 TA 的脸」选一张正脸照片，就能扇 TA：照片只在你的设备上处理和保存，可在设置里关掉或删除；第一次识别要下载约 17 MB。键盘：选中画面后按左右方向键扇，F 换脸。人脸识别使用 MediaPipe（Apache-2.0），默认角色来自 MakeHuman（CC0）。",
     "en": "Swipe across the face to slap it: the faster, the harder, and back-and-forth slaps both cheeks; tap the face to poke it. Keep going for handprints, swelling and a sorry face, and a surprise when it maxes out; pause and the swelling fades. Use their face lets you pick a front-facing photo to slap: the photo is processed and kept only on your device, and you can turn it off or delete it in the options; the first time downloads about 17 MB for face detection. Keyboard: focus the game, then the left and right arrow keys slap and F swaps the face. Face detection uses MediaPipe (Apache-2.0); the default character comes from MakeHuman (CC0)."

@@ -16,7 +16,7 @@ test("reject incompatible APIs, unsafe paths, duplicates, and invalid metadata",
   for (const replacement of [
     { id: "../bad" }, { id: "%2fescape" }, { id: "https://elsewhere" },
     { version: "../1.0.0" }, { version: "1.0" }, { apiVersion: 0 }, { apiVersion: "2" },
-    { orientation: "sideways" }, { keepAwake: "yes" }, { cover: "../cover.png" }, { cover: "/cover.png" }, { cover: "cover.gif" }, { howToPlay: { zh: "只有中文" } },
+    { orientation: "sideways" }, { keepAwake: "yes" }, { recording: 1 }, { cover: "../cover.png" }, { cover: "/cover.png" }, { cover: "cover.gif" }, { howToPlay: { zh: "只有中文" } },
     { title: " " }, { platforms: [] }, { platforms: ["mobile", "mobile"] },
     { platforms: ["unknown"] }, { platforms: [null] },
   ]) assert.throws(() => validateCatalog([{ ...game, ...replacement }]));
@@ -35,7 +35,7 @@ test("bilingual metadata requires both languages, while plain titles remain vali
 });
 
 test("v2 metadata: optional orientation, how-to-play, cover and API compatibility", () => {
-  const full = { ...game, orientation: "landscape", keepAwake: true, cover: "assets/cover.jpg", howToPlay: { zh: "点击", en: "Tap" } };
+  const full = { ...game, orientation: "landscape", keepAwake: true, recording: true, cover: "assets/cover.jpg", howToPlay: { zh: "点击", en: "Tap" } };
   assert.deepEqual(validateCatalog([full]), [full]);
   assert.equal(coverURL(full, ""), "/games/test-game/1.0.0/assets/cover.jpg");
   assert.equal(coverURL({ ...full, release: "a".repeat(64) }, "https://g.example"), `https://g.example/games/test-game/1.0.0/${"a".repeat(64)}/assets/cover.jpg`);

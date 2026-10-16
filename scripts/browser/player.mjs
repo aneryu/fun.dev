@@ -79,6 +79,85 @@ export async function playerChecks({ browser, base, dist }) {
   await debug.waitForFunction((value) => Number(document.querySelector(".game-surface canvas").getAttribute("aria-label").match(/MERIT (\d+)/)[1]) >= value + 2, before);
   await debug.close();
 
+  // Video recording: only for games whose manifest allows it; a 9:16 clip opens in a dialog.
+  const recorderContext = await browser.newContext({ serviceWorkers: "block", viewport: { width: 1280, height: 800 } });
+  const plain = await open(recorderContext);
+  await running(plain);
+  await plain.locator("#menu-toggle").click();
+  assert.equal(await plain.locator("#record").isHidden(), true, "no recording without the manifest field");
+  await plain.close();
+  await recorderContext.route("**/games.json", (route) => route.fulfill({ json: catalog.map((game) => ({ ...game, recording: true })) }));
+  // A light stand-in game keeps software rendering fast: a red square above the middle, which the
+  // recorder centres through recordingFocus(), on a blue ground; a green badge sits top left.
+  await recorderContext.route("**/games/muyu/*/game.js", (route) => route.fulfill({ contentType: "text/javascript", body: `
+    export function createGame({ THREE, scene, camera, track }) {
+      scene.background = new THREE.Color(0x2040ff);
+      const square = new THREE.Mesh(track(new THREE.PlaneGeometry(0.6, 0.6)), track(new THREE.MeshBasicMaterial({ color: 0xff0000 })));
+      square.position.set(0, 0.8, 0);
+      scene.add(square);
+      const focus = { x: 0, y: 0 };
+      const badge = Object.assign(document.createElement("canvas"), { width: 100, height: 100 });
+      Object.assign(badge.getContext("2d"), { fillStyle: "#00ff00" }).fillRect(0, 0, 100, 100);
+      return {
+        renderMode: "on-demand",
+        resize({ width, height }) {
+          camera.updateMatrixWorld();
+          const point = square.position.clone().project(camera);
+          Object.assign(focus, { x: (point.x + 1) / 2 * width, y: (1 - point.y) / 2 * height });
+        },
+        recordingFocus() { return focus; },
+        recordingBadge() { return badge; },
+      };
+    }` }));
+  // Playwright's Chromium can encode MP4 but not decode H.264, so check the WebM path here.
+  await recorderContext.addInitScript(() => {
+    const supported = MediaRecorder.isTypeSupported.bind(MediaRecorder);
+    MediaRecorder.isTypeSupported = (type) => !type.startsWith("video/mp4") && supported(type);
+  });
+  const rec = await recorderContext.newPage();
+  rec.setDefaultTimeout(20000);
+  rec.on("pageerror", (error) => errors.push(error.message));
+  rec.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+  await rec.goto(`${base}/games/muyu?lang=en`);
+  await running(rec);
+  await rec.locator("#menu-toggle").click();
+  assert.equal(await rec.locator("#record").textContent(), "Record video");
+  await rec.locator("#record").click();
+  await running(rec);
+  await rec.waitForFunction(() => document.querySelector("#record-time").textContent === "0:01");
+  assert.match(await rec.locator("#record-stop").getAttribute("aria-label"), /^Recording 0:01/);
+  await rec.locator("#record-stop").click();
+  await rec.waitForFunction(() => document.querySelector("#record-dialog").open);
+  assert.equal(await rec.locator("#player-message").isVisible(), true, "the clip dialog pauses the game");
+  assert.equal(await rec.locator("#record-stop").isHidden(), true);
+  const clip = await rec.evaluate(async () => {
+    const video = document.querySelector("#record-video");
+    if (video.readyState < 1) await new Promise((resolve, reject) => { video.onloadedmetadata = resolve; video.onerror = () => reject(new Error("clip did not load")); });
+    video.currentTime = 0.5;
+    await new Promise((resolve) => { video.onseeked = resolve; });
+    const canvas = Object.assign(document.createElement("canvas"), { width: video.videoWidth, height: video.videoHeight });
+    const context = canvas.getContext("2d");
+    context.drawImage(video, 0, 0);
+    const pixel = (x, y) => [...context.getImageData(x, y, 1, 1).data.slice(0, 3)];
+    const save = document.querySelector("#record-save");
+    return { width: video.videoWidth, height: video.videoHeight, centre: pixel(360, 640), badge: pixel(100, 100), border: pixel(26, 100), below: pixel(360, 1100), src: video.src.slice(0, 5), file: save.download, note: document.querySelector("#record-note").textContent };
+  });
+  assert.equal(clip.width, 720);
+  assert.equal(clip.height, 1280);
+  const near = ([r, g, b], [er, eg, eb]) => Math.abs(r - er) + Math.abs(g - eg) + Math.abs(b - eb) < 90;
+  assert.ok(near(clip.centre, [255, 0, 0]), `the focus is centred in the clip: ${clip.centre}`);
+  assert.ok(near(clip.badge, [0, 255, 0]), `the badge is top left: ${clip.badge}`);
+  assert.ok(near(clip.border, [33, 31, 23]), `the badge has an ink frame: ${clip.border}`);
+  assert.ok(near(clip.below, [32, 64, 255]), `the game background surrounds it: ${clip.below}`);
+  assert.equal(clip.src, "blob:");
+  assert.match(clip.file, /^muyu-\d{14}\.webm$/);
+  assert.match(clip.note, /^0:0[12] · The video stays on this device/);
+  await rec.screenshot({ path: resolve(results, "player-recording.png") });
+  await rec.locator("#record-discard").click();
+  await running(rec);
+  assert.equal(await rec.evaluate(() => document.querySelector("#record-video").hasAttribute("src")), false, "discarding releases the clip");
+  await recorderContext.close();
+
   // Mobile: a landscape-only game waits for rotation; options live behind the menu.
   const mobile = await browser.newContext({ serviceWorkers: "block", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const phone = await open(mobile, "", { orientation: "landscape", keepAwake: true });

@@ -19,6 +19,8 @@ test("only the player relaxes CSP for loaders; the site keeps workers same-origi
   assert.match(player, /script-src 'self' 'wasm-unsafe-eval'/);
   assert.match(player, /worker-src 'self' blob:/);
   assert.match(player, /img-src 'self' blob: https:\/\/games\.example\.com/);
+  assert.match(player, /media-src 'self' blob: https:\/\/games\.example\.com/, "recorded clips preview from blob URLs");
+  assert.doesNotMatch(site, /media-src[^;]*blob:/);
   assert.ok(!player.includes(", "), "detached site policy is not combined with the player policy");
   for (const policy of [site, player]) assert.match(policy, new RegExp(`connect-src [^;]*${origin.replaceAll(".", "\\.")}`));
   assert.equal(headersFor(rules, "/sw.js")["cache-control"], "no-cache");

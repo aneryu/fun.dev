@@ -19,6 +19,9 @@ export const messages = {
     shareError: "无法分享，请手动复制地址。", rotatePortrait: "请把设备竖过来。", rotateLandscape: "请把设备横过来。",
     myProgress: "我的进度", platformUpdated: "fun.dev 已更新，请刷新页面。", gameOutdated: "这个游戏正在升级，请稍后再来。", loadingProgress: "加载进度",
     shareDefault: (title) => `来 fun.dev 玩「${title}」`,
+    recordVideo: "录制视频", stopRecording: "停止录制", stop: "停止", recordingTime: (time) => `正在录制 ${time}，点击停止`,
+    recordDone: "录好了", recordShare: "分享视频", recordSave: "保存视频", recordDiscard: "不要了",
+    recordNote: (time) => `${time} · 视频只在这台设备上，关掉就没了。`, recordError: "录制失败。", recordShareError: "无法分享，请先保存视频。",
   },
   en: {
     language: "Language", languageAuto: "Auto",
@@ -40,6 +43,9 @@ export const messages = {
     shareError: "Couldn't share. Copy the address instead.", rotatePortrait: "Turn your device to portrait.", rotateLandscape: "Turn your device to landscape.",
     myProgress: "My progress", platformUpdated: "fun.dev has been updated. Reload the page.", gameOutdated: "This game is being updated. Try again later.", loadingProgress: "Loading progress",
     shareDefault: (title) => `Play ${title} on fun.dev`,
+    recordVideo: "Record video", stopRecording: "Stop recording", stop: "Stop", recordingTime: (time) => `Recording ${time}, select to stop`,
+    recordDone: "Your clip", recordShare: "Share video", recordSave: "Save video", recordDiscard: "Discard",
+    recordNote: (time) => `${time} · The video stays on this device and is gone once you close this.`, recordError: "Recording failed.", recordShareError: "Couldn't share. Save the video instead.",
   },
 };
 

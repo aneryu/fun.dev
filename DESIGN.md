@@ -107,7 +107,10 @@ respect `prefers-reduced-motion`. The player passes this preference to games.
 ### Shared player
 
 Platform controls live in one ☰ menu on every screen: restart, fullscreen (where
-supported), My progress, options, share and the language. Opening it pauses the game.
+supported), My progress, options, share, record video (games that allow it) and the
+language. Opening it pauses the game. While recording, an ink stop button with a
+blinking Beak Orange dot and the elapsed time sits beside the menu button; the finished
+clip opens in a dialog styled like Options.
 On phones and tablets the game fills the available dynamic viewport, the menu button
 floats at the top left and the site link, back link and title move into the menu;
 respect display cutouts and safe areas in both orientations. Desktop keeps a slim

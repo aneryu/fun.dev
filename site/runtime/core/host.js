@@ -1,9 +1,10 @@
 import { createScope } from "./scope.js";
 import { createAudioHub } from "./audio.js";
 import { coerce, createOptionState, settingsOf, validateOptions } from "./options.js";
+import { createRecorder, recordingSupported } from "./recorder.js";
 
 export const API_VERSION = 2;
-const hooks = ["update", "resize", "pause", "resume", "dispose", "localeChanged", "optionChanged", "shareText"];
+const hooks = ["update", "resize", "pause", "resume", "dispose", "localeChanged", "optionChanged", "shareText", "recordingFocus", "recordingBadge"];
 const hapticPatterns = { tap: [12], success: [20, 40, 30], fail: [70] };
 const resolutionScales = [1, 0.8, 0.65, 0.5];
 
@@ -53,7 +54,7 @@ export function createGameHost({
   THREE, stage, onState = () => {}, onError = console.error, locale = "en", canvasLabel = "Game canvas. Press Tab to leave",
   bundleOrigin = window.location.origin, runtimeBase = new URL("/runtime/", window.location.origin),
   safeArea = () => ({ top: 0, right: 0, bottom: 0, left: 0 }), announce = () => {}, haptics = () => {},
-  onLoading = () => {}, onOptions = () => {},
+  onLoading = () => {}, onOptions = () => {}, onRecorded = () => {},
 }) {
   let currentLocale = locale;
   let currentLabel = canvasLabel;
@@ -75,9 +76,18 @@ export function createGameHost({
     session.renderer?.setAnimationLoop(null);
   }
 
+  // Ends the session's recording and hands the pending video to the player.
+  function endRecording(session) {
+    const recorder = session?.recorder;
+    if (!recorder) return;
+    session.recorder = null;
+    onRecorded(recorder.stop());
+  }
+
   function release(session) {
     if (!session || session.scope.signal.aborted) return;
     stopLoop(session);
+    endRecording(session);
     if (session === current) audio.setActive(false);
     const errors = session.scope.dispose();
     if (errors.length) console.error("Game cleanup failed:", errors);
@@ -101,9 +111,11 @@ export function createGameHost({
     try {
       if (paused) {
         stopLoop(session);
+        session.recorder?.pause();
         session.game.pause?.();
       } else {
         session.game.resume?.();
+        session.recorder?.resume();
         startLoop(session);
       }
       onState(paused ? "paused" : "running");
@@ -141,8 +153,10 @@ export function createGameHost({
       session.invalidated = false;
       const animate = session.game.update?.(delta, session.elapsed);
       session.renderer.render(session.scene, session.camera);
+      session.recorder?.capture(time);
       if (session.game.adaptiveResolution === true && session.game.renderMode !== "on-demand") adapt(session, time);
-      if (session.game.renderMode === "on-demand" && !animate && !session.invalidated) stopLoop(session);
+      // While recording, on-demand games keep rendering so the video gets a steady frame rate.
+      if (session.game.renderMode === "on-demand" && !animate && !session.invalidated && !session.recorder) stopLoop(session);
     } catch (error) { fail(session, error); }
   }
 
@@ -228,6 +242,7 @@ export function createGameHost({
       session.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
       session.camera.position.z = 5;
       const sound = audio.session();
+      session.sound = sound;
       if (sound) scope.onCleanup(() => sound.dispose());
 
       canvas.addEventListener("webglcontextlost", (event) => {
@@ -364,6 +379,39 @@ export function createGameHost({
         redraw(session);
       } catch (error) { fail(session, error); }
     },
+    recordingSupported,
+    // Starts recording the running game; onRecorded receives the video when it ends.
+    startRecording({ watermark }) {
+      const session = current;
+      if (!session?.game || session.scope.signal.aborted || session.recorder || !recordingSupported()) return false;
+      const { context, destination } = session.sound?.api ?? {};
+      session.recorder = createRecorder({
+        source: session.renderer.domElement,
+        audio: context ? { context, node: destination } : null,
+        topInset: () => session.viewport.safeArea.top / session.viewport.height,
+        focus: () => {
+          try {
+            const point = session.game.recordingFocus?.();
+            const x = point?.x / session.viewport.width, y = point?.y / session.viewport.height;
+            return Number.isFinite(x) && Number.isFinite(y) ? { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) } : null;
+          } catch { return null; }
+        },
+        badge: () => {
+          try {
+            const image = session.game.recordingBadge?.();
+            return image && image.width > 0 && image.height > 0 ? image : null;
+          } catch { return null; }
+        },
+        watermark,
+        onLimit: () => endRecording(session),
+      });
+      session.recorder.start();
+      if (session.paused) session.recorder.pause();
+      else startLoop(session);
+      return true;
+    },
+    stopRecording() { endRecording(current); },
+    recordingSeconds() { return current?.recorder ? current.recorder.seconds : null; },
     shareText(locale) {
       try {
         const text = current?.game?.shareText?.(locale);
