@@ -1,5 +1,5 @@
 import { seals, layoutSeal, layoutRelief, FACE, STAGES, isGlyph } from "./seals.js";
-import { createCarving, createMaskPainter, FINISH, CLEAR_FINISH, CLEAR as CLEAR_GRID, AXES, STEP, hash } from "./carve.js";
+import { createCarving, createMaskPainter, FINISH, CLEAR_FINISH, CLEAR as CLEAR_GRID, AXES, ANGLES, angleIndex, STEP, hash } from "./carve.js";
 import { createStone, stones, HEIGHT } from "./stone.js";
 import { createKnife } from "./knife.js";
 import { createSound } from "./sound.js";
@@ -34,7 +34,7 @@ const copy = {
     nth: (n) => `第${["一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二"][n] ?? n + 1}方`,
     blow: "吹", album: "印谱", left: "‹", right: "›",
     finished: (title) => `「${title}」刻成`, cardDetail: (stone) => `${stone} · 已收入印谱`,
-    next: "刻下一方", stay: "再看看", close: "关闭", back: "回去刻", view: "看印石", recarve: "重刻这一方", sure: "确定重刻？", restart: "重刻", undo: "撤销",
+    next: "刻下一方", stay: "再看看", close: "关闭", back: "回去刻", view: "看印石", recarve: "重刻这一方", sure: "确定重刻？", restart: "重刻", undo: "撤销", proof: "试印", proofTitle: (title) => `试印「${title}」`, proofDetail: (pct) => `已刻 ${pct}%`, keepCarving: "继续刻",
     undone: "撤销了一刀", redoTitle: "重刻", redoDetail: "刀痕会清掉，石粉留着", redoStage: (name) => `重刻「${name}」`, redoSeal: "整方重来", cancel: "取消",
     redone: (name) => `「${name}」重新开始`, restarted: "这一方重新开始",
     albumTitle: (count, total) => `印谱 ${count}/${total}`, albumDetail: "点一方印：刻完的看印蜕，没刻完的接着刻", locked: "？",
@@ -63,7 +63,7 @@ const copy = {
     nth: (n) => `Seal ${n + 1}`,
     blow: "Blow", album: "Seals", left: "‹", right: "›",
     finished: (title) => `“${title}” is carved`, cardDetail: (stone) => `${stone} · added to your seals`,
-    next: "Next seal", stay: "Look again", close: "Close", back: "Carve", view: "See stone", recarve: "Carve again", sure: "Sure?", restart: "Redo", undo: "Undo",
+    next: "Next seal", stay: "Look again", close: "Close", back: "Carve", view: "See stone", recarve: "Carve again", sure: "Sure?", restart: "Redo", undo: "Undo", proof: "Proof", proofTitle: (title) => `Proof of ${title}`, proofDetail: (pct) => `${pct}% carved`, keepCarving: "Carry on",
     undone: "Undid a cut", redoTitle: "Redo", redoDetail: "The cuts go; the powder stays", redoStage: (name) => `Redo ${name}`, redoSeal: "Whole seal", cancel: "Cancel",
     redone: (name) => `${name} starts over`, restarted: "Starting this seal over",
     albumTitle: (count, total) => `Seals ${count}/${total}`, albumDetail: "Tap a seal: finished ones show their print", locked: "?",
@@ -81,7 +81,11 @@ const copy = {
 const HEADINGS = [[0, -1]]; // the knife pushes up the screen, away from the carver (冲刀)
 const SPIN_MIN_PX = 40; // nearer the stone's centre than this, a sideways drag turns it
 const SPIN_DRAG_PX = 160; // sideways CSS px per quarter turn near the centre
-const DETENT = 0.14; // radians either side of a quarter turn where the stone settles (~8°)
+// 角度依附: the stone turns freely, settling softly every 15° and firmly at each quarter turn.
+const NOTCH = Math.PI / 12; // 15°
+const NOTCH_HOLD = 0.035; // radians either side of a 15° notch where it settles (~2°)
+const DETENT = 0.1; // radians either side of a quarter turn where it settles (~6°)
+const NOTCH_RELEASE = 0.07; // let go within ~4° of a notch and it settles onto it
 const SNAP_PX = 16; // line assist: how near (CSS px) the cutting point must come to a draft line
 const KNIFE_HIT_PX = 36; // a finger this close to the knife picks it up
 const DIRECTION_PX = 8; // the first push this long picks the cut's direction
@@ -361,7 +365,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
 
   // Camera: looking down at the face from the front, steeply, so the face fills the stage and
   // a strip of the carved side shows below it.
-  const ELEVATION = 1.36; // about 78°: the face square to the screen, a sliver of the sides for depth
+  const ELEVATION = 1.5; // about 86°: the face square to the screen, the stone's sides out of sight
   const view = { elevation: ELEVATION, azimuth: 0, distance: 4, target: new THREE.Vector3(0, -0.08, 0) };
   let viewport = context.viewport;
   const cameraUp = new THREE.Vector3(), cameraRight = new THREE.Vector3();
@@ -448,7 +452,8 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
 
   let yaw = 0, yawTarget = 0;
   // The stone sits square (and still) at a quarter turn: only then does the knife go in.
-  const settled = () => Math.abs(yawTarget - yaw) < 0.02 && Math.abs(yaw - Math.round(yaw / QUARTER) * QUARTER) < 0.02;
+  // The stone is still: the knife may go in at whatever angle it rests.
+  const settled = () => Math.abs(yawTarget - yaw) < 0.005;
   // A step's names: the line steps by name, each character step by its character.
   const charOf = (stage) => [...bench.seal.text.zh][Number(stage.slice(5))];
   const stageLabel = (stage) => isGlyph(stage) ? words.carveChar(charOf(stage)) : words.steps[stage];
@@ -471,11 +476,10 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     const [x, z] = localTrack();
     return Math.abs(cut.direction[0] * x + cut.direction[1] * z) > 0.98;
   }
+  const strokeDirection = (stroke) => { const a = stroke.angle / ANGLES * Math.PI * 2; return [Math.cos(a), Math.sin(a)]; };
   function axisOf(sign = 1) {
     const [x, z] = localTrack(sign);
-    let best = 0;
-    AXES.forEach(([dx, dy], index) => { if (dx * x + dy * z > AXES[best][0] * x + AXES[best][1] * z) best = index; });
-    return best;
+    return angleIndex(x, z);
   }
 
   // The knife, in world coordinates (it stays with the hand while the stone turns under it).
@@ -625,7 +629,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     let stroke = null, points = [];
     const cuts = [];
     for (const edge of knife.strokes[side]) {
-      const [dx, dy] = AXES[edge.axis];
+      const [dx, dy] = strokeDirection(edge);
       scratch.set(-knife.dir[1] * (knife.wobble + knife.kick), 0, knife.dir[0] * (knife.wobble + knife.kick)).applyAxisAngle(UP, -yaw);
       const offset = scratch.x * -dy + scratch.z * dx;
       const grown = carving.extend(edge, reach, offset);
@@ -633,7 +637,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       if (grown.points.length) bench.painter.paint(edge, grown.points);
       if (!stroke) { stroke = edge; points = grown.points; }
     }
-    const [dx, dy] = AXES[stroke.axis];
+    const [dx, dy] = strokeDirection(stroke);
     if (points.length) {
       knife.cut = true;
       maskDirty = true;
@@ -870,7 +874,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
 
   function turn(direction) {
     if (knife.plunged) return;
-    yawTarget = Math.round(yawTarget / QUARTER) * QUARTER + direction * QUARTER;
+    yawTarget = Math.round(yawTarget / NOTCH) * NOTCH + direction * NOTCH;
     sound.tap();
     afterTurn();
   }
@@ -887,7 +891,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   function layoutButtons() {
     hud.setButtons([]);
     if (bench?.viewOnly) hud.setCorner([{ id: "album", label: words.album }, { id: "back", label: words.back }]);
-    else if (bench && currentStage() !== "done") hud.setCorner([{ id: "album", label: words.album }, { id: "redo", label: words.restart, quiet: true }]);
+    else if (bench && currentStage() !== "done") hud.setCorner([{ id: "album", label: words.album }, { id: "proof", label: words.proof }, { id: "redo", label: words.restart, quiet: true }]);
     else hud.setCorner([{ id: "album", label: words.album }]);
     badgeKey = null; // redraw the badges on the next frame
   }
@@ -926,6 +930,26 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     } else if (lastMarker) { lastMarker = ""; hud.setMarker(null); }
   }
 
+  // 试印: the seal pressed on paper as it stands now, to see the carving so far the right way
+  // round. The print is made from the face's groove mask as it is.
+  let proofTexture = null;
+  onCleanup(() => proofTexture?.dispose());
+  function openProof() {
+    lift();
+    proofTexture?.dispose();
+    proofTexture = makePrint(bench.stone.mask.canvas);
+    cardKind = "proof";
+    cardSeal = bench.seal;
+    sound.tap();
+    hud.setCard({
+      title: words.proofTitle(text(bench.seal.text)),
+      detail: words.proofDetail(Math.round(bench.carving.progress() * 100)),
+      picture: proofTexture,
+      buttons: [{ id: "proof-close", label: words.keepCarving }],
+    });
+    setFocusable();
+  }
+
   // The redo card: this step again, or the whole seal.
   function openRedo() {
     const stage = redoStage();
@@ -960,6 +984,8 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       case "undo": undo(); break;
       case "redo": openRedo(); break;
       case "redo-cancel": closeCard(); break;
+      case "proof": openProof(); break;
+      case "proof-close": closeCard(); break;
       case "redo-seal":
         closeCard();
         lift(true);
@@ -1156,7 +1182,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       entry.center = center;
       entry.angle = Math.atan2(y - center[1], x - center[0]);
       entry.yawStart = yaw;
-      entry.lastDetent = Math.round(yaw / QUARTER);
+      entry.lastNotch = Math.round(yaw / NOTCH);
     }
     context.invalidate();
   }, { signal });
@@ -1197,13 +1223,14 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
       }
       // Screen angles run clockwise; the stone turns with the finger.
       let next = entry.yawStart - turned;
-      // 角度依附: near a quarter turn the stone settles onto it, with a soft click.
-      const detent = Math.round(next / QUARTER);
-      if (Math.abs(next - detent * QUARTER) < DETENT) next = detent * QUARTER;
-      if (next === detent * QUARTER && detent !== entry.lastDetent) {
-        entry.lastDetent = detent;
+      // 角度依附: near each 15° notch the stone settles onto it with a light click, and more
+      // firmly (a wider catch and a stronger buzz) at each quarter turn.
+      const notch = Math.round(next / NOTCH), quarter = notch % 6 === 0;
+      if (Math.abs(next - notch * NOTCH) < (quarter ? DETENT : NOTCH_HOLD)) next = notch * NOTCH;
+      if (next === notch * NOTCH && notch !== entry.lastNotch) {
+        entry.lastNotch = notch;
         sound.tap();
-        context.haptics.vibrate("tap");
+        context.haptics.vibrate(quarter ? "tap" : [4]);
       }
       yaw = yawTarget = next;
       draftDirty = true;
@@ -1220,8 +1247,9 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     if (entry.role === "cut") lift();
     if (entry.role === "cut" || entry.role === "move") aimHandle();
     if (entry.role === "spin") {
-      // Let go: onto the nearest quarter.
-      yawTarget = Math.round(yaw / QUARTER) * QUARTER;
+      // Let go: near a notch it settles there; otherwise it stays as it is.
+      const notch = Math.round(yaw / NOTCH) * NOTCH;
+      yawTarget = Math.abs(yaw - notch) < NOTCH_RELEASE ? notch : yaw;
       afterTurn();
     }
     context.invalidate();
@@ -1246,7 +1274,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
         if (!event.repeat) act(ids[focusIndex] ?? ids[0]);
       } else if (code === "Escape") {
         event.preventDefault();
-        if (albumOpen) closeAlbum(); else if (cardKind) act({ finished: "stay", redo: "redo-cancel", intro: "begin" }[cardKind] ?? "view");
+        if (albumOpen) closeAlbum(); else if (cardKind) act({ finished: "stay", redo: "redo-cancel", intro: "begin", proof: "proof-close" }[cardKind] ?? "view");
       } else if (code === "KeyA" && albumOpen) { event.preventDefault(); closeAlbum(); }
       context.invalidate();
       return;
@@ -1473,7 +1501,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     localeChanged() {
       words = copy[locale()];
       labels();
-      if (cardKind === "intro") openIntro(); else if (cardKind === "redo") openRedo(); else if (cardKind) openCard(cardSeal, cardKind);
+      if (cardKind === "intro") openIntro(); else if (cardKind === "proof") openProof(); else if (cardKind === "redo") openRedo(); else if (cardKind) openCard(cardSeal, cardKind);
       if (albumOpen) openAlbum();
     },
     optionChanged(id) {
@@ -1495,7 +1523,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
             if (cut.stage !== stage || cut.done) continue;
             for (const { stroke, points } of bench.carving.finish(cut, widthCode(cut.stage))) {
               bench.painter.paint(stroke, points);
-              for (const k of points) if (k % 2 === 0) sprinkle(bench.carving.strokePoint(stroke, k), AXES[stroke.axis], WIDTHS[stroke.width], 1, 0.7);
+              for (const k of points) if (k % 2 === 0) sprinkle(bench.carving.strokePoint(stroke, k), strokeDirection(stroke), WIDTHS[stroke.width], 1, 0.7);
             }
           }
           maskDirty = true;

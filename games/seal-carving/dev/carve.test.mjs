@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { seals, layoutSeal, layoutRelief, FACE, STAGES, isGlyph } from "../seals.js";
-import { createCarving, createMaskPainter, AXES, FINISH } from "../carve.js";
+import { createCarving, createMaskPainter, angleIndex, FINISH } from "../carve.js";
 
 const WIDTHS = [FACE.bevel, FACE.frameWidth, FACE.glyphWidth];
 const CODE = (stage) => isGlyph(stage) ? 2 : { bevel: 0, border: 1, cross: 1 }[stage];
-const axisOf = (cut) => AXES.findIndex(([dx, dy]) => dx * cut.direction[0] + dy * cut.direction[1] > 0.98);
+const axisOf = (cut) => angleIndex(cut.direction[0], cut.direction[1]);
 
 // Carves a cut the way the knife does: one stroke from its start along its axis.
 function cutAlong(carving, cut, offset = 0) {
@@ -118,4 +118,16 @@ test("each character is its own step; its guides clear its ground, never its str
   carving.removeStage("glyph0");
   assert.equal(carving.stage(), "glyph0");
   assert.equal(carving.clearCoverage(0), 0);
+});
+
+test("a stroke at a slant covers a slanted line and saves its angle", () => {
+  const carving = createCarving([{ stage: "bevel", a: [-0.3, -0.3], b: [0.3, 0.3], width: 0.02, stroke: 0 }], [0.02]);
+  const [cut] = carving.cuts;
+  const stroke = carving.beginStroke(cut.a[0], cut.a[1], angleIndex(1, 1), 0, 0);
+  carving.settle(carving.extend(stroke, cut.length, 0).cuts);
+  assert.equal(cut.done, true);
+  const again = createCarving([{ stage: "bevel", a: [-0.3, -0.3], b: [0.3, 0.3], width: 0.02, stroke: 0 }], [0.02]);
+  again.restore(carving.serialize());
+  assert.equal(again.strokes[0].angle, 32);
+  assert.equal(again.cuts[0].done, true);
 });

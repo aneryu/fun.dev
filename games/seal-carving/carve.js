@@ -1,5 +1,5 @@
 // The carving itself. The knife is free: wherever it is pushed into the stone it leaves a
-// groove, on the draft or not. Every push is recorded as a stroke (a start point, the axis it
+// groove, on the draft or not. Every push is recorded as a stroke (a start point, the angle it
 // ran along and the hand's sideways wobble every STEP), so a seal looks the same every time
 // it is opened. The draft's cuts count as carved where a groove runs along them.
 import { STAGES } from "./seals.js";
@@ -11,6 +11,11 @@ const OFFSET = 16384; // sideways wobble in 1/OFFSET face units (int8: up to ±0
 export const FINISH = 0.9;
 // Unit directions of the four axes a stroke can run along, in face coordinates (u, v).
 export const AXES = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+// A stroke runs at any of ANGLES directions around the face (the stone turns freely under the
+// knife); its angle is stored as an index.
+export const ANGLES = 256;
+export const angleIndex = (dx, dy) => ((Math.round(Math.atan2(dy, dx) / (Math.PI * 2) * ANGLES) % ANGLES) + ANGLES) % ANGLES;
+const directionOf = (stroke) => { const a = stroke.angle / ANGLES * Math.PI * 2; return [Math.cos(a), Math.sin(a)]; };
 
 const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
 
@@ -76,14 +81,14 @@ export function createCarving(segments, widths, relief = { keep: [], cells: [] }
 
   // Point k of a stroke, in face units.
   function strokePoint(stroke, k, offset = stroke.offsets[k] / OFFSET) {
-    const [dx, dy] = AXES[stroke.axis];
+    const [dx, dy] = directionOf(stroke);
     return [stroke.u + dx * k * STEP - dy * offset, stroke.v + dy * k * STEP + dx * offset];
   }
 
   // Marks the draft samples a new groove point runs over. Returns the cuts that changed.
   function cover(stroke, k) {
     const [u, v] = strokePoint(stroke, k);
-    const [dx, dy] = AXES[stroke.axis];
+    const [dx, dy] = directionOf(stroke);
     const width = widths[stroke.width];
     const changed = [];
     for (const cut of cuts) {
@@ -101,8 +106,9 @@ export function createCarving(segments, widths, relief = { keep: [], cells: [] }
   }
 
   // `stage` is the index in STAGES of the step the stroke was cut in, for redoing a step.
-  function beginStroke(u, v, axis, width, stage = 0) {
-    const stroke = { index: strokes.length, u: Math.round(u * POSITION) / POSITION, v: Math.round(v * POSITION) / POSITION, axis, width, stage, offsets: [] };
+  // `angle` is an index of ANGLES (see angleIndex).
+  function beginStroke(u, v, angle, width, stage = 0) {
+    const stroke = { index: strokes.length, u: Math.round(u * POSITION) / POSITION, v: Math.round(v * POSITION) / POSITION, angle, width, stage, offsets: [] };
     strokes.push(stroke);
     return stroke;
   }
@@ -128,7 +134,7 @@ export function createCarving(segments, widths, relief = { keep: [], cells: [] }
   function finish(cut, width) {
     const made = [];
     let k = 0;
-    const axis = AXES.findIndex(([dx, dy]) => dx * cut.direction[0] + dy * cut.direction[1] > 0.98);
+    const axis = angleIndex(cut.direction[0], cut.direction[1]);
     while (k < cut.count) {
       if (cut.covered[k]) { k++; continue; }
       let end = k;
@@ -205,7 +211,7 @@ export function createCarving(segments, widths, relief = { keep: [], cells: [] }
     resetGround();
     const changed = new Set();
     for (const entry of old) {
-      const stroke = beginStroke(entry.u, entry.v, entry.axis, entry.width, entry.stage);
+      const stroke = beginStroke(entry.u, entry.v, entry.angle, entry.width, entry.stage);
       for (let k = 0; k < entry.offsets.length; k++) {
         stroke.offsets.push(entry.offsets[k]);
         for (const cut of cover(stroke, k)) changed.add(cut);
@@ -218,7 +224,7 @@ export function createCarving(segments, widths, relief = { keep: [], cells: [] }
   const rewind = (count) => rebuild(strokes.slice(0, Math.max(0, count)));
   const removeStage = (stage) => rebuild(strokes.filter((stroke) => stroke.stage !== STAGES.indexOf(stage)));
 
-  // Saved form: per stroke int16 u, int16 v, uint8 axis + 4 × width + 16 × step, uint16 count,
+  // Saved form: per stroke int16 u, int16 v, uint8 angle, uint8 width + 4 × step, uint16 count,
   // then the int8 offsets as runs (value, length 1..255): the hand's wobble changes slowly.
   // All strokes concatenated and base64-encoded.
   function runs(offsets) {
@@ -231,14 +237,14 @@ export function createCarving(segments, widths, relief = { keep: [], cells: [] }
   }
   function serialize() {
     const encoded = strokes.map((stroke) => runs(stroke.offsets));
-    const size = strokes.reduce((sum, stroke, i) => sum + 7 + encoded[i].length * 2, 0);
+    const size = strokes.reduce((sum, stroke, i) => sum + 8 + encoded[i].length * 2, 0);
     const bytes = new Uint8Array(size);
     const view = new DataView(bytes.buffer);
     let at = 0;
     strokes.forEach((stroke, i) => {
       view.setInt16(at, Math.round(stroke.u * POSITION)); view.setInt16(at + 2, Math.round(stroke.v * POSITION));
-      view.setUint8(at + 4, stroke.axis + 4 * stroke.width + 16 * stroke.stage); view.setUint16(at + 5, stroke.offsets.length);
-      at += 7;
+      view.setUint8(at + 4, stroke.angle); view.setUint8(at + 5, stroke.width + 4 * stroke.stage); view.setUint16(at + 6, stroke.offsets.length);
+      at += 8;
       for (const [value, length] of encoded[i]) { view.setInt8(at++, value); view.setUint8(at++, length); }
     });
     let binary = "";
@@ -255,13 +261,13 @@ export function createCarving(segments, widths, relief = { keep: [], cells: [] }
     let at = 0;
     const changed = new Set();
     while (at < bytes.length) {
-      if (at + 7 > bytes.length) throw new Error("Truncated carving.");
+      if (at + 8 > bytes.length) throw new Error("Truncated carving.");
       const u = view.getInt16(at) / POSITION, v = view.getInt16(at + 2) / POSITION;
-      const code = view.getUint8(at + 4), count = view.getUint16(at + 5);
-      at += 7;
-      const width = Math.floor(code / 4) % 4, stage = Math.floor(code / 16);
+      const angle = view.getUint8(at + 4), code = view.getUint8(at + 5), count = view.getUint16(at + 6);
+      at += 8;
+      const width = code % 4, stage = Math.floor(code / 4);
       if (width >= widths.length || stage >= STAGES.length) throw new Error("Malformed carving.");
-      const stroke = beginStroke(u, v, code % 4, width, stage);
+      const stroke = beginStroke(u, v, angle, width, stage);
       while (stroke.offsets.length < count) {
         if (at + 2 > bytes.length) throw new Error("Truncated carving.");
         const value = view.getInt8(at++), length = view.getUint8(at++);
@@ -302,7 +308,7 @@ export function createMaskPainter(carving, context2d, size) {
   // One point's piece of groove, from halfway to the previous point to halfway to the next,
   // so pieces join without gaps; the stroke's first and last points get square caps.
   function paintPoint(stroke, k) {
-    const [dx, dy] = AXES[stroke.axis];
+    const [dx, dy] = directionOf(stroke);
     const nx = -dy, ny = dx;
     const width = carving.widths[stroke.width], w = width / 2;
     const last = stroke.offsets.length - 1;

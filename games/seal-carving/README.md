@@ -20,7 +20,7 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
   leave a fine tool mark, so wider patches cleared with several pushes read as hatched. At 90%
   the rest of the cell is cleared and the next character comes up.
 - A fresh seal opens with a card: its print-to-be, its stone and the six steps. Each finished
-  step names the next. The face is seen square from above (about 78°) on a carver's pad.
+  step names the next. The face is seen nearly straight down (about 86°) on a carver's pad.
   Everything is on or beside the knife; only the album and Redo wait in the top corner, in
   one row; Blow sits just below the stone. The album shows seals still to carve as faint
   prints.
@@ -28,9 +28,10 @@ blow the powder away. The face is carved mirrored; the album shows each seal's p
   the finger); holding its cinnabar-dyed grip drives it in. As in the video's 冲刀 it only
   pushes up the screen, away from the carver, the finger pushing it one to one; drawn back it
   slides down its groove. Letting go lifts it.
-- The stone turns under the knife: a finger anywhere off the knife turns it about its centre,
-  settling near each quarter turn (with a click) and squaring up when let go. The knife only
-  goes in while the stone is square.
+- The stone turns under the knife to any angle: a finger anywhere off the knife turns it,
+  settling lightly every 15° and firmly at each quarter turn (a click each), so slanted
+  strokes can be cut. Strokes are stored at any of 256 angles. Proof (试印, top right) stamps
+  the face as it stands.
 - Line assist (a setting, on by default): within 16 CSS px of an open draft line (for the
   characters, of an uncut stroke's centre line) along the knife, the cutting point settles onto
   it, and onto its nearer end; the line turns yellow. Undo (↶, left of the point, tap only)
@@ -64,7 +65,7 @@ With `context.progress` v1 the game saves `{schemaVersion: 1, data: {current, se
 unlockAll}}`. Each seal keeps its strokes as base64 (`carve.js` `serialize`: per stroke
 an int16 start, its axis, blade and step, and int8 wobble every 0.006 face units); six finished
 seals stay under 40 KB; offsets are stored as runs, and the cleared ground is replayed from
-the strokes. Schema 2; a schema 1 save keeps its place but drops its carvings. It saves whenever the knife lifts and when a seal is finished.
+the strokes. Schema 3; an older save keeps its place but drops its carvings. It saves whenever the knife lifts and when a seal is finished.
 Unsupported saves are refused before play and stay exportable through the player; without
 the capability the game plays and its label says saving is unavailable.
 

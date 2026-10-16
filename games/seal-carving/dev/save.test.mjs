@@ -14,11 +14,11 @@ test("saves round-trip and drop what they do not know", () => {
   assert.equal(again.current, seals[0].id);
 });
 
-test("version 1 carvings are dropped; unsupported or malformed saves are refused", () => {
+test("older carvings are dropped; unsupported or malformed saves are refused", () => {
   const old = saving.deserialize({ schemaVersion: 1, data: { current: seals[1].id, seals: { [seals[0].id]: { cuts: "AAAA", done: true } } } });
   assert.deepEqual(old.seals[seals[0].id], { cuts: null, done: false });
   assert.equal(old.current, seals[1].id);
-  assert.throws(() => saving.deserialize({ schemaVersion: 3, data: {} }));
+  assert.throws(() => saving.deserialize({ schemaVersion: 4, data: {} }));
   assert.throws(() => saving.deserialize({ schemaVersion: 1, data: { current: 3, seals: {} } }));
   assert.throws(() => saving.deserialize(null));
 });

@@ -94,7 +94,7 @@ export function createHud({ THREE, camera, scene, track, kit }) {
   const hint = label({ size: 12, color: css(BROWN), order: 100 });
   const STEPS = 8;
   const steps = Array.from({ length: STEPS }, () => ({ track: box(BROWN, 100, 0.25), bar: box(INK, 101), name: label({ size: 11, color: css(BROWN), order: 100 }) }));
-  const corners = Array.from({ length: 2 }, () => ({ border: box(INK, 100), fill: box(CREAM, 101), text: label({ size: 13, weight: 700, order: 102 }) }));
+  const corners = Array.from({ length: 3 }, () => ({ border: box(INK, 100), fill: box(CREAM, 101), text: label({ size: 13, weight: 700, order: 102 }) }));
   // The cutting point, kept quiet: a short, thin bar as wide as the groove the edge will cut
   // (two, either side of the stroke, when cutting characters),
   // and a small dot ahead, the way it pushes. Warm white and half see-through while
