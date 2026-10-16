@@ -66,7 +66,8 @@ if (process.argv[1] === new URL(import.meta.url).pathname) {
     if (problems.length) throw new Error(problems.join("\n"));
     if (flags.includes("--check") && changes.length) throw new Error("Files and locks differ. Run npm run assets, then commit the locks.");
     if (flags.includes("--push")) console.log(`Backed up ${await pushBlobs()} blobs to ${bucket}.`);
-    console.log(changes.length && !flags.includes("--check") ? "Assets synced; commit the changed locks." : "Assets match their locks.");
+    const locksChanged = changes.some((change) => /^(?:added|updated|unlisted) /.test(change));
+    console.log(locksChanged && !flags.includes("--check") ? "Assets synced; commit the changed locks." : "Assets match their locks.");
   } catch (error) {
     console.error(error.message);
     process.exit(1);
