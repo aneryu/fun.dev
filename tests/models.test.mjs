@@ -6,7 +6,7 @@ import { boxGLB, modelStack } from "./helpers/models.mjs";
 
 const stack = await modelStack();
 after(() => stack.runtime.dispose());
-const metadata = (name = "书椅", extra = {}) => JSON.stringify({ name: { zh: name, en: "Desk chair" }, kit: "reading_room", tags: ["chair"], ...extra });
+const metadata = (name = "书椅", extra = {}) => JSON.stringify({ name: { zh: name, en: "Desk chair" }, type: "prop", kit: "reading_room", tags: ["chair"], ...extra });
 const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
@@ -29,6 +29,10 @@ test("uploads need the token and valid addresses", async () => {
   assert.equal((await (await stack.upload("desk_chair_01/v001/Model.GLB", png)).json()).error, "invalid_file_name");
   assert.equal((await (await stack.upload("desk_chair_01/v001", JSON.stringify({ name: "chair" }), { type: "application/json" })).json()).error, "invalid_metadata");
   assert.equal((await (await stack.upload("desk_chair_01/v001/model.glb", png)).json()).error, "invalid_glb");
+  const noType = await (await stack.upload("desk_chair_01/v001", metadata("书椅", { type: undefined }), { type: "application/json" })).json();
+  assert.deepEqual([noType.error, noType.detail], ["invalid_metadata", "type must be one of prop, piece"]);
+  const planned = await (await stack.upload("desk_chair_01/v001", metadata("书椅", { type: "character" }), { type: "application/json" })).json();
+  assert.equal(planned.detail, "type character is planned but not accepted yet");
   assert.equal((await stack.upload("desk_chair_01/v001", undefined, { method: "GET" })).status, 404);
 });
 
@@ -64,13 +68,16 @@ test("a version is pending with metadata, model.glb and preview.png; review appr
   assert.equal(await bucket.head(`blobs/${sha(new TextEncoder().encode("{}"))}.json`), null, "qa.json stays private");
   const catalog = JSON.parse(await (await bucket.get("models.json")).text());
   assert.equal(catalog.licence, "CC0-1.0");
-  assert.deepEqual(catalog.models.map((model) => [model.id, model.name.zh, model.kit, model.tags]), [["desk_chair_01", "书桌椅", "reading_room", ["chair", "indoor"]]]);
+  assert.deepEqual(catalog.models.map((model) => [model.id, model.name.zh, model.type, model.kit, model.tags]), [["desk_chair_01", "书桌椅", "prop", "reading_room", ["chair", "indoor"]]]);
   assert.deepEqual(Object.keys(catalog.models[0].versions[0].files).sort(), ["model.glb", "preview.png", "source.blend"]);
 
   // Approved versions are immutable; a new version goes through review again.
   assert.equal((await stack.upload("desk_chair_01/v001/model.glb", glb)).status, 409);
   assert.equal((await stack.upload("desk_chair_01/v001", metadata(), { type: "application/json" })).status, 409);
   assert.equal((await stack.console("/api/models/desk_chair_01/v001/approve", { method: "POST", body: {} })).status, 409);
+  // The type is fixed once a version is approved, for the pipeline and the reviewer alike.
+  assert.equal((await (await stack.upload("desk_chair_01/v002", metadata("书椅", { type: "piece" }), { type: "application/json" })).json()).error, "type_locked");
+  assert.equal((await (await stack.console("/api/models/desk_chair_01", { method: "PATCH", body: { type: "piece" } })).json()).error, "type_locked");
   // Unlisting removes the model from the catalog; its blobs stay.
   await stack.console("/api/models/desk_chair_01", { method: "PATCH", body: { listed: false } });
   assert.deepEqual(JSON.parse(await (await bucket.get("models.json")).text()).models, []);

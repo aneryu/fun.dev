@@ -51,6 +51,13 @@
           <h3>模型信息（所有版本共用）</h3>
           <label>中文名<input name="zh" required maxlength="100"></label>
           <label>英文名<input name="en" required maxlength="100"></label>
+          <label>类别 type
+            <select name="type" required>
+              <option value="">（未填）</option>
+              <option value="prop">prop 道具</option>
+              <option value="piece">piece 模块化构件</option>
+            </select>
+          </label>
           <label>套件 kit<input name="kit" maxlength="64" pattern="[a-z0-9]+(_[a-z0-9]+)*" placeholder="可空"></label>
           <label>标签（逗号分隔）<input name="tags" placeholder="chair, indoor"></label>
           <label class="check"><input type="checkbox" name="listed"> 在 /models 上公开</label>

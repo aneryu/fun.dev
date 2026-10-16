@@ -4,6 +4,7 @@ import { gameOrigin } from "./game-source.js";
 // content-addressed blobs on the game origin; their addresses never change.
 const ID = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
 const SHA = /^[a-f0-9]{64}$/;
+export const MODEL_TYPES = ["prop", "piece", "character", "creature", "animation", "scene", "world"];
 
 export function blobURL(name, file, origin = gameOrigin) {
   return `${origin}/blobs/${file.sha256}.${name.split(".").pop()}`;
@@ -16,7 +17,7 @@ export function modelPath(model) {
 export function validateModels(data) {
   if (!data || !Array.isArray(data.models)) throw new Error("models.json must contain a models array.");
   for (const model of data.models) {
-    const valid = model && ID.test(model.id) && ["zh", "en"].every((locale) => typeof model.name?.[locale] === "string") &&
+    const valid = model && ID.test(model.id) && MODEL_TYPES.includes(model.type) && ["zh", "en"].every((locale) => typeof model.name?.[locale] === "string") &&
       (model.kit === null || ID.test(model.kit)) && Array.isArray(model.tags) && Array.isArray(model.versions) && model.versions.length &&
       model.versions.every((version) => /^v\d{3}$/.test(version.version) && SHA.test(version.files?.["model.glb"]?.sha256) &&
         Object.values(version.files).every((file) => SHA.test(file.sha256) && Number.isInteger(file.size)));

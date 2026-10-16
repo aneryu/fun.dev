@@ -11,7 +11,8 @@ Authorization: Bearer <MODELS_TOKEN>
 
 ## What to upload
 
-Single props and modular pieces only, not scenes, demos or assemblies. One model is one GLB
+Single props (`type: "prop"`) and modular pieces (`type: "piece"`) only, not scenes, demos or
+assemblies; characters, creatures, animations and scenes follow later. One model is one GLB
 made to the production spec: metres, glTF +Y up, front +Z, root at the centre of the bounding
 box's floor, no external files.
 
@@ -22,19 +23,21 @@ box's floor, no external files.
 
 ### `PUT /api/models/<id>/<version>`: metadata
 
-JSON body. `name` is required, everything else is optional; fields not listed here are kept
-as they are.
+JSON body. `name` and `type` (`prop` or `piece`) are required, everything else is optional;
+fields not listed here are kept as they are.
 
 ```json
 {
   "name": { "zh": "书椅", "en": "Desk chair" },
+  "type": "prop",
   "kit": "reading_room",
   "tags": ["furniture", "chair", "indoor"]
 }
 ```
 
-`name`, `kit` and `tags` belong to the model, so the latest upload replaces them for every
-version; the reviewer may edit them too.
+`name`, `type`, `kit` and `tags` belong to the model, so the latest upload replaces them for
+every version; the reviewer may edit them too. The type cannot change once a version is approved
+(409 `type_locked`).
 
 ### `PUT /api/models/<id>/<version>/<file>`: a file
 
@@ -74,6 +77,7 @@ Errors are JSON, `{ "error": "<code>", "detail": "…" }`:
 | 400 | `invalid_id`, `invalid_version`, `invalid_file_name`, `invalid_metadata` | the address or body is malformed |
 | 401 | `unauthorized` | missing or wrong token |
 | 409 | `approved` | the version is approved and cannot change |
+| 409 | `type_locked` | the model's type cannot change after an approval |
 | 413 | `too_large` | the file is over its limit |
 | 422 | `invalid_glb` | not a valid GLB, or it references external files |
 
@@ -83,7 +87,7 @@ Errors are JSON, `{ "error": "<code>", "detail": "…" }`:
 API=https://api.fun.dev/api/models/desk_chair_01/v002
 AUTH="Authorization: Bearer $MODELS_TOKEN"
 curl -fsS -X PUT -H "$AUTH" -H 'Content-Type: application/json' \
-  --data '{"name":{"zh":"书椅","en":"Desk chair"},"kit":"reading_room","tags":["furniture","chair"]}' "$API"
+  --data '{"name":{"zh":"书椅","en":"Desk chair"},"type":"prop","kit":"reading_room","tags":["furniture","chair"]}' "$API"
 curl -fsS -T desk_chair_01_v002.glb -H "$AUTH" "$API/model.glb"
 curl -fsS -T desk_chair_01_v002_preview.png -H "$AUTH" "$API/preview.png"
 curl -fsS -T desk_chair_01_v002.blend -H "$AUTH" "$API/source.blend"

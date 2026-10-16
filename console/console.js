@@ -43,7 +43,7 @@ async function showList() {
         element("img", { src: item.files["preview.png"] ? file(item.id, item.version, "preview.png") : "", alt: "", loading: "lazy" }),
         element("span", {},
           element("strong", { textContent: item.name ? `${item.name.zh} · ${item.name.en}` : "（没有名字）" }),
-          element("span", { className: "muted", textContent: `${item.id} ${item.version} · ${size(item.stats)} · ${item.stats?.triangles ?? "—"} 三角形${item.kit ? ` · ${item.kit}` : ""}` }),
+          element("span", { className: "muted", textContent: `${item.id} ${item.version} · ${item.type ?? "未填类别"} · ${size(item.stats)} · ${item.stats?.triangles ?? "—"} 三角形${item.kit ? ` · ${item.kit}` : ""}` }),
           ...(problems.length ? [element("span", { className: "muted warn", textContent: ` · ${problems.length} 个问题` })] : [])));
       row.addEventListener("click", () => showModel(item.id, item.version));
       return element("li", {}, row);
@@ -84,6 +84,7 @@ async function showModel(id, version) {
   const form = $("#edit");
   form.zh.value = model.name?.zh ?? "";
   form.en.value = model.name?.en ?? "";
+  form.type.value = model.type ?? "";
   form.kit.value = model.kit ?? "";
   form.tags.value = model.tags.join(", ");
   form.listed.checked = model.listed;
@@ -116,7 +117,7 @@ $("#edit").addEventListener("submit", (event) => {
   const form = event.target, { id } = current.model;
   act(async () => {
     await api(`/api/models/${id}`, { method: "PATCH", body: {
-      name: { zh: form.zh.value, en: form.en.value }, kit: form.kit.value.trim(),
+      name: { zh: form.zh.value, en: form.en.value }, type: form.type.value, kit: form.kit.value.trim(),
       tags: form.tags.value.split(/[,，\s]+/).map((tag) => tag.trim().toLowerCase()).filter(Boolean), listed: form.listed.checked,
     } });
     await showModel(id, current.entry.version);

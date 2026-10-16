@@ -9,6 +9,9 @@ export const ID = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
 export const VERSION = /^v\d{3}$/;
 const FILE = /^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9_-]+)*$/;
 const TAG = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+// Categories (docs/models.md). Only the static ones are accepted so far; the others are planned.
+export const MODEL_TYPES = ["prop", "piece", "character", "creature", "animation", "scene", "world"];
+export const SUPPORTED_TYPES = ["prop", "piece"];
 // Published with an approved version; other uploads (qa.json, README.md, more previews) stay private.
 export const PUBLIC_FILES = ["model.glb", "preview.png", "source.blend"];
 const LIMITS = { "model.glb": 10 * 1024 * 1024 };
@@ -56,11 +59,18 @@ export function validName(value) {
     ["zh", "en"].every((locale) => typeof value[locale] === "string" && value[locale].trim() && value[locale].length <= 100);
 }
 export function validKit(value) { return value === null || value === undefined || (typeof value === "string" && value.length <= 64 && ID.test(value)); }
+export function checkType(value) {
+  if (!SUPPORTED_TYPES.includes(value)) fail("invalid_metadata", 400, MODEL_TYPES.includes(value) ? `type ${value} is planned but not accepted yet` : `type must be one of ${SUPPORTED_TYPES.join(", ")}`);
+}
+async function typeLocked(db, id, type) {
+  const row = await sql(db, "SELECT m.type FROM models m WHERE m.id=? AND EXISTS (SELECT 1 FROM versions v WHERE v.model=m.id AND v.status='approved')", id).first();
+  if (row && row.type !== type) fail("type_locked", 409, "the type cannot change once a version is approved");
+}
 export function validTags(value) { return value === undefined || (Array.isArray(value) && value.length <= 20 && value.every((tag) => typeof tag === "string" && TAG.test(tag))); }
 
-// A version is pending once the model has a name and the version has model.glb and preview.png.
+// A version is pending once the model has a name and a type and the version has model.glb and preview.png.
 const STATUS = `CASE WHEN status='approved' THEN 'approved'
-  WHEN (SELECT name FROM models WHERE id=versions.model) IS NOT NULL
+  WHEN (SELECT name IS NOT NULL AND type IS NOT NULL FROM models WHERE id=versions.model)
    AND json_extract(files,'$."model.glb"') IS NOT NULL AND json_extract(files,'$."preview.png"') IS NOT NULL THEN 'pending'
   ELSE 'incomplete' END`;
 
@@ -102,13 +112,15 @@ export async function handleModelUpload(request, env) {
       try { data = JSON.parse(new TextDecoder().decode(await readBody(request, MAX_METADATA))); }
       catch (error) { if (error instanceof ModelError) throw error; fail("invalid_metadata", 400, "the body is not valid JSON"); }
       if (!data || typeof data !== "object" || Array.isArray(data)) fail("invalid_metadata", 400, "expected an object");
-      const { name, kit = null, tags = [], ...extra } = data;
+      const { name, type, kit = null, tags = [], ...extra } = data;
       if (!validName(name)) fail("invalid_metadata", 400, "name needs non-empty zh and en texts");
+      checkType(type);
       if (!validKit(kit)) fail("invalid_metadata", 400, "kit uses lowercase letters, digits and _");
       if (!validTags(tags)) fail("invalid_metadata", 400, "tags: up to 20 lowercase words");
       await ensureVersion(db, id, version, now);
+      await typeLocked(db, id, type);
       await db.batch([
-        sql(db, "UPDATE models SET name=?,kit=?,tags=?,extra=?,updated_at=? WHERE id=?", JSON.stringify({ zh: name.zh.trim(), en: name.en.trim() }), kit, JSON.stringify(tags), JSON.stringify(extra), now, id),
+        sql(db, "UPDATE models SET name=?,type=?,kit=?,tags=?,extra=?,updated_at=? WHERE id=?", JSON.stringify({ zh: name.zh.trim(), en: name.en.trim() }), type, kit, JSON.stringify(tags), JSON.stringify(extra), now, id),
         sql(db, `UPDATE versions SET status=${STATUS},updated_at=? WHERE model=? AND version=?`, now, id, version),
       ]);
     } else {
@@ -136,12 +148,12 @@ export async function handleModelUpload(request, env) {
 // ── Review (console) ─────────────────────────────────────────────────────────
 
 export function modelView(row) {
-  return { id: row.id, name: row.name ? JSON.parse(row.name) : null, kit: row.kit, tags: JSON.parse(row.tags), extra: JSON.parse(row.extra), listed: !!row.listed };
+  return { id: row.id, name: row.name ? JSON.parse(row.name) : null, type: row.type ?? null, kit: row.kit, tags: JSON.parse(row.tags), extra: JSON.parse(row.extra), listed: !!row.listed };
 }
 
 export async function listVersions(db, status) {
   const where = status === "all" ? "" : "WHERE v.status=?";
-  const { results } = await sql(db, `SELECT v.*, m.name, m.kit, m.tags, m.extra, m.listed, m.id FROM versions v JOIN models m ON m.id=v.model ${where} ORDER BY v.updated_at DESC LIMIT 500`, ...(status === "all" ? [] : [status])).all();
+  const { results } = await sql(db, `SELECT v.*, m.name, m.type, m.kit, m.tags, m.extra, m.listed, m.id FROM versions v JOIN models m ON m.id=v.model ${where} ORDER BY v.updated_at DESC LIMIT 500`, ...(status === "all" ? [] : [status])).all();
   return results.map((row) => ({ ...modelView(row), version: row.version, ...versionView(row), updated: row.updated_at }));
 }
 
@@ -158,10 +170,11 @@ export async function editModel(env, id, changes) {
   if (!model) fail("not_found", 404);
   const next = modelView(model);
   if ("name" in changes) { if (!validName(changes.name)) fail("invalid_metadata", 400, "name needs zh and en"); next.name = { zh: changes.name.zh.trim(), en: changes.name.en.trim() }; }
+  if ("type" in changes) { checkType(changes.type); await typeLocked(db, id, changes.type); next.type = changes.type; }
   if ("kit" in changes) { const kit = changes.kit === "" ? null : changes.kit; if (!validKit(kit)) fail("invalid_metadata", 400, "invalid kit"); next.kit = kit ?? null; }
   if ("tags" in changes) { if (!validTags(changes.tags)) fail("invalid_metadata", 400, "invalid tags"); next.tags = changes.tags; }
   if ("listed" in changes) { if (typeof changes.listed !== "boolean") fail("invalid_metadata", 400, "listed is a boolean"); next.listed = changes.listed; }
-  await sql(db, "UPDATE models SET name=?,kit=?,tags=?,listed=?,updated_at=? WHERE id=?", next.name ? JSON.stringify(next.name) : null, next.kit, JSON.stringify(next.tags), next.listed ? 1 : 0, Date.now(), id).run();
+  await sql(db, "UPDATE models SET name=?,type=?,kit=?,tags=?,listed=?,updated_at=? WHERE id=?", next.name ? JSON.stringify(next.name) : null, next.type, next.kit, JSON.stringify(next.tags), next.listed ? 1 : 0, Date.now(), id).run();
   await sql(db, `UPDATE versions SET status=${STATUS} WHERE model=? AND status IN ('incomplete','pending')`, id).run();
   if (await sql(db, "SELECT 1 FROM versions WHERE model=? AND status='approved'", id).first()) await writeCatalog(env);
   return getModel(db, id);
@@ -199,7 +212,7 @@ export async function approveVersion(env, id, version) {
 
 /** The public catalog: listed models with their approved versions, newest first. */
 export async function buildCatalog(db) {
-  const { results } = await sql(db, `SELECT m.id, m.name, m.kit, m.tags, v.version, v.files, v.stats, v.reviewed_at FROM models m
+  const { results } = await sql(db, `SELECT m.id, m.name, m.type, m.kit, m.tags, v.version, v.files, v.stats, v.reviewed_at FROM models m
     JOIN versions v ON v.model=m.id WHERE m.listed=1 AND m.name IS NOT NULL AND v.status='approved' ORDER BY m.id, v.version DESC`).all();
   const models = [];
   for (const row of results) {
@@ -207,7 +220,7 @@ export async function buildCatalog(db) {
     const version = { version: row.version, files, stats: JSON.parse(row.stats), approved: row.reviewed_at };
     const last = models.at(-1);
     if (last?.id === row.id) last.versions.push(version);
-    else models.push({ id: row.id, name: JSON.parse(row.name), kit: row.kit, tags: JSON.parse(row.tags), versions: [version] });
+    else models.push({ id: row.id, name: JSON.parse(row.name), type: row.type, kit: row.kit, tags: JSON.parse(row.tags), versions: [version] });
   }
   return { licence: "CC0-1.0", models };
 }

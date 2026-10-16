@@ -15,11 +15,54 @@ games    ◀── https://games.fun.dev/blobs/<sha256>.glb
 
 ## Contents
 
-- Single props and modular pieces only. Scenes, demos and assemblies are not taken; models
-  made for one game stay in that game's `assets/`.
-- Every model is one `.glb` that follows the pipeline's production spec: metres, glTF +Y up,
-  front +Z, root at the centre of the bounding box's floor.
+Every model has a `type`. Only `prop` and `piece` are accepted so far; the others are decided
+below and implemented when the first one is uploaded. Models made for one game stay in that
+game's `assets/`.
+
+| Type | What | Main file |
+| --- | --- | --- |
+| `prop` | a single object | `model.glb` |
+| `piece` | a modular building piece (wall, road, stair) | `model.glb` |
+| `character` | a humanoid on the shared skeleton | `model.glb` (planned) |
+| `creature` | a non-humanoid with its own skeleton | `model.glb` (planned) |
+| `animation` | CC0 clips for the shared skeleton, no mesh | `model.glb` (planned) |
+| `scene` | a composition of library models | `scene.json` (planned) |
+| `world` | a composition of scenes and terrain | `world.json` (planned) |
+
+- Every GLB follows the pipeline's production spec: metres, glTF +Y up, front +Z, root at the
+  centre of the bounding box's floor, real-world size.
 - Licence: CC0. The `.blend` source is published too when the pipeline uploaded one.
+- The type is set at upload and can be corrected in review until a version is approved; after
+  that it is fixed, because games may rely on it.
+
+### Characters, creatures and animations (planned)
+
+- Humanoid characters are made by the pipeline and rigged to a Mixamo-compatible skeleton
+  (`mixamorig:*` bone names and hierarchy), so any clip for that skeleton plays on any character.
+  Rest pose, bone and weight limits for phones (at most 64 bones, 4 influences per vertex) and a
+  triangle budget are fixed when the first character is made.
+- Mixamo's own characters and animations are not in the library: its terms allow use inside a
+  project but not redistribution as assets. A game that uses Mixamo clips keeps them in its own
+  `assets/`. Shared `animation` entries are CC0 only (for example Quaternius UAL clips retargeted to
+  the skeleton).
+- Creatures carry their own skeleton and clips, with common names where they apply: `idle`,
+  `walk`, `run`, `attack`, `hit`, `die`.
+
+### Scenes and worlds (planned)
+
+A scene is a list of placements, not a baked GLB, so repeated models are stored and downloaded
+once, render as instances, and stay identifiable in games:
+
+```json
+{ "items": [{ "model": "desk_chair_01", "version": "v002", "position": [1.2, 0, -0.4], "rotation": [0, 0.707, 0, 0.707] }] }
+```
+
+- Placed in Blender as linked instances of library models; an export script writes the list
+  (metres, glTF axes, rotation as a quaternion). There is no scale: models have real sizes.
+- Every referenced version must be approved. A platform helper (`kit/models.js`: `loadModel`,
+  `loadScene`) loads a scene as one group with instancing; the pages and the console preview
+  scenes with it.
+- A world is a larger composition of scenes and terrain, loaded by area.
 
 ## Identity
 
@@ -72,7 +115,7 @@ Unlisting a model only removes it from the catalog.
 
 ## Pages
 
-- `/models`: grid of previews with search and `kit` and tag filters (`/models?kit=…`).
+- `/models`: grid of previews with search and type, kit and tag filters (`/models?type=…&kit=…`).
 - `/models/<id>`: 3D view, name, size, triangles, file size and kit; buttons to copy the GLB
   address, download the GLB, and download the `.blend` when there is one; older versions.
 
@@ -130,4 +173,5 @@ Deferred for future consideration, not rejected:
 - Share cards for individual models.
 - Showing which games use a model.
 - Style, state or level-of-detail variants.
+- Named sockets (`socket_top`, `socket_wall`) for placing items relative to other models.
 - Adding models from the repository through `assets.lock` instead of addresses.

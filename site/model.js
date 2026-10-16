@@ -19,7 +19,7 @@ function render() {
   const name = model.name[getLocale()];
   document.title = `${name} · fun.dev`;
   $("#model-name").textContent = name;
-  $("#model-kit").textContent = [model.kit, ...model.tags].filter(Boolean).join(" · ");
+  $("#model-kit").textContent = [t(`type_${model.type}`), model.kit, ...model.tags].filter(Boolean).join(" · ");
   $("#stat-size").textContent = formatSize(version.stats.size);
   $("#stat-triangles").textContent = version.stats.triangles.toLocaleString(getLocale() === "zh" ? "zh-CN" : "en");
   $("#stat-bytes").textContent = formatBytes(version.files["model.glb"].size);
