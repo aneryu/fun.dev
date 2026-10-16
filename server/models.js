@@ -187,7 +187,7 @@ export async function rejectVersion(db, id, version, note) {
 
 // Copies the public files to blobs/<sha256>.<ext> (never overwritten, never deleted), marks the
 // version approved, and rewrites the public catalog.
-export async function approveVersion(env, id, version) {
+export async function approveVersion(env, id, version, { catalog = true } = {}) {
   const db = env.MODELS_DB;
   const row = await sql(db, "SELECT * FROM versions WHERE model=? AND version=?", id, version).first();
   if (!row) fail("not_found", 404);
@@ -206,7 +206,24 @@ export async function approveVersion(env, id, version) {
   const now = Date.now();
   const result = await sql(db, "UPDATE versions SET status='approved',note=NULL,reviewed_at=?,updated_at=? WHERE model=? AND version=? AND status='pending' AND files=?", now, now, id, version, row.files).run();
   if (!result.meta.changes) fail("changed_file", 409, "the version changed during review; reload it");
-  await writeCatalog(env);
+  if (catalog) await writeCatalog(env);
+}
+
+// At most this many versions per request, to stay within a Worker invocation's limits.
+export const APPROVE_BATCH = 10;
+
+/** Approves several "<id>/<version>" at once; the catalog is rewritten once, when asked. */
+export async function approveVersions(env, versions, { catalog = true } = {}) {
+  if (!Array.isArray(versions) || versions.length > APPROVE_BATCH || versions.some((value) => typeof value !== "string")) fail("invalid_request", 400, `up to ${APPROVE_BATCH} "<id>/<version>" strings`);
+  const approved = [], failed = [];
+  for (const value of versions) {
+    const [id, version] = value.split("/");
+    if (!validId(id) || !VERSION.test(version ?? "")) { failed.push({ version: value, error: "invalid_id" }); continue; }
+    try { await approveVersion(env, id, version, { catalog: false }); approved.push(value); }
+    catch (error) { if (!(error instanceof ModelError)) throw error; failed.push({ version: value, error: error.code, detail: error.detail ?? null }); }
+  }
+  if (catalog) await writeCatalog(env);
+  return { approved, failed };
 }
 
 /** The public catalog: listed models with their approved versions, newest first. */

@@ -83,6 +83,26 @@ test("a version is pending with metadata, model.glb and preview.png; review appr
   await stack.console("/api/models/desk_chair_01", { method: "PATCH", body: { listed: true } });
 });
 
+test("bulk approval publishes several versions and writes the catalog once, when asked", async () => {
+  for (const id of ["bulk_a_01", "bulk_b_01", "bulk_c_01"]) {
+    await stack.upload(`${id}/v001`, metadata(id), { type: "application/json" });
+    await stack.upload(`${id}/v001/model.glb`, boxGLB({ size: [0.3, 0.3, 0.3] }));
+    await stack.upload(`${id}/v001/preview.png`, png);
+  }
+  const bucket = await stack.publicBucket();
+  const listed = async () => JSON.parse(await (await bucket.get("models.json")).text()).models.map((model) => model.id);
+  const before = await listed();
+  let result = await (await stack.console("/api/approve", { method: "POST", body: { versions: ["bulk_a_01/v001", "bulk_b_01/v001", "missing_01/v001", "Bad/v001"], catalog: false } })).json();
+  assert.deepEqual(result.approved, ["bulk_a_01/v001", "bulk_b_01/v001"]);
+  assert.deepEqual(result.failed.map((item) => item.error), ["not_found", "invalid_id"]);
+  assert.deepEqual(await listed(), before, "the catalog waits for the last request");
+  result = await (await stack.console("/api/approve", { method: "POST", body: { versions: ["bulk_c_01/v001"] } })).json();
+  assert.deepEqual(result.approved, ["bulk_c_01/v001"]);
+  const after = await listed();
+  assert.ok(["bulk_a_01", "bulk_b_01", "bulk_c_01"].every((id) => after.includes(id)));
+  assert.equal((await stack.console("/api/approve", { method: "POST", body: { versions: Array(11).fill("bulk_a_01/v001") } })).status, 400);
+});
+
 test("a rejected version carries the note and returns to pending when fixed", async () => {
   await stack.upload("sofa_corner_01/v001", metadata("转角沙发"), { type: "application/json" });
   await stack.upload("sofa_corner_01/v001/model.glb", boxGLB({ lift: 0.02 }));

@@ -145,16 +145,28 @@ function updateBulk() {
   $("#approve-selected").textContent = `通过选中的 ${count} 个`;
   $("#approve-selected").disabled = count === 0;
 }
+// Batches of 10 go out three at a time; the public catalog is written once at the end.
 async function approveSelected() {
   const items = selected();
   $("#approve-selected").disabled = true;
-  let done = 0;
+  const batches = [];
+  for (let start = 0; start < items.length; start += 10) batches.push(items.slice(start, start + 10));
+  let done = 0, next = 0;
   const failed = [];
-  for (const value of items) {
-    $("#list-status").textContent = `通过中 ${done + failed.length + 1}/${items.length}：${value}`;
-    try { await api(`/api/models/${value}/approve`, { method: "POST", body: {} }); done++; }
-    catch (error) { failed.push(`${value}（${error.message}）`); }
-  }
+  const worker = async () => {
+    while (next < batches.length) {
+      const batch = batches[next++];
+      try {
+        const result = await api("/api/approve", { method: "POST", body: { versions: batch, catalog: false } });
+        done += result.approved.length;
+        failed.push(...result.failed.map((item) => `${item.version}（${item.detail ?? item.error}）`));
+      } catch (error) { failed.push(...batch.map((value) => `${value}（${error.message}）`)); }
+      $("#list-status").textContent = `通过中 ${done + failed.length}/${items.length}`;
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  try { await api("/api/approve", { method: "POST", body: { versions: [], catalog: true } }); }
+  catch (error) { failed.push(`目录更新（${error.message}）`); }
   await showList();
   $("#list-status").textContent = `已通过 ${done} 个${failed.length ? `；失败 ${failed.length} 个：${failed.join("、")}` : ""}。`;
 }
