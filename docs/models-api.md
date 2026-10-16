@@ -19,26 +19,36 @@ box's floor, no external files.
 - `<id>`: `<name>_<NN>`, lowercase letters, digits and `_`, e.g. `desk_chair_01`.
 - `<version>`: `v` and three digits, e.g. `v002`. A revision is a new version of the same id.
 
-## Upload tool
+## Command-line tool
 
-Whoever prepares models does not need the token: put each version in a folder and run the tool
-from this repository, which checks everything locally, uploads, and skips files the server
-already has. A run can be repeated after a failure.
-
-```
-<root>/<id>/<version>/meta.json      the metadata below
-<root>/<id>/<version>/model.glb
-<root>/<id>/<version>/preview.png
-<root>/<id>/<version>/source.blend   optional; other files (qa.json, readme.md, more previews) too
-```
+`fundev-models` checks prepared models and uploads them, so whoever prepares models never needs
+the token. It is one self-contained file (Node 20 or later; `unzip` for zip inputs):
 
 ```sh
-npm run models:upload -- <root> --dry-run      # local checks only, no token, no network
-npm run models:upload -- <root> [--only id,id] # upload
+curl -fsSO https://cdn.fun.dev/tools/fundev-models.mjs
+node fundev-models.mjs login                    # once per machine: paste the token
+node fundev-models.mjs check  <folder|zip>...   # local checks only, no token, no network
+node fundev-models.mjs upload <folder|zip>... [--only id,id]
+node fundev-models.mjs status <id> <version>    # review status and the reviewer's note
 ```
 
-The token comes from `MODELS_TOKEN` or `~/.config/fundev/models-token` and is never printed.
-The result of every run is written to `<root>/upload-report.json`.
+In this repository it is `npm run models -- <command> …` (`scripts/fundev-models.mjs`).
+
+Each folder or zip holds `<id>/<version>/` folders, at any depth (a zip's top folder is fine;
+several zips are merged):
+
+```
+<id>/<version>/meta.json      the metadata below
+<id>/<version>/model.glb
+<id>/<version>/preview.png
+<id>/<version>/source.blend   optional; other files (qa.json, readme.md, more previews) too
+```
+
+`check` applies the same rules as the server. `upload` checks first, skips files the server
+already has, and leaves approved versions alone, so a run can be repeated after a failure.
+`login` stores the token in `~/.config/fundev/models-token` (`FUNDEV_CONFIG_DIR` overrides the
+folder; `MODELS_TOKEN` overrides the file); it is never printed. Each run writes
+`upload-report.json` next to its first input.
 
 ## Endpoints
 

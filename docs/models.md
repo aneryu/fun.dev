@@ -144,7 +144,8 @@ development needs a network connection.
 | Console Worker | `server/console.js`, `console/` (built by `npm run console:build` into `dist-console/`), `wrangler.console.jsonc` |
 | Database | `migrations-models/`, binding `MODELS_DB` in `wrangler.jsonc` and `wrangler.console.jsonc` |
 | Pages | `site/models.html`, `site/model.html`, `site/models.js`, `site/model.js`, `site/models-catalog.js`, `site/model-viewer.js` |
-| Tests | `tests/models.test.mjs` (API, review, publishing and Access checks over local D1 and R2) |
+| Command-line tool | `scripts/fundev-models.mjs`, shared rules in `server/model-rules.js`; the build bundles it into `dist/tools/fundev-models.mjs` |
+| Tests | `tests/models.test.mjs`, `tests/models-upload.test.mjs` (API, review, publishing and Access checks over local D1 and R2) |
 
 `npm run release` applies `migrations-models/` and deploys the console Worker when it changed.
 Locally, the build writes an empty `dist/models.json`.

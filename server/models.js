@@ -1,21 +1,12 @@
 import { GLBError, glbStats, readGLB } from "./glb.js";
 import { equal } from "./security.js";
+import { LIMITS, MAX_FILE, PUBLIC_FILES, typeProblem, validFile, validId, validKit, validName, validTags, VERSION } from "./model-rules.js";
 
 // The model library (docs/models.md): the pipeline's upload API on api.fun.dev, and the
 // review actions used by the console Worker on console.fun.dev. D1 (MODELS_DB) holds the
 // catalog; uploads stay in the private bucket (MODELS_SOURCES) until approval copies the
 // public files to the game bucket (MODELS_PUBLIC) as content-addressed blobs.
-export const ID = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
-export const VERSION = /^v\d{3}$/;
-export const FILE = /^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9_-]+)*$/;
-const TAG = /^[a-z0-9][a-z0-9_-]{0,31}$/;
-// Categories (docs/models.md). Only the static ones are accepted so far; the others are planned.
-export const MODEL_TYPES = ["prop", "piece", "character", "creature", "animation", "scene", "world"];
-export const SUPPORTED_TYPES = ["prop", "piece"];
-// Published with an approved version; other uploads (qa.json, README.md, more previews) stay private.
-export const PUBLIC_FILES = ["model.glb", "preview.png", "source.blend"];
-export const LIMITS = { "model.glb": 10 * 1024 * 1024 };
-export const MAX_FILE = 50 * 1024 * 1024;
+export { FILE, ID, LIMITS, MAX_FILE, MODEL_TYPES, PUBLIC_FILES, SUPPORTED_TYPES, VERSION, validKit, validName, validTags } from "./model-rules.js";
 const MAX_METADATA = 64 * 1024;
 export const TYPES = { glb: "model/gltf-binary", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", blend: "application/x-blender", json: "application/json", md: "text/markdown; charset=utf-8", txt: "text/plain; charset=utf-8" };
 export const typeOf = (name) => TYPES[name.split(".").pop()] ?? "application/octet-stream";
@@ -54,19 +45,14 @@ async function readBody(request, maximum) {
   return bytes;
 }
 
-export function validName(value) {
-  return value && typeof value === "object" && !Array.isArray(value) &&
-    ["zh", "en"].every((locale) => typeof value[locale] === "string" && value[locale].trim() && value[locale].length <= 100);
-}
-export function validKit(value) { return value === null || value === undefined || (typeof value === "string" && value.length <= 64 && ID.test(value)); }
 export function checkType(value) {
-  if (!SUPPORTED_TYPES.includes(value)) fail("invalid_metadata", 400, MODEL_TYPES.includes(value) ? `type ${value} is planned but not accepted yet` : `type must be one of ${SUPPORTED_TYPES.join(", ")}`);
+  const problem = typeProblem(value);
+  if (problem) fail("invalid_metadata", 400, problem);
 }
 async function typeLocked(db, id, type) {
   const row = await sql(db, "SELECT m.type FROM models m WHERE m.id=? AND EXISTS (SELECT 1 FROM versions v WHERE v.model=m.id AND v.status='approved')", id).first();
   if (row && row.type !== type) fail("type_locked", 409, "the type cannot change once a version is approved");
 }
-export function validTags(value) { return value === undefined || (Array.isArray(value) && value.length <= 20 && value.every((tag) => typeof tag === "string" && TAG.test(tag))); }
 
 // A version is pending once the model has a name and a type and the version has model.glb and preview.png.
 const STATUS = `CASE WHEN status='approved' THEN 'approved'
@@ -85,61 +71,86 @@ export function versionView(row) {
   return { status: row.status, note: row.note ?? null, files: JSON.parse(row.files), stats: row.stats ? JSON.parse(row.stats) : null };
 }
 
-/** The pipeline's API: PUT /api/models/<id>/<version>[/<file>], GET /api/models/<id>/<version>. */
+function checkAddress(id, version, file) {
+  if (!validId(id)) fail("invalid_id", 400, "use <name>_<NN>: lowercase letters, digits and _");
+  if (!VERSION.test(version)) fail("invalid_version", 400, "use v and three digits, e.g. v001");
+  if (file !== undefined && !validFile(file)) fail("invalid_file_name", 400, "lowercase letters, digits, ., _ and -");
+}
+
+/** Status, files and stats of a version, for the pipeline. */
+export async function getVersion(env, id, version) {
+  checkAddress(id, version);
+  const row = await sql(env.MODELS_DB, "SELECT * FROM versions WHERE model=? AND version=?", id, version).first();
+  if (!row) fail("not_found", 404);
+  return versionView(row);
+}
+
+/** Stores a version's metadata: name, type, kit and tags on the model, other fields as extra. */
+export async function putMetadata(env, id, version, data) {
+  checkAddress(id, version);
+  const db = env.MODELS_DB, now = Date.now();
+  if (!data || typeof data !== "object" || Array.isArray(data)) fail("invalid_metadata", 400, "expected an object");
+  const { name, type, kit = null, tags = [], ...extra } = data;
+  if (!validName(name)) fail("invalid_metadata", 400, "name needs non-empty zh and en texts");
+  checkType(type);
+  if (!validKit(kit)) fail("invalid_metadata", 400, "kit uses lowercase letters, digits and _");
+  if (!validTags(tags)) fail("invalid_metadata", 400, "tags: up to 20 lowercase words");
+  await ensureVersion(db, id, version, now);
+  await typeLocked(db, id, type);
+  await db.batch([
+    sql(db, "UPDATE models SET name=?,type=?,kit=?,tags=?,extra=?,updated_at=? WHERE id=?", JSON.stringify({ zh: name.zh.trim(), en: name.en.trim() }), type, kit, JSON.stringify(tags), JSON.stringify(extra), now, id),
+    sql(db, `UPDATE versions SET status=${STATUS},updated_at=? WHERE model=? AND version=?`, now, id, version),
+  ]);
+  return getVersion(env, id, version);
+}
+
+/** Stores one file of a version in the private bucket; model.glb is checked and measured. */
+export async function putFile(env, id, version, file, bytes) {
+  checkAddress(id, version, file);
+  const db = env.MODELS_DB, now = Date.now();
+  if (!bytes.length) fail("invalid_request", 400, "the file is empty");
+  if (bytes.length > (LIMITS[file] ?? MAX_FILE)) fail("too_large", 413, `at most ${LIMITS[file] ?? MAX_FILE} bytes`);
+  let stats = null;
+  if (file === "model.glb") {
+    try { stats = { ...glbStats(readGLB(bytes)), bytes: bytes.length }; }
+    catch (error) { if (error instanceof GLBError) fail("invalid_glb", 422, error.message); throw error; }
+  }
+  await ensureVersion(db, id, version, now);
+  const sha256 = hex(await crypto.subtle.digest("SHA-256", bytes));
+  await env.MODELS_SOURCES.put(sourceKey(id, version, file), bytes, { httpMetadata: { contentType: typeOf(file) }, sha256 });
+  const entry = JSON.stringify({ sha256, size: bytes.length });
+  await sql(db, `UPDATE versions SET files=json_set(files,'$."'||?||'"',json(?)),${stats ? "stats=?," : ""}updated_at=? WHERE model=? AND version=? AND status!='approved'`,
+    ...[file, entry, ...(stats ? [JSON.stringify(stats)] : []), now, id, version]).run();
+  await sql(db, `UPDATE versions SET status=${STATUS} WHERE model=? AND version=?`, id, version).run();
+  return getVersion(env, id, version);
+}
+
+/**
+ * Upload routes under `prefix`: PUT <prefix>/<id>/<version> (JSON metadata),
+ * PUT <prefix>/<id>/<version>/<file> (the file), GET <prefix>/<id>/<version> (status).
+ * The caller authorises the request.
+ */
+export async function routeUpload(request, env, path) {
+  const parts = path.split("/").filter(Boolean).map(decodeURIComponent);
+  if (parts.length < 2 || parts.length > 3) fail("not_found", 404);
+  const [id, version, file] = parts;
+  checkAddress(id, version, file);
+  if (request.method === "GET" && file === undefined) return json(await getVersion(env, id, version));
+  if (request.method !== "PUT") fail("method_not_allowed", 405);
+  if (file !== undefined) return json(await putFile(env, id, version, file, await readBody(request, LIMITS[file] ?? MAX_FILE)));
+  if (request.headers.get("Content-Type")?.split(";")[0] !== "application/json") fail("invalid_metadata", 415, "send application/json");
+  let data;
+  try { data = JSON.parse(new TextDecoder().decode(await readBody(request, MAX_METADATA))); }
+  catch (error) { if (error instanceof ModelError) throw error; fail("invalid_metadata", 400, "the body is not valid JSON"); }
+  return json(await putMetadata(env, id, version, data));
+}
+
+/** The pipeline's API on api.fun.dev: /api/models/<id>/<version>[/<file>] with the bearer token. */
 export async function handleModelUpload(request, env) {
   try {
-    const parts = new URL(request.url).pathname.split("/").slice(3);
-    if (parts.length < 2 || parts.length > 3) fail("not_found", 404);
-    const authorization = request.headers.get("Authorization") ?? "";
     if (!env.MODELS_TOKEN || !env.MODELS_DB || !env.MODELS_SOURCES) fail("unavailable", 503);
-    if (!equal(authorization, `Bearer ${env.MODELS_TOKEN}`)) fail("unauthorized", 401);
-    const [id, version, file] = parts.map(decodeURIComponent);
-    if (id.length > 64 || !ID.test(id)) fail("invalid_id", 400, "use <name>_<NN>: lowercase letters, digits and _");
-    if (!VERSION.test(version)) fail("invalid_version", 400, "use v and three digits, e.g. v001");
-    if (file !== undefined && (file.length > 64 || !FILE.test(file))) fail("invalid_file_name", 400, "lowercase letters, digits, ., _ and -");
-    const db = env.MODELS_DB, now = Date.now();
-
-    if (request.method === "GET" && file === undefined) {
-      const row = await sql(db, "SELECT * FROM versions WHERE model=? AND version=?", id, version).first();
-      if (!row) fail("not_found", 404);
-      return json(versionView(row));
-    }
-    if (request.method !== "PUT") fail("method_not_allowed", 405);
-
-    if (file === undefined) {
-      if (request.headers.get("Content-Type")?.split(";")[0] !== "application/json") fail("invalid_metadata", 415, "send application/json");
-      let data;
-      try { data = JSON.parse(new TextDecoder().decode(await readBody(request, MAX_METADATA))); }
-      catch (error) { if (error instanceof ModelError) throw error; fail("invalid_metadata", 400, "the body is not valid JSON"); }
-      if (!data || typeof data !== "object" || Array.isArray(data)) fail("invalid_metadata", 400, "expected an object");
-      const { name, type, kit = null, tags = [], ...extra } = data;
-      if (!validName(name)) fail("invalid_metadata", 400, "name needs non-empty zh and en texts");
-      checkType(type);
-      if (!validKit(kit)) fail("invalid_metadata", 400, "kit uses lowercase letters, digits and _");
-      if (!validTags(tags)) fail("invalid_metadata", 400, "tags: up to 20 lowercase words");
-      await ensureVersion(db, id, version, now);
-      await typeLocked(db, id, type);
-      await db.batch([
-        sql(db, "UPDATE models SET name=?,type=?,kit=?,tags=?,extra=?,updated_at=? WHERE id=?", JSON.stringify({ zh: name.zh.trim(), en: name.en.trim() }), type, kit, JSON.stringify(tags), JSON.stringify(extra), now, id),
-        sql(db, `UPDATE versions SET status=${STATUS},updated_at=? WHERE model=? AND version=?`, now, id, version),
-      ]);
-    } else {
-      const bytes = await readBody(request, LIMITS[file] ?? MAX_FILE);
-      if (!bytes.length) fail("invalid_request", 400, "the file is empty");
-      let stats = null;
-      if (file === "model.glb") {
-        try { stats = { ...glbStats(readGLB(bytes)), bytes: bytes.length }; }
-        catch (error) { if (error instanceof GLBError) fail("invalid_glb", 422, error.message); throw error; }
-      }
-      await ensureVersion(db, id, version, now);
-      const sha256 = hex(await crypto.subtle.digest("SHA-256", bytes));
-      await env.MODELS_SOURCES.put(sourceKey(id, version, file), bytes, { httpMetadata: { contentType: typeOf(file) }, sha256 });
-      const entry = JSON.stringify({ sha256, size: bytes.length });
-      await sql(db, `UPDATE versions SET files=json_set(files,'$."'||?||'"',json(?)),${stats ? "stats=?," : ""}updated_at=? WHERE model=? AND version=? AND status!='approved'`,
-        ...[file, entry, ...(stats ? [JSON.stringify(stats)] : []), now, id, version]).run();
-      await sql(db, `UPDATE versions SET status=${STATUS} WHERE model=? AND version=?`, id, version).run();
-    }
-    return json(versionView(await sql(db, "SELECT * FROM versions WHERE model=? AND version=?", id, version).first()));
+    if (!equal(request.headers.get("Authorization") ?? "", `Bearer ${env.MODELS_TOKEN}`)) fail("unauthorized", 401);
+    return await routeUpload(request, env, new URL(request.url).pathname.slice("/api/models".length));
   } catch (error) {
     return errorResponse(error, "Model upload failure");
   }

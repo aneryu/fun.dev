@@ -1,10 +1,11 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { execFileSync, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { uploadAll } from "../scripts/models-upload.mjs";
+import { uploadAll } from "../scripts/fundev-models.mjs";
 import { boxGLB, modelStack } from "./helpers/models.mjs";
 
 const stack = await modelStack();
@@ -39,7 +40,7 @@ test("the upload tool checks prepared versions locally, uploads them, and repeat
   const lines = [];
   const dry = await uploadAll({ root, api, dryRun: true, log: (line) => lines.push(line) });
   assert.deepEqual(dry.map((row) => [row.id, row.status]), [["Bad-Name", "not_uploaded"], ["chair_01", "not_uploaded"], ["crate_01", "checked"], ["street_lamp_01", "checked"]]);
-  assert.match(dry[1].problems.join(), /type must be one of prop, piece/);
+  assert.match(dry[1].problems.join(), /type character is planned but not accepted yet/);
   assert.match(dry[1].problems.join(), /preview\.png is not a PNG/);
   assert.match(dry[2].warnings.join(), /not on the floor/);
 
@@ -54,4 +55,23 @@ test("the upload tool checks prepared versions locally, uploads them, and repeat
   assert.equal((await uploadAll({ root, api, token: "secret-token", only: ["street_lamp_01"], log: () => {} }))[0].status, "approved");
   const denied = await uploadAll({ root, api, token: "wrong", only: ["crate_01"], log: () => {} });
   assert.match(denied[0].problems.join(), /unauthorized/);
+});
+
+test("the command reads zips with a top folder, as a Drive download has, and checks without a token", async () => {
+  const source = await mkdtemp(join(tmpdir(), "models-zip-"));
+  const directory = join(source, "fundev-upload", "garden_bench_01", "v001");
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, "meta.json"), JSON.stringify({ name: { zh: "长椅", en: "Bench" }, type: "prop" }));
+  await writeFile(join(directory, "model.glb"), boxGLB({ size: [1.5, 0.8, 0.5] }));
+  await writeFile(join(directory, "preview.png"), png);
+  await writeFile(join(directory, ".DS_Store"), "x");
+  const zip = join(source, "fundev-upload.zip");
+  execFileSync("python3", ["-I", "-c", "import shutil,sys; shutil.make_archive(sys.argv[1], 'zip', sys.argv[2], 'fundev-upload')", zip.slice(0, -4), source]);
+  const result = spawnSync(process.execPath, ["scripts/fundev-models.mjs", "check", zip], { encoding: "utf8", env: { ...process.env, MODELS_TOKEN: "" } });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /✓ garden_bench_01 v001/);
+  assert.match(result.stdout, /1 versions: 1 ready/);
+  const report = JSON.parse(await readFile(join(source, "upload-report.json"), "utf8"));
+  assert.deepEqual(report.rows.map((row) => [row.id, row.status, row.size]), [["garden_bench_01", "checked", [1.5, 0.8, 0.5]]]);
+  await rm(source, { recursive: true, force: true });
 });
