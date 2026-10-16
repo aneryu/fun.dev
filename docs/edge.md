@@ -78,6 +78,9 @@ about five minutes.
 ## Server
 
 Ubuntu 24.04, user `aneryu` (SSH key, passwordless sudo), alias `fundev-cn` in `~/.ssh/config`.
+SSH accepts keys only, no root login (`/etc/ssh/sshd_config.d/00-hardening.conf`; add a device's
+key to `~/.ssh/authorized_keys` first). The firewall (ufw) allows only 22/tcp, 80/tcp,
+443/tcp+udp and mosh (60000–61000/udp).
 Caddy comes from its official apt repository, and unattended-upgrades also installs its updates
 (`/etc/apt/apt.conf.d/52unattended-caddy`). Logs: `journalctl -u caddy`. Nothing else on the
 server belongs to fun.dev.
