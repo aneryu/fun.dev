@@ -14,13 +14,13 @@ const types = {
 };
 
 // Pages-style _redirects: `from to status` lines with :placeholders (one path segment). Returns
-// the redirect target for a 301/302 match.
+// the target of the first 301/302 redirect or 200 rewrite that matches.
 async function redirectFor(root, path) {
   let text = "";
   try { text = await readFile(resolve(root, "_redirects"), "utf8"); } catch { return null; }
   for (const line of text.split("\n")) {
     const [from, to, status = "302"] = line.trim().split(/\s+/);
-    if (!from || from.startsWith("#") || !["301", "302"].includes(status)) continue;
+    if (!from || from.startsWith("#") || !["200", "301", "302"].includes(status)) continue;
     const names = [];
     const pattern = new RegExp(`^${from.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/:(\w+)/g, (_, name) => { names.push(name); return "([^/]+)"; })}$`);
     const found = path.match(pattern);
@@ -37,11 +37,12 @@ export function createPreviewServer({ root, handle = () => false, transformHTML 
     if (await handle(request, response)) return;
     const headers = { "Cache-Control": "no-cache" };
     try {
-      const path = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
+      let path = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
       const rules = parseHeaders(await readFile(resolve(root, "_headers"), "utf8"));
       Object.assign(headers, headersFor(rules, path, `http://${request.headers.host}`));
       const redirect = await redirectFor(root, path);
-      if (redirect) {
+      if (redirect?.status === 200) path = redirect.location;
+      else if (redirect) {
         response.writeHead(redirect.status, { ...headers, Location: redirect.location + new URL(request.url, "http://localhost").search });
         response.end();
         return;

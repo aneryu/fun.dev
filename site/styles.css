@@ -141,3 +141,4 @@ main {
 
 /* The homepage keeps its original composition; Games is its only new entry. */
 .games-entry { margin-left: auto; display: inline-flex; align-items: center; min-height: 44px; padding-inline: 0.5rem; }
+.games-entry + .games-entry { margin-left: 0; }

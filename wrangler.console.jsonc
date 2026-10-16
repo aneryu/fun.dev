@@ -1,0 +1,51 @@
+{
+  // The model review console on console.fun.dev (server/console.js, docs/models.md). Cloudflare
+  // Access guards the host; the Worker checks the Access JWT again. ACCESS_TEAM (the team domain,
+  // e.g. <team>.cloudflareaccess.com), ACCESS_AUD (the application's audience tag) and
+  // CONSOLE_EMAIL are secrets, kept out of this public repo. Build the assets first:
+  // node scripts/build-console.mjs.
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "fundev-console",
+  "main": "server/console.js",
+  "compatibility_date": "2026-10-13",
+  "workers_dev": false,
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "./dist-console",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "MODELS_DB",
+      "database_name": "fundev-models-local",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "./migrations-models"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "MODELS_SOURCES", "bucket_name": "fundev-sources-local" },
+    { "binding": "MODELS_PUBLIC", "bucket_name": "fundev-games-local" }
+  ],
+  "env": {
+    "production": {
+      "routes": [
+        { "pattern": "console.fun.dev", "custom_domain": true }
+      ],
+      "d1_databases": [
+        {
+          "binding": "MODELS_DB",
+          "database_name": "fundev-models",
+          "database_id": "REPLACE_WITH_FUNDEV_MODELS_ID",
+          "migrations_dir": "./migrations-models"
+        }
+      ],
+      "r2_buckets": [
+        { "binding": "MODELS_SOURCES", "bucket_name": "fundev-sources" },
+        { "binding": "MODELS_PUBLIC", "bucket_name": "fundev-games" }
+      ]
+    }
+  }
+}

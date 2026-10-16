@@ -32,10 +32,10 @@ for (const name of ["three.module.js", "three.core.js"]) {
   await writeFile(new URL(name, vendor), result.code);
 }
 await cp(new URL("node_modules/three/LICENSE", root), new URL("LICENSE.txt", vendor));
-// Shared loaders at the pinned Three.js version; their `three` import resolves to the platform runtime.
+// Shared loaders and controls at the pinned Three.js version; their `three` import resolves to the platform runtime.
 const addons = new URL("runtime/addons/", output);
 await build({
-  entryPoints: Object.fromEntries(["GLTFLoader", "DRACOLoader", "KTX2Loader"].map((name) => [name, fileURLToPath(new URL(`node_modules/three/examples/jsm/loaders/${name}.js`, root))])),
+  entryPoints: Object.fromEntries(["loaders/GLTFLoader", "loaders/DRACOLoader", "loaders/KTX2Loader", "controls/OrbitControls"].map((path) => [path.split("/")[1], fileURLToPath(new URL(`node_modules/three/examples/jsm/${path}.js`, root))])),
   outdir: fileURLToPath(addons), bundle: true, format: "esm", minify: true, target: "es2022", legalComments: "eof", logLevel: "warning",
   plugins: [{ name: "platform-three", setup(builder) { builder.onResolve({ filter: /^three$/ }, () => ({ path: "/runtime/three.js", external: true })); } }],
 });
@@ -103,6 +103,8 @@ if (!origin) {
     await writeFile(new URL(`games/${game.id}/${game.version}/files.json`, output), JSON.stringify(fileIndex(assets)));
   }
   catalog = localCatalog(releases);
+  // The model catalog is written by the console (docs/models.md); local previews start empty.
+  await writeFile(new URL("models.json", output), JSON.stringify({ licence: "CC0-1.0", models: [] }) + "\n");
   await writeFile(new URL("games.json", output), JSON.stringify(catalog, null, 2) + "\n");
 } else {
   // The deployed website bundles no registry or games; it reads them from the R2 origin.
@@ -125,7 +127,7 @@ await rm(template);
 await writeFile(new URL("sitemap.xml", output), sitemap(catalog));
 const headersFile = new URL("_headers", output);
 if (assetOrigin) {
-  for (const page of ["index.html", "404.html", "games.html", ...catalog.filter(compatible).map((game) => `games/${game.id}.html`)]) {
+  for (const page of ["index.html", "404.html", "games.html", "models.html", "model.html", ...catalog.filter(compatible).map((game) => `games/${game.id}.html`)]) {
     const path = new URL(page, output);
     await writeFile(path, assetHTML(await readFile(path, "utf8"), assetOrigin));
   }
@@ -148,12 +150,12 @@ async function files(directory) {
 const outputPath = fileURLToPath(output);
 const shell = (await files(output))
   .map((file) => `/${relative(outputPath, fileURLToPath(file)).split("\\").join("/")}`)
-  .filter((path) => !/^\/(?:games\/[^/]+\/|blobs\/|skills\/|runtime\/vision\/|runtime\/addons\/(?:draco|basis)\/|vendor\/three\/LICENSE|_headers|_redirects|robots\.txt|sitemap\.xml|games\.json|sw\.js)/.test(path))
-  .map((path) => path.replace(/(?:^|\/)index\.html$/, "/").replace(/^\/\//, "/").replace(/^(\/games(?:\/[^/]+)?)\.html$/, "$1"))
+  .filter((path) => !/^\/(?:games\/[^/]+\/|blobs\/|skills\/|runtime\/vision\/|runtime\/addons\/(?:draco|basis)\/|vendor\/three\/LICENSE|_headers|_redirects|robots\.txt|sitemap\.xml|games\.json|models\.json|sw\.js)/.test(path))
+  .map((path) => path.replace(/(?:^|\/)index\.html$/, "/").replace(/^\/\//, "/").replace(/^(\/games(?:\/[^/]+)?|\/models?)\.html$/, "$1"))
   .sort();
 // Cached under the addresses pages are visited at: "/x/" for x/index.html, "/games" and
-// "/games/<id>" for the lobby and game pages.
-const fileOf = (path) => (path.endsWith("/") ? `${path}index.html` : /^\/games(?:\/[^/.]+)?$/.test(path) ? `${path}.html` : path);
+// "/games/<id>" for the lobby and game pages, "/models" and "/model" for the model library.
+const fileOf = (path) => (path.endsWith("/") ? `${path}index.html` : /^\/(?:games(?:\/[^/.]+)?|models?)$/.test(path) ? `${path}.html` : path);
 const hash = createHash("sha256");
 for (const path of shell) hash.update(path).update(await readFile(new URL(`.${fileOf(path)}`, output)));
 // Documents stay on the site; the rest of the shell is cached from the asset origin.

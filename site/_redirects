@@ -2,3 +2,8 @@
 # /games/<id> (games/<id>.html, written by the build).
 /games/ /games 301
 /games/:id/ /games/:id 301
+# The model library is /models (models.html); every /models/<id> is model.html, which reads the
+# id from the address (docs/models.md).
+/models/ /models 301
+/models/:id/ /models/:id 301
+/models/:id /model 200

@@ -18,9 +18,9 @@ test("each game page is the player with the game's escaped meta, canonical URL a
   assert.match(gamePage(template, game), /twitter:card" content="summary"/);
   assert.doesNotMatch(gamePage(template, game), /og:image/);
 });
-test("pages and sitemap cover compatible games only, at addresses without a trailing slash", () => {
+test("pages and sitemap cover the model library and compatible games only, at addresses without a trailing slash", () => {
   const games = [game, { ...game, id: "old", apiVersion: 1 }];
   assert.deepEqual(gamePages(games, template).map((page) => page.path), ["games/my-game.html"]);
   const xml = sitemap(games);
-  assert.deepEqual([...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]), ["https://fun.dev/", "https://fun.dev/games", "https://fun.dev/games/my-game"]);
+  assert.deepEqual([...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]), ["https://fun.dev/", "https://fun.dev/games", "https://fun.dev/models", "https://fun.dev/games/my-game"]);
 });

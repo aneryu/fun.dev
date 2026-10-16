@@ -22,6 +22,12 @@ export const messages = {
     recordVideo: "录制视频", stopRecording: "停止录制", stop: "停止", recordingTime: (time) => `正在录制 ${time}，点击停止`,
     recordDone: "录好了", recordShare: "分享视频", recordSave: "保存视频", recordDiscard: "不要了",
     recordNote: (time) => `${time} · 视频只在这台设备上，关掉就没了。`, recordError: "录制失败。", recordShareError: "无法分享，请先保存视频。",
+    models: "模型", modelList: "模型列表", skipModels: "跳到模型", modelsDescription: "fun.dev 模型库：做游戏用的 3D 模型，CC0，随便用。",
+    searchModels: "搜索模型", kit: "套件", allKits: "全部套件", tag: "标签", allTags: "全部标签",
+    modelsEmpty: "模型即将上线。", noModels: "没有找到模型。", modelsCount: (count) => `${count} 个模型`,
+    backModels: "← 模型", modelMissing: "模型不存在。", viewerError: "模型加载失败。", modelView: "3D 模型，拖动旋转，双指或滚轮缩放",
+    copyAddress: "复制地址", copied: "地址已复制。", copyError: "无法复制，请手动复制。", downloadGLB: "下载 GLB", downloadBlend: "下载 .blend",
+    modelSize: "尺寸", triangles: "三角形", fileSize: "文件", versions: "版本", licence: "CC0：随便用，不用署名。",
   },
   en: {
     language: "Language", languageAuto: "Auto",
@@ -46,6 +52,12 @@ export const messages = {
     recordVideo: "Record video", stopRecording: "Stop recording", stop: "Stop", recordingTime: (time) => `Recording ${time}, select to stop`,
     recordDone: "Your clip", recordShare: "Share video", recordSave: "Save video", recordDiscard: "Discard",
     recordNote: (time) => `${time} · The video stays on this device and is gone once you close this.`, recordError: "Recording failed.", recordShareError: "Couldn't share. Save the video instead.",
+    models: "Models", modelList: "Model list", skipModels: "Skip to models", modelsDescription: "fun.dev models: 3D models for games, CC0, free to use.",
+    searchModels: "Search models", kit: "Kit", allKits: "All kits", tag: "Tag", allTags: "All tags",
+    modelsEmpty: "Models coming soon.", noModels: "No models found.", modelsCount: (count) => `${count} model${count === 1 ? "" : "s"}`,
+    backModels: "← Models", modelMissing: "Model not found.", viewerError: "Couldn't load the model.", modelView: "3D model. Drag to turn, pinch or scroll to zoom",
+    copyAddress: "Copy address", copied: "Address copied.", copyError: "Couldn't copy. Copy it by hand.", downloadGLB: "Download GLB", downloadBlend: "Download .blend",
+    modelSize: "Size", triangles: "Triangles", fileSize: "File", versions: "Versions", licence: "CC0: use it for anything, no credit needed.",
   },
 };
 

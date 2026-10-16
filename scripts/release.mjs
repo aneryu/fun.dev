@@ -13,7 +13,7 @@ import { pendingBackups, pushBlobs } from "./assets.mjs";
 
 // One-command release: npm run release [-- --yes] | [-- --check]
 // Reads the live state, prints a plan, then (after confirmation) runs it in a safe order:
-// verify → asset backup → D1 migrations → cleanup Worker → changed games → production build + smoke
+// verify → asset backup → D1 migrations → cleanup and console Workers → changed games → production build + smoke
 // against the live catalog → Pages deploy → checks on fun.dev → git push.
 const SITE = "https://fun.dev";
 const GAME_ORIGIN = "https://games.fun.dev";
@@ -55,13 +55,17 @@ const deployed = deployments[0]?.Source;
 const known = deployed && spawnSync("git", ["cat-file", "-e", `${deployed}^{commit}`], { cwd: root }).status === 0;
 const changed = known ? git("diff", "--name-only", deployed, head).split("\n").filter(Boolean) : null;
 const touches = (pattern) => !changed || changed.some((file) => pattern.test(file));
-const siteChanged = touches(/^(?:site|skills|functions|server|migrations)\/|^scripts\/(?:build|check|csp|game-pages|local-games|game-release|vision)\.mjs$|^package(?:-lock)?\.json$|^wrangler\.jsonc$|^config\/mediapipe-LICENSE\.txt$|^sources\/sources\.lock$/);
+const siteChanged = touches(/^(?:site|skills|functions|server|migrations|migrations-models)\/|^scripts\/(?:build|check|csp|game-pages|local-games|game-release|vision)\.mjs$|^package(?:-lock)?\.json$|^wrangler\.jsonc$|^config\/mediapipe-LICENSE\.txt$|^sources\/sources\.lock$/);
 const transferChanged = touches(/^(?:site\/progress|site\/player|server|functions|migrations)\//);
 
-const migrations = must(wrangler("d1", "migrations", "list", "DB", "--remote", "--env", "production", "--env-file", "/dev/null"), "Listing D1 migrations");
-const pendingMigrations = !/No migrations to apply/i.test(migrations);
+// Two databases: DB (progress and transfers) and MODELS_DB (the model library, docs/models.md).
+const databases = ["DB", "MODELS_DB"];
+const pendingDatabases = databases.filter((binding) => !/No migrations to apply/i.test(must(wrangler("d1", "migrations", "list", binding, "--remote", "--env", "production", "--env-file", "/dev/null"), `Listing ${binding} migrations`)));
+const pendingMigrations = pendingDatabases.length > 0;
 const workerMissing = /does not exist/i.test(wrangler("deployments", "list", "--config", "wrangler.cleanup.jsonc", "--env", "production", "--env-file", "/dev/null").stderr ?? "");
 const workerChanged = workerMissing || touches(/^server\/|^wrangler\.cleanup\.jsonc$/);
+const consoleMissing = /does not exist/i.test(wrangler("deployments", "list", "--config", "wrangler.console.jsonc", "--env", "production", "--env-file", "/dev/null").stderr ?? "");
+const consoleChanged = consoleMissing || touches(/^server\/|^console\/|^site\/model-viewer\.js$|^scripts\/build-console\.mjs$|^wrangler\.console\.jsonc$|^package(?:-lock)?\.json$/);
 
 const backups = await pendingBackups();
 const remoteCatalog = await catalogNow();
@@ -75,15 +79,16 @@ console.log(`
 Release plan for ${head.slice(0, 7)} (live site: ${deployed ?? "unknown"})
   1. verify locally            unit tests + browser checks${transferChanged ? " + account transfer" : ""}
      back up assets           ${backups.length ? `${backups.length} new files to the private bucket` : "all backed up"}
-  2. D1 migrations             ${pendingMigrations ? "apply pending migrations" : "none pending"}
+  2. D1 migrations             ${pendingMigrations ? `apply pending migrations (${pendingDatabases.join(", ")})` : "none pending"}
   3. cleanup Worker            ${workerChanged ? (workerMissing ? "deploy (not deployed yet)" : "redeploy (server code changed)") : "unchanged"}
+     console Worker            ${consoleChanged ? (consoleMissing ? "deploy (not deployed yet)" : "redeploy (console changed)") : "unchanged"}
   4. games                     ${publish.length ? publish.map(({ game }) => `publish ${game.id}@${game.version}`).join(", ") : "no changes"}
   5. production build + smoke  against the live catalog
   6. website                   ${deploySite ? `deploy to Pages (${changed ? `${changed.length} files changed` : "first tracked release"})` : "unchanged, skip deploy"}
   7. live checks on ${SITE}, then git push`);
 if (remoteOnly.length) console.log(`  note: in the live catalog but not in games/: ${remoteOnly.map((game) => game.id).join(", ")} (left untouched; npm run game:remove -- <id>)`);
 if (apiChange) console.log(`  note: games change API version: the live lobby cannot read the catalog from step 4 until step 6 (a few minutes).`);
-if (!publish.length && !deploySite && !workerChanged && !pendingMigrations && !backups.length) {
+if (!publish.length && !deploySite && !workerChanged && !consoleChanged && !pendingMigrations && !backups.length) {
   console.log("\nNothing to release. Run npm run release -- --check to re-check fun.dev.");
   process.exit(0);
 }
@@ -108,11 +113,17 @@ if (backups.length) {
 
 if (pendingMigrations) {
   step("Apply D1 migrations");
-  console.log(must(wrangler("d1", "migrations", "apply", "DB", "--remote", "--env", "production", "--env-file", "/dev/null"), "Applying D1 migrations").trim().split("\n").slice(-3).join("\n"));
+  for (const binding of pendingDatabases) console.log(must(wrangler("d1", "migrations", "apply", binding, "--remote", "--env", "production", "--env-file", "/dev/null"), `Applying ${binding} migrations`).trim().split("\n").slice(-3).join("\n"));
 }
 if (workerChanged) {
   step("Deploy cleanup Worker");
   console.log(must(wrangler("deploy", "--config", "wrangler.cleanup.jsonc", "--env", "production", "--env-file", "/dev/null"), "Deploying the cleanup Worker").split("\n").filter((line) => /schedule|Deployed|Version/.test(line)).join("\n"));
+}
+
+if (consoleChanged) {
+  step("Deploy console Worker");
+  execFileSync(process.execPath, ["scripts/build-console.mjs"], { cwd: root, stdio: "inherit" });
+  console.log(must(wrangler("deploy", "--config", "wrangler.console.jsonc", "--env", "production", "--env-file", "/dev/null"), "Deploying the console Worker").split("\n").filter((line) => /Deployed|Version|console\.fun\.dev/.test(line)).join("\n"));
 }
 
 let gameStore = null;

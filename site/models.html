@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="fun.dev 模型库：做游戏用的 3D 模型，CC0，随便用。" data-i18n-content="modelsDescription">
+    <meta name="theme-color" content="#ffd43b">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://fun.dev/models">
+    <meta property="og:title" content="fun.dev">
+    <meta property="og:description" content="fun.dev 模型库：做游戏用的 3D 模型，CC0，随便用。" data-i18n-content="modelsDescription">
+    <link rel="canonical" href="https://fun.dev/models">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <script src="/i18n-boot.js"></script>
+    <link rel="stylesheet" href="/platform.css">
+    <script type="module" src="/models.js"></script>
+    <title>fun.dev</title>
+  </head>
+  <body class="lobby-page">
+    <a class="skip-link" href="#models" data-i18n="skipModels">跳到模型</a>
+    <header class="site-header page-width">
+      <h1><a class="wordmark" href="/" aria-label="fun.dev 首页" data-i18n-aria="home" data-language-link>fun.dev</a></h1>
+      <select class="language-toggle" id="language-toggle" aria-label="语言" data-i18n-aria="language"><option value="auto" data-i18n="languageAuto">自动</option><option value="zh" lang="zh-CN">中文</option><option value="en" lang="en">English</option></select>
+    </header>
+    <main class="page-width">
+      <section class="catalog" id="models" aria-labelledby="models-title">
+        <div class="section-heading">
+          <h2 id="models-title" tabindex="-1" data-i18n="models">模型</h2>
+          <p class="muted catalog-count" id="catalog-count"></p>
+        </div>
+        <div class="catalog-tools" id="catalog-tools" hidden>
+          <div class="search-field"><label for="search" data-i18n="search">搜索</label><input id="search" type="search" placeholder="搜索模型" data-i18n-placeholder="searchModels" autocomplete="off" maxlength="120"></div>
+          <div class="category-field"><label for="kit" data-i18n="kit">套件</label><select id="kit"><option value="" data-i18n="allKits">全部套件</option></select></div>
+          <div class="category-field"><label for="tag" data-i18n="tag">标签</label><select id="tag"><option value="" data-i18n="allTags">全部标签</option></select></div>
+        </div>
+        <p class="result-status muted" id="result-status" role="status" aria-live="polite"></p>
+        <ul class="model-grid" id="model-list" aria-label="模型列表" data-i18n-aria="modelList" hidden></ul>
+        <p class="message-state muted" id="empty-state" data-i18n="modelsEmpty" hidden>模型即将上线。</p>
+        <div class="message-state" id="no-results" hidden>
+          <p data-i18n="noModels">没有找到模型。</p>
+          <button class="button" id="clear-filters" type="button" data-i18n="clear">清除筛选</button>
+        </div>
+        <div class="message-state" id="load-error" hidden>
+          <p data-i18n="loadError">加载失败，请重试。</p>
+          <button class="button" id="retry" type="button" data-i18n="retry">重试</button>
+        </div>
+        <noscript><p class="message-state">请开启 JavaScript。<br><span lang="en">Please enable JavaScript.</span></p></noscript>
+      </section>
+      <p class="muted models-licence" data-i18n="licence">CC0：随便用，不用署名。</p>
+    </main>
+    <script src="/i18n-boot.js"></script>
+  </body>
+</html>

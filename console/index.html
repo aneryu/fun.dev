@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="robots" content="noindex">
+    <meta name="theme-color" content="#ffd43b">
+    <link rel="stylesheet" href="/console.css">
+    <script type="module" src="/console.js"></script>
+    <title>fun.dev console</title>
+  </head>
+  <body>
+    <header class="bar">
+      <h1>fun.dev <span>console</span></h1>
+      <p class="muted" id="who"></p>
+    </header>
+    <main>
+      <section id="list-view" aria-labelledby="list-title">
+        <div class="heading">
+          <h2 id="list-title">模型审核</h2>
+          <label class="filter">状态
+            <select id="filter">
+              <option value="pending">待审</option>
+              <option value="rejected">已退回</option>
+              <option value="approved">已通过</option>
+              <option value="incomplete">未传完</option>
+              <option value="all">全部</option>
+            </select>
+          </label>
+        </div>
+        <p class="muted" id="list-status" role="status" aria-live="polite"></p>
+        <ul class="rows" id="rows"></ul>
+      </section>
+
+      <section id="detail-view" aria-labelledby="detail-title" hidden>
+        <button class="link" type="button" id="back">← 列表</button>
+        <h2 id="detail-title"></h2>
+        <p class="muted" id="detail-status" role="status" aria-live="polite"></p>
+        <div class="detail">
+          <div class="stage" id="stage"></div>
+          <div class="facts">
+            <dl id="stats"></dl>
+            <ul class="warnings" id="warnings"></ul>
+            <p class="note" id="note" hidden></p>
+            <h3>文件</h3>
+            <ul class="files" id="files"></ul>
+          </div>
+        </div>
+
+        <form id="edit" class="panel">
+          <h3>模型信息（所有版本共用）</h3>
+          <label>中文名<input name="zh" required maxlength="100"></label>
+          <label>英文名<input name="en" required maxlength="100"></label>
+          <label>套件 kit<input name="kit" maxlength="64" pattern="[a-z0-9]+(_[a-z0-9]+)*" placeholder="可空"></label>
+          <label>标签（逗号分隔）<input name="tags" placeholder="chair, indoor"></label>
+          <label class="check"><input type="checkbox" name="listed"> 在 /models 上公开</label>
+          <button class="button secondary" type="submit">保存信息</button>
+        </form>
+
+        <div class="panel" id="review">
+          <h3>审核 <span id="review-version"></span></h3>
+          <button class="button" type="button" id="approve">通过并发布</button>
+          <label>退回原因<textarea id="reject-note" rows="3" maxlength="2000" placeholder="生产线通过接口能看到"></textarea></label>
+          <button class="button danger" type="button" id="reject">退回</button>
+        </div>
+
+        <div class="panel">
+          <h3>版本</h3>
+          <ul class="versions" id="versions"></ul>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

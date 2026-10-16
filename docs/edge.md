@@ -11,7 +11,8 @@ still serves every other file.
 | --- | --- | --- |
 | `fun.dev` | CN2 server `45.194.22.14` (Caddy, DNS only) | pages, `/sw.js`, `/manifest.webmanifest`, `/robots.txt`, `/sitemap.xml`; everything else redirects (308) to `cdn.fun.dev` |
 | `cdn.fun.dev` | Pages project `fundev` (custom domain, proxied) | platform files: CSS, JS, icons, Three.js, `/runtime/` |
-| `api.fun.dev` | Pages project `fundev` (custom domain, proxied) | the transfer API, `/api/transfers/*` |
+| `api.fun.dev` | Pages project `fundev` (custom domain, proxied) | the transfer API, `/api/transfers/*`; the model upload API, `/api/models/*` ([models](models.md)) |
+| `console.fun.dev` | Worker `fundev-console` (custom domain, behind Cloudflare Access) | the model review console ([models](models.md)) |
 | `games.fun.dev` | R2 (unchanged) | game releases and blobs |
 
 Measured from 15 mainland probes after the switch (HTTPS, `/games`): through the server a median

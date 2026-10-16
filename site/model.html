@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="fun.dev 模型库：做游戏用的 3D 模型，CC0，随便用。" data-i18n-content="modelsDescription">
+    <meta name="theme-color" content="#ffd43b">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="fun.dev">
+    <meta property="og:description" content="fun.dev 模型库：做游戏用的 3D 模型，CC0，随便用。" data-i18n-content="modelsDescription">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <script src="/i18n-boot.js"></script>
+    <link rel="stylesheet" href="/platform.css">
+    <script type="module" src="/model.js"></script>
+    <title>fun.dev</title>
+  </head>
+  <body class="lobby-page">
+    <header class="site-header page-width">
+      <h1><a class="wordmark" href="/" aria-label="fun.dev 首页" data-i18n-aria="home" data-language-link>fun.dev</a></h1>
+      <select class="language-toggle" id="language-toggle" aria-label="语言" data-i18n-aria="language"><option value="auto" data-i18n="languageAuto">自动</option><option value="zh" lang="zh-CN">中文</option><option value="en" lang="en">English</option></select>
+    </header>
+    <main class="page-width">
+      <div class="section-heading">
+        <a class="back-link" href="/models" data-i18n="backModels" data-language-link>← 模型</a>
+        <p class="muted catalog-count" id="model-id"></p>
+      </div>
+      <p class="result-status muted" id="status" role="status" aria-live="polite"></p>
+      <article class="model-detail" id="detail" hidden>
+        <div class="model-stage" id="stage" role="img" aria-label="3D 模型，拖动旋转，双指或滚轮缩放" data-i18n-aria="modelView"></div>
+        <div class="model-facts">
+          <h2 id="model-name" tabindex="-1"></h2>
+          <p class="game-meta" id="model-kit"></p>
+          <dl class="model-stats">
+            <div><dt data-i18n="modelSize">尺寸</dt><dd id="stat-size"></dd></div>
+            <div><dt data-i18n="triangles">三角形</dt><dd id="stat-triangles"></dd></div>
+            <div><dt data-i18n="fileSize">文件</dt><dd id="stat-bytes"></dd></div>
+          </dl>
+          <div class="model-actions">
+            <button class="button" type="button" id="copy" data-i18n="copyAddress">复制地址</button>
+            <button class="button" type="button" id="download-glb" data-i18n="downloadGLB">下载 GLB</button>
+            <button class="button" type="button" id="download-blend" data-i18n="downloadBlend" hidden>下载 .blend</button>
+          </div>
+          <code class="model-address" id="address"></code>
+          <div class="model-versions" id="versions-block" hidden>
+            <label for="version" data-i18n="versions">版本</label>
+            <select id="version"></select>
+          </div>
+          <p class="muted models-licence" data-i18n="licence">CC0：随便用，不用署名。</p>
+        </div>
+      </article>
+      <noscript><p class="message-state">请开启 JavaScript。<br><span lang="en">Please enable JavaScript.</span></p></noscript>
+    </main>
+    <script src="/i18n-boot.js"></script>
+  </body>
+</html>

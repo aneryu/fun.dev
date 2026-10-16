@@ -93,6 +93,14 @@ English; keep `fun.dev` unchanged. Detect the browser language automatically;
 keep the optional Auto/中文/English selector small and borderless at the right of the lobby
 header and inside the mobile player menu. Preserve its 44px touch area and focus outline.
 
+### Model library
+
+`/models` shares the lobby's header, heading rule and filters. Models show as square
+previews with a Duck Ink border, like game covers, in a plain grid with the name and id
+below: no card backgrounds, shadows or rounded corners. A model page puts the 3D view on
+Duck Cream with an ink border beside its facts, stacked on phones. The homepage links it
+next to Games.
+
 ### Future surfaces
 
 If longer content needs separation, use Duck Cream with Duck Ink. Avoid generic

@@ -35,7 +35,7 @@ export function gamePages(games, template, options) {
 
 // Home, lobby and every playable game, at their canonical addresses (no trailing slash).
 export function sitemap(games, site = "https://fun.dev") {
-  const paths = ["/", "/games", ...games.filter(compatible).map(playPath)];
+  const paths = ["/", "/games", "/models", ...games.filter(compatible).map(playPath)];
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${paths.map((path) => `  <url>\n    <loc>${escape(`${site}${path}`)}</loc>\n  </url>`).join("\n")}

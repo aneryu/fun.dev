@@ -45,7 +45,7 @@ npm run dev -- muyu          # prints the player URL for one game, with ?debug=1
 | Suite | Checks |
 | --- | --- |
 | assets | `npm run assets -- --check`: every file matches its lock |
-| unit | `node --test`: catalog, publisher, CSP, kit, game pages, progress protocol with local D1, game tests |
+| unit | `node --test`: catalog, publisher, CSP, kit, game pages, progress protocol with local D1, model library API and review with local D1/R2, game tests |
 | smoke | every game at phone and desktop size: runs, not blank, language switch, menu pause/resume, restart, clean exit, no console errors |
 | kit | text/HUD placement, pointer/keyboard/joystick, glTF with embedded textures, Draco/KTX2 and the MediaPipe vision runtime under the player CSP |
 | player | loading bar, announcements, options/settings/cheats, mute, share, restart, debug panel, rotation prompt, API mismatch |
@@ -126,6 +126,7 @@ again.
 | `npm run game:remove -- <id>` | Remove a game from the live catalog |
 | `npm run transfer:preview` | Local transfer stack: build, local D1, `wrangler pages dev` on https://localhost:8788 |
 | `npm run transfer:types` | Regenerate `server/env.d.ts` from Wrangler bindings |
+| `npm run console:build` | Build the model review console into `dist-console/` ([models](models.md)) |
 
 Build environment variables (set by the commands above, not by `.env`):
 `FUNDEV_GAME_ORIGIN` (remote catalog origin; empty = local games),
@@ -140,7 +141,9 @@ hostnames, [edge](edge.md); empty = same-origin),
   server, see [edge](edge.md)); R2 bucket `fundev-games` at `games.fun.dev`;
   private R2 bucket `fundev-sources` (blob backups, no public domain);
   D1 `fundev-progress-production`; Worker `fundev-transfer-cleanup-production`
-  (hourly; no HTTP endpoint).
+  (hourly; no HTTP endpoint). The model library ([models](models.md)): D1 `fundev-models`,
+  Worker `fundev-console-production` on `console.fun.dev` behind Cloudflare Access, the upload
+  API on `api.fun.dev`.
 - The cleanup Worker bounds transfer retention. Check its cron runs in the
   Cloudflare dashboard (Workers → `fundev-transfer-cleanup-production` → Logs)
   after it is first deployed or changed. Local cron tests can use
