@@ -41,7 +41,7 @@
         {
           "binding": "MODELS_DB",
           "database_name": "fundev-models",
-          "database_id": "REPLACE_WITH_FUNDEV_MODELS_ID",
+          "database_id": "0db96f73-1f1e-459d-aa41-a8b6772a4e70",
           "migrations_dir": "./migrations-models"
         }
       ],

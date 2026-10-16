@@ -110,8 +110,8 @@ Locally, the build writes an empty `dist/models.json`.
 
 Once, before the first release that contains the library:
 
-1. Create the D1 database `fundev-models` and put its id in place of
-   `REPLACE_WITH_FUNDEV_MODELS_ID` in `wrangler.jsonc` and `wrangler.console.jsonc`.
+1. Create the D1 database `fundev-models` (done 2026-10-16, location hint APAC; its id is in
+   `wrangler.jsonc` and `wrangler.console.jsonc`).
 2. Pages project `fundev`: add the secret `MODELS_TOKEN` (a long random string; give it to the
    pipeline).
 3. Zero Trust: create a self-hosted Access application for `console.fun.dev` that allows only the
