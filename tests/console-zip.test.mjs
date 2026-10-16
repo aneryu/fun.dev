@@ -31,6 +31,10 @@ with zipfile.ZipFile(sys.argv[1], "w") as z:
   const result = inspectVersion({ ...versions[0], files: [...versions[0].files, { name: "thumbnail.png", bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]) }] });
   assert.deepEqual(result.problems, []);
   assert.deepEqual(result.stats.size, [0.5, 1, 0.5]);
+  // Without WebGL the page uploads no thumbnail: a warning for review, not a problem.
+  const plain = inspectVersion(versions[0]);
+  assert.deepEqual(plain.problems, []);
+  assert.match(plain.warnings.join(), /no thumbnail yet/);
   await assert.rejects(readZip(new Blob([Buffer.from("not a zip")])), /not a zip file/);
   await rm(directory, { recursive: true, force: true });
 });

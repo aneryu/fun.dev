@@ -55,7 +55,8 @@ test("public files go to the public store at upload; approving lists the version
   assert.equal(status.status, "incomplete");
   assert.deepEqual(status.stats.size, [0.48, 0.85, 0.5]);
   assert.equal(status.stats.triangles, 12);
-  assert.equal((await (await stack.upload("desk_chair_01/v001", metadata("书椅", { tags: ["chair", "low-poly", "prop", "reading_room"] }), { type: "application/json" })).json()).status, "incomplete");
+  // Pending with metadata and model.glb; the thumbnail may come later, from review.
+  assert.equal((await (await stack.upload("desk_chair_01/v001", metadata("书椅", { tags: ["chair", "low-poly", "prop", "reading_room"] }), { type: "application/json" })).json()).status, "pending");
   await stack.upload("desk_chair_01/v001/qa.json", "{}");
   await stack.upload("desk_chair_01/v001/preview.png", png);
   await stack.upload("desk_chair_01/v001/source.blend", new Uint8Array([1, 2, 3]));

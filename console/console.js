@@ -45,7 +45,12 @@ function showTab(name) {
 }
 
 // ── Upload: the same checks as the server, then the console's upload routes ──
-let prepared = [];
+let prepared = [], note = "";
+const webgl = () => {
+  try { const canvas = document.createElement("canvas"); return Boolean(canvas.getContext("webgl2") ?? canvas.getContext("webgl")); }
+  catch { return false; }
+};
+const within = (promise, ms) => Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))]);
 const hex = (buffer) => [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 
 function renderChecks() {
@@ -70,20 +75,24 @@ async function prepare(files) {
       if (file.name.toLowerCase().endsWith(".zip")) entries.push(...await readZip(file));
       else entries.push({ path: file.webkitRelativePath || file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
     }
-    // Thumbnails in the library's look, rendered here from each model.glb (a maker's thumbnail.png is replaced).
+    // Thumbnails in the library's look, rendered here from each model.glb when this browser can
+    // (a maker's thumbnail.png is replaced). Without WebGL, or if one takes too long, the upload
+    // goes ahead and review renders the thumbnail.
     const versions = groupVersions(entries);
+    let canRender = webgl(), rendered = 0, failures = 0;
     for (const [index, version] of versions.entries()) {
-      $("#upload-status").textContent = `渲染缩略图 ${index + 1}/${versions.length}…`;
       const glb = version.files.find((file) => file.name === "model.glb");
       version.files = version.files.filter((file) => file.name !== "thumbnail.png");
-      if (glb) {
-        try { version.files.push({ name: "thumbnail.png", bytes: await renderThumbnail(glb.bytes) }); }
-        catch { /* The check reports the broken GLB. */ }
-      }
+      if (!glb || !canRender) continue;
+      $("#upload-status").textContent = `渲染缩略图 ${index + 1}/${versions.length}…`;
+      try { version.files.push({ name: "thumbnail.png", bytes: await within(renderThumbnail(glb.bytes), 15000) }); rendered++; failures = 0; }
+      // Rendered during review instead; two failures in a row mean this browser cannot do it.
+      catch { if (++failures >= 2) canRender = false; }
     }
+    note = canRender ? (rendered < versions.length ? `${versions.length - rendered} 个没能渲染缩略图，审核时由平台补上。` : "") : "这个浏览器不能渲染缩略图：照常上传，审核时由平台补上。";
     prepared = versions.map((version) => ({ ...version, ...inspectVersion(version), result: null }));
     const bad = prepared.filter((item) => item.problems.length).length;
-    $("#upload-status").textContent = prepared.length ? `找到 ${prepared.length} 个版本，${prepared.length - bad} 个通过检查${bad ? `，${bad} 个没通过（不会上传）` : ""}。` : "没有找到 <id>/<version>/ 文件夹。";
+    $("#upload-status").textContent = prepared.length ? `找到 ${prepared.length} 个版本，${prepared.length - bad} 个通过检查${bad ? `，${bad} 个没通过（不会上传）` : ""}。${note}` : "没有找到 <id>/<version>/ 文件夹。";
   } catch (error) {
     prepared = [];
     $("#upload-status").textContent = `读取失败：${error.message}`;

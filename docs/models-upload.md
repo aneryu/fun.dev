@@ -7,8 +7,9 @@ pipeline. Uploads wait for review; nothing is listed until it is approved.
 
 Sign in to https://console.fun.dev (Cloudflare Access sends a one-time code to the owner's
 email) and open **上传**. Choose one or more zips, or a folder. The page renders each model's
-thumbnail, runs the server's checks in the browser, lists every version with ✓ or ✗ and the
-reasons, and uploads the versions that pass. Files the server already has are skipped, so
+thumbnail when the browser can (if not, review adds it; the upload is not held up), runs the
+server's checks in the browser, lists every version with ✓ or ✗ and the reasons, and uploads the
+versions that pass. Files the server already has are skipped, so
 uploading again is safe. Uploaded versions appear under **审核** as 待审.
 
 ## What to upload
@@ -82,7 +83,7 @@ Write for someone choosing a model for a game, not for the modeller. Production 
 | File | Rules |
 | --- | --- |
 | `model.glb` | glTF 2.0 binary, at most 10 MB; embedded buffers and images only; POSITION accessors with min and max; no Draco, KTX2 or meshopt compression |
-| `thumbnail.png` | not uploaded by makers: the upload page renders it from `model.glb` |
+| `thumbnail.png` | not uploaded by makers: rendered from `model.glb` by the upload page or in review |
 | `preview.png` | optional PNG, kept privately for review |
 | others | at most 50 MB each |
 

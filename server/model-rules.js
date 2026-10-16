@@ -100,11 +100,11 @@ export function inspectVersion({ id, version, meta, files }) {
     try { stats = glbStats(readGLB(glb.bytes)); }
     catch (error) { if (error instanceof GLBError) problems.push(`model.glb: ${error.message}`); else throw error; }
   }
-  // The upload page renders thumbnail.png itself; preview.png is optional.
   for (const name of ["thumbnail.png", "preview.png"]) {
     const image = files.find((file) => file.name === name);
     if (image && !PNG.every((byte, index) => image.bytes[index] === byte)) problems.push(`${name} is not a PNG`);
   }
-  if (!files.some((file) => file.name === "thumbnail.png")) problems.push("thumbnail.png is missing (the upload page renders it)");
-  return { meta: data, files: accepted, stats, problems, warnings: [...(stats ? placementWarnings(stats) : []), ...textWarnings(data ?? {})] };
+  // The upload page renders thumbnail.png when the browser can; otherwise review adds it.
+  const later = files.some((file) => file.name === "thumbnail.png") ? [] : ["no thumbnail yet: it is rendered during review"];
+  return { meta: data, files: accepted, stats, problems, warnings: [...(stats ? placementWarnings(stats) : []), ...textWarnings(data ?? {}), ...later] };
 }

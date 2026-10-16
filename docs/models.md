@@ -118,13 +118,15 @@ cannot host it: it is DNS-only to the CN2 server ([edge](edge.md)), so Access do
 - **上传** takes zips or folders in the layout of [models-upload](models-upload.md), checks
   them in the browser with the server's rules (`server/model-rules.js`) and uploads through
   `/api/upload/…`, sending each file's SHA-256 (R2 verifies it; the Worker need not hash large
-  files). A version is pending once its metadata (with a description), `model.glb` and
-  `thumbnail.png` are there; the server rechecks the GLB and computes the stats shown in review.
+  files). A version is pending once its metadata (with a description) and `model.glb` are there;
+  the server rechecks the GLB and computes the stats shown in review.
   Tags that say nothing (`low-poly`, `static`, the type or kit again) are dropped; production
   jargon in names and descriptions is flagged.
-- The upload page renders each model's `thumbnail.png` in the browser with the library's viewer
-  (one angle, light and background), so every thumbnail matches the 3D view on model pages. A
-  maker's `preview.png` is optional.
+- Thumbnails come from the library's own viewer (one angle, light and background), so every one
+  matches the 3D view on model pages. The upload page renders them when the browser has WebGL
+  (15 s per model, stopping after two failures); otherwise it uploads without, and review renders
+  them with `npm run models -- thumbnails`. An upload never waits on a thumbnail (an automated,
+  GPU-less browser once could not upload at all). A maker's `preview.png` is optional and private.
 - **审核** is a wall of thumbnails with size, triangles and warnings under each (not on the
   floor, off centre, no description, no thumbnail, production jargon). Versions without warnings
   can be selected and approved in bulk; one with a warning is opened and approved on its own.
@@ -140,6 +142,7 @@ spot-checks in the console, unlisting anything at any time:
 ```sh
 npm run models -- list [pending|rejected|approved|incomplete|all]   # with warnings
 npm run models -- sheet [status]            # contact sheets in test-results/models-review/
+npm run models -- thumbnails [status] [--all]   # render missing (or all) thumbnails
 npm run models -- apply plan.json [--dry-run]
 npm run models -- rebuild                   # rewrite every page and the indexes
 ```
@@ -243,4 +246,3 @@ Deferred for future consideration, not rejected:
 - Validating the library with a real game built from it (skipped on 2026-10-17: until then the
   design may drift from what games need). Clock Out is realistic; the library is stylised.
 - A scheduled agent that reviews new uploads without being asked.
-- Regenerating thumbnails from the maintenance script.

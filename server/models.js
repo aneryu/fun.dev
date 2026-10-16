@@ -62,10 +62,11 @@ async function typeLocked(db, id, type) {
 }
 
 // A version is pending once the model has a name, a type and a description and the version has
-// model.glb and thumbnail.png.
+// model.glb. A missing thumbnail does not hold it back (the uploader's browser may not render
+// one); review renders it before approving.
 const STATUS = `CASE WHEN status='approved' THEN 'approved'
   WHEN (SELECT name IS NOT NULL AND type IS NOT NULL AND description IS NOT NULL FROM models WHERE id=versions.model)
-   AND json_extract(files,'$."model.glb"') IS NOT NULL AND json_extract(files,'$."thumbnail.png"') IS NOT NULL THEN 'pending'
+   AND json_extract(files,'$."model.glb"') IS NOT NULL THEN 'pending'
   ELSE 'incomplete' END`;
 
 // Approved versions keep their model.glb and source.blend for good (games pin them); only the

@@ -2,7 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { placementWarnings, textWarnings } from "../server/model-rules.js";
-import { approveVersion, blobKey, editModel, getModel, listVersions, publish, publishedIds, putKit, rejectVersion, sourceKey } from "../server/models.js";
+import { approveVersion, blobKey, editModel, getModel, listVersions, publish, publishedIds, putFile, putKit, rejectVersion, sourceKey } from "../server/models.js";
 
 // Maintenance for the model library (docs/models.md), run by the maintainer: the console's own
 // functions against the live database and storage, through Wrangler's remote bindings
@@ -10,6 +10,7 @@ import { approveVersion, blobKey, editModel, getModel, listVersions, publish, pu
 //
 //   npm run models -- list [pending|rejected|approved|incomplete|all]
 //   npm run models -- sheet [status]          contact sheets of those versions in test-results/models-review/
+//   npm run models -- thumbnails [status] [--all]   render missing (or all) thumbnails, as the upload page does
 //   npm run models -- apply <plan.json> [--dry-run]
 //   npm run models -- rebuild                 rewrite every model's page data and the indexes
 //
@@ -56,30 +57,47 @@ export async function applyPlan(env, plan, { dryRun = false, log = console.log }
   return report;
 }
 
-/** Contact sheets of versions' models, rendered with the library's own viewer. */
-async function sheet(env, items, out) {
+// A page in the built site with the library's viewer, for rendering models in a headless browser.
+async function withViewer(task) {
   const { launch, serve, dist } = await import("./browser/harness.mjs");
   try { await readFile(resolve(dist, "model-viewer.js")); }
   catch { throw new Error("Build the site first: npm run build."); }
   const work = resolve(dist, "review-sheet");
   await mkdir(work, { recursive: true });
   await writeFile(join(work, "index.html"), `<!doctype html><body><div id="s"></div><script type="module" src="/review-sheet/render.js"></script>`);
-  await writeFile(join(work, "render.js"), `import { createViewer } from "/model-viewer.js";
+  await writeFile(join(work, "render.js"), `import { createViewer, renderThumbnail } from "/model-viewer.js";
 const stage = document.querySelector("#s"); Object.assign(stage.style, { width: "320px", height: "320px", background: "#fff7d6" }); document.body.style.margin = "0";
-const viewer = createViewer(stage); window.show = (url) => viewer.load(url);`);
+const viewer = createViewer(stage); window.show = (url) => viewer.load(url);
+window.thumbnail = async (base64) => { const png = await renderThumbnail(Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))); let text = ""; for (const byte of png) text += String.fromCharCode(byte); return btoa(text); };`);
   const site = await serve(), browser = await launch();
   try {
     const page = await browser.newPage({ viewport: { width: 320, height: 320 } });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto(`${site.base}/review-sheet/`);
-    await page.waitForFunction(() => window.show);
+    await page.waitForFunction(() => window.show && window.thumbnail);
+    return await task({ page, browser, work });
+  } finally {
+    await browser.close();
+    site.close();
+    await rm(work, { recursive: true, force: true });
+  }
+}
+
+async function modelBytes(env, item) {
+  const entry = item.files["model.glb"];
+  const object = entry && (await env.MODELS_PUBLIC.get(blobKey("model.glb", entry.sha256)) ?? await env.MODELS_SOURCES.get(sourceKey(item.id, item.version, "model.glb")));
+  return object ? new Uint8Array(await object.arrayBuffer()) : null;
+}
+
+/** Contact sheets of versions' models, rendered with the library's own viewer. */
+async function sheet(env, items, out) {
+  return withViewer(async ({ page, browser, work }) => {
     const tiles = [];
     for (const item of items) {
-      const entry = item.files["model.glb"];
-      const object = entry && (await env.MODELS_PUBLIC.get(blobKey("model.glb", entry.sha256)) ?? await env.MODELS_SOURCES.get(sourceKey(item.id, item.version, "model.glb")));
+      const bytes = await modelBytes(env, item);
       let png = null;
-      if (object) {
-        await writeFile(join(work, "model.glb"), new Uint8Array(await object.arrayBuffer()));
+      if (bytes) {
+        await writeFile(join(work, "model.glb"), bytes);
         try { await page.evaluate((url) => window.show(url), `/review-sheet/model.glb?${item.id}${item.version}`); await page.waitForTimeout(150); png = (await page.locator("#s").screenshot()).toString("base64"); }
         catch { /* Shown as failed. */ }
       }
@@ -96,18 +114,30 @@ const viewer = createViewer(stage); window.show = (url) => viewer.load(url);`);
       files.push(path);
     }
     return files;
-  } finally {
-    await browser.close();
-    site.close();
-    await rm(work, { recursive: true, force: true });
-  }
+  });
+}
+
+/** Renders thumbnails like the upload page and stores them through putFile (listed ones are republished). */
+export async function thumbnails(env, items, log = console.log) {
+  return withViewer(async ({ page }) => {
+    let done = 0;
+    for (const item of items) {
+      const bytes = await modelBytes(env, item);
+      if (!bytes) { log(`✗ ${item.id} ${item.version}: no model.glb`); continue; }
+      const png = Buffer.from(await page.evaluate((base64) => window.thumbnail(base64), Buffer.from(bytes).toString("base64")), "base64");
+      await putFile(env, item.id, item.version, "thumbnail.png", new Uint8Array(png));
+      log(`✓ ${item.id} ${item.version}`);
+      done++;
+    }
+    return done;
+  });
 }
 
 const STATUSES = ["pending", "rejected", "approved", "incomplete", "all"];
 
 async function main([command, ...args]) {
-  if (!["list", "sheet", "apply", "rebuild"].includes(command)) {
-    console.error("Usage: npm run models -- list|sheet [status] | apply <plan.json> [--dry-run] | rebuild");
+  if (!["list", "sheet", "thumbnails", "apply", "rebuild"].includes(command)) {
+    console.error("Usage: npm run models -- list|sheet [status] | thumbnails [status] [--all] | apply <plan.json> [--dry-run] | rebuild");
     return 1;
   }
   const status = args.find((arg) => STATUSES.includes(arg)) ?? "pending";
@@ -125,6 +155,9 @@ async function main([command, ...args]) {
       const items = await listVersions(env.MODELS_DB, status);
       const files = await sheet(env, items.sort((a, b) => a.id.localeCompare(b.id)), join(root, "test-results", "models-review"));
       console.log(`${items.length} versions on ${files.length} sheets:\n${files.join("\n")}`);
+    } else if (command === "thumbnails") {
+      const items = (await listVersions(env.MODELS_DB, status)).filter((item) => args.includes("--all") || !item.files["thumbnail.png"]);
+      console.log(`Rendered ${await thumbnails(env, items)} of ${items.length} thumbnails.`);
     } else if (command === "apply") {
       const file = args.find((arg) => !arg.startsWith("--") && !STATUSES.includes(arg));
       if (!file) throw new Error("apply needs a plan file.");
