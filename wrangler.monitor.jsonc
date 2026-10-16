@@ -1,0 +1,28 @@
+{
+  // Uptime monitor for fun.dev (server/monitor.js, docs/edge.md). The alert recipient is the
+  // secret ALERT_TO, a verified Email Routing destination; it is not kept in this public repo.
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "fundev-uptime",
+  "main": "server/monitor.js",
+  "compatibility_date": "2026-10-13",
+  "workers_dev": false,
+  "observability": {
+    "enabled": true
+  },
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  },
+  "send_email": [
+    {
+      "name": "ALERT"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "STATE",
+      "id": "42be7fbf187c4175a21b2291f0bec34e"
+    }
+  ]
+}

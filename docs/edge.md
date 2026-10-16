@@ -85,6 +85,15 @@ Caddy comes from its official apt repository, and unattended-upgrades also insta
 (`/etc/apt/apt.conf.d/52unattended-caddy`). Logs: `journalctl -u caddy`. Nothing else on the
 server belongs to fun.dev.
 
+## Monitoring
+
+The Worker `fundev-uptime` (`server/monitor.js`, `wrangler.monitor.jsonc`) loads
+`https://fun.dev/games` every five minutes. After a failure and a retry five seconds later it
+emails once ("fun.dev is down"), and once more when the site answers again. The state is in the
+KV namespace `fundev-uptime-state`; the recipient is the Worker secret `ALERT_TO`, the Email
+Routing destination, so the address stays out of this repository. Deploy changes with
+`npx wrangler deploy --config wrangler.monitor.jsonc` (not part of `npm run release`).
+
 ## Known limits
 
 - Single point of failure: if the server is down, `fun.dev` is down everywhere; roll back as
