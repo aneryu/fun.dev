@@ -46,8 +46,9 @@ several zips are merged):
 
 `check` applies the same rules as the server. `upload` checks first, skips files the server
 already has, and leaves approved versions alone, so a run can be repeated after a failure.
-`login` stores the token in `~/.config/fundev/models-token` (`FUNDEV_CONFIG_DIR` overrides the
-folder; `MODELS_TOKEN` overrides the file); it is never printed. Each run writes
+The token is read from `--token-file <path>`, `MODELS_TOKEN_FILE`, `MODELS_TOKEN`, the file
+`login` writes (`~/.config/fundev/models-token`; `FUNDEV_CONFIG_DIR` moves it) or
+`/workspace/token`, where the model pipeline keeps it, in that order. It is never printed. Each run writes
 `upload-report.json` next to its first input.
 
 ## Endpoints

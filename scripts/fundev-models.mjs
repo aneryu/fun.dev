@@ -13,14 +13,15 @@ import { inspectVersion, VERSION } from "../server/model-rules.js";
 //
 //   fundev-models login                      store the upload token (read from stdin, never echoed)
 //   fundev-models check <folder|zip>...      check prepared models locally (no token, no network)
-//   fundev-models upload <folder|zip>... [--only id,id]
-//   fundev-models status <id> <version>      review status and the reviewer's note
+//   fundev-models upload <folder|zip>... [--only id,id] [--token-file path]
+//   fundev-models status <id> <version> [--token-file path]   review status and note
 //
 // Every <id>/<version>/ folder inside (at any depth, so a zip's top folder is fine) holds
 // meta.json, model.glb, preview.png and optional files; several zips (a large Drive download
 // comes in parts) are merged. Upload checks each version first and skips files the server
 // already has (same SHA-256), so a run can be repeated after a failure. Whoever prepares models
-// never needs the token: it is read from MODELS_TOKEN or the login file and never printed.
+// never needs to read the token: the tool reads it (--token-file, MODELS_TOKEN_FILE, MODELS_TOKEN,
+// the login file or /workspace/token) and never prints it.
 export const DEFAULT_API = "https://api.fun.dev/api/models";
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const IGNORED = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
@@ -57,10 +58,21 @@ export async function inspect(directory, id, version) {
 }
 
 const tokenFile = (env = process.env) => join(env.FUNDEV_CONFIG_DIR || join(homedir(), ".config/fundev"), "models-token");
-export async function readToken(env = process.env) {
+// The token comes from --token-file, MODELS_TOKEN_FILE, MODELS_TOKEN, the login file or
+// /workspace/token (where the model pipeline keeps it), in that order.
+const WORKSPACE_TOKEN = "/workspace/token";
+export async function readToken(env = process.env, file = null) {
+  const path = file || env.MODELS_TOKEN_FILE;
+  if (path) {
+    try { return (await readFile(path, "utf8")).trim() || null; }
+    catch { throw new Error(`Cannot read the token file ${path}.`); }
+  }
   if (env.MODELS_TOKEN) return env.MODELS_TOKEN.trim();
-  try { return (await readFile(tokenFile(env), "utf8")).trim() || null; }
-  catch { return null; }
+  for (const candidate of [tokenFile(env), WORKSPACE_TOKEN]) {
+    try { const token = (await readFile(candidate, "utf8")).trim(); if (token) return token; }
+    catch { /* Try the next place. */ }
+  }
+  return null;
 }
 
 async function call(url, options, attempts = 3) {
@@ -116,10 +128,11 @@ const USAGE = `fundev-models: the fun.dev model library tool
 
   fundev-models login                       store the upload token (paste it, then Enter)
   fundev-models check <folder|zip>...       check prepared models locally
-  fundev-models upload <folder|zip>... [--only id,id]
-  fundev-models status <id> <version>
+  fundev-models upload <folder|zip>... [--only id,id] [--token-file path]
+  fundev-models status <id> <version> [--token-file path]
 
-Inside each folder or zip: <id>/<version>/ with meta.json, model.glb, preview.png and optional
+The token is read from --token-file, MODELS_TOKEN_FILE, MODELS_TOKEN, the login file or
+/workspace/token; it is never printed. Inside each folder or zip: <id>/<version>/ with meta.json, model.glb, preview.png and optional
 files (source.blend, qa.json, readme.md, more previews). Rules: https://github.com/aneryu/fun.dev/blob/main/docs/models-api.md`;
 
 async function readStdin() {
@@ -128,10 +141,10 @@ async function readStdin() {
   return Buffer.concat(chunks).toString("utf8").trim();
 }
 
-async function run(inputs, { dryRun, only }) {
+async function run(inputs, { dryRun, only, tokenPath }) {
   if (!inputs.length) { console.error(USAGE); return 1; }
-  const token = dryRun ? null : await readToken();
-  if (!dryRun && !token) { console.error("No token: run `fundev-models login` (or set MODELS_TOKEN)."); return 1; }
+  const token = dryRun ? null : await readToken(process.env, tokenPath);
+  if (!dryRun && !token) { console.error("No token: put it in /workspace/token, or run `fundev-models login`."); return 1; }
   // Zips are unpacked into one new, empty folder; folders are read in place.
   const zips = inputs.filter((input) => input.toLowerCase().endsWith(".zip"));
   const folders = inputs.filter((input) => !zips.includes(input));
@@ -156,10 +169,11 @@ async function run(inputs, { dryRun, only }) {
 
 export async function main(argv) {
   const [command, ...rest] = argv;
-  const only = rest.includes("--only") ? rest[rest.indexOf("--only") + 1]?.split(",") : null;
-  const inputs = rest.filter((arg, index) => !arg.startsWith("--") && rest[index - 1] !== "--only").map((arg) => resolve(arg));
+  const option = (name) => rest.includes(name) ? rest[rest.indexOf(name) + 1] : null;
+  const only = option("--only")?.split(",") ?? null, tokenPath = option("--token-file");
+  const inputs = rest.filter((arg, index) => !arg.startsWith("--") && !["--only", "--token-file"].includes(rest[index - 1])).map((arg) => resolve(arg));
   if (command === "check") return run(inputs, { dryRun: true, only });
-  if (command === "upload") return run(inputs, { dryRun: false, only });
+  if (command === "upload") return run(inputs, { dryRun: false, only, tokenPath });
   if (command === "login") {
     if (process.stdin.isTTY) process.stdout.write("Paste the upload token, then press Enter (it is not shown): ");
     const token = process.stdin.isTTY ? await new Promise((done) => {
@@ -182,17 +196,20 @@ export async function main(argv) {
     return response?.status === 401 ? 1 : 0;
   }
   if (command === "logout") { await rm(tokenFile(), { force: true }); console.log("Token removed."); return 0; }
-  if (command === "status" && rest.length === 2) {
-    const token = await readToken();
-    if (!token) { console.error("No token: run `fundev-models login` (or set MODELS_TOKEN)."); return 1; }
-    const response = await call(`${process.env.MODELS_API || DEFAULT_API}/${rest[0]}/${rest[1]}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (command === "status" && inputs.length === 2) {
+    const token = await readToken(process.env, tokenPath);
+    if (!token) { console.error("No token: put it in /workspace/token, or run `fundev-models login`."); return 1; }
+    const [id, version] = rest.filter((arg, index) => !arg.startsWith("--") && rest[index - 1] !== "--token-file");
+    const response = await call(`${process.env.MODELS_API || DEFAULT_API}/${id}/${version}`, { headers: { Authorization: `Bearer ${token}` } });
     const data = await response.json();
     if (!response.ok) { console.error(`${response.status} ${data.error}${data.detail ? `: ${data.detail}` : ""}`); return 1; }
-    console.log(`${rest[0]} ${rest[1]}: ${data.status}${data.note ? `\nnote: ${data.note}` : ""}\nfiles: ${Object.keys(data.files).join(", ")}${data.stats ? `\nsize: ${data.stats.size.join(" × ")} m, ${data.stats.triangles} triangles` : ""}`);
+    console.log(`${id} ${version}: ${data.status}${data.note ? `\nnote: ${data.note}` : ""}\nfiles: ${Object.keys(data.files).join(", ")}${data.stats ? `\nsize: ${data.stats.size.join(" × ")} m, ${data.stats.triangles} triangles` : ""}`);
     return 0;
   }
   console.log(USAGE);
   return ["help", "--help"].includes(command) ? 0 : 1;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) process.exit(await main(process.argv.slice(2)));
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  process.exit(await main(process.argv.slice(2)).catch((error) => { console.error(error.message); return 1; }));
+}
