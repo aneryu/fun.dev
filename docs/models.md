@@ -112,12 +112,12 @@ Once, before the first release that contains the library:
 
 1. Create the D1 database `fundev-models` (done 2026-10-16, location hint APAC; its id is in
    `wrangler.jsonc` and `wrangler.console.jsonc`).
-2. Pages project `fundev`: add the secret `MODELS_TOKEN` (a long random string; give it to the
-   pipeline).
-3. Zero Trust: create a self-hosted Access application for `console.fun.dev` that allows only the
-   owner's email with one-time PIN. Set the console Worker's secrets `ACCESS_TEAM` (the team
-   domain, `<team>.cloudflareaccess.com`), `ACCESS_AUD` (the application's audience tag) and
-   `CONSOLE_EMAIL`.
+2. Pages project `fundev`: the secret `MODELS_TOKEN` (done 2026-10-16; a copy for the pipeline is
+   kept outside the repository).
+3. Zero Trust: the self-hosted Access application "fun.dev console" on `console.fun.dev`
+   allows only the owner's email with one-time PIN, sessions of 30 days. The console Worker's
+   secrets `ACCESS_TEAM`, `ACCESS_AUD` and `CONSOLE_EMAIL` match it (done 2026-10-16; a new
+   application needs a new `ACCESS_AUD`).
 4. CN2 server: install the updated `config/Caddyfile` ([edge](edge.md)), which lets `/models`
    through to Pages.
 5. `npm run release` applies the migration, deploys the console Worker on `console.fun.dev` and
