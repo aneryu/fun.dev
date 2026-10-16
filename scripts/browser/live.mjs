@@ -4,8 +4,16 @@ import { smoke } from "./smoke.mjs";
 // Post-deployment checks against the public site: the deployed build is the expected one,
 // security headers and game pages are in place, then every game passes the smoke test.
 export async function liveCheck({ browser, site, assetOrigin, apiOrigin, games, version, log = console.log }) {
+  // Right after a deploy, a request from here sometimes fails at the network level; retry those
+  // (not HTTP errors) a few times before failing the release.
+  const request = async (url, options) => {
+    for (let attempt = 1; ; attempt++) {
+      try { return await fetch(url, { ...options, signal: AbortSignal.timeout(30000) }); }
+      catch (error) { if (attempt === 5) throw new Error(`${url}: ${error.cause?.code ?? error.message}`); await new Promise((done) => setTimeout(done, 2000 * attempt)); }
+    }
+  };
   const text = async (path) => {
-    const response = await fetch(new URL(path, site), { cache: "no-store" });
+    const response = await request(new URL(path, site), { cache: "no-store" });
     assert.equal(response.status, 200, `${path} returned ${response.status}`);
     return { body: await response.text(), headers: response.headers };
   };
@@ -26,13 +34,13 @@ export async function liveCheck({ browser, site, assetOrigin, apiOrigin, games, 
   log("  ok   build, headers, game pages");
   // The site's pages load platform files from the asset origin and call the API on its origin.
   if (assetOrigin) {
-    const response = await fetch(`${assetOrigin}/platform.css`, { cache: "no-store" });
+    const response = await request(`${assetOrigin}/platform.css`, { cache: "no-store" });
     assert.equal(response.status, 200, `${assetOrigin}/platform.css returned ${response.status}`);
     // Pages sends "*" with static files.
     assert.ok(["*", site].includes(response.headers.get("access-control-allow-origin")), "asset origin allows the site");
   }
   if (apiOrigin) {
-    const response = await fetch(`${apiOrigin}/api/transfers/time`, { method: "OPTIONS", headers: { Origin: site, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type,x-fun-transfer" } });
+    const response = await request(`${apiOrigin}/api/transfers/time`, { method: "OPTIONS", headers: { Origin: site, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type,x-fun-transfer" } });
     assert.equal(response.status, 204, `API preflight returned ${response.status}`);
     assert.equal(response.headers.get("access-control-allow-origin"), site, "API allows the site");
   }
