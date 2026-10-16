@@ -42,7 +42,7 @@
 
       <section id="upload-view" aria-labelledby="upload-title" hidden>
         <h2 id="upload-title">上传模型</h2>
-        <p class="muted">每个版本是一个 <code>&lt;id&gt;/&lt;version&gt;/</code> 文件夹，里面有 meta.json、model.glb、preview.png，可选 source.blend、qa.json 等。规则见 docs/models-upload.md。</p>
+        <p class="muted">每个版本是一个 <code>&lt;id&gt;/&lt;version&gt;/</code> 文件夹，里面有 meta.json（含中英文描述）和 model.glb，可选 source.blend、preview.png、qa.json 等。缩略图由本页统一渲染。规则见 docs/models-upload.md。</p>
         <div class="pickers">
           <label class="button secondary picker">选择 zip（可多个）<input type="file" id="zip-input" accept=".zip,application/zip" multiple></label>
           <label class="button secondary picker">或选择文件夹<input type="file" id="folder-input" webkitdirectory multiple></label>
@@ -71,6 +71,8 @@
           <h3>模型信息（所有版本共用）</h3>
           <label>中文名<input name="zh" required maxlength="100"></label>
           <label>英文名<input name="en" required maxlength="100"></label>
+          <label>中文描述（是什么、长什么样、适合放在哪里）<textarea name="descriptionZh" required maxlength="300" rows="2"></textarea></label>
+          <label>英文描述<textarea name="descriptionEn" required maxlength="300" rows="2"></textarea></label>
           <label>类别 type
             <select name="type" required>
               <option value="">（未填）</option>

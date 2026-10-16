@@ -1,4 +1,4 @@
-import { createViewer } from "../site/model-viewer.js";
+import { createViewer, renderThumbnail } from "../site/model-viewer.js";
 import { inspectVersion } from "../server/model-rules.js";
 import { groupVersions, readZip } from "./zip.js";
 
@@ -19,9 +19,12 @@ const element = (tag, props = {}, ...children) => { const node = Object.assign(d
 let viewer = null, current = null;
 
 // Checks against the production spec: standing on y = 0, centred on x and z.
-function warnings(stats) {
+// Anything here keeps a version out of bulk approval: it needs a look of its own.
+function warnings(stats, item = {}) {
   if (!stats) return ["还没有 model.glb"];
   const list = [];
+  if (item.files && !item.files["thumbnail.png"]) list.push("没有缩略图");
+  if (item.id && !item.description) list.push("没有描述");
   if (Math.abs(stats.min[1]) > 0.001) list.push(`底部在 y = ${stats.min[1]} m，不在地面上`);
   for (const [axis, index] of [["x", 0], ["z", 2]]) {
     const center = (stats.min[index] + stats.max[index]) / 2;
@@ -66,7 +69,18 @@ async function prepare(files) {
       if (file.name.toLowerCase().endsWith(".zip")) entries.push(...await readZip(file));
       else entries.push({ path: file.webkitRelativePath || file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
     }
-    prepared = groupVersions(entries).map((version) => ({ ...version, ...inspectVersion(version), result: null }));
+    // Thumbnails in the library's look, rendered here from each model.glb (a maker's thumbnail.png is replaced).
+    const versions = groupVersions(entries);
+    for (const [index, version] of versions.entries()) {
+      $("#upload-status").textContent = `渲染缩略图 ${index + 1}/${versions.length}…`;
+      const glb = version.files.find((file) => file.name === "model.glb");
+      version.files = version.files.filter((file) => file.name !== "thumbnail.png");
+      if (glb) {
+        try { version.files.push({ name: "thumbnail.png", bytes: await renderThumbnail(glb.bytes) }); }
+        catch { /* The check reports the broken GLB. */ }
+      }
+    }
+    prepared = versions.map((version) => ({ ...version, ...inspectVersion(version), result: null }));
     const bad = prepared.filter((item) => item.problems.length).length;
     $("#upload-status").textContent = prepared.length ? `找到 ${prepared.length} 个版本，${prepared.length - bad} 个通过检查${bad ? `，${bad} 个没通过（不会上传）` : ""}。` : "没有找到 <id>/<version>/ 文件夹。";
   } catch (error) {
@@ -114,23 +128,28 @@ async function showList() {
   $("#list-status").textContent = "加载中…";
   try {
     const { versions } = await api(`/api/versions?status=${$("#filter").value}`);
+    // A wall of thumbnails: sizes and warnings under each, so a batch can be judged at a glance.
     $("#rows").replaceChildren(...versions.map((item) => {
-      const problems = warnings(item.stats);
-      const row = element("button", { className: "row", type: "button" },
-        element("img", { src: item.files["preview.png"] ? file(item.id, item.version, "preview.png") : "", alt: "", loading: "lazy" }),
-        element("span", {},
-          element("strong", { textContent: item.name ? `${item.name.zh} · ${item.name.en}` : "（没有名字）" }),
-          element("span", { className: "muted", textContent: `${item.id} ${item.version} · ${item.type ?? "未填类别"} · ${size(item.stats)} · ${item.stats?.triangles ?? "—"} 三角形${item.kit ? ` · ${item.kit}` : ""}` }),
-          ...(problems.length ? [element("span", { className: "muted warn", textContent: ` · ${problems.length} 个问题` })] : [])));
-      row.addEventListener("click", () => showModel(item.id, item.version));
-      if (item.status !== "pending") return element("li", {}, row);
+      const problems = warnings(item.stats, item);
+      const image = item.files["thumbnail.png"] ? "thumbnail.png" : item.files["preview.png"] ? "preview.png" : null;
+      const card = element("button", { className: "card", type: "button" },
+        element("img", { src: image ? file(item.id, item.version, image) : "", alt: "", loading: "lazy" }),
+        element("strong", { textContent: item.name?.zh ?? "（没有名字）" }),
+        element("span", { className: "muted", textContent: `${item.id} ${item.version} · ${item.type ?? "未填类别"}${item.kit ? ` · ${item.kit}` : ""}` }),
+        element("span", { className: "muted", textContent: `${size(item.stats)} · ${item.stats?.triangles ?? "—"} 三角形` }),
+        ...problems.map((text) => element("span", { className: "warn", textContent: text })));
+      card.addEventListener("click", () => showModel(item.id, item.version));
+      // Only versions without warnings can be approved in bulk.
+      if (item.status !== "pending" || problems.length) return element("li", {}, card);
       const box = element("input", { type: "checkbox", value: `${item.id}/${item.version}` });
       box.setAttribute("aria-label", `选择 ${item.id} ${item.version}`);
       box.addEventListener("change", updateBulk);
-      return element("li", {}, box, row);
+      return element("li", {}, box, card);
     }));
-    $("#list-status").textContent = versions.length ? `${versions.length} 个` : "没有";
-    $("#bulk").hidden = !versions.some((item) => item.status === "pending");
+    const clean = versions.filter((item) => item.status === "pending" && !warnings(item.stats, item).length).length;
+    const pending = versions.filter((item) => item.status === "pending").length;
+    $("#list-status").textContent = versions.length ? `${versions.length} 个${pending > clean ? `；${pending - clean} 个有提醒，要单独点开审核` : ""}` : "没有";
+    $("#bulk").hidden = clean === 0;
     $("#select-all").checked = false;
     updateBulk();
   } catch (error) {
@@ -200,6 +219,8 @@ async function showModel(id, version) {
   }));
   const form = $("#edit");
   form.zh.value = model.name?.zh ?? "";
+  form.descriptionZh.value = model.description?.zh ?? "";
+  form.descriptionEn.value = model.description?.en ?? "";
   form.en.value = model.name?.en ?? "";
   form.type.value = model.type ?? "";
   form.kit.value = model.kit ?? "";
@@ -234,7 +255,7 @@ $("#edit").addEventListener("submit", (event) => {
   const form = event.target, { id } = current.model;
   act(async () => {
     await api(`/api/models/${id}`, { method: "PATCH", body: {
-      name: { zh: form.zh.value, en: form.en.value }, type: form.type.value, kit: form.kit.value.trim(),
+      name: { zh: form.zh.value, en: form.en.value }, description: { zh: form.descriptionZh.value, en: form.descriptionEn.value }, type: form.type.value, kit: form.kit.value.trim(),
       tags: form.tags.value.split(/[,，\s]+/).map((tag) => tag.trim().toLowerCase()).filter(Boolean), listed: form.listed.checked,
     } });
     await showModel(id, current.entry.version);

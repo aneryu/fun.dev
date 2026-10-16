@@ -1,5 +1,5 @@
 import { getLocale, initLocale, languagePath, onLocaleChange, t } from "./i18n.js";
-import { MODEL_TYPES, blobURL, loadModels, modelPath } from "./models-catalog.js";
+import { MODEL_TYPES, loadModels, modelPath, thumbnailURL } from "./models-catalog.js";
 import { registerServiceWorker } from "./pwa.js";
 
 const list = document.querySelector("#model-list");
@@ -20,7 +20,7 @@ function item(model) {
   const latest = model.versions[0];
   const node = document.createElement("li");
   const link = Object.assign(document.createElement("a"), { className: "model-link", href: languagePath(modelPath(model)) });
-  const image = Object.assign(document.createElement("img"), { className: "model-preview", src: blobURL("preview.png", latest.files["preview.png"]), alt: "", loading: "lazy", decoding: "async", width: 300, height: 300 });
+  const image = Object.assign(document.createElement("img"), { className: "model-preview", src: thumbnailURL(latest) ?? "", alt: "", loading: "lazy", decoding: "async", width: 300, height: 300 });
   const name = Object.assign(document.createElement("span"), { className: "model-name", textContent: model.name[getLocale()] });
   const id = Object.assign(document.createElement("span"), { className: "model-id muted", textContent: model.id });
   link.append(image, name, id);
@@ -45,7 +45,7 @@ function render() {
   }
   const query = search.value.trim().toLocaleLowerCase();
   const visible = models.filter((model) => (!type.value || model.type === type.value) && (!kit.value || model.kit === kit.value) && (!tag.value || model.tags.includes(tag.value)) &&
-    [model.id, model.name.zh, model.name.en, model.kit ?? "", ...model.tags].join(" ").toLocaleLowerCase().includes(query));
+    [model.id, model.name.zh, model.name.en, model.description?.zh ?? "", model.description?.en ?? "", model.kit ?? "", ...model.tags].join(" ").toLocaleLowerCase().includes(query));
   list.replaceChildren(...visible.map(item));
   list.hidden = visible.length === 0;
   empty.hidden = models.length !== 0;

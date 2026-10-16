@@ -59,6 +59,27 @@ on global CSS, DOM IDs, platform app modules, storage or routing.
 `howToPlay` (text or `{zh,en}` shown in Options), `cover` (1200×630 image listed in
 `files`, used in the lobby and share cards) and `keepAwake` (screen wake lock).
 
+## Library models
+
+fun.dev keeps a CC0 library of 3D models (props, modular building pieces) at
+https://fun.dev/models. Its catalog, https://games.fun.dev/models.json, lists every model
+with `id`, bilingual `name` and `description` (what it is, how it looks, where it fits),
+`type`, `kit`, `tags`, and per version the size in metres (`stats.size`: width, height,
+depth), triangles and files. Read the descriptions to choose. `kits` describes each kit's
+fitting agreement (module width, storey height and so on) for pieces made to fit together.
+
+Declare the models a game uses in `game.json`, pinned by version:
+
+```json
+"models": { "desk_chair_01": "v002", "street_lamp_01": "v001" }
+```
+
+and load them like any bundled file: `loader.loadAsync(context.asset("models/desk_chair_01.glb"))`.
+The build fetches them (and works offline once fetched); a release pins the exact file, and the
+player caches it with the game. Do not list `models/` in `files`. Every model uses metres,
+glTF +Y up, front facing +Z, and its origin at the centre of the bottom, so it stands on
+y = 0 where it is placed. To use a newer version, change the version and release again.
+
 ## Options
 
 Export `options` beside `createGame`: items `{ id, section: "settings"|"cheats",

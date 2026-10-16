@@ -27,6 +27,9 @@ ESM imports inside the bundle. Use `context.THREE`; externalize the engine if a
 build tool is needed. Prefer mobile-friendly geometry, bounded pixel ratio,
 on-demand rendering when idle, touch controls and reduced motion.
 
+Need furniture, props or building pieces? Use the fun.dev model library before
+modelling anything: see [library models](references/runtime.md#library-models).
+
 Use [the starter](assets/game.js) as an optional example, not as required gameplay.
 It creates one Three.js object, a kit text HUD and two options, and implements
 input, resource ownership and pause.

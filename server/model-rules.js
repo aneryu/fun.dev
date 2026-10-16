@@ -10,13 +10,19 @@ const TAG = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 export const MODEL_TYPES = ["prop", "piece", "character", "creature", "animation", "scene", "world"];
 export const SUPPORTED_TYPES = ["prop", "piece"];
 // Published with an approved version; other uploads (qa.json, README.md, more previews) stay private.
-export const PUBLIC_FILES = ["model.glb", "preview.png", "source.blend"];
+// thumbnail.png is rendered by the upload page in the library's look; preview.png is the maker's own.
+export const PUBLIC_FILES = ["model.glb", "thumbnail.png", "preview.png", "source.blend"];
 export const LIMITS = { "model.glb": 10 * 1024 * 1024 };
 export const MAX_FILE = 50 * 1024 * 1024;
 const PNG = [0x89, 0x50, 0x4e, 0x47];
 
 export const validId = (value) => typeof value === "string" && value.length <= 64 && ID.test(value);
 export const validFile = (value) => typeof value === "string" && value.length <= 64 && FILE.test(value);
+// Two short sentences at most: what it is, how it looks, where it fits.
+export function validDescription(value) {
+  return value && typeof value === "object" && !Array.isArray(value) &&
+    ["zh", "en"].every((locale) => typeof value[locale] === "string" && value[locale].trim() && value[locale].length <= 300);
+}
 export function validName(value) {
   return value && typeof value === "object" && !Array.isArray(value) &&
     ["zh", "en"].every((locale) => typeof value[locale] === "string" && value[locale].trim() && value[locale].length <= 100);
@@ -55,6 +61,7 @@ export function inspectVersion({ id, version, meta, files }) {
   }
   if (data) {
     if (!validName(data.name)) problems.push("meta.json: name needs non-empty zh and en texts (at most 100 characters)");
+    if (!validDescription(data.description)) problems.push("meta.json: description needs zh and en texts (at most 300 characters): what it is, how it looks, where it fits");
     const type = typeProblem(data.type);
     if (type) problems.push(`meta.json: ${type}`);
     if (!validKit(data.kit ?? null)) problems.push("meta.json: kit uses lowercase letters, digits and _");
@@ -74,8 +81,11 @@ export function inspectVersion({ id, version, meta, files }) {
     try { stats = glbStats(readGLB(glb.bytes)); }
     catch (error) { if (error instanceof GLBError) problems.push(`model.glb: ${error.message}`); else throw error; }
   }
-  const preview = files.find((file) => file.name === "preview.png");
-  if (!preview) problems.push("preview.png is missing");
-  else if (!PNG.every((byte, index) => preview.bytes[index] === byte)) problems.push("preview.png is not a PNG");
+  // The upload page renders thumbnail.png itself; preview.png is optional.
+  for (const name of ["thumbnail.png", "preview.png"]) {
+    const image = files.find((file) => file.name === name);
+    if (image && !PNG.every((byte, index) => image.bytes[index] === byte)) problems.push(`${name} is not a PNG`);
+  }
+  if (!files.some((file) => file.name === "thumbnail.png")) problems.push("thumbnail.png is missing (the upload page renders it)");
   return { meta: data, files: accepted, stats, problems, warnings: stats ? placementWarnings(stats) : [] };
 }

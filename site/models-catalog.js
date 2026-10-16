@@ -10,6 +10,12 @@ export function blobURL(name, file, origin = gameOrigin) {
   return `${origin}/blobs/${file.sha256}.${name.split(".").pop()}`;
 }
 
+// The library's own thumbnail when there is one, the maker's preview for older versions.
+export function thumbnailURL(version) {
+  const name = version.files["thumbnail.png"] ? "thumbnail.png" : "preview.png";
+  return version.files[name] ? blobURL(name, version.files[name]) : null;
+}
+
 export function modelPath(model) {
   return `/models/${model.id}`;
 }
@@ -17,11 +23,14 @@ export function modelPath(model) {
 export function validateModels(data) {
   if (!data || !Array.isArray(data.models)) throw new Error("models.json must contain a models array.");
   for (const model of data.models) {
-    const valid = model && ID.test(model.id) && MODEL_TYPES.includes(model.type) && ["zh", "en"].every((locale) => typeof model.name?.[locale] === "string") &&
+    const text = (value) => ["zh", "en"].every((locale) => typeof value?.[locale] === "string");
+    const valid = model && ID.test(model.id) && MODEL_TYPES.includes(model.type) && text(model.name) && (model.description == null || text(model.description)) &&
       (model.kit === null || ID.test(model.kit)) && Array.isArray(model.tags) && Array.isArray(model.versions) && model.versions.length &&
       model.versions.every((version) => /^v\d{3}$/.test(version.version) && SHA.test(version.files?.["model.glb"]?.sha256) &&
         Object.values(version.files).every((file) => SHA.test(file.sha256) && Number.isInteger(file.size)));
     if (!valid) throw new Error(`Invalid model entry: ${model?.id}`);
+    // The kit's fitting agreement travels with each of its models.
+    model.kitDescription = (model.kit && text(data.kits?.[model.kit]) ? data.kits[model.kit] : null);
   }
   return data.models;
 }

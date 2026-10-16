@@ -1,8 +1,11 @@
 # Model library
 
-Status: live since 2026-10-16. fun.dev keeps a public library of 3D models so games use models
-instead of building them. Models are made by a Blender pipeline outside this repository,
-uploaded and reviewed in one console, and published under CC0.
+Status: live since 2026-10-16; reviewed 2026-10-17. fun.dev keeps a public library of 3D models
+so games use models instead of building them. Models are made by a Blender pipeline outside this
+repository, uploaded and reviewed in one console, and published under CC0.
+
+Who it is for, in order: agents making games (a catalog they can search and models they can pin),
+the owner (browsing and managing), and visitors (a public showcase with CC0 downloads).
 
 ```
 upload   ──▶ console.fun.dev 上传 (Access)  ──▶ D1 fundev-models + private R2
@@ -67,8 +70,12 @@ once, render as instances, and stay identifiable in games:
 - A model's id is `<name>_<NN>` as the pipeline names it, e.g. `desk_chair_01`. It is also the
   address `/models/desk_chair_01`. Ids use `[a-z0-9_]`.
 - A version is `v<NNN>`. Revisions get a new version; the newest approved one is shown.
-- Models that belong together (a modular sofa, a set of street pieces) share a `kit`.
-  There are no other variant dimensions.
+- Every model has a bilingual `description`: what it is, how it looks, where it fits. Agents
+  choose by reading descriptions, so they matter more than tags; tags are free and optional.
+- A `kit` means "built to one set of dimensions, so these fit together" (a modular sofa, wall
+  and floor modules on a 3 m grid with 2.8 m storeys). Each kit has a description of that
+  agreement. Models that are merely related share no kit; their descriptions say so. There are
+  no other variant dimensions.
 
 ## Storage
 
@@ -76,7 +83,8 @@ The D1 database `fundev-models` is the source of truth for the catalog:
 
 | Table | Columns |
 | --- | --- |
-| `models` | `id`, `name`, `kit`, `tags`, `extra` (JSON for any other field), timestamps |
+| `models` | `id`, `name`, `type`, `description`, `kit`, `tags`, `listed`, `extra` (JSON for any other field), timestamps |
+| `kits` | `id`, `description` (the fitting agreement, `{zh, en}`), timestamp |
 | `versions` | `model`, `version`, `status` (`pending`, `approved`, `rejected`), `files` (name → sha256, size), `stats` (size in metres, triangles, bytes), `note` (review note), timestamps |
 
 `name`, `kit` and `tags` belong to the model and can be edited during review. Uploaded files
@@ -93,11 +101,18 @@ cannot host it: it is DNS-only to the CN2 server ([edge](edge.md)), so Access do
 
 - **上传** takes zips or folders in the layout of [models-upload](models-upload.md), checks
   them in the browser with the server's rules (`server/model-rules.js`) and uploads through
-  `/api/upload/…`. A version is pending once its metadata, `model.glb` and `preview.png` are
+  `/api/upload/…`. A version is pending once its metadata (with a description), `model.glb` and `thumbnail.png` are
   there; the server rechecks the GLB and computes the stats shown in review.
-- **审核** lists versions by status with their preview, stats and placement warnings, shows
-  the model in 3D, lets the owner edit `name`, `type`, `kit`, `tags` and listing, and approve,
-  or reject with a note. Approved versions cannot change.
+- The upload page renders each model's `thumbnail.png` in the browser with the library's viewer
+  (one angle, light and background), so every thumbnail matches the 3D view on model pages. A
+  maker's `preview.png` is optional.
+- **审核** is a wall of thumbnails with size, triangles and warnings under each (not on the
+  floor, off centre, no description, no thumbnail). Versions without warnings can be selected
+  and approved in bulk; any version with a warning must be opened and approved on its own. The
+  detail view shows the model in 3D and edits `name`, `description`, `type`, `kit`, `tags` and
+  listing; approve, or reject with a note. Approved versions cannot change.
+- Large metadata changes (descriptions, kits) are made by the maintainer directly in D1 followed
+  by a catalog rewrite, not through the console.
 
 ## Publishing
 
@@ -110,7 +125,7 @@ Unlisting a model only removes it from the catalog.
 
 ## Pages
 
-- `/models`: grid of previews with search and type, kit and tag filters (`/models?type=…&kit=…`).
+- `/models`: grid of thumbnails with search (names, descriptions, tags) and type, kit and tag filters (`/models?type=…&kit=…`).
 - `/models/<id>`: 3D view, name, size, triangles, file size and kit; buttons to copy the GLB
   address, download the GLB, and download the `.blend` when there is one; older versions.
 
@@ -122,15 +137,21 @@ The pages work on `fun.dev` only: `games.fun.dev` allows that origin, not `cdn.f
 
 ## Using a model in a game
 
-Copy the address from the model's page and load it directly:
+A game declares its library models in `game.json`, pinned by version:
 
-```js
-const gltf = await loader.loadAsync("https://games.fun.dev/blobs/<sha256>.glb");
+```json
+"models": { "desk_chair_01": "v002" }
 ```
 
-The address never changes. The player's CSP already admits `games.fun.dev`, and the service
-worker caches blobs on first use. Such a model is not precached when a game opens, and local
-development needs a network connection.
+and loads them like its own files: `context.asset("models/desk_chair_01.glb")`. Preparing a
+release (`scripts/library-models.mjs`, used by every build and the publisher) looks each one up in
+`models.json`, fetches the blob into the shared cache (`~/.cache/fundev-blobs`, with a copy of the
+catalog, so builds also work offline) and adds it to the release's blob map. The release pins the
+file, the player caches it with the game for offline play, and a model shared by games downloads
+once. `models/` cannot hold the game's own files. The game skill documents this for agents.
+
+A model's public address (`games.fun.dev/blobs/<sha256>.glb`, copied from its page) also works
+anywhere and never changes, but is not cached with a game.
 
 ## Code
 
@@ -139,7 +160,8 @@ development needs a network connection.
 | Console Worker | `server/console.js` (routes, Access check), `server/models.js` (upload, review, publishing), `server/model-rules.js` and `server/glb.js` (checks), `console/` (built by `npm run console:build` into `dist-console/`), `wrangler.console.jsonc` |
 | Database | `migrations-models/`, binding `MODELS_DB` in `wrangler.console.jsonc` |
 | Pages | `site/models.html`, `site/model.html`, `site/models.js`, `site/model.js`, `site/models-catalog.js`, `site/model-viewer.js` |
-| Tests | `tests/models.test.mjs` (upload, review, publishing and Access checks over local D1 and R2), `tests/console-zip.test.mjs` |
+| Games | `scripts/library-models.mjs` (resolve `models` in `game.json`), `scripts/game-release.mjs` |
+| Tests | `tests/models.test.mjs` (upload, review, publishing and Access checks over local D1 and R2), `tests/console-zip.test.mjs`, `tests/library-models.test.mjs` |
 
 `npm run release` applies `migrations-models/` and deploys the console Worker when it changed.
 Locally, the build writes an empty `dist/models.json`.

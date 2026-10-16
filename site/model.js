@@ -20,6 +20,10 @@ function render() {
   document.title = `${name} · fun.dev`;
   $("#model-name").textContent = name;
   $("#model-kit").textContent = [t(`type_${model.type}`), model.kit, ...model.tags].filter(Boolean).join(" · ");
+  $("#model-description").textContent = model.description?.[getLocale()] ?? "";
+  $("#model-description").hidden = !model.description;
+  $("#model-kit-note").textContent = model.kitDescription ? `${t("kit")} ${model.kit}: ${model.kitDescription[getLocale()]}` : "";
+  $("#model-kit-note").hidden = !model.kitDescription;
   $("#stat-size").textContent = formatSize(version.stats.size);
   $("#stat-triangles").textContent = version.stats.triangles.toLocaleString(getLocale() === "zh" ? "zh-CN" : "en");
   $("#stat-bytes").textContent = formatBytes(version.files["model.glb"].size);
