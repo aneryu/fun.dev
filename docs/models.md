@@ -147,6 +147,8 @@ npm run models -- apply plan.json [--dry-run]
 npm run models -- rebuild                   # rewrite every page and the indexes
 ```
 
+`list`, `sheet` and `thumbnails` also take `--only id,id` to look at some models only.
+
 `scripts/models-admin.mjs` runs the console's own functions against the live data through
 Wrangler's remote bindings (`wrangler.models-admin.jsonc`, the Wrangler login); nothing is exposed
 on the web. A plan is one reviewed file, applied in order and published once:

@@ -14,6 +14,8 @@ import { approveVersion, blobKey, editModel, getModel, listVersions, publish, pu
 //   npm run models -- apply <plan.json> [--dry-run]
 //   npm run models -- rebuild                 rewrite every model's page data and the indexes
 //
+// list, sheet and thumbnails also take --only id,id to look at some models only.
+//
 // A plan is one reviewed file: { "kits": { id: { zh, en } }, "models": { id: { name, description,
 // type, kit, tags, listed } }, "reject": { "id/version": "note" }, "approve": ["id/version"] }.
 // It is applied in that order and published once at the end.
@@ -141,22 +143,24 @@ async function main([command, ...args]) {
     return 1;
   }
   const status = args.find((arg) => STATUSES.includes(arg)) ?? "pending";
+  const only = args.includes("--only") ? new Set(args[args.indexOf("--only") + 1]?.split(",")) : null;
+  const versions = async () => (await listVersions(env.MODELS_DB, status)).filter((item) => !only || only.has(item.id));
   const { getPlatformProxy } = await import("wrangler");
   const { env, dispose } = await getPlatformProxy({ configPath: join(root, "wrangler.models-admin.jsonc"), persist: false, envFiles: [] });
   try {
     if (command === "list") {
-      const items = await listVersions(env.MODELS_DB, status);
+      const items = await versions();
       for (const item of items) {
         const warnings = warningsOf(item);
         console.log(`${item.id} ${item.version} ${item.status} ${item.type ?? "-"} ${item.kit ?? "-"} ${item.stats ? `${item.stats.size.join("×")} m ${item.stats.triangles} tris` : "-"} ${item.name?.zh ?? "(no name)"}${warnings.length ? `  ⚠ ${warnings.join("; ")}` : ""}`);
       }
       console.log(`${items.length} ${status} versions`);
     } else if (command === "sheet") {
-      const items = await listVersions(env.MODELS_DB, status);
+      const items = await versions();
       const files = await sheet(env, items.sort((a, b) => a.id.localeCompare(b.id)), join(root, "test-results", "models-review"));
       console.log(`${items.length} versions on ${files.length} sheets:\n${files.join("\n")}`);
     } else if (command === "thumbnails") {
-      const items = (await listVersions(env.MODELS_DB, status)).filter((item) => args.includes("--all") || !item.files["thumbnail.png"]);
+      const items = (await versions()).filter((item) => args.includes("--all") || !item.files["thumbnail.png"]);
       console.log(`Rendered ${await thumbnails(env, items)} of ${items.length} thumbnails.`);
     } else if (command === "apply") {
       const file = args.find((arg) => !arg.startsWith("--") && !STATUSES.includes(arg));
