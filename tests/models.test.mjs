@@ -2,7 +2,9 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { glbStats, readGLB } from "../server/glb.js";
+import { cleanTags, textWarnings } from "../server/model-rules.js";
 import { boxGLB, modelStack } from "./helpers/models.mjs";
+import { applyPlan, warningsOf } from "../scripts/models-admin.mjs";
 
 const stack = await modelStack();
 after(() => stack.runtime.dispose());
@@ -18,6 +20,13 @@ test("GLB stats: size, bounds and triangles from accessor bounds and node transf
   assert.throws(() => readGLB(new TextEncoder().encode("not a glb at all, really")), /not a GLB/);
   assert.throws(() => readGLB(boxGLB({ extra: { buffers: [{ byteLength: 120, uri: "box.bin" }] } })), /embedded/);
   assert.throws(() => readGLB(boxGLB({ extra: { extensionsRequired: ["EXT_meshopt_compression"] } })), /unsupported/);
+});
+
+test("tags that say nothing are dropped, and production jargon in names and descriptions is flagged", () => {
+  assert.deepEqual(cleanTags(["chair", "low-poly", "static", "prop", "reading_room", "chair", "indoor"], { type: "prop", kit: "reading_room" }), ["chair", "indoor"]);
+  assert.equal(textWarnings({ name: { zh: "无品牌低多边形城市轿车", en: "City sedan" }, description: { zh: "小轿车。", en: "A sedan." } }).length, 1);
+  assert.equal(textWarnings({ name: { zh: "熨衣板", en: "Ironing board" }, description: { zh: "展开的熨衣板。", en: "Static visual model without animation." } }).length, 1);
+  assert.deepEqual(textWarnings({ name: { zh: "书椅", en: "Desk chair" }, description: { zh: "木腿书椅，适合书房。", en: "A wooden desk chair for a study." } }), []);
 });
 
 test("uploads need valid addresses, metadata and GLBs", async () => {
@@ -36,58 +45,97 @@ test("uploads need valid addresses, metadata and GLBs", async () => {
   assert.equal((await (await stack.upload("desk_chair_01/v001", undefined, { method: "GET" })).json()).status, "new");
 });
 
-test("a version is pending with metadata, model.glb and thumbnail.png; review approves and publishes it", async () => {
+const indexOf = async (bucket, locale = "zh") => JSON.parse(await (await bucket.get(`library/index.${locale}.json`)).text());
+const detailOf = async (bucket, id) => JSON.parse(await (await bucket.get(`library/${id}.json`)).text());
+
+test("public files go to the public store at upload; approving lists the version and writes the snapshots", async () => {
   const glb = boxGLB({ size: [0.48, 0.85, 0.5] });
+  const bucket = await stack.publicBucket(), sources = await stack.privateBucket();
   let status = await (await stack.upload("desk_chair_01/v001/model.glb", glb)).json();
   assert.equal(status.status, "incomplete");
   assert.deepEqual(status.stats.size, [0.48, 0.85, 0.5]);
   assert.equal(status.stats.triangles, 12);
-  assert.equal((await (await stack.upload("desk_chair_01/v001", metadata(), { type: "application/json" })).json()).status, "incomplete");
+  assert.equal((await (await stack.upload("desk_chair_01/v001", metadata("书椅", { tags: ["chair", "low-poly", "prop", "reading_room"] }), { type: "application/json" })).json()).status, "incomplete");
   await stack.upload("desk_chair_01/v001/qa.json", "{}");
+  await stack.upload("desk_chair_01/v001/preview.png", png);
   await stack.upload("desk_chair_01/v001/source.blend", new Uint8Array([1, 2, 3]));
   status = await (await stack.upload("desk_chair_01/v001/thumbnail.png", png)).json();
   assert.equal(status.status, "pending");
-  assert.deepEqual(Object.keys(status.files).sort(), ["model.glb", "qa.json", "source.blend", "thumbnail.png"]);
+  assert.deepEqual(Object.keys(status.files).sort(), ["model.glb", "preview.png", "qa.json", "source.blend", "thumbnail.png"]);
   assert.deepEqual(status.files["model.glb"], { sha256: sha(glb), size: glb.length });
+
+  // Before any approval: public files are in the public store by content, the rest private.
+  const blob = await bucket.get(`blobs/${sha(glb)}.glb`);
+  assert.deepEqual(new Uint8Array(await blob.arrayBuffer()), glb);
+  assert.equal(blob.httpMetadata.cacheControl, "public, max-age=31536000, immutable");
+  assert.ok(await bucket.head(`blobs/${sha(new Uint8Array([1, 2, 3]))}.blend`));
+  assert.ok(await sources.head("models/desk_chair_01/v001/qa.json"));
+  assert.ok(await sources.head("models/desk_chair_01/v001/preview.png"), "the maker's preview stays private");
+  assert.equal(await bucket.head("library/index.zh.json"), null, "nothing is listed yet");
+  const model = await (await stack.console("/api/models/desk_chair_01")).json();
+  assert.deepEqual(model.tags, ["chair"], "tags that say nothing are dropped");
 
   const pending = await (await stack.console("/api/versions")).json();
   assert.deepEqual(pending.versions.map((item) => [item.id, item.version, item.name.zh]), [["desk_chair_01", "v001", "书椅"]]);
-  const preview = await stack.console("/files/desk_chair_01/v001/thumbnail.png");
-  assert.equal(preview.headers.get("content-type"), "image/png");
-  assert.deepEqual(new Uint8Array(await preview.arrayBuffer()), png);
+  for (const [file, body] of [["thumbnail.png", png], ["qa.json", new TextEncoder().encode("{}")]]) {
+    const response = await stack.console(`/files/desk_chair_01/v001/${file}`);
+    assert.deepEqual(new Uint8Array(await response.arrayBuffer()), body, `${file} for review`);
+  }
 
   const edited = await (await stack.console("/api/models/desk_chair_01", { method: "PATCH", body: { name: { zh: "书桌椅", en: "Desk chair" }, tags: ["chair", "indoor"] } })).json();
   assert.equal(edited.name.zh, "书桌椅");
   assert.equal((await stack.console("/api/models/desk_chair_01/v001/approve", { method: "POST", body: {} })).status, 200);
 
-  const bucket = await stack.publicBucket();
-  const blob = await bucket.get(`blobs/${sha(glb)}.glb`);
-  assert.deepEqual(new Uint8Array(await blob.arrayBuffer()), glb);
-  assert.equal(blob.httpMetadata.cacheControl, "public, max-age=31536000, immutable");
-  assert.ok(await bucket.head(`blobs/${sha(new Uint8Array([1, 2, 3]))}.blend`), ".blend is published");
-  assert.equal(await bucket.head(`blobs/${sha(new TextEncoder().encode("{}"))}.json`), null, "qa.json stays private");
-  const catalog = JSON.parse(await (await bucket.get("models.json")).text());
-  assert.equal(catalog.licence, "CC0-1.0");
-  assert.deepEqual(catalog.models.map((model) => [model.id, model.name.zh, model.type, model.kit, model.tags]), [["desk_chair_01", "书桌椅", "prop", "reading_room", ["chair", "indoor"]]]);
-  assert.deepEqual(Object.keys(catalog.models[0].versions[0].files).sort(), ["model.glb", "source.blend", "thumbnail.png"]);
-  assert.equal(catalog.models[0].description.zh, "木腿绿垫的书桌椅，适合书房。");
-  assert.deepEqual(catalog.kits, {}, "kits without a description are left out");
+  const index = await indexOf(bucket);
+  assert.deepEqual(index.fields, ["id", "name", "description", "type", "kit", "tags", "size", "version", "thumbnail"]);
+  assert.deepEqual(index.models, [["desk_chair_01", "书桌椅", "木腿绿垫的书桌椅，适合书房。", "prop", "reading_room", "chair indoor", [0.48, 0.85, 0.5], "v001", sha(png)]]);
+  assert.deepEqual(index.kits, {}, "kits without a description are left out");
+  assert.equal((await indexOf(bucket, "en")).models[0][2], "A wooden desk chair with a green seat; fits a study.");
+  assert.match(await (await bucket.get("library/index.zh.json")).text(), /\n\["desk_chair_01",/, "one model per line");
+  const detail = await detailOf(bucket, "desk_chair_01");
+  assert.deepEqual([detail.name.zh, detail.listed, detail.versions.length], ["书桌椅", true, 1]);
+  assert.deepEqual(Object.keys(detail.versions[0].files).sort(), ["model.glb", "source.blend", "thumbnail.png"]);
 
-  // Approved versions are immutable; a new version goes through review again.
+  // An approved version keeps its model and source; a new thumbnail replaces the old one at once.
   assert.equal((await stack.upload("desk_chair_01/v001/model.glb", glb)).status, 409);
   assert.equal((await stack.upload("desk_chair_01/v001", metadata(), { type: "application/json" })).status, 409);
   assert.equal((await stack.console("/api/models/desk_chair_01/v001/approve", { method: "POST", body: {} })).status, 409);
+  const newThumbnail = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 9]);
+  assert.equal((await stack.upload("desk_chair_01/v001/thumbnail.png", newThumbnail)).status, 200);
+  assert.equal((await indexOf(bucket)).models[0][8], sha(newThumbnail));
   // The type is fixed once a version is approved, for the pipeline and the reviewer alike.
   assert.equal((await (await stack.upload("desk_chair_01/v002", metadata("书椅", { type: "piece" }), { type: "application/json" })).json()).error, "type_locked");
   assert.equal((await (await stack.console("/api/models/desk_chair_01", { method: "PATCH", body: { type: "piece" } })).json()).error, "type_locked");
-  // Unlisting removes the model from the catalog; its blobs stay.
+  // Unlisting leaves the index at once; the page data and the blobs stay.
   await stack.console("/api/models/desk_chair_01", { method: "PATCH", body: { listed: false } });
-  assert.deepEqual(JSON.parse(await (await bucket.get("models.json")).text()).models, []);
+  assert.deepEqual((await indexOf(bucket)).models, []);
+  assert.equal((await detailOf(bucket, "desk_chair_01")).listed, false);
   assert.ok(await bucket.head(`blobs/${sha(glb)}.glb`));
   await stack.console("/api/models/desk_chair_01", { method: "PATCH", body: { listed: true } });
 });
 
-test("bulk approval publishes several versions and writes the catalog once, when asked", async () => {
+test("a file replaced before it was ever listed leaves the public store, unless another version uses it", async () => {
+  const bucket = await stack.publicBucket();
+  const first = boxGLB({ size: [0.3, 0.3, 0.3] }), second = boxGLB({ size: [0.31, 0.3, 0.3] });
+  await stack.upload("lamp_draft_01/v001/model.glb", first);
+  await stack.upload("lamp_draft_02/v001/model.glb", first);
+  await stack.upload("lamp_draft_01/v001/model.glb", second);
+  assert.ok(await bucket.head(`blobs/${sha(first)}.glb`), "still used by lamp_draft_02");
+  await stack.upload("lamp_draft_02/v001/model.glb", second);
+  assert.equal(await bucket.head(`blobs/${sha(first)}.glb`), null, "no longer used: removed");
+});
+
+test("an uploader's SHA-256 is used as the address and checked by the store", async () => {
+  const glb = boxGLB({ size: [0.2, 0.2, 0.2] });
+  let response = await stack.upload("hashed_01/v001/model.glb", glb, { headers: { "X-Content-SHA256": sha(glb) } });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).files["model.glb"].sha256, sha(glb));
+  response = await stack.upload("hashed_01/v001/model.glb", glb, { headers: { "X-Content-SHA256": "0".repeat(64) } });
+  assert.equal((await response.json()).error, "checksum_mismatch");
+  assert.equal((await stack.upload("hashed_01/v001/model.glb", glb, { headers: { "X-Content-SHA256": "nope" } })).status, 400);
+});
+
+test("bulk approval lists several versions and publishes them in the same request", async () => {
   for (const id of ["bulk_a_01", "bulk_b_01", "bulk_c_01"]) {
     await stack.upload(`${id}/v001`, metadata(id), { type: "application/json" });
     await stack.upload(`${id}/v001/model.glb`, boxGLB({ size: [0.3, 0.3, 0.3] }));
@@ -95,18 +143,54 @@ test("bulk approval publishes several versions and writes the catalog once, when
   }
   await stack.db.prepare("INSERT INTO kits(id, description, updated_at) VALUES('reading_room', ?, 0)").bind(JSON.stringify({ zh: "书房家具，座高 0.45 m。", en: "Study furniture, seats at 0.45 m." })).run();
   const bucket = await stack.publicBucket();
-  const listed = async () => JSON.parse(await (await bucket.get("models.json")).text()).models.map((model) => model.id);
-  const before = await listed();
-  let result = await (await stack.console("/api/approve", { method: "POST", body: { versions: ["bulk_a_01/v001", "bulk_b_01/v001", "missing_01/v001", "Bad/v001"], catalog: false } })).json();
+  const listed = async () => (await indexOf(bucket)).models.map((row) => row[0]);
+  let result = await (await stack.console("/api/approve", { method: "POST", body: { versions: ["bulk_a_01/v001", "bulk_b_01/v001", "missing_01/v001", "Bad/v001"] } })).json();
   assert.deepEqual(result.approved, ["bulk_a_01/v001", "bulk_b_01/v001"]);
   assert.deepEqual(result.failed.map((item) => item.error), ["not_found", "invalid_id"]);
-  assert.deepEqual(await listed(), before, "the catalog waits for the last request");
+  const first = await listed();
+  assert.ok(["bulk_a_01", "bulk_b_01"].every((id) => first.includes(id)) && !first.includes("bulk_c_01"), "published by the same request");
   result = await (await stack.console("/api/approve", { method: "POST", body: { versions: ["bulk_c_01/v001"] } })).json();
   assert.deepEqual(result.approved, ["bulk_c_01/v001"]);
   const after = await listed();
-  assert.equal(JSON.parse(await (await bucket.get("models.json")).text()).kits.reading_room.en, "Study furniture, seats at 0.45 m.");
   assert.ok(["bulk_a_01", "bulk_b_01", "bulk_c_01"].every((id) => after.includes(id)));
+  assert.equal((await indexOf(bucket, "en")).kits.reading_room, "Study furniture, seats at 0.45 m.");
+  assert.equal((await detailOf(bucket, "bulk_a_01")).kitDescription.zh, "书房家具，座高 0.45 m。");
   assert.equal((await stack.console("/api/approve", { method: "POST", body: { versions: Array(11).fill("bulk_a_01/v001") } })).status, 400);
+
+  // The fallback rewrites pages and indexes from the database.
+  await bucket.delete("library/index.zh.json");
+  await bucket.delete("library/bulk_c_01.json");
+  const rebuilt = await (await stack.console("/api/rebuild", { method: "POST", body: { ids: ["bulk_c_01"] } })).json();
+  assert.equal(rebuilt.listed, (await indexOf(bucket)).models.length);
+  assert.ok(await bucket.head("library/bulk_c_01.json"));
+  assert.equal((await stack.console("/api/rebuild", { method: "POST", body: { ids: Array(21).fill("bulk_a_01") } })).status, 400);
+});
+
+test("a maintainer's plan edits, rejects and approves through the same functions, then publishes once", async () => {
+  for (const id of ["plan_a_01", "plan_b_01"]) {
+    await stack.upload(`${id}/v001`, metadata(id, { name: { zh: "低多边形台灯", en: "Lamp" }, kit: null }), { type: "application/json" });
+    await stack.upload(`${id}/v001/model.glb`, boxGLB({ size: [0.2, 0.4, 0.2] }));
+    await stack.upload(`${id}/v001/thumbnail.png`, png);
+  }
+  const env = { MODELS_DB: stack.db, MODELS_PUBLIC: await stack.publicBucket(), MODELS_SOURCES: await stack.privateBucket() };
+  const before = (await (await stack.console("/api/versions")).json()).versions.find((item) => item.id === "plan_a_01");
+  assert.match(warningsOf(before).join(), /production jargon/);
+  const plan = {
+    kits: { desk_lamps: { zh: "台灯，底座直径 0.2 米。", en: "Desk lamps on 0.2 m bases." } },
+    models: { plan_a_01: { name: { zh: "台灯", en: "Table lamp" }, kit: "desk_lamps", tags: ["lamp", "low-poly"] }, missing_01: { listed: false } },
+    reject: { "plan_b_01/v001": "The shade is missing." },
+    approve: ["plan_a_01/v001"],
+  };
+  assert.deepEqual((await applyPlan(env, plan, { dryRun: true, log: () => {} })).failed, [], "a dry run changes nothing");
+  assert.equal(await env.MODELS_PUBLIC.head("library/plan_a_01.json"), null);
+  const report = await applyPlan(env, plan, { log: () => {} });
+  assert.deepEqual([report.kits, report.models, report.rejected, report.approved], [["desk_lamps"], ["plan_a_01"], ["plan_b_01/v001"], ["plan_a_01/v001"]]);
+  assert.deepEqual(report.failed.map((item) => item.item), ["model missing_01"]);
+  const detail = await detailOf(env.MODELS_PUBLIC, "plan_a_01");
+  assert.deepEqual([detail.name.zh, detail.kit, detail.kitDescription.en, detail.tags], ["台灯", "desk_lamps", "Desk lamps on 0.2 m bases.", ["lamp"]]);
+  const row = (await indexOf(env.MODELS_PUBLIC)).models.find((entry) => entry[0] === "plan_a_01");
+  assert.equal(row[1], "台灯");
+  assert.equal((await (await stack.upload("plan_b_01/v001", undefined, { method: "GET" })).json()).note, "The shade is missing.");
 });
 
 test("a rejected version carries the note and returns to pending when fixed", async () => {

@@ -103,8 +103,9 @@ if (!origin) {
     await writeFile(new URL(`games/${game.id}/${game.version}/files.json`, output), JSON.stringify(fileIndex(assets)));
   }
   catalog = localCatalog(releases);
-  // The model catalog is written by the console (docs/models.md); local previews start empty.
-  await writeFile(new URL("models.json", output), JSON.stringify({ licence: "CC0-1.0", models: [] }) + "\n");
+  // The model library's snapshots are written by the console (docs/models.md); local previews start empty.
+  await mkdir(new URL("library/", output), { recursive: true });
+  for (const locale of ["zh", "en"]) await writeFile(new URL(`library/index.${locale}.json`, output), JSON.stringify({ licence: "CC0-1.0", fields: [], kits: {}, models: [] }) + "\n");
   await writeFile(new URL("games.json", output), JSON.stringify(catalog, null, 2) + "\n");
 } else {
   // The deployed website bundles no registry or games; it reads them from the R2 origin.
@@ -150,7 +151,7 @@ async function files(directory) {
 const outputPath = fileURLToPath(output);
 const shell = (await files(output))
   .map((file) => `/${relative(outputPath, fileURLToPath(file)).split("\\").join("/")}`)
-  .filter((path) => !/^\/(?:games\/[^/]+\/|blobs\/|skills\/|runtime\/vision\/|runtime\/addons\/(?:draco|basis)\/|vendor\/three\/LICENSE|_headers|_redirects|robots\.txt|sitemap\.xml|games\.json|models\.json|model\.html|sw\.js)/.test(path))
+  .filter((path) => !/^\/(?:games\/[^/]+\/|blobs\/|skills\/|runtime\/vision\/|runtime\/addons\/(?:draco|basis)\/|vendor\/three\/LICENSE|_headers|_redirects|robots\.txt|sitemap\.xml|games\.json|library\/|model\.html|sw\.js)/.test(path))
   .map((path) => path.replace(/(?:^|\/)index\.html$/, "/").replace(/^\/\//, "/").replace(/^(\/games(?:\/[^/]+)?|\/models?)\.html$/, "$1"))
   .sort();
 // Cached under the addresses pages are visited at: "/x/" for x/index.html, "/games" and

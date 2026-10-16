@@ -1,18 +1,23 @@
 # Model library
 
-Status: live since 2026-10-16; reviewed 2026-10-17. fun.dev keeps a public library of 3D models
-so games use models instead of building them. Models are made by a Blender pipeline outside this
-repository, uploaded and reviewed in one console, and published under CC0.
+Status: live since 2026-10-16; architecture reviewed twice on 2026-10-17. fun.dev keeps a public
+library of 3D models so games use models instead of building them. Models are made by a Blender
+pipeline outside this repository, uploaded in one console, reviewed by the maintainer, and
+published under CC0.
 
 Who it is for, in order: agents making games (a catalog they can search and models they can pin),
 the owner (browsing and managing), and visitors (a public showcase with CC0 downloads).
 
 ```
-upload   ──▶ console.fun.dev 上传 (Access)  ──▶ D1 fundev-models + private R2
-review   ──▶ console.fun.dev 审核 (Access)  ──▶ games.fun.dev/blobs/<sha256>.<ext>, games.fun.dev/models.json
-players  ◀── fun.dev/models, fun.dev/models/<id> (static pages that read models.json)
-games    ◀── https://games.fun.dev/blobs/<sha256>.glb
+upload  ──▶ console.fun.dev 上传 (Access)   ──▶ D1 fundev-models; files: games.fun.dev/blobs/<sha256>.<ext>
+review  ──▶ npm run models (maintainer), console.fun.dev 审核 (owner)  ──▶ listed in D1, snapshots rewritten
+pages   ◀── games.fun.dev/library/index.<zh|en>.json, games.fun.dev/library/<id>.json
+games   ◀── game.json "models" → pinned blobs at models/<id>.glb
 ```
+
+Principles from the reviews: one source of truth (D1) and nothing that has to be kept in step by a
+client; the simplest thing that fits the actual scale (hundreds of models); every change goes
+through the same server functions, whether from the console or the maintenance script.
 
 ## Contents
 
@@ -70,6 +75,9 @@ once, render as instances, and stay identifiable in games:
 - A model's id is `<name>_<NN>` as the pipeline names it, e.g. `desk_chair_01`. It is also the
   address `/models/desk_chair_01`. Ids use `[a-z0-9_]`.
 - A version is `v<NNN>`. Revisions get a new version; the newest approved one is shown.
+- Provisional rule, may change: an approved version's `model.glb` and `source.blend` never change
+  (games pin them); its thumbnail, a rendering, may be replaced; the model's name, description,
+  kit, tags and listing may change at any time; its type is fixed once a version is approved.
 - Every model has a bilingual `description`: what it is, how it looks, where it fits. Agents
   choose by reading descriptions, so they matter more than tags; tags are free and optional.
 - A `kit` means "built to one set of dimensions, so these fit together" (a modular sofa, wall
@@ -87,8 +95,16 @@ The D1 database `fundev-models` is the source of truth for the catalog:
 | `kits` | `id`, `description` (the fitting agreement, `{zh, en}`), timestamp |
 | `versions` | `model`, `version`, `status` (`pending`, `approved`, `rejected`), `files` (name → sha256, size), `stats` (size in metres, triangles, bytes), `note` (review note), timestamps |
 
-`name`, `kit` and `tags` belong to the model and can be edited during review. Uploaded files
-are kept in the private bucket `fundev-sources` under `models/<id>/<version>/<file>`.
+`name`, `description`, `kit` and `tags` belong to the model and can be edited any time.
+
+Files are stored at upload. The public ones (`model.glb`, `thumbnail.png`, `source.blend`) go
+straight to the public bucket `fundev-games` as `blobs/<sha256>.<ext>`, the content-addressed
+store games use ([assets](assets.md)): an address cannot be guessed, so a file is effectively
+private until its version is listed, and approving needs no copying. The rest (`preview.png`,
+`qa.json`, `readme.md`, …) stays in the private bucket `fundev-sources` under
+`models/<id>/<version>/<file>`, for review only. A public file replaced before its version was
+ever listed is deleted unless another version uses it; files of listed versions are never deleted,
+because games reference them by address.
 
 ## Console
 
@@ -101,37 +117,73 @@ cannot host it: it is DNS-only to the CN2 server ([edge](edge.md)), so Access do
 
 - **上传** takes zips or folders in the layout of [models-upload](models-upload.md), checks
   them in the browser with the server's rules (`server/model-rules.js`) and uploads through
-  `/api/upload/…`. A version is pending once its metadata (with a description), `model.glb` and `thumbnail.png` are
-  there; the server rechecks the GLB and computes the stats shown in review.
+  `/api/upload/…`, sending each file's SHA-256 (R2 verifies it; the Worker need not hash large
+  files). A version is pending once its metadata (with a description), `model.glb` and
+  `thumbnail.png` are there; the server rechecks the GLB and computes the stats shown in review.
+  Tags that say nothing (`low-poly`, `static`, the type or kit again) are dropped; production
+  jargon in names and descriptions is flagged.
 - The upload page renders each model's `thumbnail.png` in the browser with the library's viewer
   (one angle, light and background), so every thumbnail matches the 3D view on model pages. A
   maker's `preview.png` is optional.
 - **审核** is a wall of thumbnails with size, triangles and warnings under each (not on the
-  floor, off centre, no description, no thumbnail). Versions without warnings can be selected
-  and approved in bulk; any version with a warning must be opened and approved on its own. The
-  detail view shows the model in 3D and edits `name`, `description`, `type`, `kit`, `tags` and
-  listing; approve, or reject with a note. Approved versions cannot change.
-- Large metadata changes (descriptions, kits) are made by the maintainer directly in D1 followed
-  by a catalog rewrite, not through the console.
+  floor, off centre, no description, no thumbnail, production jargon). Versions without warnings
+  can be selected and approved in bulk; one with a warning is opened and approved on its own.
+  The detail view shows the model in 3D and edits `name`, `description`, `type`, `kit`, `tags` and
+  listing; approve, or reject with a note. **重建公开目录** rewrites the snapshots as a fallback.
+
+## Review
+
+Approving a version lists it; with the files already public, that is reversible (unlist the
+model). Day to day the maintainer (Claude) reviews new uploads with `npm run models` and the owner
+spot-checks in the console, unlisting anything at any time:
+
+```sh
+npm run models -- list [pending|rejected|approved|incomplete|all]   # with warnings
+npm run models -- sheet [status]            # contact sheets in test-results/models-review/
+npm run models -- apply plan.json [--dry-run]
+npm run models -- rebuild                   # rewrite every page and the indexes
+```
+
+`scripts/models-admin.mjs` runs the console's own functions against the live data through
+Wrangler's remote bindings (`wrangler.models-admin.jsonc`, the Wrangler login); nothing is exposed
+on the web. A plan is one reviewed file, applied in order and published once:
+
+```json
+{
+  "kits": { "desk_lamps": { "zh": "…", "en": "…" } },
+  "models": { "table_lamp_01": { "name": { "zh": "台灯", "en": "Table lamp" }, "description": { "zh": "…", "en": "…" }, "kit": null, "tags": ["lamp"], "listed": true } },
+  "reject": { "lamp_draft_01/v001": "The shade is missing." },
+  "approve": ["table_lamp_01/v001"]
+}
+```
 
 ## Publishing
 
-Approving a version copies its files to the public bucket `fundev-games` as
-`blobs/<sha256>.<ext>`, the same content-addressed store games use ([assets](assets.md)), and
-rewrites `models.json` there from D1, next to `games.json`. Both are served from `games.fun.dev`.
+D1 is the only source of truth. The public library is a snapshot of it in `fundev-games`, served
+from `games.fun.dev` with a 60 s cache, and **the server rewrites it in the same request as every
+change to what is listed** (approving, unlisting, editing a listed model or its kit, replacing a
+listed thumbnail), so no client step can leave it behind:
 
-Published model blobs are never deleted, because games reference them by address.
-Unlisting a model only removes it from the catalog.
+- `library/index.zh.json` and `library/index.en.json`: every listed model's newest approved
+  version in one language, a header of field names and one array per model, one model per line
+  (`id`, `name`, `description`, `type`, `kit`, `tags`, `size`, `version`, `thumbnail` as the
+  thumbnail's SHA-256), plus each kit's fitting agreement. About 150–200 bytes per model.
+- `library/<id>.json`: a model's page data in both languages with every approved version and its
+  public files, written for unlisted models too (games that pinned them still resolve).
+
+A public query API would do the same with more moving parts; it waits until the library is far
+larger (see Later).
 
 ## Pages
 
-- `/models`: grid of thumbnails with search (names, descriptions, tags) and type, kit and tag filters (`/models?type=…&kit=…`).
-- `/models/<id>`: 3D view, name, size, triangles, file size and kit; buttons to copy the GLB
-  address, download the GLB, and download the `.blend` when there is one; older versions.
+- `/models`: grid of thumbnails with search (names, descriptions, tags) and type, kit and tag
+  filters (`/models?type=…&kit=…`), from the index in the reader's language.
+- `/models/<id>`: 3D view, name, description, kit and its fitting agreement, size, triangles,
+  file size; buttons to copy the GLB address, download the GLB, and download the `.blend` when
+  there is one; older versions. From `library/<id>.json`; unlisted models have no page.
 
 Both are static pages from the build (`site/models.html`, and `site/model.html`, which
-`_redirects` serves at every `/models/<id>`) that render `models.json` in the browser, so an
-approval is live at once without a deploy. The 3D view is `site/model-viewer.js`, shared with the
+`_redirects` serves at every `/models/<id>`), so a listing is live within the cache time. The 3D view is `site/model-viewer.js`, shared with the
 console. Model files must not require Draco, KTX2 or meshopt decoders; uploads reject them.
 The pages work on `fun.dev` only: `games.fun.dev` allows that origin, not `cdn.fun.dev`.
 
@@ -145,8 +197,8 @@ A game declares its library models in `game.json`, pinned by version:
 
 and loads them like its own files: `context.asset("models/desk_chair_01.glb")`. Preparing a
 release (`scripts/library-models.mjs`, used by every build and the publisher) looks each one up in
-`models.json`, fetches the blob into the shared cache (`~/.cache/fundev-blobs`, with a copy of the
-catalog, so builds also work offline) and adds it to the release's blob map. The release pins the
+`library/<id>.json`, fetches the blob into the shared cache (`~/.cache/fundev-blobs`, with copies
+of the page data, so builds also work offline) and adds it to the release's blob map. The release pins the
 file, the player caches it with the game for offline play, and a model shared by games downloads
 once. `models/` cannot hold the game's own files. The game skill documents this for agents.
 
@@ -157,14 +209,15 @@ anywhere and never changes, but is not cached with a game.
 
 | Piece | Files |
 | --- | --- |
-| Console Worker | `server/console.js` (routes, Access check), `server/models.js` (upload, review, publishing), `server/model-rules.js` and `server/glb.js` (checks), `console/` (built by `npm run console:build` into `dist-console/`), `wrangler.console.jsonc` |
+| Console Worker | `server/console.js` (routes, Access check), `server/models.js` (upload, review, snapshots), `server/model-rules.js` and `server/glb.js` (checks), `console/` (built by `npm run console:build` into `dist-console/`), `wrangler.console.jsonc` |
+| Maintenance | `scripts/models-admin.mjs` (`npm run models`), `wrangler.models-admin.jsonc` |
 | Database | `migrations-models/`, binding `MODELS_DB` in `wrangler.console.jsonc` |
 | Pages | `site/models.html`, `site/model.html`, `site/models.js`, `site/model.js`, `site/models-catalog.js`, `site/model-viewer.js` |
 | Games | `scripts/library-models.mjs` (resolve `models` in `game.json`), `scripts/game-release.mjs` |
-| Tests | `tests/models.test.mjs` (upload, review, publishing and Access checks over local D1 and R2), `tests/console-zip.test.mjs`, `tests/library-models.test.mjs` |
+| Tests | `tests/models.test.mjs` (upload, review, snapshots, maintenance plans and Access checks over local D1 and R2), `tests/console-zip.test.mjs`, `tests/library-models.test.mjs` |
 
 `npm run release` applies `migrations-models/` and deploys the console Worker when it changed.
-Locally, the build writes an empty `dist/models.json`.
+Locally, the build writes empty indexes under `dist/library/`.
 
 ## Setup
 
@@ -186,3 +239,8 @@ Deferred for future consideration, not rejected:
 - Style, state or level-of-detail variants.
 - Named sockets (`socket_top`, `socket_wall`) for placing items relative to other models.
 - Adding models from the repository through `assets.lock` instead of addresses.
+- A public query API (search, paging) once the library reaches thousands of models.
+- Validating the library with a real game built from it (skipped on 2026-10-17: until then the
+  design may drift from what games need). Clock Out is realistic; the library is stylised.
+- A scheduled agent that reviews new uploads without being asked.
+- Regenerating thumbnails from the maintenance script.

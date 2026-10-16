@@ -65,8 +65,8 @@ export async function modelStack() {
     headers: { "Cf-Access-Jwt-Assertion": jwt ?? await token(), ...(method === "GET" ? {} : { "X-Fun-Console": "1", "Content-Type": "application/json" }), ...headers },
   });
   // The console page's upload routes: PUT /api/upload/<id>/<version>[/<file>], GET for the status.
-  const upload = async (path, body, { method = "PUT", type } = {}) => runtime.dispatchFetch(`https://console.test/api/upload/${path}`, {
-    method, body, headers: { "Cf-Access-Jwt-Assertion": await token(), ...(method === "GET" ? {} : { "X-Fun-Console": "1" }), ...(type ? { "Content-Type": type } : {}) },
+  const upload = async (path, body, { method = "PUT", type, headers = {} } = {}) => runtime.dispatchFetch(`https://console.test/api/upload/${path}`, {
+    method, body, headers: { "Cf-Access-Jwt-Assertion": await token(), ...(method === "GET" ? {} : { "X-Fun-Console": "1" }), ...(type ? { "Content-Type": type } : {}), ...headers },
   });
-  return { runtime, db, upload, console: consoleFetch, token, publicBucket: () => runtime.getR2Bucket("MODELS_PUBLIC") };
+  return { runtime, db, upload, console: consoleFetch, token, publicBucket: () => runtime.getR2Bucket("MODELS_PUBLIC"), privateBucket: () => runtime.getR2Bucket("MODELS_SOURCES") };
 }

@@ -40,7 +40,7 @@ self.addEventListener("fetch", (event) => {
   if (release) event.respondWith(cacheFirst(event, url, `${release[1]}/${release[2]}/${release[3] ?? ""}`, release[0]));
   else if (blobPath.test(url.pathname)) event.respondWith(cacheFirst(event, url, null));
   else if (vision) event.respondWith(cacheFirst(event, url, `runtime/vision/${vision[1]}`));
-  else if (local || url.pathname === "/games.json" || url.pathname === "/models.json") event.respondWith(networkFirst(request));
+  else if (local || url.pathname === "/games.json" || url.pathname.startsWith("/library/")) event.respondWith(networkFirst(request));
 });
 
 async function networkFirst(request) {

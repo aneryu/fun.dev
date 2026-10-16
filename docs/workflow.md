@@ -126,6 +126,7 @@ again.
 | `npm run game:remove -- <id>` | Remove a game from the live catalog |
 | `npm run transfer:preview` | Local transfer stack: build, local D1, `wrangler pages dev` on https://localhost:8788 |
 | `npm run transfer:types` | Regenerate `server/env.d.ts` from Wrangler bindings |
+| `npm run models -- list\|sheet\|apply\|rebuild` | Maintain the model library with the console's own functions against the live data ([models](models.md#review)) |
 | `npm run console:build` | Build the model review console into `dist-console/` ([models](models.md)) |
 
 Build environment variables (set by the commands above, not by `.env`):

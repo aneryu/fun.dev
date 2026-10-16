@@ -1,5 +1,5 @@
 import { getLocale, initLocale, onLocaleChange, t } from "./i18n.js";
-import { blobURL, formatBytes, formatSize, loadModels } from "./models-catalog.js";
+import { blobURL, formatBytes, formatSize, loadModel } from "./models-catalog.js";
 import { registerServiceWorker } from "./pwa.js";
 
 // /models/<id> is this page (Pages serves model.html there); it shows the newest version or
@@ -27,7 +27,7 @@ function render() {
   $("#stat-size").textContent = formatSize(version.stats.size);
   $("#stat-triangles").textContent = version.stats.triangles.toLocaleString(getLocale() === "zh" ? "zh-CN" : "en");
   $("#stat-bytes").textContent = formatBytes(version.files["model.glb"].size);
-  $("#address").textContent = new URL(blobURL("model.glb", version.files["model.glb"]), location.href).href;
+  $("#address").textContent = new URL(blobURL("model.glb", version.files["model.glb"].sha256), location.href).href;
   $("#download-blend").hidden = !version.files["source.blend"];
 }
 
@@ -38,12 +38,12 @@ async function show(name) {
   if (version === model.versions[0]) url.searchParams.delete("version"); else url.searchParams.set("version", version.version);
   history.replaceState(null, "", `${url.pathname}${url.search}`);
   if (!viewer) viewer = (await import("./model-viewer.js")).createViewer($("#stage"));
-  await viewer.load(blobURL("model.glb", version.files["model.glb"])).catch(() => { state = "viewerError"; showStatus(); });
+  await viewer.load(blobURL("model.glb", version.files["model.glb"].sha256)).catch(() => { state = "viewerError"; showStatus(); });
 }
 
 async function download(name) {
   const file = version.files[name];
-  const response = await fetch(blobURL(name, file), { credentials: "omit" });
+  const response = await fetch(blobURL(name, file.sha256), { credentials: "omit" });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const link = Object.assign(document.createElement("a"), { href: URL.createObjectURL(await response.blob()), download: `${model.id}_${version.version}.${name.split(".").pop()}` });
   link.click();
@@ -62,8 +62,10 @@ initLocale();
 onLocaleChange(render);
 showStatus();
 try {
-  model = id ? (await loadModels(AbortSignal.timeout(10000))).find((entry) => entry.id === id) : null;
-  if (!model) {
+  model = id ? await loadModel(id, AbortSignal.timeout(10000)) : null;
+  // An unlisted model keeps its page data for games that pinned it, but no public page.
+  if (!model || !model.listed) {
+    model = null;
     state = "modelMissing";
   } else {
     state = "ready";

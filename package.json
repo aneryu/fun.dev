@@ -14,7 +14,8 @@
     "game:remove": "node --env-file-if-exists=.env scripts/publish-game.mjs remove",
     "transfer:preview": "FUNDEV_GAME_ORIGIN= FUNDEV_TRANSFER=1 FUNDEV_NO_SW=1 npm run build && CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler d1 migrations apply DB --local --env-file /dev/null && CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler pages dev --env-file /dev/null --binding TRANSFER_ENABLED=true --binding TRANSFER_ORIGIN=https://localhost:8788",
     "transfer:types": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types server/env.d.ts --env-file /dev/null --env-interface TransferEnv --include-runtime false --strict-vars false",
-    "console:build": "node scripts/build-console.mjs"
+    "console:build": "node scripts/build-console.mjs",
+    "models": "node scripts/models-admin.mjs"
   },
   "engines": {
     "node": ">=22"

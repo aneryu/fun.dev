@@ -7,15 +7,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { boxGLB } from "./helpers/models.mjs";
 
-// A stand-in for games.fun.dev: models.json and one blob. The blob cache is a fresh folder.
+// A stand-in for games.fun.dev: one model's page data and its blob. The blob cache is a fresh folder.
 const glb = Buffer.from(boxGLB({ size: [0.5, 0.9, 0.5] }));
 const sha = createHash("sha256").update(glb).digest("hex");
-const catalog = { licence: "CC0-1.0", models: [{ id: "desk_chair_01", name: { zh: "书椅", en: "Desk chair" }, type: "prop", kit: null, tags: [], versions: [{ version: "v002", files: { "model.glb": { sha256: sha, size: glb.length } }, stats: {} }] }] };
+const detail = { licence: "CC0-1.0", id: "desk_chair_01", name: { zh: "书椅", en: "Desk chair" }, type: "prop", kit: null, tags: [], listed: true, versions: [{ version: "v002", files: { "model.glb": { sha256: sha, size: glb.length } }, stats: {} }] };
 let requests = 0, online = true;
 const server = createServer((request, response) => {
   requests++;
   if (!online) { response.socket.destroy(); return; }
-  if (request.url === "/models.json") { response.writeHead(200, { "Content-Type": "application/json" }); response.end(JSON.stringify(catalog)); }
+  if (request.url === "/library/desk_chair_01.json") { response.writeHead(200, { "Content-Type": "application/json" }); response.end(JSON.stringify(detail)); }
   else if (request.url === `/blobs/${sha}.glb`) { response.writeHead(200); response.end(glb); }
   else { response.writeHead(404); response.end(); }
 });
@@ -44,7 +44,7 @@ test("declared library models become pinned blobs at models/<id>.glb", async () 
   const plain = await prepareRelease(await game());
   assert.notEqual(release.game.release, plain.game.release, "the pinned model is part of the release");
 
-  // Offline later: the cached catalog and blob are enough.
+  // Offline later: the cached page data and blob are enough.
   online = false;
   forgetCatalog();
   const before = requests;
@@ -55,6 +55,7 @@ test("declared library models become pinned blobs at models/<id>.glb", async () 
 
 test("unknown models, bad versions and files under models/ are refused", async () => {
   await assert.rejects(prepareRelease(await game({ desk_chair_01: "v009" })), /not an approved library model/);
+  await assert.rejects(prepareRelease(await game({ unknown_01: "v001" })), /not an approved library model/);
   await assert.rejects(prepareRelease(await game({ "Desk-Chair": "v001" })), /must map a library id/);
   await assert.rejects(prepareRelease(await game(undefined, ["game.js", "models/own.glb"])), /reserved for library models/);
 });

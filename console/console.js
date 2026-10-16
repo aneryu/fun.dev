@@ -1,5 +1,5 @@
 import { createViewer, renderThumbnail } from "../site/model-viewer.js";
-import { inspectVersion } from "../server/model-rules.js";
+import { inspectVersion, textIssues } from "../server/model-rules.js";
 import { groupVersions, readZip } from "./zip.js";
 
 // The review console (docs/models.md). It talks only to its own Worker; Access signs requests in.
@@ -25,6 +25,7 @@ function warnings(stats, item = {}) {
   const list = [];
   if (item.files && !item.files["thumbnail.png"]) list.push("没有缩略图");
   if (item.id && !item.description) list.push("没有描述");
+  for (const field of textIssues(item)) list.push(field === "name" ? "名字里有制作术语（低多边形、静态、视觉模型……）" : "描述里有制作术语，请写它是什么、长什么样、适合放在哪里");
   if (Math.abs(stats.min[1]) > 0.001) list.push(`底部在 y = ${stats.min[1]} m，不在地面上`);
   for (const [axis, index] of [["x", 0], ["z", 2]]) {
     const center = (stats.min[index] + stats.max[index]) / 2;
@@ -97,8 +98,10 @@ async function uploadOne(item) {
   await api(base, { method: "PUT", body: item.meta });
   let sent = 0;
   for (const file of item.files) {
-    if (current?.files?.[file.name]?.sha256 === hex(await crypto.subtle.digest("SHA-256", file.bytes))) continue;
-    const response = await fetch(`${base}/${file.name}`, { method: "PUT", credentials: "same-origin", headers: { "X-Fun-Console": "1" }, body: file.bytes });
+    // The SHA-256 computed here names the file in the store (which checks it), and spares the Worker hashing large files.
+    const sha256 = hex(await crypto.subtle.digest("SHA-256", file.bytes));
+    if (current?.files?.[file.name]?.sha256 === sha256) continue;
+    const response = await fetch(`${base}/${file.name}`, { method: "PUT", credentials: "same-origin", headers: { "X-Fun-Console": "1", "X-Content-SHA256": sha256 }, body: file.bytes });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(`${file.name}: ${data.detail || data.error || response.status}`);
     sent++;
@@ -164,30 +167,43 @@ function updateBulk() {
   $("#approve-selected").textContent = `通过选中的 ${count} 个`;
   $("#approve-selected").disabled = count === 0;
 }
-// Batches of 10 go out three at a time; the public catalog is written once at the end.
+// Batches of 10, one after another: each request lists its versions and publishes them, so the
+// public library is right after every batch even if the page is closed halfway.
 async function approveSelected() {
   const items = selected();
   $("#approve-selected").disabled = true;
   const batches = [];
   for (let start = 0; start < items.length; start += 10) batches.push(items.slice(start, start + 10));
-  let done = 0, next = 0;
+  let done = 0;
   const failed = [];
-  const worker = async () => {
-    while (next < batches.length) {
-      const batch = batches[next++];
-      try {
-        const result = await api("/api/approve", { method: "POST", body: { versions: batch, catalog: false } });
-        done += result.approved.length;
-        failed.push(...result.failed.map((item) => `${item.version}（${item.detail ?? item.error}）`));
-      } catch (error) { failed.push(...batch.map((value) => `${value}（${error.message}）`)); }
-      $("#list-status").textContent = `通过中 ${done + failed.length}/${items.length}`;
-    }
-  };
-  await Promise.all([worker(), worker(), worker()]);
-  try { await api("/api/approve", { method: "POST", body: { versions: [], catalog: true } }); }
-  catch (error) { failed.push(`目录更新（${error.message}）`); }
+  for (const batch of batches) {
+    try {
+      const result = await api("/api/approve", { method: "POST", body: { versions: batch } });
+      done += result.approved.length;
+      failed.push(...result.failed.map((item) => `${item.version}（${item.detail ?? item.error}）`));
+    } catch (error) { failed.push(...batch.map((value) => `${value}（${error.message}）`)); }
+    $("#list-status").textContent = `通过中 ${done + failed.length}/${items.length}`;
+  }
   await showList();
   $("#list-status").textContent = `已通过 ${done} 个${failed.length ? `；失败 ${failed.length} 个：${failed.join("、")}` : ""}。`;
+}
+
+// The fallback: rewrite every listed model's page and the indexes from the database.
+async function rebuild() {
+  $("#rebuild").disabled = true;
+  try {
+    const { versions } = await api("/api/versions?status=approved");
+    const ids = [...new Set(versions.map((item) => item.id))];
+    for (let start = 0; start < ids.length; start += 20) {
+      $("#list-status").textContent = `重建中 ${Math.min(start + 20, ids.length)}/${ids.length}`;
+      await api("/api/rebuild", { method: "POST", body: { ids: ids.slice(start, start + 20) } });
+    }
+    $("#list-status").textContent = `公开目录已重建（${ids.length} 个模型）。`;
+  } catch (error) {
+    $("#list-status").textContent = `重建失败：${error.message}`;
+  } finally {
+    $("#rebuild").disabled = false;
+  }
 }
 
 async function showModel(id, version) {
@@ -272,6 +288,7 @@ $("#reject").addEventListener("click", () => act(async () => {
 $("#back").addEventListener("click", showList);
 $("#select-all").addEventListener("change", (event) => { for (const box of document.querySelectorAll("#rows input[type=checkbox]")) box.checked = event.target.checked; updateBulk(); });
 $("#approve-selected").addEventListener("click", approveSelected);
+$("#rebuild").addEventListener("click", rebuild);
 $("#tab-review").addEventListener("click", () => showTab("review"));
 $("#tab-upload").addEventListener("click", () => showTab("upload"));
 for (const input of [$("#zip-input"), $("#folder-input")]) input.addEventListener("change", () => { if (input.files.length) prepare([...input.files]); input.value = ""; });

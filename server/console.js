@@ -1,4 +1,4 @@
-import { approveVersion, approveVersions, editModel, errorResponse, getModel, ID, json, listVersions, ModelError, rejectVersion, routeUpload, typeOf, VERSION } from "./models.js";
+import { approveVersion, approveVersions, blobKey, editModel, errorResponse, getModel, ID, json, listVersions, ModelError, PUBLIC_FILES, publish, rejectVersion, routeUpload, sourceKey, typeOf, VERSION } from "./models.js";
 
 // console.fun.dev (docs/models.md): the review console. Cloudflare Access guards the whole host;
 // every request is checked here again against the Access JWT, so a misconfigured Access
@@ -56,7 +56,10 @@ export default {
       if (path.startsWith("/files/")) {
         const [id, version, file] = path.split("/").slice(2).map(decodeURIComponent);
         if (request.method !== "GET" || !file || path.split("/").length !== 5 || !ID.test(id) || !VERSION.test(version)) throw new ModelError("not_found", 404);
-        const object = await env.MODELS_SOURCES.get(`models/${id}/${version}/${file}`);
+        // Public files are stored by content, the others under the version.
+        const row = await env.MODELS_DB.prepare("SELECT files FROM versions WHERE model=? AND version=?").bind(id, version).first();
+        const entry = row ? JSON.parse(row.files)[file] : null;
+        const object = PUBLIC_FILES.includes(file) && entry ? await env.MODELS_PUBLIC.get(blobKey(file, entry.sha256)) : await env.MODELS_SOURCES.get(sourceKey(id, version, file));
         if (!object) throw new ModelError("not_found", 404);
         return new Response(object.body, { headers: { "Content-Type": typeOf(file), "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox" } });
       }
@@ -74,10 +77,13 @@ export default {
         // The page asks before uploading; a version not seen yet is not an error there.
         catch (error) { if (request.method === "GET" && error.code === "not_found") return json({ status: "new", note: null, files: {}, stats: null }); throw error; }
       }
-      // Several pending versions at once; the page sends small batches and asks for the catalog last.
-      if (path === "/api/approve" && request.method === "POST") {
-        const { versions = [], catalog = true } = await readJSON(request);
-        return json(await approveVersions(env, versions, { catalog: catalog === true }));
+      // Several pending versions at once; each batch publishes what it approved.
+      if (path === "/api/approve" && request.method === "POST") return json(await approveVersions(env, (await readJSON(request)).versions ?? []));
+      // The fallback: rewrite some models' pages and the indexes (the page sends up to 20 ids at a time).
+      if (path === "/api/rebuild" && request.method === "POST") {
+        const { ids = [] } = await readJSON(request);
+        if (!Array.isArray(ids) || ids.length > 20 || ids.some((id) => typeof id !== "string" || !ID.test(id))) throw new ModelError("invalid_request", 400, "up to 20 model ids");
+        return json({ listed: await publish(env, ids) });
       }
       // /api/models/<id> (GET, PATCH) and /api/models/<id>/<version>/(approve|reject) (POST)
       const segments = path.split("/").slice(3).map(decodeURIComponent);

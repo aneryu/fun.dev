@@ -1,5 +1,5 @@
 import { getLocale, initLocale, languagePath, onLocaleChange, t } from "./i18n.js";
-import { MODEL_TYPES, loadModels, modelPath, thumbnailURL } from "./models-catalog.js";
+import { MODEL_TYPES, loadIndex, modelPath, thumbnailURL } from "./models-catalog.js";
 import { registerServiceWorker } from "./pwa.js";
 
 const list = document.querySelector("#model-list");
@@ -16,12 +16,12 @@ const error = document.querySelector("#load-error");
 let models = [];
 let loadState = "loading";
 
+// The index is per language: names and descriptions arrive in the reader's language.
 function item(model) {
-  const latest = model.versions[0];
   const node = document.createElement("li");
-  const link = Object.assign(document.createElement("a"), { className: "model-link", href: languagePath(modelPath(model)) });
-  const image = Object.assign(document.createElement("img"), { className: "model-preview", src: thumbnailURL(latest) ?? "", alt: "", loading: "lazy", decoding: "async", width: 300, height: 300 });
-  const name = Object.assign(document.createElement("span"), { className: "model-name", textContent: model.name[getLocale()] });
+  const link = Object.assign(document.createElement("a"), { className: "model-link", href: languagePath(modelPath(model.id)) });
+  const image = Object.assign(document.createElement("img"), { className: "model-preview", src: thumbnailURL(model.thumbnail), alt: "", loading: "lazy", decoding: "async", width: 300, height: 300 });
+  const name = Object.assign(document.createElement("span"), { className: "model-name", textContent: model.name });
   const id = Object.assign(document.createElement("span"), { className: "model-id muted", textContent: model.id });
   link.append(image, name, id);
   node.append(link);
@@ -45,7 +45,7 @@ function render() {
   }
   const query = search.value.trim().toLocaleLowerCase();
   const visible = models.filter((model) => (!type.value || model.type === type.value) && (!kit.value || model.kit === kit.value) && (!tag.value || model.tags.includes(tag.value)) &&
-    [model.id, model.name.zh, model.name.en, model.description?.zh ?? "", model.description?.en ?? "", model.kit ?? "", ...model.tags].join(" ").toLocaleLowerCase().includes(query));
+    [model.id, model.name, model.description, model.kit ?? "", ...model.tags].join(" ").toLocaleLowerCase().includes(query));
   list.replaceChildren(...visible.map(item));
   list.hidden = visible.length === 0;
   empty.hidden = models.length !== 0;
@@ -66,12 +66,13 @@ function translate() {
   render();
 }
 
+// Filters come from the address, so switching language keeps them.
 async function load() {
   for (const node of [error, empty, tools, noResults, list]) node.hidden = true;
   loadState = "loading";
   render();
   try {
-    models = await loadModels(AbortSignal.timeout(10000));
+    ({ models } = await loadIndex(getLocale(), AbortSignal.timeout(10000)));
     loadState = "ready";
     tools.hidden = models.length < 2;
     const params = new URLSearchParams(location.search);
@@ -103,6 +104,6 @@ document.querySelector("#retry").addEventListener("click", async () => {
   else document.querySelector("#models-title").focus();
 });
 initLocale();
-onLocaleChange(translate);
+onLocaleChange(load);
 load();
 registerServiceWorker();
