@@ -7,15 +7,15 @@ import { equal } from "./security.js";
 // public files to the game bucket (MODELS_PUBLIC) as content-addressed blobs.
 export const ID = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
 export const VERSION = /^v\d{3}$/;
-const FILE = /^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9_-]+)*$/;
+export const FILE = /^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9_-]+)*$/;
 const TAG = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 // Categories (docs/models.md). Only the static ones are accepted so far; the others are planned.
 export const MODEL_TYPES = ["prop", "piece", "character", "creature", "animation", "scene", "world"];
 export const SUPPORTED_TYPES = ["prop", "piece"];
 // Published with an approved version; other uploads (qa.json, README.md, more previews) stay private.
 export const PUBLIC_FILES = ["model.glb", "preview.png", "source.blend"];
-const LIMITS = { "model.glb": 10 * 1024 * 1024 };
-const MAX_FILE = 50 * 1024 * 1024;
+export const LIMITS = { "model.glb": 10 * 1024 * 1024 };
+export const MAX_FILE = 50 * 1024 * 1024;
 const MAX_METADATA = 64 * 1024;
 export const TYPES = { glb: "model/gltf-binary", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", blend: "application/x-blender", json: "application/json", md: "text/markdown; charset=utf-8", txt: "text/plain; charset=utf-8" };
 export const typeOf = (name) => TYPES[name.split(".").pop()] ?? "application/octet-stream";

@@ -19,6 +19,27 @@ box's floor, no external files.
 - `<id>`: `<name>_<NN>`, lowercase letters, digits and `_`, e.g. `desk_chair_01`.
 - `<version>`: `v` and three digits, e.g. `v002`. A revision is a new version of the same id.
 
+## Upload tool
+
+Whoever prepares models does not need the token: put each version in a folder and run the tool
+from this repository, which checks everything locally, uploads, and skips files the server
+already has. A run can be repeated after a failure.
+
+```
+<root>/<id>/<version>/meta.json      the metadata below
+<root>/<id>/<version>/model.glb
+<root>/<id>/<version>/preview.png
+<root>/<id>/<version>/source.blend   optional; other files (qa.json, readme.md, more previews) too
+```
+
+```sh
+npm run models:upload -- <root> --dry-run      # local checks only, no token, no network
+npm run models:upload -- <root> [--only id,id] # upload
+```
+
+The token comes from `MODELS_TOKEN` or `~/.config/fundev/models-token` and is never printed.
+The result of every run is written to `<root>/upload-report.json`.
+
 ## Endpoints
 
 ### `PUT /api/models/<id>/<version>`: metadata
