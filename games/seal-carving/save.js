@@ -2,8 +2,9 @@
 // (see carve.js serialize), its cleared ground (serializeClear) and whether it is finished. Snapshots stay a few kilobytes.
 import { seals } from "./seals.js";
 
-// 3: strokes at any angle (1 and 2 had other stroke formats; their carvings are dropped).
-export const SCHEMA = 3;
+// 4: the 说文 seal-script characters (1–3 had other stroke formats or characters; their
+// carvings are dropped).
+export const SCHEMA = 4;
 
 export function createState() {
   return { current: seals[0].id, seals: {}, unlockAll: false };
@@ -11,7 +12,7 @@ export function createState() {
 
 export function deserialize(snapshot) {
   if (!snapshot || typeof snapshot !== "object") throw new Error("Unsupported save.");
-  if (![1, 2, SCHEMA].includes(snapshot.schemaVersion)) throw new Error(`Unsupported save version ${snapshot.schemaVersion}.`);
+  if (![1, 2, 3, SCHEMA].includes(snapshot.schemaVersion)) throw new Error(`Unsupported save version ${snapshot.schemaVersion}.`);
   const data = snapshot.data;
   if (!data || typeof data !== "object" || typeof data.current !== "string" || typeof data.seals !== "object" || data.seals === null) throw new Error("Malformed save.");
   const state = createState();

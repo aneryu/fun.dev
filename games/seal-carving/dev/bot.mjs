@@ -92,31 +92,35 @@ const started = Date.now();
 let guard = 0;
 for (;;) {
   let v = await view();
-  if (v.stage === "dust" || v.stage === "done" || guard++ > 200) break;
-  // The open line nearest the knife.
-  // A sensible hand: lines that lie the way the knife does first, nearest first; then turn.
-  const isAcross = (entry) => Math.abs(entry.a[0] - entry.b[0]) > Math.abs(entry.a[1] - entry.b[1]);
+  if (v.stage === "dust" || v.stage === "done" || guard++ > 600) break;
+  // How far a line leans from upright on screen, in degrees (-90..90, clockwise positive).
+  const lean = (entry) => {
+    let degrees = Math.atan2(entry.b[0] - entry.a[0], -(entry.b[1] - entry.a[1])) * 180 / Math.PI;
+    while (degrees > 90) degrees -= 180;
+    while (degrees <= -90) degrees += 180;
+    return degrees;
+  };
   const near = (entry) => Math.min(distance(v.tip, entry.a), distance(v.tip, entry.b));
-  // Characters are cut along their strokes' centres (the knife has two edges); the rest by line.
   const targets = v.cuts;
   if (!targets.length) { note(`nothing open to cut in ${v.stage}`); break; }
-  const same = targets.filter((entry) => isAcross(entry) === (v.heading === 1));
-  const cut = (same.length ? same : targets).slice().sort((p, q) => near(p) - near(q))[0];
-  const across = Math.abs(cut.a[0] - cut.b[0]) > Math.abs(cut.a[1] - cut.b[1]);
-  console.log(`${v.stage}: cut ${cut.index} ${across ? "across" : "upright"}, ${Math.round(distance(cut.a, cut.b))} px, coverage ${cut.coverage?.toFixed(2) ?? "-"}`);
-  // The knife only cuts upright: turn the stone a quarter for a line across, by drawing an arc
-  // around it on the bare ground (the side away from the knife).
-  if (across) {
+  // A sensible hand: lines already upright first, nearest first; then turn the stone.
+  const upright = targets.filter((entry) => Math.abs(lean(entry)) < 6);
+  const cut = (upright.length ? upright : targets).slice().sort((p, q) => near(p) - near(q))[0];
+  const tilt = lean(cut);
+  console.log(`${v.stage}: cut ${cut.index} ${Math.round(tilt)}°, ${Math.round(distance(cut.a, cut.b))} px, coverage ${cut.coverage?.toFixed(2) ?? "-"}`);
+  // The knife only pushes up the screen: turn the stone until the line stands upright, by
+  // drawing an arc around it on the bare ground (the side away from the knife).
+  if (Math.abs(tilt) >= 6) {
     const [cx, cy] = v.center, r = Math.min(150, v.viewport.width / 2 - 20);
-    const start = v.tip[0] > cx ? 180 : 0;
+    const start = v.tip[0] > cx ? 180 : 0, sweep = -tilt * 1.02;
     const arc = [];
-    for (let a = 0; a <= 92; a += 6) arc.push([cx + r * Math.cos((start + a) * Math.PI / 180), cy + r * Math.sin((start + a) * Math.PI / 180)]);
+    for (let k = 0; k <= 16; k++) arc.push([cx + r * Math.cos((start + sweep * k / 16) * Math.PI / 180), cy + r * Math.sin((start + sweep * k / 16) * Math.PI / 180)]);
     await touch(arc, 700);
     stats.turns++;
     await page.waitForTimeout(400);
     const after = await view();
-    if (Math.abs(after.yaw - Math.round(after.yaw / (Math.PI / 2)) * Math.PI / 2) > 0.02) note(`the stone did not settle square (yaw ${after.yaw.toFixed(2)})`);
-    if (Math.abs(after.yaw - v.yaw) < 0.5) note("the arc did not turn the stone");
+    if (Math.abs(after.yaw - v.yaw) < 0.1) note("the arc did not turn the stone");
+    if (stats.turns > 400) break;
     continue;
   }
   // Move: the end nearer the knife, from where the cut still needs carving.

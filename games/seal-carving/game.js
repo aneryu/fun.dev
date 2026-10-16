@@ -1387,7 +1387,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
     return {
       stage: currentStage(), progress: bench.carving.progress(), heading: knife.heading, plunged: knife.plunged,
       yaw, center: isGlyph(currentStage()) ? screenOf(focus.x, focus.z) : screenOf(...toWorld(0, 0)),
-      still: (() => { const want = wantedFocus(); const wantPivot = pivotFor(); return Math.abs(want.x - focus.x) + Math.abs(want.z - focus.z) + Math.abs(want.scale - focus.scale) < 1e-3 && Math.abs(wantPivot.u - pivot.u) + Math.abs(wantPivot.v - pivot.v) < 1e-4 && settled(); })(),
+      still: (() => { const want = wantedFocus(); const wantPivot = pivotFor(); return Math.abs(want.x - focus.x) + Math.abs(want.z - focus.z) + Math.abs(want.scale - focus.scale) < 1e-3 && Math.abs(wantPivot.u - pivot.u) + Math.abs(wantPivot.v - pivot.v) < 1e-4 && settled() && !knife.recentre && Math.hypot(knife.targetX - knife.x, knife.targetZ - knife.z) < 0.002; })(),
       tip: screenOf(knife.x, knife.z), grip, handle: [grip[0] + (top[0] - grip[0]) * 0.55, grip[1] + (top[1] - grip[1]) * 0.55],
       badges: shownBadges.map(({ id, x, y }) => ({ id, x, y })),
       cuts: bench.carving.cuts.filter((cut) => cut.stage === currentStage() && !cut.done).map((cut) => ({ index: cut.index, a: screenOf(...toWorld(...cut.a)), b: screenOf(...toWorld(...cut.b)), coverage: bench.carving.coverage(cut) })),

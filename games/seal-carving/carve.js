@@ -34,8 +34,9 @@ export const CLEAR_FINISH = 0.85;
 const inside = (rects, u, v, margin = 0) => rects.some(([u0, v0, u1, v1]) => u >= u0 - margin && u <= u1 + margin && v >= v0 - margin && v <= v1 + margin);
 
 // widths: groove width for each stroke width code (the blade differs per step).
-// relief: { keep, cells } from layoutRelief: the raised strokes and the grounds around them.
+// relief: { keep, cells, isStroke } from layoutRelief: the raised strokes and the grounds around them.
 export function createCarving(segments, widths, relief = { keep: [], cells: [] }) {
+  const isStroke = relief.isStroke ?? ((u, v) => inside(relief.keep, u, v, 0.5 / CLEAR));
   const cuts = segments.map((segment, index) => {
     const dx = segment.b[0] - segment.a[0], dy = segment.b[1] - segment.a[1];
     const length = Math.hypot(dx, dy);
@@ -62,7 +63,7 @@ export function createCarving(segments, widths, relief = { keep: [], cells: [] }
   for (let j = 0; j < CLEAR; j++) for (let i = 0; i < CLEAR; i++) {
     const u = gridCentre(i), v = gridCentre(j);
     const char = relief.cells.findIndex(([u0, v0, u1, v1]) => u >= u0 && u <= u1 && v >= v0 && v <= v1);
-    if (char >= 0 && !inside(relief.keep, u, v, 0.5 / CLEAR)) { const index = j * CLEAR + i; clearable[index] = 1; charOf[index] = char; clearTotal[char]++; }
+    if (char >= 0 && !isStroke(u, v)) { const index = j * CLEAR + i; clearable[index] = 1; charOf[index] = char; clearTotal[char]++; }
   }
   const glyphStage = (stage) => (STAGES[stage] ?? "").startsWith("glyph");
 
@@ -179,12 +180,16 @@ export function createCarving(segments, widths, relief = { keep: [], cells: [] }
     return fresh;
   }
   const clearCoverage = (char) => clearTotal[char] ? clearCount[char] / clearTotal[char] : 1;
-  // Finishes any character whose ground is nearly cleared: clears the rest and closes its
-  // guides. Returns { cleared: indices, characters: those just finished }.
+  // Finishes any character whose ground is nearly cleared, or whose guides are all cut: clears
+  // the rest and closes its guides. Returns { cleared: indices, characters: those just finished }.
+  const guidesCut = (char) => {
+    const own = cuts.filter((cut) => cut.stage === `glyph${char}`);
+    return own.length > 0 && own.every((cut) => cut.done);
+  };
   function settleGround() {
     const fresh = [], finished = [];
     for (let char = 0; char < characters; char++) {
-      if (groundDone[char] || clearCoverage(char) < CLEAR_FINISH) continue;
+      if (groundDone[char] || (clearCoverage(char) < CLEAR_FINISH && !guidesCut(char))) continue;
       for (let index = 0; index < cleared.length; index++) if (charOf[index] === char && !cleared[index]) { cleared[index] = 1; clearCount[char]++; fresh.push(index); }
       groundDone[char] = true;
       finished.push(char);
@@ -295,7 +300,11 @@ export function createMaskPainter(carving, context2d, size) {
   // The raised strokes stand however the knife strays: after grooves or clearing are painted,
   // the strokes are painted back as uncut stone. (A clip path would do the same, but a canvas
   // once clipped this way uploads to the GPU very slowly ever after.)
-  const keep = carving.relief.keep.map(([u0, v0, u1, v1]) => [px(u0), px(v0), px(u1) - px(u0), px(v1) - px(v0)]);
+  // Snapped to whole pixels, so neighbouring rows leave no seams.
+  const keep = carving.relief.keep.map(([u0, v0, u1, v1]) => {
+    const x = Math.round(px(u0)), y = Math.round(px(v0));
+    return [x, y, Math.max(1, Math.round(px(u1)) - x), Math.max(1, Math.round(px(v1)) - y)];
+  });
   const protect = (draw) => {
     draw();
     if (!keep.length) return;
