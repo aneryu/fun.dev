@@ -28,7 +28,8 @@ export async function liveCheck({ browser, site, assetOrigin, apiOrigin, games, 
   if (assetOrigin) {
     const response = await fetch(`${assetOrigin}/platform.css`, { cache: "no-store" });
     assert.equal(response.status, 200, `${assetOrigin}/platform.css returned ${response.status}`);
-    assert.equal(response.headers.get("access-control-allow-origin"), site, "asset origin allows the site");
+    // Pages sends "*" with static files.
+    assert.ok(["*", site].includes(response.headers.get("access-control-allow-origin")), "asset origin allows the site");
   }
   if (apiOrigin) {
     const response = await fetch(`${apiOrigin}/api/transfers/time`, { method: "OPTIONS", headers: { Origin: site, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type,x-fun-transfer" } });

@@ -1,7 +1,7 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { assetHTML, assetHeaders, assetManifest } from "../scripts/asset-origin.mjs";
+import { assetHTML, assetManifest } from "../scripts/asset-origin.mjs";
 import { addOriginToHeaders, apiDirectives, assetDirectives } from "../scripts/csp.mjs";
 import { headersFor, parseHeaders } from "../scripts/headers.mjs";
 import { relay, origin } from "./helpers/relay.mjs";
@@ -25,7 +25,7 @@ test("pages load scripts, stylesheets and icons from the asset origin; links and
 });
 
 test("the asset origin joins script, style, connect and image sources; the API only connect", async () => {
-  let source = addOriginToHeaders(await readFile(new URL("../site/_headers", import.meta.url), "utf8"), assets, assetDirectives) + assetHeaders(assets, "https://fun.dev");
+  let source = addOriginToHeaders(await readFile(new URL("../site/_headers", import.meta.url), "utf8"), assets, assetDirectives);
   source = addOriginToHeaders(source, api, apiDirectives);
   const rules = parseHeaders(source);
   for (const path of ["/games", "/games/muyu"]) {
@@ -34,8 +34,6 @@ test("the asset origin joins script, style, connect and image sources; the API o
     assert.match(policy, /connect-src 'self'[^;]* https:\/\/cdn\.example\.com https:\/\/api\.transfer\.test/);
     assert.doesNotMatch(policy, /(?:script|style|img)-src[^;]*api\.transfer\.test/);
   }
-  assert.equal(headersFor(rules, "/platform.css", assets)["access-control-allow-origin"], "https://fun.dev");
-  assert.equal(headersFor(rules, "/platform.css", "https://fun.dev")["access-control-allow-origin"], undefined);
 });
 
 test("a separate API origin answers only the site, with CORS", async () => {

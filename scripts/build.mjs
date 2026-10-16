@@ -1,7 +1,7 @@
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { build, transform } from "esbuild";
 import { gameOrigin, publicOrigin } from "./game-origin.mjs";
-import { assetHTML, assetHeaders, assetManifest } from "./asset-origin.mjs";
+import { assetHTML, assetManifest } from "./asset-origin.mjs";
 import { loadLocalGames, localCatalog } from "./local-games.mjs";
 import { fileIndex } from "./game-release.mjs";
 import { buildVision } from "./vision.mjs";
@@ -20,7 +20,6 @@ const output = new URL("dist/", root);
 const origin = gameOrigin(process.env.FUNDEV_GAME_ORIGIN);
 // Production splits the site across hostnames (docs/edge.md): fun.dev serves documents only,
 // the asset origin every other platform file, the API origin the transfer API.
-const site = "https://fun.dev";
 const assetOrigin = publicOrigin(process.env.FUNDEV_ASSET_ORIGIN, "FUNDEV_ASSET_ORIGIN");
 const apiOrigin = publicOrigin(process.env.FUNDEV_API_ORIGIN, "FUNDEV_API_ORIGIN");
 await rm(output, { recursive: true, force: true });
@@ -132,7 +131,7 @@ if (assetOrigin) {
   }
   const manifest = new URL("manifest.webmanifest", output);
   await writeFile(manifest, assetManifest(await readFile(manifest, "utf8"), assetOrigin));
-  await writeFile(headersFile, addOriginToHeaders(await readFile(headersFile, "utf8"), assetOrigin, assetDirectives) + assetHeaders(assetOrigin, site));
+  await writeFile(headersFile, addOriginToHeaders(await readFile(headersFile, "utf8"), assetOrigin, assetDirectives));
 }
 if (apiOrigin) await writeFile(headersFile, addOriginToHeaders(await readFile(headersFile, "utf8"), apiOrigin, apiDirectives));
 

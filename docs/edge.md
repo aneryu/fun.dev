@@ -28,8 +28,8 @@ Measured from 12 mainland probes on 2026-10-16, a page through the server took a
 - The manifest stays on `fun.dev` (its `start_url` and `scope` must be same-origin with the
   pages); its icons point at the asset origin. The service worker stays on `fun.dev` and
   precaches the shell from the asset origin, so a returning visitor fetches only the pages.
-- `_headers` gives `https://cdn.fun.dev/*` `Access-Control-Allow-Origin: https://fun.dev` (module
-  scripts and the service worker fetch with CORS), and every CSP allows the asset origin
+- Module scripts and the service worker fetch platform files with CORS; Pages sends
+  `Access-Control-Allow-Origin: *` with every static file. Every CSP allows the asset origin
   (scripts, styles, images, connections) and the API origin (connections).
 - The transfer API checks that a request was sent to `TRANSFER_API_ORIGIN` from a page on
   `TRANSFER_ORIGIN`, and answers its CORS preflight. Other pages of the site, including games on

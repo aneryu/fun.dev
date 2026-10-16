@@ -17,7 +17,5 @@ export function assetManifest(source, origin) {
   return JSON.stringify(manifest, null, 2) + "\n";
 }
 
-// Module scripts and the service worker's precache fetch these files with CORS.
-export function assetHeaders(origin, site) {
-  return `\n# Platform files for pages on ${site} (module scripts and the service worker fetch with CORS).\n${origin}/*\n  Access-Control-Allow-Origin: ${site}\n`;
-}
+// Module scripts and the service worker's precache fetch these files with CORS. Pages already
+// sends Access-Control-Allow-Origin: * with every static file, which allows that.
