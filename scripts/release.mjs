@@ -17,6 +17,8 @@ import { pendingBackups, pushBlobs } from "./assets.mjs";
 // against the live catalog → Pages deploy → checks on fun.dev → git push.
 const SITE = "https://fun.dev";
 const GAME_ORIGIN = "https://games.fun.dev";
+const ASSET_ORIGIN = "https://cdn.fun.dev";
+const API_ORIGIN = "https://api.fun.dev";
 const PROJECT = "fundev";
 const args = process.argv.slice(2);
 if (args.some((arg) => !["--yes", "--check"].includes(arg))) {
@@ -35,7 +37,7 @@ const catalogNow = async () => (await (await fetch(`${GAME_ORIGIN}/games.json`, 
 
 if (args.includes("--check")) {
   const browser = await launch();
-  try { await liveCheck({ browser, site: SITE, games: (await catalogNow()).filter((game) => game.apiVersion === API_VERSION) }); }
+  try { await liveCheck({ browser, site: SITE, assetOrigin: ASSET_ORIGIN, apiOrigin: API_ORIGIN, games: (await catalogNow()).filter((game) => game.apiVersion === API_VERSION) }); }
   finally { await browser.close(); }
   console.log("\n✓ fun.dev passes the live checks.");
   process.exit(0);
@@ -143,7 +145,7 @@ try {
   execFileSync("npm", ["run", "--silent", "build:production"], { cwd: root, stdio: "inherit", env: { ...process.env, FUNDEV_NO_SW: "" } });
   const server = await serve();
   const browser = await launch();
-  try { await smoke({ browser, base: server.base, games: (await catalogNow()).filter((game) => game.apiVersion === API_VERSION), gameOrigin: GAME_ORIGIN }); }
+  try { await smoke({ browser, base: server.base, games: (await catalogNow()).filter((game) => game.apiVersion === API_VERSION), gameOrigin: GAME_ORIGIN, assetOrigin: ASSET_ORIGIN }); }
   finally { await browser.close(); server.close(); }
 } catch (error) {
   await restoreCatalog().catch((restore) => console.error(`  Could not restore the catalog: ${restore.message}`));
@@ -166,7 +168,7 @@ gameStore = null;
 step(`Live checks on ${SITE}`);
 const version = (await readFile(resolve(dist, "sw.js"), "utf8")).match(/"version":"([0-9a-f]+)"/)[1];
 const browser = await launch();
-try { await liveCheck({ browser, site: SITE, games: (await catalogNow()).filter((game) => game.apiVersion === API_VERSION), version: deploySite ? version : null }); }
+try { await liveCheck({ browser, site: SITE, assetOrigin: ASSET_ORIGIN, apiOrigin: API_ORIGIN, games: (await catalogNow()).filter((game) => game.apiVersion === API_VERSION), version: deploySite ? version : null }); }
 catch (error) { fail(`fun.dev failed a live check: ${error.message}. Investigate, fix forward, and release again.`); }
 finally { await browser.close(); }
 

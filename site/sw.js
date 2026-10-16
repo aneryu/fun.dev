@@ -1,5 +1,5 @@
 // Offline play for games opened before. The build replaces this line with the real values.
-const BUILD = { version: "source", shell: [], gameOrigin: "" };
+const BUILD = { version: "source", shell: [], gameOrigin: "", assetOrigin: "" };
 
 // Pages, host and catalog: network first, falling back to the cache after 3 s or offline,
 // so online visitors always get the current platform. Game releases, their content-addressed
@@ -31,7 +31,8 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
-  const local = url.origin === self.location.origin;
+  // Platform files come from the site itself or, in production, from the asset origin.
+  const local = url.origin === self.location.origin || url.origin === BUILD.assetOrigin;
   if (!local && url.origin !== BUILD.gameOrigin) return;
   if (local && /^\/(?:api|__dev)\//.test(url.pathname)) return;
   const release = url.pathname.match(releasePath);

@@ -1,11 +1,12 @@
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { build, transform } from "esbuild";
-import { gameOrigin } from "./game-origin.mjs";
+import { gameOrigin, publicOrigin } from "./game-origin.mjs";
+import { assetHTML, assetHeaders, assetManifest } from "./asset-origin.mjs";
 import { loadLocalGames, localCatalog } from "./local-games.mjs";
 import { fileIndex } from "./game-release.mjs";
 import { buildVision } from "./vision.mjs";
-import { validateCatalog } from "../site/catalog.js";
-import { addOriginToHeaders } from "./csp.mjs";
+import { compatible, validateCatalog } from "../site/catalog.js";
+import { addOriginToHeaders, apiDirectives, assetDirectives } from "./csp.mjs";
 import { gamePages, sitemap } from "./game-pages.mjs";
 import { chooseLocale, messages } from "../site/i18n.js";
 import { createHash } from "node:crypto";
@@ -17,6 +18,11 @@ import { fileURLToPath } from "node:url";
 const root = new URL("../", import.meta.url);
 const output = new URL("dist/", root);
 const origin = gameOrigin(process.env.FUNDEV_GAME_ORIGIN);
+// Production splits the site across hostnames (docs/edge.md): fun.dev serves documents only,
+// the asset origin every other platform file, the API origin the transfer API.
+const site = "https://fun.dev";
+const assetOrigin = publicOrigin(process.env.FUNDEV_ASSET_ORIGIN, "FUNDEV_ASSET_ORIGIN");
+const apiOrigin = publicOrigin(process.env.FUNDEV_API_ORIGIN, "FUNDEV_API_ORIGIN");
 await rm(output, { recursive: true, force: true });
 await cp(new URL("site/", root), output, { recursive: true });
 const vendor = new URL("vendor/three/", output);
@@ -49,7 +55,7 @@ for (const file of skillFiles) {
 }
 execFileSync("tar", ["-czf", fileURLToPath(new URL("skills/fun-dev-games.tar.gz", output)), "-C", fileURLToPath(new URL("skills/", output)), ...skillFiles.map((file) => `fun-dev-games/${file}`)]);
 await writeFile(new URL("game-source.js", output), `export const gameOrigin = ${JSON.stringify(origin)};\n`);
-await writeFile(new URL("progress-config.js", output), `export const transferProgress = ${process.env.FUNDEV_TRANSFER === "1"};\n`);
+await writeFile(new URL("progress-config.js", output), `export const transferProgress = ${process.env.FUNDEV_TRANSFER === "1"};\nexport const transferAPI = ${JSON.stringify(apiOrigin)};\n`);
 await writeFile(new URL("pwa-config.js", output), `export const serviceWorker = ${process.env.FUNDEV_NO_SW !== "1"};\n`);
 // Language before the first paint. Translated pages load this classic script twice: in <head> it
 // picks the language and, when that is not the static Chinese, hides the marked texts; at the
@@ -118,6 +124,17 @@ for (const page of gamePages(catalog, await readFile(template, "utf8"), { origin
 }
 await rm(template);
 await writeFile(new URL("sitemap.xml", output), sitemap(catalog));
+const headersFile = new URL("_headers", output);
+if (assetOrigin) {
+  for (const page of ["index.html", "404.html", "games.html", ...catalog.filter(compatible).map((game) => `games/${game.id}.html`)]) {
+    const path = new URL(page, output);
+    await writeFile(path, assetHTML(await readFile(path, "utf8"), assetOrigin));
+  }
+  const manifest = new URL("manifest.webmanifest", output);
+  await writeFile(manifest, assetManifest(await readFile(manifest, "utf8"), assetOrigin));
+  await writeFile(headersFile, addOriginToHeaders(await readFile(headersFile, "utf8"), assetOrigin, assetDirectives) + assetHeaders(assetOrigin, site));
+}
+if (apiOrigin) await writeFile(headersFile, addOriginToHeaders(await readFile(headersFile, "utf8"), apiOrigin, apiDirectives));
 
 // The service worker precaches the platform shell as one versioned set.
 async function files(directory) {
@@ -140,6 +157,9 @@ const shell = (await files(output))
 const fileOf = (path) => (path.endsWith("/") ? `${path}index.html` : /^\/games(?:\/[^/.]+)?$/.test(path) ? `${path}.html` : path);
 const hash = createHash("sha256");
 for (const path of shell) hash.update(path).update(await readFile(new URL(`.${fileOf(path)}`, output)));
+// Documents stay on the site; the rest of the shell is cached from the asset origin.
+const document = (path) => fileOf(path).endsWith(".html") || path === "/manifest.webmanifest";
+const precache = shell.map((path) => (assetOrigin && !document(path) ? `${assetOrigin}${path}` : path));
 const worker = new URL("sw.js", output);
-await writeFile(worker, (await readFile(worker, "utf8")).replace(/^const BUILD = .*$/m, `const BUILD = ${JSON.stringify({ version: hash.digest("hex").slice(0, 16), shell, gameOrigin: origin })};`));
+await writeFile(worker, (await readFile(worker, "utf8")).replace(/^const BUILD = .*$/m, `const BUILD = ${JSON.stringify({ version: hash.digest("hex").slice(0, 16), shell: precache, gameOrigin: origin, assetOrigin })};`));
 console.log("Built dist/ with the pinned, locally served Three.js runtime.");

@@ -1,21 +1,22 @@
 import { resolve } from "node:path";
 import { gameText } from "../../site/catalog.js";
 import { decodePNG, dominantColorShare } from "../png.mjs";
-import { proxy, results } from "./harness.mjs";
+import { local, proxy, results } from "./harness.mjs";
 
 // Generic lifecycle check for every game, at phone and desktop sizes; it cannot verify gameplay.
 // `gameOrigin` routes that origin through Node (live R2 from a local server); omit it on fun.dev itself.
+// `assetOrigin` serves that origin from the local build (a production build before its deploy).
 const viewports = {
   mobile: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true },
   desktop: { viewport: { width: 1280, height: 800 } },
 };
 
-export async function smoke({ browser, base, games, gameOrigin = "", log = console.log }) {
+export async function smoke({ browser, base, games, gameOrigin = "", assetOrigin = "", log = console.log }) {
   const failures = [];
   for (const game of games) {
     for (const name of Object.keys(viewports)) {
       try {
-        await check(browser, base, game, name, gameOrigin);
+        await check(browser, base, game, name, gameOrigin, assetOrigin);
         log(`  ok   ${game.id}@${game.version} ${name}`);
       } catch (error) {
         failures.push(`${game.id} ${name}: ${error.message}`);
@@ -26,9 +27,10 @@ export async function smoke({ browser, base, games, gameOrigin = "", log = conso
   if (failures.length) throw new Error(`${failures.length} smoke checks failed.`);
 }
 
-async function check(browser, base, game, name, gameOrigin) {
+async function check(browser, base, game, name, gameOrigin, assetOrigin) {
   const context = await browser.newContext({ ...viewports[name], locale: "en-US", serviceWorkers: "block" });
   if (gameOrigin) await context.route(`${gameOrigin}/**`, proxy(base));
+  if (assetOrigin) await context.route(`${assetOrigin}/**`, local(base));
   const page = await context.newPage();
   page.setDefaultTimeout(30000);
   const errors = [];

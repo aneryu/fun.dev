@@ -21,16 +21,36 @@ async function rate(db, ip, creating, now) {
   assert(row.count <= limit, "rate_limited", 429);
 }
 
+// The API is served with the site (TRANSFER_ORIGIN) or, in production, on its own origin
+// (TRANSFER_API_ORIGIN, docs/edge.md). Then only the site may call it, with CORS.
 /** @param {Request} request @param {TransferEnv} env */
 export async function handleTransfer(request, env) {
+  const site = env.TRANSFER_ORIGIN, api = env.TRANSFER_API_ORIGIN || site;
+  const cors = api !== site && request.headers.get("Origin") === site && new URL(request.url).origin === api;
+  if (cors && request.method === "OPTIONS") {
+    const allowed = request.headers.get("Access-Control-Request-Method") === "POST";
+    return new Response(null, { status: allowed ? 204 : 403, headers: allowed ? {
+      "Access-Control-Allow-Origin": site, "Access-Control-Allow-Methods": "POST",
+      "Access-Control-Allow-Headers": "Content-Type, X-Fun-Transfer", "Access-Control-Max-Age": "7200", Vary: "Origin",
+    } : {} });
+  }
+  const result = await transfer(request, env, site, api);
+  if (cors) { result.headers.set("Access-Control-Allow-Origin", site); result.headers.append("Vary", "Origin"); }
+  return result;
+}
+
+/** @param {Request} request @param {TransferEnv} env @param {string} site @param {string} api */
+async function transfer(request, env, site, api) {
   try {
     const url = new URL(request.url), action = url.pathname.match(/^\/api\/transfers\/(time|create|claim|status|commit|cancel)$/)?.[1];
     // Legacy routes are permanently retired, regardless of old dashboard flags/cookies.
     assert(action, "retired_endpoint", 410);
     assert(env.DB && env.TRANSFER_ENABLED === "true", "transfer_unavailable", 503);
     assert(request.method === "POST", "method_not_allowed", 405);
-    assert(url.origin === env.TRANSFER_ORIGIN && request.headers.get("Origin") === url.origin && request.headers.get("X-Fun-Transfer") === "1", "origin_denied", 403);
-    assert(!["cross-site", "same-site"].includes(request.headers.get("Sec-Fetch-Site")), "origin_denied", 403);
+    assert(url.origin === api && request.headers.get("Origin") === site && request.headers.get("X-Fun-Transfer") === "1", "origin_denied", 403);
+    // Same-origin requests only; with a separate API origin, same-site ones from the site.
+    const fetchSite = request.headers.get("Sec-Fetch-Site");
+    assert(fetchSite !== "cross-site" && (api !== site || fetchSite !== "same-site"), "origin_denied", 403);
     const db = env.DB, now = Date.now();
     await rate(db, request.headers.get("CF-Connecting-IP") || "local", action === "create" || action === "cancel", now);
     const body = await readJSON(request, action === "create" ? MAX_PACKET_BYTES * 2 + 8192 : 2048);

@@ -9,7 +9,7 @@
     "verify": "node scripts/verify.mjs",
     "release": "node --env-file-if-exists=.env scripts/release.mjs",
     "build": "node scripts/check.mjs && node scripts/build.mjs",
-    "build:production": "FUNDEV_GAME_ORIGIN=https://games.fun.dev FUNDEV_TRANSFER=1 npm run build",
+    "build:production": "FUNDEV_GAME_ORIGIN=https://games.fun.dev FUNDEV_ASSET_ORIGIN=https://cdn.fun.dev FUNDEV_API_ORIGIN=https://api.fun.dev FUNDEV_TRANSFER=1 npm run build",
     "preview": "node scripts/preview.mjs",
     "game:remove": "node --env-file-if-exists=.env scripts/publish-game.mjs remove",
     "transfer:preview": "FUNDEV_GAME_ORIGIN= FUNDEV_TRANSFER=1 FUNDEV_NO_SW=1 npm run build && CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler d1 migrations apply DB --local --env-file /dev/null && CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler pages dev --env-file /dev/null --binding TRANSFER_ENABLED=true --binding TRANSFER_ORIGIN=https://localhost:8788",

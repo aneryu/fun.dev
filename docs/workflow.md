@@ -129,12 +129,15 @@ again.
 
 Build environment variables (set by the commands above, not by `.env`):
 `FUNDEV_GAME_ORIGIN` (remote catalog origin; empty = local games),
+`FUNDEV_ASSET_ORIGIN` and `FUNDEV_API_ORIGIN` (platform files and transfer API on their own
+hostnames, [edge](edge.md); empty = same-origin),
 `FUNDEV_TRANSFER=1` (enable the transfer UI), `FUNDEV_NO_SW=1` (no service worker).
 
 ## Operations
 
 - Production: Pages project `fundev` (direct upload to the production environment from Git `main`, domains
-  `fun.dev`, `fundev.pages.dev`); R2 bucket `fundev-games` at `games.fun.dev`;
+  `fun.dev`, `cdn.fun.dev`, `api.fun.dev`, `fundev.pages.dev`; `fun.dev` itself is served by the CN2
+  server, see [edge](edge.md)); R2 bucket `fundev-games` at `games.fun.dev`;
   private R2 bucket `fundev-sources` (blob backups, no public domain);
   D1 `fundev-progress-production`; Worker `fundev-transfer-cleanup-production`
   (hourly; no HTTP endpoint).

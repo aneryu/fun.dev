@@ -37,8 +37,8 @@ export function createAssets(context) {
       const [{ GLTFLoader }, { DRACOLoader }, { KTX2Loader }] = await Promise.all([
         import("../addons/GLTFLoader.js"), import("../addons/DRACOLoader.js"), import("../addons/KTX2Loader.js"),
       ]);
-      const draco = new DRACOLoader().setDecoderPath("/runtime/addons/draco/");
-      const ktx2 = new KTX2Loader().setTranscoderPath("/runtime/addons/basis/").detectSupport(context.renderer);
+      const draco = new DRACOLoader().setDecoderPath(new URL("../addons/draco/", import.meta.url).href);
+      const ktx2 = new KTX2Loader().setTranscoderPath(new URL("../addons/basis/", import.meta.url).href).detectSupport(context.renderer);
       // Their worker pools stay alive until the session ends.
       onCleanup(() => { draco.dispose(); ktx2.dispose(); });
       return new GLTFLoader().setDRACOLoader(draco).setKTX2Loader(ktx2);

@@ -1,6 +1,6 @@
 import { API_VERSION, bundlePath, compatible, gameText, loadCatalog, playPath } from "../catalog.js";
 import { getLocale, initLocale, onLocaleChange, t } from "../i18n.js";
-import { transferProgress } from "../progress-config.js";
+import { transferAPI, transferProgress } from "../progress-config.js";
 import { ProgressClient } from "../progress/client.js";
 import { createProgressUI, progressText } from "../progress/ui.js";
 import { registerServiceWorker } from "../pwa.js";
@@ -347,7 +347,7 @@ async function openGame() {
       },
     });
     host.setAudio(audioPreferences);
-    progress = new ProgressClient({ gameId: game.id, bundleVersion: game.version, transfers: transferProgress,
+    progress = new ProgressClient({ gameId: game.id, bundleVersion: game.version, transfers: transferProgress, apiOrigin: transferAPI,
       onChange() {
         progressUI?.render();
         if (progress.frozen) { host?.setPaused(true); state = "progress"; }

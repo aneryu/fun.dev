@@ -32,7 +32,8 @@
       ],
       "vars": {
         "TRANSFER_ENABLED": "true",
-        "TRANSFER_ORIGIN": "https://fun.dev"
+        "TRANSFER_ORIGIN": "https://fun.dev",
+        "TRANSFER_API_ORIGIN": "https://api.fun.dev"
       }
     },
     "preview": {

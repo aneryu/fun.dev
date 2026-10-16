@@ -45,3 +45,13 @@ export function proxy(base) {
     await route.fulfill({ status, body, headers: { "content-type": contentType, "access-control-allow-origin": base } });
   };
 }
+
+// Serves the asset origin's files from the local build, as Pages would on that hostname.
+export function local(base) {
+  return async (route) => {
+    const url = new URL(route.request().url());
+    const response = await fetch(new URL(url.pathname + url.search, base), { redirect: "manual" });
+    const headers = Object.fromEntries(response.headers);
+    await route.fulfill({ status: response.status, body: Buffer.from(await response.arrayBuffer()), headers: { ...headers, "access-control-allow-origin": base } });
+  };
+}

@@ -52,7 +52,7 @@ function pickImage(surface, signal, maxSize) {
 
 export function createGameHost({
   THREE, stage, onState = () => {}, onError = console.error, locale = "en", canvasLabel = "Game canvas. Press Tab to leave",
-  bundleOrigin = window.location.origin, runtimeBase = new URL("/runtime/", window.location.origin),
+  bundleOrigin = window.location.origin, runtimeBase = new URL("../", import.meta.url),
   safeArea = () => ({ top: 0, right: 0, bottom: 0, left: 0 }), announce = () => {}, haptics = () => {},
   onLoading = () => {}, onOptions = () => {}, onRecorded = () => {},
 }) {

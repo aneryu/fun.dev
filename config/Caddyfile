@@ -1,0 +1,24 @@
+# fun.dev on the CN2 server (docs/edge.md). It serves documents only: pages, the service worker
+# and the manifest, fetched uncached from the Pages project at cdn.fun.dev. Everything else
+# redirects to cdn.fun.dev. The server keeps no files, cache or secrets.
+
+(edge) {
+	@document {
+		method GET HEAD
+		path_regexp ^/(?:games(?:/[a-z0-9]+(?:-[a-z0-9]+)*)?/?|[a-z0-9-]+\.html|sw\.js|manifest\.webmanifest|robots\.txt|sitemap\.xml)?$
+	}
+	handle @document {
+		reverse_proxy https://{args[0]} {
+			header_up Host {upstream_hostport}
+			# Pages redirects (/games/ to /games) stay on the site.
+			header_down Location ^https://{args[0]}/ https://fun.dev/
+		}
+	}
+	handle {
+		redir https://{args[0]}{uri} 308
+	}
+}
+
+fun.dev {
+	import edge cdn.fun.dev
+}

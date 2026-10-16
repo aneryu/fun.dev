@@ -3,8 +3,8 @@ import { openLocal, legacySnapshots } from "./local.js";
 import { hash, randomSecret, transferId, decodeLink, packet, TRANSFER_TTL } from "./transfer.js";
 
 export class ProgressClient {
-  constructor({ gameId, bundleVersion, transfers = false, fetch: fetcher = globalThis.fetch.bind(globalThis), onChange = () => {}, local, locks = globalThis.navigator?.locks } = {}) {
-    Object.assign(this, { gameId, bundleVersion, transfers, fetcher, onChange, local, locks });
+  constructor({ gameId, bundleVersion, transfers = false, apiOrigin = "", fetch: fetcher = globalThis.fetch.bind(globalThis), onChange = () => {}, local, locks = globalThis.navigator?.locks } = {}) {
+    Object.assign(this, { gameId, bundleVersion, transfers, apiOrigin, fetcher, onChange, local, locks });
     this.status = "loading"; this.tail = Promise.resolve(); this.epoch = 0;
     this.channel = typeof BroadcastChannel === "function" ? new BroadcastChannel("fun.dev.progress") : null;
     if (this.channel) this.channel.onmessage = () => { void this.checkWriter(); };
@@ -14,7 +14,7 @@ export class ProgressClient {
   async drain() { await this.tail; }
   async api(action, body) {
     assert(this.transfers, "transfer_unavailable", 503);
-    const response = await this.fetcher(`/api/transfers/${action}`, { method: "POST", credentials: "omit", redirect: "error", cache: "no-store",
+    const response = await this.fetcher(`${this.apiOrigin}/api/transfers/${action}`, { method: "POST", credentials: "omit", redirect: "error", cache: "no-store",
       signal: AbortSignal.timeout(15000), headers: { "Content-Type": "application/json", "X-Fun-Transfer": "1" }, body: JSON.stringify(body) });
     assert(response.headers.get("Content-Type")?.includes("application/json"), "transfer_unavailable", 503);
     const data = await response.json();
