@@ -194,16 +194,20 @@ test("a maintainer's plan edits, rejects and approves through the same functions
   assert.equal((await (await stack.upload("plan_b_01/v001", undefined, { method: "GET" })).json()).note, "The shade is missing.");
 });
 
-test("a rejected version carries the note and returns to pending when fixed", async () => {
+test("a rejected version carries the note and returns to pending when fixed, without its old thumbnail", async () => {
+  const thumbnail = new Uint8Array([...png, 42]);
   await stack.upload("sofa_corner_01/v001", metadata("转角沙发"), { type: "application/json" });
   await stack.upload("sofa_corner_01/v001/model.glb", boxGLB({ lift: 0.02 }));
-  await stack.upload("sofa_corner_01/v001/thumbnail.png", png);
+  await stack.upload("sofa_corner_01/v001/thumbnail.png", thumbnail);
   assert.equal((await stack.console("/api/models/sofa_corner_01/v001/reject", { method: "POST", body: { note: "Floats 2 cm above the floor." } })).status, 200);
   let status = await (await stack.upload("sofa_corner_01/v001", undefined, { method: "GET" })).json();
   assert.deepEqual([status.status, status.note], ["rejected", "Floats 2 cm above the floor."]);
   assert.equal(status.stats.min[1], 0.02);
   status = await (await stack.upload("sofa_corner_01/v001/model.glb", boxGLB())).json();
   assert.equal(status.status, "pending");
+  // The thumbnail showed the old model: it goes, to be rendered again.
+  assert.equal(status.files["thumbnail.png"], undefined);
+  assert.equal(await (await stack.publicBucket()).head(`blobs/${sha(thumbnail)}.png`), null);
 });
 
 test("the console accepts only a valid Access token for the owner, and same-origin changes", async () => {

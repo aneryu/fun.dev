@@ -143,14 +143,17 @@ export async function putFile(env, id, version, file, bytes, claimed = null) {
     if (claimed !== null) fail("checksum_mismatch", 400, `the content does not match X-Content-SHA256 (${error.message})`);
     throw error;
   }
-  const previous = JSON.parse(row.files)[file];
-  await sql(db, `UPDATE versions SET files=json_set(files,'$."'||?||'"',json(?)),${stats ? "stats=?," : ""}updated_at=? WHERE model=? AND version=?`,
+  const files = JSON.parse(row.files), previous = files[file];
+  // A different model.glb makes the version's thumbnail wrong: it goes, to be rendered again (the
+  // upload page sends its thumbnail after the model; review renders missing ones).
+  const stale = file === "model.glb" && previous && previous.sha256 !== sha256 ? files["thumbnail.png"] ?? null : null;
+  await sql(db, `UPDATE versions SET files=json_set(${stale ? `json_remove(files,'$."thumbnail.png"')` : "files"},'$."'||?||'"',json(?)),${stats ? "stats=?," : ""}updated_at=? WHERE model=? AND version=?`,
     ...[file, JSON.stringify({ sha256, size: bytes.length }), ...(stats ? [JSON.stringify(stats)] : []), now, id, version]).run();
   await sql(db, `UPDATE versions SET status=${STATUS} WHERE model=? AND version=?`, id, version).run();
-  // A public file replaced before it was ever listed goes, unless another version uses it too.
-  if (isPublic && previous && previous.sha256 !== sha256 && row.status !== "approved" &&
-      !await sql(db, "SELECT 1 FROM versions WHERE instr(files, ?) > 0 LIMIT 1", previous.sha256).first()) {
-    await env.MODELS_PUBLIC.delete(blobKey(file, previous.sha256));
+  // Public files replaced before they were ever listed go, unless another version uses them too.
+  const replaced = [isPublic && previous && previous.sha256 !== sha256 && [file, previous.sha256], stale && ["thumbnail.png", stale.sha256]].filter(Boolean);
+  for (const [name, old] of replaced) {
+    if (row.status !== "approved" && !await sql(db, "SELECT 1 FROM versions WHERE instr(files, ?) > 0 LIMIT 1", old).first()) await env.MODELS_PUBLIC.delete(blobKey(name, old));
   }
   if (row.status === "approved") await publish(env, [id]);
   return getVersion(env, id, version);
