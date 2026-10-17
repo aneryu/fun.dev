@@ -80,7 +80,7 @@ export async function siteChecks({ browser, base }) {
   await running(page);
   assert.ok((await page.locator(".game-surface canvas").getAttribute("aria-label")).includes("MERIT 1."), "progress survives offline reload");
   await page.goto(`${base}/games?lang=en`);
-  await page.waitForFunction(() => document.querySelector(".game-item h3")?.textContent === "Wooden Fish");
+  await page.waitForFunction(() => [...document.querySelectorAll(".game-item h3")].some((title) => title.textContent === "Wooden Fish"));
   await page.screenshot({ path: resolve(results, "lobby-offline.png") });
   await pwa.close();
 

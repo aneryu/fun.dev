@@ -29,7 +29,11 @@ export async function smoke({ browser, base, games, gameOrigin = "", assetOrigin
 }
 
 async function check(browser, base, game, name, gameOrigin, assetOrigin, renderer) {
-  const context = await browser.newContext({ ...viewports[name], locale: "en-US", serviceWorkers: "block" });
+  // Landscape games run on a phone held sideways; held upright they would wait at the rotate prompt.
+  const device = viewports[name];
+  const sideways = name === "mobile" && game.orientation === "landscape";
+  const { width, height } = device.viewport;
+  const context = await browser.newContext({ ...device, viewport: sideways ? { width: height, height: width } : device.viewport, locale: "en-US", serviceWorkers: "block" });
   if (gameOrigin) await context.route(`${gameOrigin}/**`, proxy(base));
   if (assetOrigin) await context.route(`${assetOrigin}/**`, local(base));
   const page = await context.newPage();
