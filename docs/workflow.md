@@ -57,6 +57,12 @@ npm run dev -- muyu          # prints the player URL for one game, with ?debug=1
 `wrangler pages dev`). Screenshots go to `test-results/`. It also prints each game's
 download size (first load and `lazy/`), for information. Commit when it passes.
 
+Headless Chromium has no GPU, so these suites run the games on the renderer's WebGL 2
+backend in software. On a machine with a GPU, `npm run verify -- --webgpu` runs the
+browser suites on it (Vulkan) with every game forced to WebGPU; run it after rendering
+changes. On a phone, `?renderer=webgpu` or `?renderer=webgl` with `?debug=1` compares
+the two backends (the debug panel names the one in use).
+
 ## 3. Release
 
 Commit on `main`, then:

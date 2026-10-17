@@ -1,17 +1,19 @@
-# Runtime API v2
+# Runtime API v3
 
 The platform creates a session and awaits `createGame(context)`. A game module's
 top level must not allocate session resources or start gameplay; modules are
 cached and restarting calls the factory again. The platform runs one API version
-and every game upgrades with it; `game.json` must say `"apiVersion": 2`.
+and every game upgrades with it; `game.json` must say `"apiVersion": 3`.
 
 | Context | Meaning |
 | --- | --- |
-| `apiVersion` | `2` |
-| `THREE` | Shared engine; current platform pin `0.186.1` |
+| `apiVersion` | `3` |
+| `THREE` | Shared engine, the WebGPU build of Three.js pinned at `0.186.1`; TSL is `THREE.TSL` |
 | `scene`, `camera` | Session scene and default perspective camera |
 | `setCamera(camera)` | Select the camera used by the container |
-| `renderer`, `canvas` | Host-owned renderer and focusable input canvas |
+| `renderer`, `canvas` | Host-owned, initialised `WebGPURenderer` (WebGPU, or its WebGL 2 backend) and focusable input canvas |
+| `graphics` | `{ backend: "webgpu"/"webgl", tier: "low"/"high" }`; scale optional effects with `tier` |
+| `setRenderPipeline(p)` | Draw frames with a `THREE.RenderPipeline` (or `null` for the plain render); `kit/post.js` builds one |
 | `viewport` | Live CSS-pixel `width`, `height`, capped `pixelRatio`, and `safeArea` `{top,right,bottom,left}` (cutouts plus the menu button) |
 | `locale` | Current `zh` or `en` |
 | `asset(relativePath)` | Resolve a file inside this bundle/version |
@@ -24,7 +26,7 @@ and every game upgrades with it; `game.json` must say `"apiVersion": 2`.
 | `haptics.vibrate(p)` | `"tap"`, `"success"`, `"fail"` or ms durations; respects the player's switch |
 | `reportLoading(f)` | 0–1 loading progress while `createGame` runs |
 | `options`, `cheatsUsed`, `updateOption(id, changes)` | Values and runtime state of the exported `options` |
-| `runtime(name)` | Import `kit/*.js` or `addons/*Loader.js` from the platform |
+| `runtime(name)` | Import `kit/*.js` or `addons/*.js` (loaders, `OrbitControls`, `BloomNode`, `GTAONode`) from the platform |
 | `progress` | `{ version: 1, load(), save(snapshot) }` when saving is ready; see below |
 | `launchReason` | `"open"` or `"restart"` |
 | `reducedMotion` | User preference at session creation |
@@ -52,6 +54,16 @@ HUD is game-owned Three.js geometry inside `viewport.safeArea`. Camera-attached
 meshes can overlay the scene with depth testing/writing disabled and explicit
 render order. The game owns hit targets and accessibility labels. Avoid relying
 on global CSS, DOM IDs, platform app modules, storage or routing.
+
+## Materials
+
+Materials are node materials. Built-in materials work unchanged. Custom shading is
+TSL: `MeshStandardNodeMaterial` and friends with `colorNode`, `normalNode` (view
+space), `roughnessNode`, `metalnessNode`, `emissiveNode` and `positionNode` (local
+space), built from `materialColor` etc. and `uniform(value)` nodes. GLSL does not
+run: no `onBeforeCompile`, `ShaderMaterial` or `RawShaderMaterial`. Put shared
+shader code in `Fn(…).setLayout(…)` functions. Use `renderer.getMaxAnisotropy()`.
+Prefer KTX2 for large textures (`kit/assets.js` `texture("…ktx2")`).
 
 ## Manifest extras
 

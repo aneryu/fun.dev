@@ -6,6 +6,10 @@ import { createProgressUI, progressText } from "../progress/ui.js";
 import { registerServiceWorker } from "../pwa.js";
 import { createDeviceStorage } from "../runtime/core/device-storage.js";
 
+// WebGPU's first adapter request can take a few hundred milliseconds; it starts while the
+// catalog loads, and the host's own request later finds it ready.
+navigator.gpu?.requestAdapter().catch(() => {});
+
 // Connection credentials never enter query strings, requests, analytics, or browser history.
 let transferToken = globalThis.__funTransferToken ?? null;
 delete globalThis.__funTransferToken;
@@ -532,7 +536,7 @@ if (debug) {
   setInterval(() => {
     const stats = host?.stats();
     panel.textContent = stats
-      ? `fps ${stats.fps}  calls ${stats.calls}  tris ${stats.triangles}\ngeo ${stats.geometries}  tex ${stats.textures}  programs ${stats.programs}  dpr ${stats.pixelRatio.toFixed(2)}`
+      ? `fps ${stats.fps}  calls ${stats.calls}  tris ${stats.triangles}\ngeo ${stats.geometries}  tex ${stats.textures}  dpr ${stats.pixelRatio.toFixed(2)}\n${stats.backend} ${stats.tier}`
       : "debug";
   }, 500);
 }

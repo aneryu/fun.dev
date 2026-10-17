@@ -6,7 +6,7 @@ import { loadLocalGames } from "./local-games.mjs";
 
 const root = resolve(fileURLToPath(new URL("../site/", import.meta.url)));
 const errors = [];
-const generated = new Set(["/vendor/three/three.module.js", "/skills/fun-dev-games.tar.gz", "/i18n-boot.js"]);
+const generated = new Set(["/vendor/three/three.webgpu.js", "/runtime/tsl.js", "/skills/fun-dev-games.tar.gz", "/i18n-boot.js"]);
 
 async function checkReference(source, value) {
   if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(value)) return;

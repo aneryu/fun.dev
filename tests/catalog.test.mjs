@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { validateCatalog, playPath, bundlePath, coverURL, compatible, gameText } from "../site/catalog.js";
 
 const game = {
-  id: "test-game", version: "1.0.0", apiVersion: 2, title: "Test",
+  id: "test-game", version: "1.0.0", apiVersion: 3, title: "Test",
   description: "A test bundle", category: "Puzzle", platforms: ["mobile", "desktop"],
 };
 test("empty catalog and versioned bundles share a player URL", () => {
@@ -15,7 +15,7 @@ test("empty catalog and versioned bundles share a player URL", () => {
 test("reject incompatible APIs, unsafe paths, duplicates, and invalid metadata", () => {
   for (const replacement of [
     { id: "../bad" }, { id: "%2fescape" }, { id: "https://elsewhere" },
-    { version: "../1.0.0" }, { version: "1.0" }, { apiVersion: 0 }, { apiVersion: "2" },
+    { version: "../1.0.0" }, { version: "1.0" }, { apiVersion: 0 }, { apiVersion: "3" },
     { orientation: "sideways" }, { keepAwake: "yes" }, { recording: 1 }, { cover: "../cover.png" }, { cover: "/cover.png" }, { cover: "cover.gif" }, { howToPlay: { zh: "只有中文" } },
     { title: " " }, { platforms: [] }, { platforms: ["mobile", "mobile"] },
     { platforms: ["unknown"] }, { platforms: [null] },

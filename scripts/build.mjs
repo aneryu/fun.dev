@@ -26,18 +26,30 @@ await rm(output, { recursive: true, force: true });
 await cp(new URL("site/", root), output, { recursive: true });
 const vendor = new URL("vendor/three/", output);
 await mkdir(vendor, { recursive: true });
-for (const name of ["three.module.js", "three.core.js"]) {
+// The platform engine is the WebGPU build (WebGPU, with a WebGL 2 fallback, and TSL node materials).
+for (const name of ["three.webgpu.js", "three.core.js"]) {
   const source = await readFile(new URL(`node_modules/three/build/${name}`, root), "utf8");
   const result = await transform(source, { loader: "js", minify: true, target: "es2022", legalComments: "eof" });
   await writeFile(new URL(name, vendor), result.code);
 }
 await cp(new URL("node_modules/three/LICENSE", root), new URL("LICENSE.txt", vendor));
-// Shared loaders and controls at the pinned Three.js version; their `three` import resolves to the platform runtime.
+// Shared loaders, controls and postprocessing nodes at the pinned Three.js version; their `three`
+// imports resolve to the platform runtime, and TSL to its one shared copy.
+const platformThree = { name: "platform-three", setup(builder) {
+  builder.onResolve({ filter: /^three(?:\/webgpu)?$/ }, () => ({ path: "/runtime/three.js", external: true }));
+  builder.onResolve({ filter: /^three\/tsl$/ }, () => ({ path: "/runtime/tsl.js", external: true }));
+} };
+await build({
+  entryPoints: { tsl: fileURLToPath(new URL("node_modules/three/build/three.tsl.js", root)) },
+  outdir: fileURLToPath(new URL("runtime/", output)), bundle: true, format: "esm", minify: true, target: "es2022", legalComments: "eof", logLevel: "warning",
+  plugins: [platformThree],
+});
 const addons = new URL("runtime/addons/", output);
 await build({
-  entryPoints: Object.fromEntries(["loaders/GLTFLoader", "loaders/DRACOLoader", "loaders/KTX2Loader", "controls/OrbitControls"].map((path) => [path.split("/")[1], fileURLToPath(new URL(`node_modules/three/examples/jsm/${path}.js`, root))])),
+  entryPoints: Object.fromEntries(["loaders/GLTFLoader", "loaders/DRACOLoader", "loaders/KTX2Loader", "controls/OrbitControls", "tsl/display/BloomNode", "tsl/display/GTAONode"]
+    .map((path) => [path.split("/").at(-1), fileURLToPath(new URL(`node_modules/three/examples/jsm/${path}.js`, root))])),
   outdir: fileURLToPath(addons), bundle: true, format: "esm", minify: true, target: "es2022", legalComments: "eof", logLevel: "warning",
-  plugins: [{ name: "platform-three", setup(builder) { builder.onResolve({ filter: /^three$/ }, () => ({ path: "/runtime/three.js", external: true })); } }],
+  plugins: [platformThree],
 });
 // Decoders load only when a game uses Draco or KTX2.
 for (const [directory, files] of [["draco", ["draco_wasm_wrapper.js", "draco_decoder.wasm"]], ["basis", ["basis_transcoder.js", "basis_transcoder.wasm"]]]) {

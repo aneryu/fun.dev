@@ -1,6 +1,6 @@
 // Records the game canvas as a 9:16 portrait video for short-video apps, with the game's sound
 // and a fun.dev watermark. The host copies each rendered frame into a 2D canvas right after
-// rendering, so WebGL needs no preserveDrawingBuffer. Platform DOM (menu, stop button) is never
+// rendering, so the canvas needs no preserved drawing buffer. Platform DOM (menu, stop button) is never
 // part of the canvas and stays out of the video.
 const WIDTH = 720;
 const HEIGHT = 1280;
@@ -59,6 +59,7 @@ export function createRecorder({ source, audio, topInset = () => 0, focus = () =
   let since = null;
   let finished = null;
   let limited = false;
+  let encoding = false;
 
   function draw() {
     const width = source.width, height = source.height;
@@ -129,9 +130,9 @@ export function createRecorder({ source, audio, topInset = () => 0, focus = () =
   }
 
   return {
-    // The first frame comes from the next capture: WebGL canvases are only readable right after rendering.
+    // Game canvases are only readable right after rendering, so encoding starts with the first
+    // captured frame; the clip never opens on a blank one.
     start() {
-      recorder.start(1000);
       since = performance.now();
     },
     // Called by the host after every rendered frame; draws at most FPS times per second.
@@ -144,6 +145,7 @@ export function createRecorder({ source, audio, topInset = () => 0, focus = () =
       if (time - lastDraw < 1000 / FPS - 2) return;
       lastDraw = time;
       draw();
+      if (!encoding) { encoding = true; recorder.start(1000); }
     },
     pause() {
       if (finished || since === null) return;

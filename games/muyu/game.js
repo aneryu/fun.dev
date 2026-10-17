@@ -7,6 +7,7 @@ import { createRelics } from "./relics.js";
 import * as economy from "./economy.js";
 import { lots, lotTitle } from "./lots.js";
 import { floats } from "./floats.js";
+import { createCushion, createWood } from "./materials.js";
 
 // Rendered by the platform's options panel; values arrive through context.options. Relics are
 // switched on and off in the game's own 法物 panel, not here.
@@ -100,65 +101,8 @@ export async function createGame(context) {
 
   const fish = new THREE.Group();
   scene.add(fish);
-  // Warm gold from inside the carving, 0 at rest and rising with zen.
-  const woodGlowUniforms = { woodGlow: { value: 0 }, woodGlowColor: { value: new THREE.Color(0xffa63d) } };
-  const shellMaterial = track(new THREE.MeshPhysicalMaterial({ color: 0x9c5626, metalness: 0, roughness: 0.55, clearcoat: 0.2, clearcoatRoughness: 0.4, envMapIntensity: 0.6 }));
-  // The model has no UVs, so the grain is procedural in model space: dense streaks that stay
-  // horizontal on every side, like teak. Streak noise is stretched across the horizontal plane;
-  // the finest fibres fade out once they get thinner than a pixel, to avoid moiré on phones.
-  shellMaterial.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", `#include <common>
-varying vec3 vWoodPosition;
-varying float vWoodOcclusion;
-varying float vWoodGlow;
-#ifdef WOOD_OCCLUSION
-attribute vec4 color;
-#endif`)
-      .replace("#include <begin_vertex>", `#include <begin_vertex>
-vWoodPosition = position;
-#ifdef WOOD_OCCLUSION
-// Open surfaces stay unshaded; grooves (red: baked AO) darken, and the recessed slit
-// (green: depth below the convex hull) goes nearly black inside.
-vWoodOcclusion = mix(0.35, 1.0, smoothstep(0.05, 0.6, color.r)) * mix(0.12, 1.0, smoothstep(0.45, 0.75, color.g));
-// Zen lights the carving from within: the slit most, the grooves a little.
-vWoodGlow = min(1.0, 0.8 * (1.0 - smoothstep(0.1, 0.7, color.r)) + (1.0 - smoothstep(0.4, 0.75, color.g)));
-#else
-vWoodOcclusion = 1.0;
-vWoodGlow = 0.0;
-#endif`);
-    shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `#include <common>
-varying vec3 vWoodPosition;
-varying float vWoodOcclusion;
-varying float vWoodGlow;
-uniform float woodGlow;
-uniform vec3 woodGlowColor;
-float woodHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
-float woodNoise(vec3 x) {
-  vec3 i = floor(x); vec3 f = fract(x); f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(mix(woodHash(i), woodHash(i + vec3(1, 0, 0)), f.x), mix(woodHash(i + vec3(0, 1, 0)), woodHash(i + vec3(1, 1, 0)), f.x), f.y),
-    mix(mix(woodHash(i + vec3(0, 0, 1)), woodHash(i + vec3(1, 0, 1)), f.x), mix(woodHash(i + vec3(0, 1, 1)), woodHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
-}`)
-      .replace("#include <color_fragment>", `#include <color_fragment>
-vec3 wp = vWoodPosition;
-float y = wp.y + 0.025 * woodNoise(wp * vec3(3.0, 3.0, 1.5));
-float bands = smoothstep(0.2, 0.8, woodNoise(vec3(wp.x * 3.0, y * 60.0, wp.z * 3.0)));
-float fibres = woodNoise(vec3(wp.x * 14.0, y * 220.0, wp.z * 14.0));
-fibres = mix(fibres, 0.5, smoothstep(0.4, 0.9, fwidth(y * 220.0)));
-float tone = woodNoise(wp * 3.0);
-diffuseColor.rgb *= mix(0.6, 1.15, 0.45 * bands + 0.4 * fibres + 0.15 * tone) * vWoodOcclusion;`)
-      .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
-totalEmissiveRadiance += woodGlowColor * woodGlow * vWoodGlow;`);
-    shader.uniforms.woodGlow = woodGlowUniforms.woodGlow;
-    shader.uniforms.woodGlowColor = woodGlowUniforms.woodGlowColor;
-  };
-  shellMaterial.customProgramCacheKey = () => "wooden-fish-grain";
-  // Only the fish carries baked occlusion (its vertex colors); the mallet shares the wood without it.
-  const malletMaterial = track(shellMaterial.clone());
-  malletMaterial.onBeforeCompile = shellMaterial.onBeforeCompile;
-  malletMaterial.customProgramCacheKey = shellMaterial.customProgramCacheKey;
-  shellMaterial.defines = { WOOD_OCCLUSION: "" };
+  // Warm gold from inside the carving (woodGlow: 0 at rest, rising with zen).
+  const { shellMaterial, malletMaterial, woodGlow } = createWood(THREE, track);
   const { createAssets } = await context.runtime("kit/assets.js");
   const assets = createAssets(context);
   // Both are Draco GLBs. The relics' models (altar.js clones them when collected) start loading
@@ -170,75 +114,14 @@ totalEmissiveRadiance += woodGlowColor * woodGlow * vWoodGlow;`);
   const body = model.getObjectByName("Fish");
   const malletHead = model.getObjectByName("MalletHead");
   const malletHandle = model.getObjectByName("MalletHandle");
-  // Red brocade: a row of gold five-petal flowers in scalloped frames around the cushion's wall,
-  // small flowers between them along both edges, and a fine weave. Cylindrical coordinates
-  // about the cushion's own axis stand in for the missing UVs.
   const cushion = model.getObjectByName("Cushion");
   cushion.geometry.computeBoundingBox();
-  const cushionBox = cushion.geometry.boundingBox;
-  const cushionMotifs = 20;
-  // Treated as a torus: arc length around the tube's cross-section keeps motifs undistorted on the rounded wall.
-  const cushionRadius = ((cushionBox.max.x - cushionBox.min.x) + (cushionBox.max.z - cushionBox.min.z)) / 4;
-  const cushionTube = (cushionBox.max.y - cushionBox.min.y) / 2;
-  const cushionUniforms = {
-    cushionCenter: { value: cushionBox.getCenter(new THREE.Vector3()) },
-    cushionTube: { value: new THREE.Vector2(cushionRadius - cushionTube, cushionTube) },
-    cushionCell: { value: 2 * Math.PI * cushionRadius / cushionMotifs },
-    cushionGold: { value: new THREE.Color(0xc99a45) },
-    cushionMotif: { value: 1 }, // 0: plain cloth, 1: the brocade's flowers
-    cushionWeave: { value: 0.07 }, // how strongly the weave shows
-  };
-  const cushionMaterial = track(new THREE.MeshStandardMaterial({ color: 0x8a1a14, roughness: 0.9, envMapIntensity: 0.5 }));
-  cushionMaterial.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, cushionUniforms);
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vCushionPosition;")
-      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvCushionPosition = position;");
-    shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `#include <common>
-varying vec3 vCushionPosition;
-uniform vec3 cushionCenter;
-uniform vec2 cushionTube;
-uniform float cushionCell;
-uniform vec3 cushionGold;
-uniform float cushionMotif;
-uniform float cushionWeave;
-// Coverage of a line or disc edge at distance d, antialiased over one pixel.
-float cushionInk(float d, float width) { float aa = fwidth(d); return 1.0 - smoothstep(width, width + aa, d); }
-// Gold coverage of a five-petal flower of radius size at q, with red petal and centre lines.
-float cushionFlower(vec2 q, float size) {
-  float r = length(q);
-  float petal = size * (0.55 + 0.45 * abs(cos(2.5 * atan(q.y, q.x))));
-  float fill = cushionInk(r - petal, 0.0);
-  float lines = max(cushionInk(abs(r - petal * 0.62), size * 0.05), cushionInk(abs(r - size * 0.22), size * 0.04));
-  return fill * (1.0 - lines);
-}`)
-      .replace("#include <color_fragment>", `#include <color_fragment>
-vec3 cp = vCushionPosition - cushionCenter;
-float around = atan(cp.z, cp.x) / 6.2831853 * ${cushionMotifs}.0;
-// The camera sees the upper, outward-bulging side (tube angle about 0.6 rad), so the row is centred there.
-float tubeAngle = atan(cp.y, length(cp.xz) - cushionTube.x);
-float height = (tubeAngle - 0.6) * cushionTube.y / cushionCell;
-vec2 q = vec2(fract(around) - 0.5, height);
-float frame = cushionInk(abs(length(q) - 0.37 - 0.035 * cos(5.0 * atan(q.y, q.x))), 0.018);
-float gold = max(frame * (1.0 - cushionInk(length(q) - 0.3, 0.0)), cushionFlower(q, 0.27));
-gold = max(gold, cushionFlower(vec2(fract(around + 0.5) - 0.5, abs(height) - 0.42), 0.1));
-float weaveScale = 70.0;
-float weave = sin(around * weaveScale * 6.2831853 / ${cushionMotifs}.0 * 4.0) * sin(height * weaveScale);
-weave *= 1.0 - smoothstep(0.3, 0.8, fwidth(height * weaveScale));
-gold *= cushionMotif;
-diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * weave), cushionGold, gold);`)
-      .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.45, gold);")
-      .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, 0.5, gold);");
-  };
-  cushionMaterial.customProgramCacheKey = () => "wooden-fish-brocade";
+  const { cushionMaterial, cushionUniforms } = createCushion(THREE, track, cushion.geometry.boundingBox);
   cushion.material = cushionMaterial;
   body.material = shellMaterial;
   for (const mesh of [body, cushion, malletHead, malletHandle]) mesh.castShadow = mesh.receiveShadow = true;
   // The head has its own material so it can glow with zen while the handle stays plain.
   const malletHeadMaterial = track(malletMaterial.clone());
-  malletHeadMaterial.onBeforeCompile = shellMaterial.onBeforeCompile;
-  malletHeadMaterial.customProgramCacheKey = shellMaterial.customProgramCacheKey;
   malletHeadMaterial.emissive.setHex(0xffa63d);
   malletHeadMaterial.emissiveIntensity = 0;
   malletHead.material = malletHeadMaterial;
@@ -919,8 +802,6 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
       if (!["wood", "dark-wood", "rosewood"].includes(material.name)) return material;
       if (!grained.has(material.name)) {
         const wood = track(malletMaterial.clone());
-        wood.onBeforeCompile = shellMaterial.onBeforeCompile;
-        wood.customProgramCacheKey = shellMaterial.customProgramCacheKey;
         wood.color.copy(material.color);
         wood.roughness = material.roughness;
         wood.clearcoat = material.clearcoat ?? 0;
@@ -995,7 +876,7 @@ diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - cushionWeave + cushionWeave * w
         if (t >= 1) openLot(lotFlight.index, true);
       }
       // Zen lights the carving and the mallet head from within.
-      woodGlowUniforms.woodGlow.value = 2.2 * mood;
+      woodGlow.value = 2.2 * mood;
       malletHeadMaterial.emissiveIntensity = 0.35 * mood;
       effects.setZen(zen.level, zen.samadhi, state.skin.fish === "gold");
       const effectsBusy = effects.update(delta);

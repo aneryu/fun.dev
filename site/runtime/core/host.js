@@ -3,10 +3,21 @@ import { createAudioHub } from "./audio.js";
 import { coerce, createOptionState, settingsOf, validateOptions } from "./options.js";
 import { createRecorder, recordingSupported } from "./recorder.js";
 
-export const API_VERSION = 2;
+export const API_VERSION = 3;
 const hooks = ["update", "resize", "pause", "resume", "dispose", "localeChanged", "optionChanged", "shareText", "recordingFocus", "recordingBadge"];
 const hapticPatterns = { tap: [12], success: [20, 40, 30], fail: [70] };
 const resolutionScales = [1, 0.8, 0.65, 0.5];
+const backends = ["auto", "webgpu", "webgl"];
+
+// WebGPU when the browser offers a hardware adapter; otherwise the WebGL 2 backend. A software
+// (fallback) adapter would be slower than WebGL, so it does not count.
+async function chooseBackend(preference, powerPreference) {
+  if (preference !== "auto") return preference;
+  try {
+    const adapter = await navigator.gpu?.requestAdapter({ powerPreference });
+    return adapter && !adapter.info?.isFallbackAdapter ? "webgpu" : "webgl";
+  } catch { return "webgl"; }
+}
 
 // Opens the system image picker (photo library, camera, files) from a user gesture and
 // decodes the choice upright (EXIF orientation), scaled so its longer side fits maxSize.
@@ -54,12 +65,18 @@ export function createGameHost({
   THREE, stage, onState = () => {}, onError = console.error, locale = "en", canvasLabel = "Game canvas. Press Tab to leave",
   bundleOrigin = window.location.origin, runtimeBase = new URL("../", import.meta.url),
   safeArea = () => ({ top: 0, right: 0, bottom: 0, left: 0 }), announce = () => {}, haptics = () => {},
-  onLoading = () => {}, onOptions = () => {}, onRecorded = () => {},
+  onLoading = () => {}, onOptions = () => {}, onRecorded = () => {}, renderer: rendererPreference = "auto",
 }) {
+  if (!backends.includes(rendererPreference)) throw new TypeError(`renderer must be one of ${backends.join(", ")}.`);
   let currentLocale = locale;
   let currentLabel = canvasLabel;
   let current = null;
   const mobile = window.matchMedia("(max-width: 64rem), (pointer: coarse)");
+  // Phones save battery; desktops ask for the discrete GPU where there is one. The backend is
+  // decided once per host, starting right away: the first adapter request can take a while.
+  const tierNow = () => mobile.matches ? "low" : "high";
+  const powerPreferences = { low: "low-power", high: "high-performance" };
+  const backendChoice = chooseBackend(rendererPreference, powerPreferences[tierNow()]);
   const audio = createAudioHub();
   // Any gesture on the page may unlock audio, including the platform's own Resume button.
   for (const type of ["pointerdown", "keydown", "touchend"]) window.addEventListener(type, () => audio.unlock(), { capture: true });
@@ -152,7 +169,7 @@ export function createGameHost({
     try {
       session.invalidated = false;
       const animate = session.game.update?.(delta, session.elapsed);
-      session.renderer.render(session.scene, session.camera);
+      draw(session);
       session.recorder?.capture(time);
       if (session.game.adaptiveResolution === true && session.game.renderMode !== "on-demand") adapt(session, time);
       // While recording, on-demand games keep rendering so the video gets a steady frame rate.
@@ -179,7 +196,7 @@ export function createGameHost({
         session.camera.updateProjectionMatrix();
       }
       session.game?.resize?.({ ...view });
-      if (session.game) session.renderer.render(session.scene, session.camera);
+      if (session.game) draw(session);
     } catch (error) { fail(session, error); }
   }
 
@@ -190,7 +207,13 @@ export function createGameHost({
   function redraw(session) {
     session.invalidated = true;
     if (!session.paused) startLoop(session);
-    else if (session.game) session.renderer.render(session.scene, session.camera);
+    else if (session.game) draw(session);
+  }
+
+  // A game's postprocessing pipeline (context.setRenderPipeline) replaces the plain scene render.
+  function draw(session) {
+    if (session.pipeline) session.pipeline.render();
+    else session.renderer.render(session.scene, session.camera);
   }
 
   async function load(entry, { progress, launchReason = "open", settings, deviceStorage } = {}) {
@@ -199,7 +222,7 @@ export function createGameHost({
     if (progress) scope.signal.addEventListener("abort", () => progress.close(), { once: true });
     const session = {
       scope, game: null, renderer: null, paused: null, userPaused: false, previousTime: null, elapsed: 0,
-      viewport: {}, scaleIndex: 0, lastFrame: null, sampleTime: 0, slowTime: 0, frames: [], options: null, loading: true,
+      viewport: {}, scaleIndex: 0, lastFrame: null, sampleTime: 0, slowTime: 0, frames: [], options: null, loading: true, pipeline: null,
     };
     current = session;
     onState("loading");
@@ -218,16 +241,8 @@ export function createGameHost({
         if (!response.ok) throw new Error(`Bundle file index unavailable (HTTP ${response.status}).`);
         return response.json();
       });
-      const [module, { blobs = {} }] = await Promise.all([import(entryURL.href), index]);
-      if (scope.signal.aborted) return;
-      const blobBase = new URL("/blobs/", entryURL);
-      if (typeof module.createGame !== "function") throw new Error("Bundle must export createGame(context).");
-      const list = validateOptions(module.options ?? []);
-      let stored = {};
-      try { stored = settings?.load() ?? {}; } catch { /* Settings are optional preferences. */ }
-      session.options = { list, ...createOptionState(list, stored), save: settings?.save, cheatsUsed: false };
-      const optionValues = Object.freeze(Object.defineProperties({}, Object.fromEntries(list.filter((option) => option.type !== "action")
-        .map((option) => [option.id, { enumerable: true, get: () => session.options.values[option.id] }]))));
+      const bundle = Promise.all([import(entryURL.href), index]);
+      bundle.catch(() => {}); // awaited below, after the renderer has started
 
       const surface = document.createElement("div");
       surface.className = "game-surface";
@@ -239,9 +254,26 @@ export function createGameHost({
       surface.append(canvas);
       stage.append(surface);
       scope.onCleanup(() => surface.remove());
-      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: mobile.matches ? "low-power" : "default" });
+      // The graphics device starts while the bundle downloads.
+      const tier = tierNow();
+      const renderer = new THREE.WebGPURenderer({ canvas, antialias: true, powerPreference: powerPreferences[tier], forceWebGL: await backendChoice === "webgl" });
       session.renderer = renderer;
-      scope.onCleanup(() => { renderer.dispose(); renderer.forceContextLoss(); });
+      // A lost device (GPU reset, driver update, WebGL context loss) cannot be recovered in place.
+      renderer.onDeviceLost = () => fail(session, new Error("The graphics device was lost. Restart the game."));
+      scope.onCleanup(() => { renderer.setAnimationLoop(null); void renderer.dispose(); });
+      const [[module, { blobs = {} }]] = await Promise.all([bundle, renderer.init()]);
+      if (scope.signal.aborted) return;
+      const graphics = Object.freeze({ backend: renderer.backend.isWebGPUBackend ? "webgpu" : "webgl", tier });
+      session.graphics = graphics;
+      const blobBase = new URL("/blobs/", entryURL);
+      if (typeof module.createGame !== "function") throw new Error("Bundle must export createGame(context).");
+      const list = validateOptions(module.options ?? []);
+      let stored = {};
+      try { stored = settings?.load() ?? {}; } catch { /* Settings are optional preferences. */ }
+      session.options = { list, ...createOptionState(list, stored), save: settings?.save, cheatsUsed: false };
+      const optionValues = Object.freeze(Object.defineProperties({}, Object.fromEntries(list.filter((option) => option.type !== "action")
+        .map((option) => [option.id, { enumerable: true, get: () => session.options.values[option.id] }]))));
+
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0x211f17);
       session.scene = scene;
@@ -252,10 +284,6 @@ export function createGameHost({
       session.sound = sound;
       if (sound) scope.onCleanup(() => sound.dispose());
 
-      canvas.addEventListener("webglcontextlost", (event) => {
-        event.preventDefault();
-        fail(session, new Error("The WebGL context was lost. Restart the game."));
-      }, { signal: scope.signal });
       const observer = new ResizeObserver(() => resize(session));
       observer.observe(stage);
       scope.onCleanup(() => observer.disconnect());
@@ -273,7 +301,7 @@ export function createGameHost({
         ...(sound ? { audio: sound.api } : {}),
         ...(deviceStorage ? { deviceStorage } : {}),
         get locale() { return currentLocale; },
-        THREE, scene, camera: session.camera, renderer, canvas,
+        THREE, scene, camera: session.camera, renderer, canvas, graphics,
         viewport: session.viewport,
         signal: scope.signal,
         reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -298,6 +326,13 @@ export function createGameHost({
         setCamera(camera) {
           if (!camera?.isCamera) throw new TypeError("Expected a Three.js camera.");
           session.camera = camera;
+        },
+        // A THREE.RenderPipeline (or any object with render()) draws each frame instead of
+        // renderer.render(scene, camera); null goes back to the plain render. The game owns it.
+        setRenderPipeline(pipeline) {
+          if (pipeline !== null && typeof pipeline?.render !== "function") throw new TypeError("Expected a render pipeline or null.");
+          session.pipeline = pipeline;
+          if (session.game) redraw(session);
         },
         reportLoading(fraction) {
           if (session.loading && session === current && Number.isFinite(fraction)) onLoading(Math.min(1, Math.max(0, fraction)));
@@ -347,6 +382,9 @@ export function createGameHost({
       for (const hook of hooks) {
         if (game[hook] !== undefined && typeof game[hook] !== "function") throw new TypeError(`${hook} must be a function.`);
       }
+      // Shaders compile in parallel before the first frame instead of stalling it one by one.
+      await renderer.compileAsync(scene, session.camera).catch(() => {});
+      if (scope.signal.aborted) return; // the scope already disposed the game
       session.game = game;
       session.loading = false;
       game.localeChanged?.(currentLocale);
@@ -431,12 +469,12 @@ export function createGameHost({
     },
     stats() {
       const session = current;
-      if (!session?.renderer) return null;
+      if (!session?.renderer || session.viewport.pixelRatio === undefined) return null;
       const { render, memory } = session.renderer.info;
       return {
-        fps: session.loopActive ? session.frames.length : 0, calls: render.calls, triangles: render.triangles,
+        fps: session.loopActive ? session.frames.length : 0, calls: render.drawCalls, triangles: render.triangles,
         geometries: memory.geometries, textures: memory.textures, pixelRatio: session.viewport.pixelRatio,
-        programs: session.renderer.info.programs?.length ?? 0,
+        backend: session.graphics?.backend ?? "", tier: session.graphics?.tier ?? "",
       };
     },
     dispose() { release(current); current = null; },

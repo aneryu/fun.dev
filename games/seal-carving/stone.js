@@ -57,15 +57,32 @@ export const stones = {
   },
 };
 
-const GLSL_NOISE = `
-float stoneHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
-float stoneNoise(vec3 x) {
-  vec3 i = floor(x); vec3 f = fract(x); f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(mix(stoneHash(i), stoneHash(i + vec3(1, 0, 0)), f.x), mix(stoneHash(i + vec3(0, 1, 0)), stoneHash(i + vec3(1, 1, 0)), f.x), f.y),
-    mix(mix(stoneHash(i + vec3(0, 0, 1)), stoneHash(i + vec3(1, 0, 1)), f.x), mix(stoneHash(i + vec3(0, 1, 1)), stoneHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+// Value noise and fBm in TSL, compiled as shader functions (one copy per material).
+function noiseNodes(THREE) {
+  const { Fn, vec3, mix, floor, fract } = THREE.TSL;
+  const stoneHash = Fn(([x]) => {
+    const p = fract(x.mul(0.3183099).add(0.1)).mul(17.0).toVar();
+    return fract(p.x.mul(p.y).mul(p.z).mul(p.x.add(p.y).add(p.z)));
+  }).setLayout({ name: "stoneHash", type: "float", inputs: [{ name: "x", type: "vec3" }] });
+  const stoneNoise = Fn(([x]) => {
+    const i = floor(x).toVar();
+    const f = fract(x).toVar();
+    f.assign(f.mul(f).mul(f.mul(-2.0).add(3.0)));
+    const h = (dx, dy, dz) => stoneHash(i.add(vec3(dx, dy, dz)));
+    return mix(mix(mix(h(0, 0, 0), h(1, 0, 0), f.x), mix(h(0, 1, 0), h(1, 1, 0), f.x), f.y),
+      mix(mix(h(0, 0, 1), h(1, 0, 1), f.x), mix(h(0, 1, 1), h(1, 1, 1), f.x), f.y), f.z);
+  }).setLayout({ name: "stoneNoise", type: "float", inputs: [{ name: "x", type: "vec3" }] });
+  const stoneFbm = Fn(([x]) => {
+    const p = vec3(x).toVar();
+    const v = THREE.TSL.float(0).toVar();
+    for (const a of [0.5, 0.25, 0.125, 0.0625]) {
+      v.addAssign(stoneNoise(p).mul(a));
+      p.assign(p.mul(2.03).add(17.1));
+    }
+    return v;
+  }).setLayout({ name: "stoneFbm", type: "float", inputs: [{ name: "x", type: "vec3" }] });
+  return { stoneHash, stoneNoise, stoneFbm };
 }
-float stoneFbm(vec3 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { v += a * stoneNoise(p); p = p * 2.03 + 17.1; a *= 0.5; } return v; }
-`;
 
 // Box blur of a Float32Array height field, in place, `passes` times (≈ Gaussian).
 function blur(field, width, height, radius, passes = 3) {
@@ -237,54 +254,43 @@ export function createStone({ THREE, track, look, seed, anisotropy = 4 }) {
   const color = (hex) => new THREE.Color(hex);
 
   // Sides. The box's four side faces are each 1 × HEIGHT; two carry reliefs.
+  const { vec2, vec3, float, mix, smoothstep, step, fwidth, floor, abs, exp, min, distance, select, normalize, uniform, uv, texture, positionGeometry, normalView, transformNormalToView, materialColor, materialEmissive } = THREE.TSL;
+  const { stoneHash, stoneNoise, stoneFbm } = noiseNodes(THREE);
   const uniforms = {
-    stoneBase: { value: color(look.base) }, stoneLight: { value: color(look.light) }, stoneVein: { value: color(look.vein) },
-    stoneMix: { value: new THREE.Vector3(look.cloud, look.veins, look.fibres) },
-    stoneCrack: { value: color(look.crack) }, stoneCracks: { value: look.cracks }, stoneGlow: { value: look.glow },
-    stoneSeed: { value: (seed % 97) * 3.17 },
+    stoneBase: uniform(color(look.base)), stoneLight: uniform(color(look.light)), stoneVein: uniform(color(look.vein)),
+    stoneMix: uniform(new THREE.Vector3(look.cloud, look.veins, look.fibres)),
+    stoneCrack: uniform(color(look.crack)), stoneCracks: uniform(look.cracks), stoneGlow: uniform(look.glow),
+    stoneSeed: uniform((seed % 97) * 3.17),
   };
+  const sp = positionGeometry.add(uniforms.stoneSeed);
+  // Translucent clouds drift through the body; thin dark veins cross it; fine fibres (萝卜纹) run along it.
+  const cloudField = stoneFbm(sp.mul(vec3(1.4, 0.9, 1.4)));
+  const cloud = smoothstep(0.35, 0.8, cloudField);
+  const warp = stoneFbm(sp.mul(2.2).add(3.0));
+  const vein = float(1.0).sub(smoothstep(0.0, 0.035, abs(stoneFbm(sp.mul(vec3(1.6, 0.7, 1.6)).add(warp.mul(0.8))).sub(0.5))));
+  const fibre = mix(stoneNoise(vec3(sp.x.mul(9.0), sp.y.mul(70.0).add(warp.mul(6.0)), sp.z.mul(9.0))), 0.5, smoothstep(0.4, 0.9, fwidth(sp.y.mul(70.0))));
+  const { stoneMix } = uniforms;
+  let stone = mix(uniforms.stoneBase, uniforms.stoneLight, cloud.mul(stoneMix.x));
+  stone = stone.mul(fibre.sub(0.5).mul(stoneMix.z).mul(2.0).mul(0.16).add(0.92));
+  stone = mix(stone, uniforms.stoneVein, vein.mul(stoneMix.y).mul(0.7));
+  // 格纹: pale healed cracks, thin and broken, like the white seams of real Shoushan.
+  const crackField = stoneFbm(sp.mul(vec3(2.4, 1.2, 2.4)).add(40.0));
+  const crack = float(1.0).sub(smoothstep(0.0, 0.012, abs(crackField.sub(0.52)))).mul(smoothstep(0.45, 0.7, stoneNoise(sp.mul(3.0).add(9.0))));
+  stone = mix(stone, uniforms.stoneCrack, crack.mul(uniforms.stoneCracks));
+  // Sand specks (砂丁): rare tiny bright points.
+  const speck = step(0.996, stoneHash(floor(sp.mul(160.0))));
+  stone = mix(stone, uniforms.stoneCrack, speck.mul(0.3).mul(float(1.0).sub(smoothstep(0.3, 1.0, fwidth(sp.y.mul(160.0))))));
+  // The stone's 冻: light seems to come from inside the clearer patches.
+  const stoneGlow = uniforms.stoneLight.mul(uniforms.stoneGlow).mul(smoothstep(0.4, 0.85, cloudField));
   function sideMaterial(relief) {
-    const material = track(new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: look.roughness, clearcoat: look.clearcoat, clearcoatRoughness: 0.25, envMapIntensity: 0.7 }));
-    if (relief) material.normalMap = relief;
-    material.onBeforeCompile = (shader) => {
-      Object.assign(shader.uniforms, uniforms);
-      shader.vertexShader = shader.vertexShader
-        .replace("#include <common>", "#include <common>\nvarying vec3 vStonePosition;")
-        .replace("#include <begin_vertex>", "#include <begin_vertex>\nvStonePosition = position;");
-      shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>
-varying vec3 vStonePosition;
-uniform vec3 stoneBase, stoneLight, stoneVein, stoneMix, stoneCrack;
-uniform float stoneSeed, stoneCracks, stoneGlow;
-${GLSL_NOISE}`)
-        .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
-// The stone's 冻: light seems to come from inside the clearer patches.
-totalEmissiveRadiance += stoneLight * stoneGlow * smoothstep(0.4, 0.85, stoneFbm((vStonePosition + stoneSeed) * vec3(1.4, 0.9, 1.4)));`)
-      .replace("#include <color_fragment>", `#include <color_fragment>
-vec3 sp = vStonePosition + stoneSeed;
-// Translucent clouds drift through the body; thin dark veins cross it; fine fibres (萝卜纹) run along it.
-float cloud = smoothstep(0.35, 0.8, stoneFbm(sp * vec3(1.4, 0.9, 1.4)));
-float warp = stoneFbm(sp * 2.2 + 3.0);
-float vein = 1.0 - smoothstep(0.0, 0.035, abs(stoneFbm(sp * vec3(1.6, 0.7, 1.6) + warp * 0.8) - 0.5));
-float fibre = stoneNoise(vec3(sp.x * 9.0, sp.y * 70.0 + warp * 6.0, sp.z * 9.0));
-fibre = mix(fibre, 0.5, smoothstep(0.4, 0.9, fwidth(sp.y * 70.0)));
-vec3 stone = mix(stoneBase, stoneLight, cloud * stoneMix.x);
-stone *= 0.92 + 0.16 * (fibre - 0.5) * stoneMix.z * 2.0;
-stone = mix(stone, stoneVein, vein * stoneMix.y * 0.7);
-// 格纹: pale healed cracks, thin and broken, like the white seams of real Shoushan.
-float crackField = stoneFbm(sp * vec3(2.4, 1.2, 2.4) + 40.0);
-float crack = (1.0 - smoothstep(0.0, 0.012, abs(crackField - 0.52))) * smoothstep(0.45, 0.7, stoneNoise(sp * 3.0 + 9.0));
-stone = mix(stone, stoneCrack, crack * stoneCracks);
-// Sand specks (砂丁): rare tiny bright points.
-float speck = step(0.996, stoneHash(floor(sp * 160.0)));
-stone = mix(stone, stoneCrack, speck * 0.3 * (1.0 - smoothstep(0.3, 1.0, fwidth(sp.y * 160.0))));
-diffuseColor.rgb *= stone;
-#ifdef USE_NORMALMAP
-// The relief's occlusion rides in the normal map's alpha.
-diffuseColor.rgb *= mix(0.22, 1.0, texture2D(normalMap, vNormalMapUv).a);
-#endif`);
-    };
-    material.customProgramCacheKey = () => `seal-stone-${relief ? "relief" : "plain"}`;
+    const material = track(new THREE.MeshPhysicalNodeMaterial({ color: 0xffffff, roughness: look.roughness, clearcoat: look.clearcoat, clearcoatRoughness: 0.25, envMapIntensity: 0.7 }));
+    material.colorNode = materialColor.mul(stone);
+    if (relief) {
+      material.normalMap = relief;
+      // The relief's occlusion rides in the normal map's alpha.
+      material.colorNode = material.colorNode.mul(mix(0.22, 1.0, texture(relief).a));
+    }
+    material.emissiveNode = materialEmissive.add(stoneGlow);
     return material;
   }
   const reliefA = look.relief ? track(reliefTexture(THREE, look.relief, seed, 320, 672)) : null;
@@ -316,87 +322,58 @@ diffuseColor.rgb *= mix(0.22, 1.0, texture2D(normalMap, vNormalMapUv).a);
   const draftTexture = canvasTexture(draftCanvas);
   const dustTexture = canvasTexture(dustCanvas);
   const faceUniforms = {
-    carveMap: { value: maskTexture }, draftMap: { value: draftTexture }, dustMap: { value: dustTexture },
-    carveTexel: { value: 1 / MASK },
-    inkColor: { value: color(0x1a1817) }, grooveColor: { value: color(look.groove) }, bevelColor: { value: color(look.light).lerp(color(look.groove), 0.82) },
-    draftColor: { value: color(0xe8503c) }, highlightColor: { value: color(0xffd43b) },
-    bevelWidth: { value: FACE.bevel },
-    highlightPulse: { value: 1 },
+    carveTexel: uniform(1 / MASK),
+    inkColor: uniform(color(0x1a1817)), grooveColor: uniform(color(look.groove)), bevelColor: uniform(color(look.light).lerp(color(look.groove), 0.82)),
+    draftColor: uniform(color(0xe8503c)), highlightColor: uniform(color(0xffd43b)),
+    bevelWidth: uniform(FACE.bevel),
+    highlightPulse: uniform(1),
     // The knife's tip on the face (uv) and how fresh the cut there is: newly opened stone is
     // bright and clean; older groove is dulled by its powder.
-    fresh: { value: new THREE.Vector3(0.5, 0.5, 0) },
+    fresh: uniform(new THREE.Vector3(0.5, 0.5, 0)),
   };
-  const faceMaterial = track(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, envMapIntensity: 0.8 }));
-  faceMaterial.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, faceUniforms, uniforms);
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec2 vFaceUv;\nvarying vec3 vFaceT;\nvarying vec3 vFaceB;\nvarying vec3 vStonePosition;")
-      .replace("#include <begin_vertex>", `#include <begin_vertex>
-vFaceUv = uv;
-vFaceT = normalize(normalMatrix * vec3(1.0, 0.0, 0.0));
-vFaceB = normalize(normalMatrix * vec3(0.0, 1.0, 0.0));
-vStonePosition = vec3(position.x, 0.0, -position.y);`);
-    shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `#include <common>
-varying vec2 vFaceUv;
-varying vec3 vFaceT, vFaceB, vStonePosition;
-uniform sampler2D carveMap, draftMap, dustMap;
-uniform float carveTexel, bevelWidth, highlightPulse, stoneSeed;
-uniform vec3 fresh;
-uniform vec3 inkColor, grooveColor, bevelColor, draftColor, highlightColor;
-${GLSL_NOISE}
-float faceCut(vec2 offset) { return texture2D(carveMap, vFaceUv + offset * carveTexel).r; }
-float faceDepth(vec2 at) {
+  const faceUv = uv();
+  const faceCut = (offset) => texture(maskTexture, faceUv.add(vec2(...offset).mul(faceUniforms.carveTexel))).r;
   // A soft U-shaped profile: the cut mask averaged over a small disc.
-  return (faceCut(at) * 2.0 + faceCut(at + vec2(2.0, 0.0)) + faceCut(at - vec2(2.0, 0.0)) + faceCut(at + vec2(0.0, 2.0)) + faceCut(at - vec2(0.0, 2.0))) / 6.0;
-}
-float faceEdge() { return min(min(vFaceUv.x, 1.0 - vFaceUv.x), min(vFaceUv.y, 1.0 - vFaceUv.y)); }`)
-      .replace("#include <color_fragment>", `#include <color_fragment>
-float cut = faceCut(vec2(0.0));
-float depth = faceDepth(vec2(0.0));
-vec2 layerUv = vec2(vFaceUv.x, vFaceUv.y);
-vec4 layer = texture2D(draftMap, layerUv);
-float powder = texture2D(dustMap, layerUv).a;
-// Ink: nearly black, with faint brush streaks that catch the light differently.
-float streak = stoneNoise(vec3(vFaceUv.x * 3.0, vFaceUv.y * 24.0, stoneSeed));
-// Fine sanding scratches running across the face, as in the video, over a grey-black ink.
-float scratches = stoneNoise(vec3(vFaceUv.x * 3.0 + stoneNoise(vec3(vFaceUv * 4.0, 1.0)) * 0.6, vFaceUv.y * 420.0, stoneSeed + 3.0));
-scratches = smoothstep(0.55, 0.95, scratches) * (1.0 - smoothstep(0.3, 1.0, fwidth(vFaceUv.y * 420.0)));
-vec3 ink = inkColor * (0.92 + 0.14 * streak) + vec3(0.03) * scratches * step(0.6, stoneNoise(vec3(vFaceUv * 12.0, stoneSeed + 7.0)));
-// Inside a groove the stone powder is pale; it is darker toward the walls.
-float grain = stoneNoise(vec3(vFaceUv * 700.0, stoneSeed));
-vec3 groove = grooveColor * (0.48 + 0.4 * smoothstep(0.3, 0.95, depth) + 0.12 * grain);
-groove += vec3(0.25) * step(0.985, grain); // glints of cut crystal
-float freshness = fresh.z * exp(-distance(vFaceUv, fresh.xy) / 0.035);
-groove *= 0.9 + 0.25 * freshness;
-bool inBevel = faceEdge() < bevelWidth;
-if (inBevel) groove = bevelColor * (0.78 + 0.15 * grain);
-vec3 faceColor = mix(ink, groove, cut);
-float onInk = 1.0 - cut;
-faceColor = mix(faceColor, draftColor, layer.r * onInk * 0.85);
-faceColor = mix(faceColor, highlightColor, layer.g * onInk * highlightPulse);
-faceColor = mix(faceColor, grooveColor * (0.85 + 0.25 * grain), min(1.0, powder * 1.1));
-diffuseColor.rgb *= faceColor;`)
-      .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
-roughnessFactor = mix(0.34, 0.92, max(cut, powder));`)
-      .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
-{
-  float dx = faceDepth(vec2(1.5, 0.0)) - faceDepth(vec2(-1.5, 0.0));
-  float dy = faceDepth(vec2(0.0, 1.5)) - faceDepth(vec2(0.0, -1.5));
+  const faceDepth = ([x, y]) => faceCut([x, y]).mul(2.0).add(faceCut([x + 2, y])).add(faceCut([x - 2, y])).add(faceCut([x, y + 2])).add(faceCut([x, y - 2])).div(6.0);
+  const faceEdge = min(min(faceUv.x, faceUv.x.oneMinus()), min(faceUv.y, faceUv.y.oneMinus()));
+  const cut = faceCut([0, 0]);
+  const depth = faceDepth([0, 0]);
+  const layer = texture(draftTexture, faceUv);
+  const powder = texture(dustTexture, faceUv).a;
+  const faceSeed = uniforms.stoneSeed;
+  // Ink: nearly black, with faint brush streaks that catch the light differently.
+  const streak = stoneNoise(vec3(faceUv.x.mul(3.0), faceUv.y.mul(24.0), faceSeed));
+  // Fine sanding scratches running across the face, as in the video, over a grey-black ink.
+  const scratches = smoothstep(0.55, 0.95, stoneNoise(vec3(faceUv.x.mul(3.0).add(stoneNoise(vec3(faceUv.mul(4.0), 1.0)).mul(0.6)), faceUv.y.mul(420.0), faceSeed.add(3.0))))
+    .mul(float(1.0).sub(smoothstep(0.3, 1.0, fwidth(faceUv.y.mul(420.0)))));
+  const ink = faceUniforms.inkColor.mul(streak.mul(0.14).add(0.92)).add(vec3(0.03).mul(scratches).mul(step(0.6, stoneNoise(vec3(faceUv.mul(12.0), faceSeed.add(7.0))))));
+  // Inside a groove the stone powder is pale; it is darker toward the walls.
+  const grain = stoneNoise(vec3(faceUv.mul(700.0), faceSeed));
+  const freshness = faceUniforms.fresh.z.mul(exp(distance(faceUv, faceUniforms.fresh.xy).div(0.035).negate()));
+  const groove = faceUniforms.grooveColor.mul(smoothstep(0.3, 0.95, depth).mul(0.4).add(0.48).add(grain.mul(0.12)))
+    .add(vec3(0.25).mul(step(0.985, grain))) // glints of cut crystal
+    .mul(freshness.mul(0.25).add(0.9));
+  const inBevel = faceEdge.lessThan(faceUniforms.bevelWidth);
+  const cutColor = select(inBevel, faceUniforms.bevelColor.mul(grain.mul(0.15).add(0.78)), groove);
+  const onInk = cut.oneMinus();
+  let faceColor = mix(ink, cutColor, cut);
+  faceColor = mix(faceColor, faceUniforms.draftColor, layer.r.mul(onInk).mul(0.85));
+  faceColor = mix(faceColor, faceUniforms.highlightColor, layer.g.mul(onInk).mul(faceUniforms.highlightPulse));
+  faceColor = mix(faceColor, faceUniforms.grooveColor.mul(grain.mul(0.25).add(0.85)), min(1.0, powder.mul(1.1)));
   // Grooves go down: the gradient tilts the normal toward the walls' open side.
-  vec3 bent = normal + (vFaceT * dx + vFaceB * dy) * 1.6;
-  if (faceEdge() < bevelWidth && cut > 0.5) {
-    // The chamfer leans outward, toward the nearest edge.
-    vec2 outward = vec2(0.0);
-    float e = faceEdge();
-    if (e == vFaceUv.x) outward = vec2(-1.0, 0.0); else if (e == 1.0 - vFaceUv.x) outward = vec2(1.0, 0.0);
-    else if (e == vFaceUv.y) outward = vec2(0.0, -1.0); else outward = vec2(0.0, 1.0);
-    bent = normal + (vFaceT * outward.x + vFaceB * outward.y) * 0.9;
-  }
-  normal = normalize(bent);
-}`);
-  };
-  faceMaterial.customProgramCacheKey = () => "seal-face";
+  const faceT = normalize(transformNormalToView(vec3(1.0, 0.0, 0.0)));
+  const faceB = normalize(transformNormalToView(vec3(0.0, 1.0, 0.0)));
+  const dx = faceDepth([1.5, 0]).sub(faceDepth([-1.5, 0]));
+  const dy = faceDepth([0, 1.5]).sub(faceDepth([0, -1.5]));
+  const bent = normalView.add(faceT.mul(dx).add(faceB.mul(dy)).mul(1.6));
+  // The chamfer leans outward, toward the nearest edge.
+  const outward = select(faceEdge.equal(faceUv.x), vec2(-1.0, 0.0), select(faceEdge.equal(faceUv.x.oneMinus()), vec2(1.0, 0.0),
+    select(faceEdge.equal(faceUv.y), vec2(0.0, -1.0), vec2(0.0, 1.0))));
+  const chamfer = normalView.add(faceT.mul(outward.x).add(faceB.mul(outward.y)).mul(0.9));
+  const faceMaterial = track(new THREE.MeshStandardNodeMaterial({ color: 0xffffff, roughness: 0.4, envMapIntensity: 0.8 }));
+  faceMaterial.colorNode = materialColor.mul(faceColor);
+  faceMaterial.roughnessNode = mix(0.34, 0.92, cut.max(powder));
+  faceMaterial.normalNode = normalize(select(inBevel.and(cut.greaterThan(0.5)), chamfer, bent));
   const face = new THREE.Mesh(track(new THREE.PlaneGeometry(1, 1)), faceMaterial);
   face.rotation.x = -Math.PI / 2;
   face.position.y = 0.0005;

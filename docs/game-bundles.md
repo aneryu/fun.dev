@@ -51,7 +51,7 @@ registry, array order is display order and entries additionally include a
   {
     "id": "my-game",
     "version": "1.0.0",
-    "apiVersion": 2,
+    "apiVersion": 3,
     "title": { "zh": "我的小游戏", "en": "My game" },
     "description": { "zh": "一句话说明玩法。", "en": "A short description." },
     "category": { "zh": "益智", "en": "Puzzle" },
@@ -138,13 +138,15 @@ ES modules are cached; restarting calls `createGame` again with a fresh context.
 
 | Context | Ownership and behavior |
 | --- | --- |
-| `apiVersion` | Currently `2`. |
+| `apiVersion` | Currently `3` (API v3: the WebGPU renderer and node materials). |
 | `locale` | Live `zh` or `en` getter. Read to select game UI text. |
-| `THREE` | Platform's shared Three.js module, pinned to `0.186.1`. |
+| `THREE` | Platform's shared Three.js module, the WebGPU build (`three/webgpu`) pinned to `0.186.1`. TSL is `THREE.TSL`. |
 | `scene` | Fresh scene owned by the container. Add game objects here. |
 | `camera` | Default perspective camera at `(0, 0, 5)`, looking toward the origin. |
 | `setCamera(camera)` | Replace the active camera, e.g. with an orthographic camera for a 2D game. |
-| `renderer` | Shared host renderer for this session. Configure as needed; do not dispose it or replace its loop. |
+| `renderer` | Shared host `THREE.WebGPURenderer` for this session, already initialised: WebGPU where the browser offers a hardware adapter, otherwise its WebGL 2 backend. Configure as needed; do not dispose it or replace its loop. See [Rendering](#rendering). |
+| `graphics` | `{ backend, tier }`: `"webgpu"` or `"webgl"`, and `"low"` (phones and compact screens: low-power GPU, DPR cap 1.5) or `"high"` (desktop: high-performance GPU, DPR cap 2). Scale optional effects with `tier`. |
+| `setRenderPipeline(pipeline)` | Draw each frame with a `THREE.RenderPipeline` (any object with `render()`) instead of `renderer.render(scene, camera)`; `null` restores the plain render. The game owns and tracks the pipeline. `kit/post.js` builds one. |
 | `canvas` | Focusable canvas. Bind pointer/keyboard input here; preserve Tab navigation. |
 | `viewport` | Live `{ width, height, pixelRatio, safeArea }` values, in CSS pixels; DPR capped at 1.5 on mobile/compact screens and 2 on desktop, and lowered further by `adaptiveResolution`. `safeArea` is `{ top, right, bottom, left }`: display cutouts plus the player's menu button. Keep HUD and controls inside it. Treat as read-only. |
 | `invalidate()` | Request a frame for an on-demand game after input or an asynchronous scene change. |
@@ -180,17 +182,18 @@ paused. Orthographic camera bounds belong to the game and should be updated in
 The lifecycle object may also set `adaptiveResolution: true` (continuous games):
 when more than half the frames over two seconds miss ~45 fps, the host lowers the
 pixel ratio in steps (80%, 65%, 50%) and calls `resize`. It never raises it again
-within a session. `?debug=1` shows frame rate, draw calls, triangles, geometry,
-texture and shader-program counts, and the pixel ratio.
+within a session. `?debug=1` shows frame rate, draw calls, triangles, geometry and
+texture counts, the pixel ratio, the backend and the tier. `?renderer=webgpu` or
+`?renderer=webgl` overrides the automatic backend choice, to compare them on a device.
 
 `localeChanged(locale)` also runs when the player switches languages. Update
 game labels without recreating the session or resetting progress. The callback
 is optional for existing bundles; the host always translates its own controls.
 
-One frame loop calls `update` and then `renderer.render(scene, camera)`. Do not
-start a second loop or call `renderer.render()` from `update`. Postprocessing
-pipelines and multiple viewports are outside API v2; extend the contract before
-adding games that need them.
+One frame loop calls `update` and then `renderer.render(scene, camera)`, or the
+game's render pipeline (`setRenderPipeline`). Do not start a second loop or call
+`renderer.render()` from `update`. Multiple viewports are outside API v3; extend
+the contract before adding games that need them.
 
 Games run continuously by default. For games that can rest between interactions,
 return `renderMode: "on-demand"`. Call `context.invalidate()` when input changes
@@ -293,7 +296,8 @@ inside a game would resolve against the game origin instead.
 | `kit/text.js` | `createText()` draws text with system fonts (Chinese and emoji included) into a `CanvasTexture` on a plane or sprite; `createHudLayer(camera)` maps CSS pixels and safe-area corners onto a camera-attached layer. |
 | `kit/input.js` | `createPointer()` (viewport pixels, tap/drag/long press, multi-touch), `createActions()` (keyboard, gamepad and virtual input mapped to named actions), `createVirtualControls()` (on-screen joystick and buttons). |
 | `kit/loop.js` | `createFixedStep()` for fixed-step simulation with an interpolation `alpha`. |
-| `kit/assets.js` | `createAssets(context)` loads JSON, textures and glTF/GLB (with Draco and KTX2) with cancellation, `track` ownership and `reportLoading`. |
+| `kit/assets.js` | `createAssets(context)` loads JSON, textures (PNG/JPEG/WebP or KTX2) and glTF/GLB (with Draco and KTX2) with cancellation, `track` ownership and `reportLoading`. Prefer KTX2 for large textures: it stays compressed in GPU memory. |
+| `kit/post.js` | `createPost(context, { ao, bloom, grade })`: shared postprocessing scaled to the device tier; see [Postprocessing](#postprocessing). |
 | `kit/random.js` | `createRandom(seed)`, `hashString()` and `dailySeed({ timeZone })` (UTC days by default). |
 | `kit/vision.js` | MediaPipe Tasks Vision at the platform's pinned version: `load()` imports the library (`FaceLandmarker`, `ImageSegmenter`, …), `fileset` is its wasm, `model(name)` the URL of a platform model (`models`: `face_landmarker`, `hair_segmenter`, `selfie_segmenter`). About 17 MB, downloaded only when used. |
 | `addons/GLTFLoader.js`, `DRACOLoader.js`, `KTX2Loader.js` | Three.js loaders at the pinned version; decoders at `/runtime/addons/draco/` and `/runtime/addons/basis/`. |
@@ -313,6 +317,49 @@ export async function createGame(context) {
 ```
 
 The kit is shared and unversioned: every game upgrades with the platform.
+
+## Rendering
+
+The renderer is `THREE.WebGPURenderer`, so materials are node materials:
+
+- Built-in materials (`MeshStandardMaterial`, `MeshBasicMaterial`, `ShadowMaterial` …)
+  work as before; the renderer converts them.
+- Custom shading uses TSL node materials (`MeshStandardNodeMaterial` and friends)
+  and their slots: `colorNode`, `normalNode` (view space), `roughnessNode`,
+  `metalnessNode`, `emissiveNode`, `positionNode` (local space). Start from the
+  material's own value (`materialColor`, `materialRoughness` …) to keep its
+  parameters live. Uniforms are `uniform(value)` nodes; change `.value` at any time.
+- GLSL does not run: `onBeforeCompile`, `ShaderMaterial`, `RawShaderMaterial` and
+  `customProgramCacheKey` have no effect or fail. One TSL graph compiles to WGSL for
+  WebGPU and GLSL for the WebGL 2 backend.
+- Write noise and other shared shader code as `Fn(…).setLayout(…)` so each is one
+  shader function instead of being inlined at every call.
+- Hash-based noise is not bit-identical between WGSL and GLSL: procedural patterns
+  keep their character but may land differently on the two backends.
+- `renderer.getMaxAnisotropy()` replaces `renderer.capabilities.getMaxAnisotropy()`;
+  `PMREMGenerator`, shadows, `CanvasTexture` and the loaders work unchanged.
+
+The games in `games/` are worked examples: `muyu/materials.js` (procedural wood and
+brocade), `seal-carving/stone.js` (texture-driven face with bent normals) and
+`slap/head.js` (an unlit material with its own vertex deformation).
+
+### Postprocessing
+
+`kit/post.js` builds one `THREE.RenderPipeline` from the scene: ambient occlusion
+(GTAO, only on the `"high"` tier unless `ao.everywhere`), bloom (half resolution on
+`"low"`) and a light grade (saturation, contrast, tint), then hands it to
+`setRenderPipeline`. The scene pass keeps the renderer's antialiasing; tone mapping
+and colour space follow `renderer.toneMapping` and the output colour space.
+
+```js
+const { createPost } = await context.runtime("kit/post.js");
+const post = await createPost(context, { ao: { radius: 0.3 }, bloom: { strength: 0.5, threshold: 0.9 }, grade: { saturation: 1.1 } });
+post.bloom.strength.value = 0.8; // effect parameters are node uniforms
+```
+
+Custom pipelines use `THREE.RenderPipeline` with `THREE.TSL.pass` and the platform's
+postprocessing nodes, `runtime("addons/BloomNode.js")` and
+`runtime("addons/GTAONode.js")`.
 
 ## Share Three.js across bundles
 

@@ -161,7 +161,8 @@ occlusion (Cycles) and each vertex's depth below the fish's convex hull into its
 vertex colors, which shade the carving's grooves and the hollow slit, applies transforms and exports
 a GLB, which `gltf-transform` (run through `npx`, not a dependency) compresses with Draco:
 Blender's ARM build has no Draco library, and the platform's loader decodes Draco.
-Materials and the procedural wood grain are in `game.js`.
+Materials are assigned in `game.js`; the procedural wood grain and the cushion brocade are TSL node
+materials in `materials.js`.
 
 `npm run relics` rebuilds `assets/relics.glb` (needs the uncompressed `/tmp/wooden-fish.glb`
 from `npm run model` for the rosewood mallet). `dev/fetch-blenderkit.py` downloads three free

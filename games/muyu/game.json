@@ -1,7 +1,7 @@
 {
   "id": "muyu",
-  "version": "2.3.0",
-  "apiVersion": 2,
+  "version": "2.4.0",
+  "apiVersion": 3,
   "title": {
     "zh": "敲木鱼",
     "en": "Wooden Fish"
@@ -35,6 +35,7 @@
     "relics.js",
     "lots.js",
     "floats.js",
+    "materials.js",
     "assets/wooden-fish.glb",
     "assets/relics.glb",
     "assets/chant.wav",

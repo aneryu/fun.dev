@@ -11,12 +11,13 @@ const viewports = {
   desktop: { viewport: { width: 1280, height: 800 } },
 };
 
-export async function smoke({ browser, base, games, gameOrigin = "", assetOrigin = "", log = console.log }) {
+// `renderer: "webgpu"` opens games with ?renderer=webgpu and fails unless WebGPU really runs them.
+export async function smoke({ browser, base, games, gameOrigin = "", assetOrigin = "", renderer = "", log = console.log }) {
   const failures = [];
   for (const game of games) {
     for (const name of Object.keys(viewports)) {
       try {
-        await check(browser, base, game, name, gameOrigin, assetOrigin);
+        await check(browser, base, game, name, gameOrigin, assetOrigin, renderer);
         log(`  ok   ${game.id}@${game.version} ${name}`);
       } catch (error) {
         failures.push(`${game.id} ${name}: ${error.message}`);
@@ -27,7 +28,7 @@ export async function smoke({ browser, base, games, gameOrigin = "", assetOrigin
   if (failures.length) throw new Error(`${failures.length} smoke checks failed.`);
 }
 
-async function check(browser, base, game, name, gameOrigin, assetOrigin) {
+async function check(browser, base, game, name, gameOrigin, assetOrigin, renderer) {
   const context = await browser.newContext({ ...viewports[name], locale: "en-US", serviceWorkers: "block" });
   if (gameOrigin) await context.route(`${gameOrigin}/**`, proxy(base));
   if (assetOrigin) await context.route(`${assetOrigin}/**`, local(base));
@@ -49,8 +50,12 @@ async function check(browser, base, game, name, gameOrigin, assetOrigin) {
     if (state !== "running") throw new Error(`${step}: ${await page.locator("#player-status").textContent()}`);
   }
   try {
-    await page.goto(`${base}/games/${encodeURIComponent(game.id)}?lang=en`);
+    await page.goto(`${base}/games/${encodeURIComponent(game.id)}?lang=en${renderer ? `&renderer=${renderer}&debug=1` : ""}`);
     await running("open");
+    if (renderer) {
+      const backend = await page.waitForFunction((expected) => document.querySelector("#debug-panel").textContent.includes(expected), renderer, { timeout: 5000 }).then(() => renderer, () => page.locator("#debug-panel").textContent());
+      if (backend !== renderer) throw new Error(`expected the ${renderer} backend: ${backend}`);
+    }
 
     await page.waitForTimeout(500);
     const share = dominantColorShare(decodePNG(await page.locator(".game-surface canvas").screenshot()));

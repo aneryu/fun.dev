@@ -46,8 +46,8 @@ function showTab(name) {
 
 // ── Upload: the same checks as the server, then the console's upload routes ──
 let prepared = [], note = "";
-const webgl = () => {
-  try { const canvas = document.createElement("canvas"); return Boolean(canvas.getContext("webgl2") ?? canvas.getContext("webgl")); }
+const canDraw = () => {
+  try { return Boolean(navigator.gpu) || Boolean(document.createElement("canvas").getContext("webgl2")); }
   catch { return false; }
 };
 const within = (promise, ms) => Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))]);
@@ -76,10 +76,10 @@ async function prepare(files) {
       else entries.push({ path: file.webkitRelativePath || file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
     }
     // Thumbnails in the library's look, rendered here from each model.glb when this browser can
-    // (a maker's thumbnail.png is replaced). Without WebGL, or if one takes too long, the upload
+    // (a maker's thumbnail.png is replaced). Without WebGPU or WebGL 2, or if one takes too long, the upload
     // goes ahead and review renders the thumbnail.
     const versions = groupVersions(entries);
-    let canRender = webgl(), rendered = 0, failures = 0;
+    let canRender = canDraw(), rendered = 0, failures = 0;
     for (const [index, version] of versions.entries()) {
       const glb = version.files.find((file) => file.name === "model.glb");
       version.files = version.files.filter((file) => file.name !== "thumbnail.png");

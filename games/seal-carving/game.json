@@ -1,7 +1,7 @@
 {
   "id": "seal-carving",
-  "version": "1.2.1",
-  "apiVersion": 2,
+  "version": "1.3.0",
+  "apiVersion": 3,
   "title": {
     "zh": "刻一方印",
     "en": "Carve a Seal"

@@ -31,16 +31,22 @@ export function createAssets(context) {
     });
     return root;
   }
+  // Loaders and their worker pools are created on first use and stay alive until the session ends.
+  let ktx2 = null;
+  function ktx2Loader() {
+    ktx2 ??= import("../addons/KTX2Loader.js").then(({ KTX2Loader }) => {
+      const loader = new KTX2Loader().setTranscoderPath(new URL("../addons/basis/", import.meta.url).href).detectSupport(context.renderer);
+      onCleanup(() => loader.dispose());
+      return loader;
+    });
+    return ktx2;
+  }
   let loaders = null;
   async function gltfLoader() {
     loaders ??= (async () => {
-      const [{ GLTFLoader }, { DRACOLoader }, { KTX2Loader }] = await Promise.all([
-        import("../addons/GLTFLoader.js"), import("../addons/DRACOLoader.js"), import("../addons/KTX2Loader.js"),
-      ]);
+      const [{ GLTFLoader }, { DRACOLoader }, ktx2] = await Promise.all([import("../addons/GLTFLoader.js"), import("../addons/DRACOLoader.js"), ktx2Loader()]);
       const draco = new DRACOLoader().setDecoderPath(new URL("../addons/draco/", import.meta.url).href);
-      const ktx2 = new KTX2Loader().setTranscoderPath(new URL("../addons/basis/", import.meta.url).href).detectSupport(context.renderer);
-      // Their worker pools stay alive until the session ends.
-      onCleanup(() => { draco.dispose(); ktx2.dispose(); });
+      onCleanup(() => draco.dispose());
       return new GLTFLoader().setDRACOLoader(draco).setKTX2Loader(ktx2);
     })();
     return loaders;
@@ -50,7 +56,16 @@ export function createAssets(context) {
     get progress() { return total ? done / total : 1; },
     json: (path) => task(async () => (await fetchOk(path)).json()),
     arrayBuffer: (path) => task(async () => (await fetchOk(path)).arrayBuffer()),
+    // PNG/JPEG/WebP, or KTX2 (Basis Universal), which stays compressed in GPU memory: the
+    // better choice for large textures. Colour textures are sRGB; pass NoColorSpace for data.
     texture: (path, { colorSpace = THREE.SRGBColorSpace } = {}) => task(async () => {
+      if (/\.ktx2$/i.test(new URL(path, "https://bundle.invalid/").pathname)) {
+        const [loader, data] = await Promise.all([ktx2Loader(), (await fetchOk(path)).arrayBuffer()]);
+        signal.throwIfAborted();
+        const texture = track(await new Promise((resolve, reject) => loader.parse(data, resolve, reject)));
+        texture.colorSpace = colorSpace;
+        return texture;
+      }
       const blob = await (await fetchOk(path)).blob();
       const bitmap = await createImageBitmap(blob, { imageOrientation: "flipY" });
       onCleanup(() => bitmap.close());

@@ -14,128 +14,61 @@ export async function loadPack(asset, name, signal) {
   return { meta, arrays };
 }
 
-const vertexShader = /* glsl */ `
-  uniform mat4 headMatrix;
-  attribute float headWeight;
-  attribute vec3 restNormal;
-  #ifdef PHOTO
-    attribute vec2 photoUv;
-    attribute float photoWeight;
-    varying vec2 vPhotoUv;
-    varying float vPhotoWeight;
-  #endif
-  #ifdef MARKS
-    attribute float cavity;
-    varying float vCavity;
-  #endif
-  varying vec2 vUv;
-  varying vec3 vNormal;
-  varying vec3 vRestNormal;
-  varying vec3 vWorld;
-  void main() {
-    #ifdef MARKS
-      vCavity = cavity;
-    #endif
-    vec3 moved = (headMatrix * vec4(position, 1.0)).xyz;
-    vec3 local = mix(position, moved, headWeight);
-    vNormal = normalize(mix(normal, mat3(headMatrix) * normal, headWeight));
-    vRestNormal = restNormal;
-    vUv = uv;
-    #ifdef PHOTO
-      vPhotoUv = photoUv;
-      vPhotoWeight = photoWeight;
-    #endif
-    vec4 world = modelMatrix * vec4(local, 1.0);
-    vWorld = world.xyz;
-    gl_Position = projectionMatrix * viewMatrix * world;
-  }
-`;
-
-const fragmentShader = /* glsl */ `
-  uniform sampler2D map;
-  uniform vec3 lightDir;
-  uniform float shade;
-  uniform float gloss;
-  uniform vec3 gain;
-  uniform float opacity;
-  uniform int debugView;
-  #ifdef PHOTO
-    uniform sampler2D photo;
-    uniform float photoMix;
-    varying vec2 vPhotoUv;
-    varying float vPhotoWeight;
-  #endif
-  #ifdef MARKS
-    uniform sampler2D marks;
-    uniform float marksAmount;
-    varying float vCavity;
-  #endif
-  varying vec2 vUv;
-  varying vec3 vNormal;
-  varying vec3 vRestNormal;
-  varying vec3 vWorld;
-  void main() {
-    vec4 texel = texture2D(map, vUv);
-    #ifdef ALPHA
-      if (texel.a < 0.02) discard;
-      texel.rgb = mix(vec3(0.07, 0.05, 0.04), texel.rgb, 0.25);
-    #endif
-    vec3 colour = texel.rgb * gain;
-    #ifdef PHOTO
-      float w = photoMix * vPhotoWeight;
-      if (w > 0.0) colour = mix(colour, texture2D(photo, vPhotoUv).rgb, w);
-    #endif
-    #ifdef MARKS
-      float mark = texture2D(marks, vUv).r * marksAmount;
-      colour = mix(colour, colour * vec3(1.08, 0.38, 0.36) + vec3(0.08, 0.0, 0.0), clamp(mark, 0.0, 0.85));
+// Baked-light skin as a TSL node material. Lighting is baked into the texture; only the change
+// from the rest pose adds light or shadow, plus a small highlight. Its uniforms are material.skin.
+function skinMaterial(THREE, { map, photo = false, marks = null, alpha = false, gloss = 0.06, placeholder }) {
+  const { Fn, If, Discard, attribute, positionGeometry, normalGeometry, positionWorld, cameraPosition, uv, texture, varying, uniform,
+    vec3, vec4, float, mix, clamp, smoothstep, step, max, dot, pow, normalize, select } = THREE.TSL;
+  const skin = {
+    headMatrix: uniform(new THREE.Matrix4()), lightDir: uniform(new THREE.Vector3(0.35, 0.45, 1).normalize()),
+    shade: uniform(1.1), gloss: uniform(gloss), debugView: uniform(0), gain: uniform(new THREE.Vector3(1, 1, 1)),
+    photo: texture(placeholder), photoMix: uniform(0), marksAmount: uniform(0),
+  };
+  const material = new THREE.MeshBasicNodeMaterial({ side: alpha ? THREE.DoubleSide : THREE.FrontSide, transparent: alpha, depthWrite: !alpha });
+  material.skin = skin;
+  // The neck stays put; the rest of the head turns with headMatrix.
+  const headWeight = attribute("headWeight", "float");
+  material.positionNode = mix(positionGeometry, skin.headMatrix.mul(vec4(positionGeometry, 1.0)).xyz, headWeight);
+  const turnedNormal = varying(normalize(mix(normalGeometry, skin.headMatrix.mul(vec4(normalGeometry, 0.0)).xyz, headWeight)));
+  const restNormal = attribute("restNormal", "vec3");
+  const photoWeight = photo ? attribute("photoWeight", "float") : null;
+  const cavity = marks ? attribute("cavity", "float") : null;
+  material.colorNode = Fn(() => {
+    const texel = texture(map, uv()).toVar();
+    if (alpha) {
+      If(texel.a.lessThan(0.02), () => { Discard(); });
+      texel.rgb.assign(mix(vec3(0.07, 0.05, 0.04), texel.rgb, 0.25));
+    }
+    const colour = texel.rgb.mul(skin.gain).toVar();
+    if (photo) colour.assign(mix(colour, skin.photo.sample(attribute("photoUv", "vec2")).rgb, skin.photoMix.mul(photoWeight)));
+    let mouth = null;
+    if (marks) {
+      const mark = texture(marks, uv()).r.mul(skin.marksAmount);
+      colour.assign(mix(colour, colour.mul(vec3(1.08, 0.38, 0.36)).add(vec3(0.08, 0.0, 0.0)), clamp(mark, 0.0, 0.85)));
       // The mouth's inside: hidden geometry, or the skin texture's saturated mouth red.
       // Linear values: the mouth red has almost no green (g/r ≈ 0.02); lips ≈ 0.3, skin ≈ 0.5.
-      float ratio = max(texel.g, texel.b) / max(texel.r, 0.001);
-      float mouth = max(vCavity, (1.0 - smoothstep(0.06, 0.16, ratio)) * step(0.01, texel.r));
-      #ifdef PHOTO
-        // Where the photo shows, its own lips and mouth stand in for the skin texture's.
-        mouth = max(vCavity, mouth * (1.0 - photoMix * vPhotoWeight));
-      #endif
-      colour = mix(colour, vec3(0.09, 0.035, 0.035), mouth * 0.85);
-    #endif
-    vec3 n = normalize(vNormal);
-    // Lighting is baked; only the change from the rest pose adds light or shadow.
-    float delta = dot(n, lightDir) - dot(normalize(vRestNormal), lightDir);
-    colour *= clamp(1.0 + shade * delta, 0.55, 1.3);
-    vec3 view = normalize(cameraPosition - vWorld);
-    float spec = pow(max(dot(n, normalize(lightDir + view)), 0.0), 48.0);
-    colour += gloss * spec * smoothstep(0.08, 0.25, dot(texel.rgb, vec3(0.333)));
-    #ifdef ALPHA
-      gl_FragColor = vec4(colour, texel.a * opacity * 0.9);
-    #else
-      gl_FragColor = vec4(colour, opacity);
-    #endif
-    #ifdef MARKS
-      if (debugView == 1) gl_FragColor = vec4(vCavity, mouth, 0.0, 1.0);
-      if (debugView == 2) gl_FragColor = vec4(vec3(vPhotoWeight), 1.0);
-      if (debugView == 3) gl_FragColor = vec4(texel.rgb, 1.0);
-    #endif
-    #include <colorspace_fragment>
-  }
-`;
-
-function skinMaterial(THREE, { map, photo = false, marks = null, alpha = false, gloss = 0.06 }) {
-  const defines = {};
-  if (photo) defines.PHOTO = "";
-  if (marks) defines.MARKS = "";
-  if (alpha) defines.ALPHA = "";
-  return new THREE.ShaderMaterial({
-    defines,
-    uniforms: {
-      map: { value: map }, headMatrix: { value: new THREE.Matrix4() }, lightDir: { value: new THREE.Vector3(0.35, 0.45, 1).normalize() },
-      shade: { value: 1.1 }, gloss: { value: gloss }, debugView: { value: 0 }, gain: { value: new THREE.Vector3(1, 1, 1) }, opacity: { value: 1 },
-      photo: { value: null }, photoMix: { value: 0 }, marks: { value: marks }, marksAmount: { value: 0 },
-    },
-    vertexShader, fragmentShader,
-    side: alpha ? THREE.DoubleSide : THREE.FrontSide,
-    transparent: alpha,
-    depthWrite: !alpha,
-  });
+      const ratio = max(texel.g, texel.b).div(max(texel.r, 0.001));
+      mouth = max(cavity, float(1.0).sub(smoothstep(0.06, 0.16, ratio)).mul(step(0.01, texel.r)));
+      // Where the photo shows, its own lips and mouth stand in for the skin texture's.
+      if (photo) mouth = max(cavity, mouth.mul(float(1.0).sub(skin.photoMix.mul(photoWeight))));
+      colour.assign(mix(colour, vec3(0.09, 0.035, 0.035), mouth.mul(0.85)));
+    }
+    const n = normalize(turnedNormal);
+    const light = skin.lightDir;
+    const delta = dot(n, light).sub(dot(normalize(restNormal), light));
+    colour.mulAssign(clamp(skin.shade.mul(delta).add(1.0), 0.55, 1.3));
+    const view = normalize(cameraPosition.sub(positionWorld));
+    const spec = pow(max(dot(n, normalize(light.add(view))), 0.0), 48.0);
+    colour.addAssign(skin.gloss.mul(spec).mul(smoothstep(0.08, 0.25, dot(texel.rgb, vec3(0.333)))));
+    let result = vec4(colour, alpha ? texel.a.mul(0.9) : 1.0);
+    if (marks) {
+      result = select(skin.debugView.equal(1), vec4(cavity, mouth, 0.0, 1.0), result);
+      if (photo) result = select(skin.debugView.equal(2), vec4(vec3(photoWeight), 1.0), result);
+      result = select(skin.debugView.equal(3), vec4(texel.rgb, 1.0), result);
+    }
+    return result;
+  })();
+  return material;
 }
 
 function smoothstep(a, b, x) {
@@ -163,6 +96,9 @@ export async function createHead(context, onProgress = () => {}) {
     texture(THREE, loader, asset("assets/lashes.png"), signal).then(step),
   ]);
   for (const tex of [baked, eyeMap, browMap, lashMap]) track(tex);
+  // Stands in for the photo until one is chosen.
+  const placeholder = track(new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1));
+  placeholder.needsUpdate = true;
   baked.anisotropy = 4;
   const { meta, arrays } = pack;
   const count = meta.vertices;
@@ -233,7 +169,7 @@ export async function createHead(context, onProgress = () => {}) {
   const marksContext = marksCanvas.getContext("2d");
   const marks = track(new THREE.CanvasTexture(marksCanvas));
   marks.flipY = false;
-  const material = track(skinMaterial(THREE, { map: baked, photo: true, marks }));
+  const material = track(skinMaterial(THREE, { map: baked, photo: true, marks, placeholder }));
   const mesh = new THREE.Mesh(geometry, material);
   mesh.frustumCulled = false;
 
@@ -287,9 +223,9 @@ export async function createHead(context, onProgress = () => {}) {
       for (let r = 0; r < accSource.length; r++) pw[r] = arrays.eyes_photoWeight[accSource[r]];
       g.setAttribute("photoUv", new THREE.BufferAttribute(new Float32Array(accSource.length * 2), 2));
       g.setAttribute("photoWeight", new THREE.BufferAttribute(pw, 1));
-      mat = track(skinMaterial(THREE, { map, photo: true, gloss: 0.5 }));
-      mat.uniforms.gain.value.set(1.2, 1.18, 1.16);
-    } else mat = track(skinMaterial(THREE, { map, alpha, gloss: 0 }));
+      mat = track(skinMaterial(THREE, { map, photo: true, gloss: 0.5, placeholder }));
+      mat.skin.gain.value.set(1.2, 1.18, 1.16);
+    } else mat = track(skinMaterial(THREE, { map, alpha, gloss: 0, placeholder }));
     g.setIndex(new THREE.BufferAttribute(arrays[prefix + "index"], 1));
     const m = new THREE.Mesh(g, mat);
     m.frustumCulled = false;
@@ -409,17 +345,17 @@ export async function createHead(context, onProgress = () => {}) {
       geometry.attributes.restNormal.needsUpdate = true;
       restDirty = true;
     },
-    setHeadMatrix(matrix) { for (const m of materials) m.uniforms.headMatrix.value.copy(matrix); },
-    setMarksAmount(value) { material.uniforms.marksAmount.value = value; },
-    setView(value) { material.uniforms.debugView.value = value; },
+    setHeadMatrix(matrix) { for (const m of materials) m.skin.headMatrix.value.copy(matrix); },
+    setMarksAmount(value) { material.skin.marksAmount.value = value; },
+    setView(value) { material.skin.debugView.value = value; },
     setPhoto(photo) {
       // photo: { texture, landmarks (468 × [x, y] in 0..1 of the texture), gain: [r, g, b] } or null
       const on = !!photo;
       for (const m of [material, accessories.eyes.material]) {
-        m.uniforms.photo.value = photo?.texture ?? null;
-        m.uniforms.photoMix.value = on ? 1 : 0;
+        m.skin.photo.value = photo?.texture ?? placeholder;
+        m.skin.photoMix.value = on ? 1 : 0;
       }
-      material.uniforms.gain.value.set(...(photo?.gain ?? [1, 1, 1]));
+      material.skin.gain.value.set(...(photo?.gain ?? [1, 1, 1]));
       accessories.brows.mesh.visible = !on;
       accessories.lashes.mesh.visible = !on;
       if (!on) return;

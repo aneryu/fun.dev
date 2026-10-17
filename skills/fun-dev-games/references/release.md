@@ -14,7 +14,7 @@ files) and do not import them statically.
 ## Independent game publication
 
 Create `games/<id>/game.json` beside the game entry with `id` (matching the
-directory name), `version`, `apiVersion: 2`, `title`, `description`, `category`,
+directory name), `version`, `apiVersion: 3`, `title`, `description`, `category`,
 `platforms`, optional `orientation`/`howToPlay`/`cover`/`keepAwake`, and an
 explicit `files` array including `game.js` (and the cover). The publisher also
 uploads a `files.json` list for offline caching. Text supports

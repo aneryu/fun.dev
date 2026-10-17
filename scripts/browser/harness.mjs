@@ -15,9 +15,14 @@ export async function serve(directory = dist) {
   return { base: `http://127.0.0.1:${port}`, close: () => server.close() };
 }
 
-export async function launch() {
+// Software rendering by default, where headless Chromium has no WebGPU adapter: games run on the
+// renderer's WebGL 2 backend. { webgpu: true } uses the machine's GPU through Vulkan instead.
+export async function launch({ webgpu = false } = {}) {
   await mkdir(results, { recursive: true });
-  return chromium.launch({ args: ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+  const args = webgpu
+    ? ["--no-sandbox", "--enable-unsafe-webgpu", "--enable-features=Vulkan,VulkanFromANGLE", "--use-angle=vulkan", "--ignore-gpu-blocklist"]
+    : ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
+  return chromium.launch({ args });
 }
 
 // Collects page errors and console errors into `errors`.

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { gamePage, gamePages, sitemap } from "../scripts/game-pages.mjs";
 
 const template = readFileSync(new URL("../site/player/index.html", import.meta.url), "utf8");
-const game = { id: "my-game", version: "1.0.0", apiVersion: 2, title: { zh: "我的<游戏>", en: "My \"game\"" }, description: "A & B", category: "Puzzle", platforms: ["mobile"] };
+const game = { id: "my-game", version: "1.0.0", apiVersion: 3, title: { zh: "我的<游戏>", en: "My \"game\"" }, description: "A & B", category: "Puzzle", platforms: ["mobile"] };
 test("each game page is the player with the game's escaped meta, canonical URL and Chinese share card", () => {
   const html = gamePage(template, { ...game, cover: "cover.jpg", release: "f".repeat(64) }, { origin: "https://games.example.com" });
   assert.match(html, /<title>我的&#60;游戏&#62; — fun.dev<\/title>/);

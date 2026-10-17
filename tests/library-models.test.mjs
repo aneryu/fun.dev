@@ -29,7 +29,7 @@ after(async () => { server.close(); await rm(work, { recursive: true, force: tru
 
 async function game(models, files = ["game.js"]) {
   const directory = await mkdtemp(join(work, "game-"));
-  await writeFile(join(directory, "game.json"), JSON.stringify({ id: "demo", version: "1.0.0", apiVersion: 2, title: "Demo", description: "Demo", category: "Toy", platforms: ["mobile"], files, ...(models ? { models } : {}) }));
+  await writeFile(join(directory, "game.json"), JSON.stringify({ id: "demo", version: "1.0.0", apiVersion: 3, title: "Demo", description: "Demo", category: "Toy", platforms: ["mobile"], files, ...(models ? { models } : {}) }));
   await writeFile(join(directory, "game.js"), "export function createGame() {}\n");
   return join(directory, "game.json");
 }

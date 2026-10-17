@@ -146,21 +146,12 @@ export async function createGame(context) {
   scene.add(fill);
 
   // The mat: dark rubber with fine raised ridges, like a carver's bench pad.
-  const matMaterial = track(new THREE.MeshStandardMaterial({ color: 0x2b2a28, roughness: 0.85 }));
-  matMaterial.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec2 vMatUv;")
-      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvMatUv = uv;");
-    shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying vec2 vMatUv;")
-      .replace("#include <color_fragment>", `#include <color_fragment>
-float ridge = sin(vMatUv.x * 6.2831853 * 90.0);
-float fade = 1.0 - smoothstep(0.5, 1.0, fwidth(vMatUv.x * 90.0));
-diffuseColor.rgb *= 1.0 + 0.22 * ridge * fade;`)
-      .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
-normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 - smoothstep(0.5, 1.0, fwidth(vMatUv.x * 90.0))), 0.0, 0.0));`);
-  };
-  matMaterial.customProgramCacheKey = () => "seal-mat";
+  const { uv, sin, cos, smoothstep, fwidth, vec3, normalize, normalView, materialColor } = THREE.TSL;
+  const ridges = uv().x.mul(90.0);
+  const ridgeFade = smoothstep(0.5, 1.0, fwidth(ridges)).oneMinus();
+  const matMaterial = track(new THREE.MeshStandardNodeMaterial({ color: 0x2b2a28, roughness: 0.85 }));
+  matMaterial.colorNode = materialColor.mul(sin(ridges.mul(6.2831853)).mul(0.22).mul(ridgeFade).add(1.0));
+  matMaterial.normalNode = normalize(normalView.add(vec3(cos(ridges.mul(6.2831853)).mul(0.35).mul(ridgeFade), 0.0, 0.0)));
   // A carver's pad, a defined object on the yellow table, reaching toward the viewer where
   // the knife's handle rests.
   const mat = new THREE.Mesh(track(new THREE.BoxGeometry(1.5, 0.06, 2.3)), matMaterial);
@@ -175,7 +166,7 @@ normal = normalize(normal + vec3(cos(vMatUv.x * 6.2831853 * 90.0) * 0.35 * (1.0 
   const KNIFE_SCALE = 1.1;
   knifeModel.group.scale.setScalar(KNIFE_SCALE);
   scene.add(knifeModel.group);
-  const anisotropy = Math.min(8, context.renderer.capabilities.getMaxAnisotropy());
+  const anisotropy = Math.min(8, context.renderer.getMaxAnisotropy());
 
   const kit = await context.runtime("kit/text.js");
   signal.throwIfAborted();

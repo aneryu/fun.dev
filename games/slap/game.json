@@ -1,7 +1,7 @@
 {
   "id": "slap",
-  "version": "1.0.1",
-  "apiVersion": 2,
+  "version": "1.1.0",
+  "apiVersion": 3,
   "title": {
     "zh": "扇耳光",
     "en": "Slap"

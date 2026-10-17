@@ -40,6 +40,7 @@ All contract changes ship together in one API v2 cutover.
 | `pickImage()` | Added 2026-10-15 for Slap: the host owns the file input so games stay canvas-only; returns an upright, scaled `ImageBitmap` that stays on the device. |
 | `deviceStorage` | Added 2026-10-15 for Slap: per-game blobs that stay on this device, so a picked photo is remembered without entering progress, transfer or export. |
 | Vision runtime | Added 2026-10-16: MediaPipe Tasks Vision and its models are platform runtime (`kit/vision.js`), pinned like Three.js and downloaded only when used. See [assets](assets.md). |
+| WebGPU renderer (API v3) | Added 2026-10-17: the host renders with `THREE.WebGPURenderer` (`three/webgpu`): WebGPU when the browser offers a hardware adapter, otherwise its WebGL 2 backend (`?renderer=` overrides). Materials are TSL node materials; GLSL (`onBeforeCompile`, `ShaderMaterial`) no longer runs, so the API version moved to 3 and every game was ported. `context.graphics` reports backend and tier (phones `low`: low-power GPU; desktops `high`: high-performance GPU), and `setRenderPipeline` lets a game draw through a postprocessing pipeline. The adapter request starts with the player page and the device with the bundle download, to hide WebGPU's start-up time. See [game bundles](game-bundles.md#rendering). |
 | Video recording | Added 2026-10-16 for Slap: manifest `recording` puts **Record video** in the menu. The host copies each rendered frame into a 9:16 canvas with a watermark and records it with the session's sound through `MediaRecorder`; the clip stays on the device until shared or saved. |
 | `shareText(locale)` | Optional lifecycle hook used by the platform share button. |
 | Manifest fields | `orientation`, bilingual `howToPlay` (shown in the player menu as real text), and `cover`. |
@@ -75,11 +76,18 @@ Each module is written together with the first game that needs it.
 - `loop.js`: fixed-step accumulator with interpolation, consistent on 120 Hz
   displays.
 - `assets.js`: `asset()` resolution, `signal` cancellation, automatic
-  `track`, and loading progress.
+  `track`, and loading progress. Textures may be KTX2, which stays compressed in
+  GPU memory.
+- `post.js` (2026-10-17, with the WebGPU renderer, ahead of its first game): one
+  render pipeline with GTAO ambient occlusion (high tier only), bloom (half
+  resolution on the low tier) and a light grade, for games that want a richer
+  look without writing their own pipeline.
 - `random.js`: seeded random numbers and a daily seed by UTC date by default
   (configurable time zone).
 - Three.js addons served by the platform at the same pinned version:
-  `GLTFLoader`, `DRACOLoader`, and `KTX2Loader`, with self-hosted decoders.
+  `GLTFLoader`, `DRACOLoader`, `KTX2Loader` and `OrbitControls`, with
+  self-hosted decoders, and the postprocessing nodes `BloomNode` and `GTAONode`
+  (their TSL imports share `/runtime/tsl.js`).
   Their loaders create Blob URL workers and compile WebAssembly, so only
   game pages (`/games/*`) relax CSP with `img-src`/`connect-src blob:`, `worker-src blob:`,
   and `'wasm-unsafe-eval'`. The site-wide policy is detached with

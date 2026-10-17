@@ -1,5 +1,5 @@
 import { gameOrigin } from "./game-source.js";
-export const API_VERSION = 2;
+export const API_VERSION = 3;
 export const platforms = ["mobile", "desktop"];
 export const orientations = ["any", "portrait", "landscape"];
 

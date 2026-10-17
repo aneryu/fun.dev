@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const root = new URL("../", import.meta.url);
 const output = new URL("dist-console/", root);
 const three = (path) => fileURLToPath(new URL(`node_modules/three/${path}`, root));
-const runtime = { "/runtime/three.js": three("build/three.module.js"), "/runtime/addons/GLTFLoader.js": three("examples/jsm/loaders/GLTFLoader.js"), "/runtime/addons/OrbitControls.js": three("examples/jsm/controls/OrbitControls.js") };
+const runtime = { "/runtime/three.js": three("build/three.webgpu.js"), "/runtime/addons/GLTFLoader.js": three("examples/jsm/loaders/GLTFLoader.js"), "/runtime/addons/OrbitControls.js": three("examples/jsm/controls/OrbitControls.js") };
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
 for (const name of ["index.html", "console.css", "_headers"]) await cp(new URL(`console/${name}`, root), new URL(name, output));

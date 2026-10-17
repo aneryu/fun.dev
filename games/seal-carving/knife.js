@@ -22,40 +22,29 @@ export function createKnife({ THREE, track }) {
     positions.setY(i, positions.getY(i) - positions.getX(i) * 0.3);
   }
   bladeGeometry.computeVertexNormals();
-  const uniforms = { knifeDust: { value: 0 }, knifeBevel: { value: BLADE.bevel } };
-  const steel = track(new THREE.MeshStandardMaterial({ color: 0x6d7176, metalness: 0.75, roughness: 0.45, envMapIntensity: 1.1 }));
-  steel.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vKnifePosition;")
-      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvKnifePosition = position;");
-    shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `#include <common>
-varying vec3 vKnifePosition;
-uniform float knifeDust, knifeBevel;
-float knifeHash(float n) { return fract(sin(n) * 43758.5453); }
-float knifeNoise(vec2 p) { vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
-  float a = knifeHash(i.x + i.y * 57.0), b = knifeHash(i.x + 1.0 + i.y * 57.0), c = knifeHash(i.x + (i.y + 1.0) * 57.0), d = knifeHash(i.x + 1.0 + (i.y + 1.0) * 57.0);
-  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y); }`)
-      .replace("#include <color_fragment>", `#include <color_fragment>
-float y = vKnifePosition.y;
-float facet = 1.0 - smoothstep(knifeBevel * 0.92, knifeBevel, y);
-// Stone powder clings to the lower blade, thickest at the edge, ragged at its top.
-float dustLine = knifeDust * (0.05 + 0.1 * knifeNoise(vec2(vKnifePosition.x * 90.0, 3.0)));
-float dust = knifeDust * (1.0 - smoothstep(dustLine * 0.6, dustLine, y)) * (0.55 + 0.45 * knifeNoise(vKnifePosition.xy * 400.0));
-// The very edge is honed bright.
-float edge = 1.0 - smoothstep(0.0, 0.004, y);
-diffuseColor.rgb = mix(diffuseColor.rgb * mix(1.0, 1.9, facet), vec3(0.93, 0.9, 0.86), dust);
-diffuseColor.rgb += edge * 0.35;`)
-      .replace("#include <roughnessmap_fragment>", `#include <roughnessmap_fragment>
-// Grinding marks: fine streaks across the blade, finer on the bevels.
-float scratch = knifeHash(floor(vKnifePosition.y * mix(700.0, 1600.0, facet) + vKnifePosition.x * 30.0));
-roughnessFactor = clamp(mix(0.5, 0.18, facet) + (scratch - 0.5) * 0.22, 0.08, 0.85);
-roughnessFactor = mix(roughnessFactor, 0.95, dust);`)
-      .replace("#include <metalnessmap_fragment>", `#include <metalnessmap_fragment>
-metalnessFactor = mix(metalnessFactor, 0.0, dust);`);
-  };
-  steel.customProgramCacheKey = () => "seal-knife-steel";
+  const { Fn, vec2, vec3, float, mix, smoothstep, step, fract, floor, sin, dot, atan, clamp, normalize, uniform, positionGeometry, normalView, materialColor, materialMetalness, materialEmissive } = THREE.TSL;
+  const knifeDust = uniform(0);
+  const knifeHash = Fn(([n]) => fract(sin(n).mul(43758.5453))).setLayout({ name: "knifeHash", type: "float", inputs: [{ name: "n", type: "float" }] });
+  const knifeNoise = Fn(([p]) => {
+    const i = floor(p).toVar();
+    const f = fract(p).toVar();
+    f.assign(f.mul(f).mul(f.mul(-2.0).add(3.0)));
+    const h = (dx, dy) => knifeHash(i.x.add(dx).add(i.y.add(dy).mul(57.0)));
+    return mix(mix(h(0, 0), h(1, 0), f.x), mix(h(0, 1), h(1, 1), f.x), f.y);
+  }).setLayout({ name: "knifeNoise", type: "float", inputs: [{ name: "p", type: "vec2" }] });
+  const kp = positionGeometry;
+  const facet = float(1.0).sub(smoothstep(BLADE.bevel * 0.92, BLADE.bevel, kp.y));
+  // Stone powder clings to the lower blade, thickest at the edge, ragged at its top.
+  const dustLine = knifeDust.mul(knifeNoise(vec2(kp.x.mul(90.0), 3.0)).mul(0.1).add(0.05));
+  const dust = knifeDust.mul(float(1.0).sub(smoothstep(dustLine.mul(0.6), dustLine, kp.y))).mul(knifeNoise(kp.xy.mul(400.0)).mul(0.45).add(0.55));
+  // The very edge is honed bright.
+  const honed = float(1.0).sub(smoothstep(0.0, 0.004, kp.y));
+  // Grinding marks: fine streaks across the blade, finer on the bevels.
+  const scratch = knifeHash(floor(kp.y.mul(mix(700.0, 1600.0, facet)).add(kp.x.mul(30.0))));
+  const steel = track(new THREE.MeshStandardNodeMaterial({ color: 0x6d7176, metalness: 0.75, roughness: 0.45, envMapIntensity: 1.1 }));
+  steel.colorNode = mix(materialColor.mul(mix(1.0, 1.9, facet)), vec3(0.93, 0.9, 0.86), dust).add(honed.mul(0.35));
+  steel.roughnessNode = mix(clamp(mix(0.5, 0.18, facet).add(scratch.sub(0.5).mul(0.22)), 0.08, 0.85), 0.95, dust);
+  steel.metalnessNode = mix(materialMetalness, 0.0, dust);
   const blade = new THREE.Mesh(bladeGeometry, steel);
   blade.castShadow = true;
   group.add(blade);
@@ -83,42 +72,32 @@ metalnessFactor = mix(metalnessFactor, 0.0, dust);`);
   // The grip: the same cloth, its wraps on the swell dyed cinnabar where the fingers hold the
   // knife. Pressing it drives the knife into the stone; it glows faintly while pressed.
   const GRIP = { y: base + 0.1, length: 0.16 };
-  const gripUniforms = { gripRange: { value: new THREE.Vector2(GRIP.y - GRIP.length / 2, GRIP.y + GRIP.length / 2) }, gripGlow: { value: 0 } };
-  const cord = track(new THREE.MeshStandardMaterial({ color: 0xdcd4c4, roughness: 0.9 }));
-  cord.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, gripUniforms);
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vCordPosition;")
-      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvCordPosition = position;");
-    shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `#include <common>
-varying vec3 vCordPosition;
-uniform vec2 gripRange;
-uniform float gripGlow;
-float gripBand;
-float cordHash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
-float cordNoise(vec2 p) { vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
-  return mix(mix(cordHash(i), cordHash(i + vec2(1, 0)), f.x), mix(cordHash(i + vec2(0, 1)), cordHash(i + vec2(1, 1)), f.x), f.y); }`)
-      .replace("#include <color_fragment>", `#include <color_fragment>
-float around = atan(vCordPosition.z, vCordPosition.x + ${(BLADE.width / 2).toFixed(4)}) / 6.2831853;
-// Wraps of cloth, uneven, with years of brown handling stains.
-float turns = vCordPosition.y * 55.0 + around * 1.5 + cordNoise(vec2(around * 8.0, vCordPosition.y * 6.0)) * 1.5;
-float ridge = abs(fract(turns) - 0.5) * 2.0;
-float stain = smoothstep(0.45, 0.8, cordNoise(vec2(around * 6.0, vCordPosition.y * 9.0)) * 0.7 + cordNoise(vec2(around * 25.0, vCordPosition.y * 40.0)) * 0.3);
-float fleck = step(0.9, cordHash(floor(vec2(around * 160.0, vCordPosition.y * 260.0))));
-diffuseColor.rgb *= (0.84 + 0.16 * (1.0 - ridge * ridge));
-diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.5, 0.38, 0.27), stain * 0.6 + fleck * 0.35);
-// The dyed band ends along the wraps, a little ragged, as dyed thread would.
-float edge = cordNoise(vec2(around * 12.0, 4.0)) * 0.012;
-gripBand = smoothstep(gripRange.x - 0.004, gripRange.x + 0.004, vCordPosition.y + edge) * (1.0 - smoothstep(gripRange.y - 0.004, gripRange.y + 0.004, vCordPosition.y - edge));
-vec3 dyed = vec3(0.42, 0.07, 0.05) * (0.72 + 0.28 * (1.0 - ridge * ridge)) * mix(1.0, 0.7, stain);
-diffuseColor.rgb = mix(diffuseColor.rgb, dyed, gripBand);`)
-      .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
-totalEmissiveRadiance += vec3(0.55, 0.1, 0.06) * gripGlow * gripBand;`)
-      .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
-normal = normalize(normal + vec3(0.0, (fract(vCordPosition.y * 55.0 + atan(vCordPosition.z, vCordPosition.x) / 6.2831853 * 1.5) - 0.5) * 0.35, 0.0));`);
-  };
-  cord.customProgramCacheKey = () => "seal-knife-cord";
+  const gripGlow = uniform(0);
+  const cordHash = Fn(([p]) => fract(sin(dot(p, vec2(12.9898, 78.233))).mul(43758.5453))).setLayout({ name: "cordHash", type: "float", inputs: [{ name: "p", type: "vec2" }] });
+  const cordNoise = Fn(([p]) => {
+    const i = floor(p).toVar();
+    const f = fract(p).toVar();
+    f.assign(f.mul(f).mul(f.mul(-2.0).add(3.0)));
+    return mix(mix(cordHash(i), cordHash(i.add(vec2(1, 0))), f.x), mix(cordHash(i.add(vec2(0, 1))), cordHash(i.add(vec2(1, 1))), f.x), f.y);
+  }).setLayout({ name: "cordNoise", type: "float", inputs: [{ name: "p", type: "vec2" }] });
+  const cp = positionGeometry;
+  const around = atan(cp.z, cp.x.add(BLADE.width / 2)).div(6.2831853);
+  // Wraps of cloth, uneven, with years of brown handling stains.
+  const turns = cp.y.mul(55.0).add(around.mul(1.5)).add(cordNoise(vec2(around.mul(8.0), cp.y.mul(6.0))).mul(1.5));
+  const ridge = fract(turns).sub(0.5).abs().mul(2.0);
+  const stain = smoothstep(0.45, 0.8, cordNoise(vec2(around.mul(6.0), cp.y.mul(9.0))).mul(0.7).add(cordNoise(vec2(around.mul(25.0), cp.y.mul(40.0))).mul(0.3)));
+  const fleck = step(0.9, cordHash(floor(vec2(around.mul(160.0), cp.y.mul(260.0)))));
+  const wrapShade = float(1.0).sub(ridge.mul(ridge));
+  const cloth = mix(materialColor.mul(wrapShade.mul(0.16).add(0.84)), vec3(0.5, 0.38, 0.27), stain.mul(0.6).add(fleck.mul(0.35)));
+  // The dyed band ends along the wraps, a little ragged, as dyed thread would.
+  const bandEdge = cordNoise(vec2(around.mul(12.0), 4.0)).mul(0.012);
+  const gripLow = GRIP.y - GRIP.length / 2, gripHigh = GRIP.y + GRIP.length / 2;
+  const gripBand = smoothstep(gripLow - 0.004, gripLow + 0.004, cp.y.add(bandEdge)).mul(float(1.0).sub(smoothstep(gripHigh - 0.004, gripHigh + 0.004, cp.y.sub(bandEdge))));
+  const dyed = vec3(0.42, 0.07, 0.05).mul(wrapShade.mul(0.28).add(0.72)).mul(mix(1.0, 0.7, stain));
+  const cord = track(new THREE.MeshStandardNodeMaterial({ color: 0xdcd4c4, roughness: 0.9 }));
+  cord.colorNode = mix(cloth, dyed, gripBand);
+  cord.emissiveNode = materialEmissive.add(vec3(0.55, 0.1, 0.06).mul(gripGlow).mul(gripBand));
+  cord.normalNode = normalize(normalView.add(vec3(0.0, fract(cp.y.mul(55.0).add(atan(cp.z, cp.x).div(6.2831853).mul(1.5))).sub(0.5).mul(0.35), 0.0)));
   const handle = new THREE.Mesh(handleGeometry, cord);
   handle.castShadow = true;
   group.add(handle);
@@ -136,7 +115,7 @@ normal = normalize(normal + vec3(0.0, (fract(vCordPosition.y * 55.0 + atan(vCord
     // The top of the handle, in the knife's own space: the handle is where the knife is dragged.
     top: new THREE.Vector3(-BLADE.width / 2, base + HANDLE.length, 0),
     // 0..1: how lit the grip is (pressed).
-    set gripGlow(value) { gripUniforms.gripGlow.value = value * 0.5; },
+    set gripGlow(value) { gripGlow.value = value * 0.5; },
     // 0..1: how opaque the knife is (it fades while cutting, so the groove shows).
     set fade(value) {
       group.traverse((object) => {
@@ -148,7 +127,7 @@ normal = normalize(normal + vec3(0.0, (fract(vCordPosition.y * 55.0 + atan(vCord
       });
     },
     // 0..1: how much stone powder clings to the blade.
-    set dust(value) { uniforms.knifeDust.value = value; },
-    get dust() { return uniforms.knifeDust.value; },
+    set dust(value) { knifeDust.value = value; },
+    get dust() { return knifeDust.value; },
   };
 }

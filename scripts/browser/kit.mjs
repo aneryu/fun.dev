@@ -43,9 +43,38 @@ function glbFixture() {
   return Buffer.concat([header, chunkHeader(json.length, 0x4e4f534a), json, chunkHeader(bin.length, 0x004e4942), bin]);
 }
 
+// An uncompressed 2x2 RGBA8 KTX2 texture: enough to exercise kit/assets.js texture() on KTX2.
+function ktx2Fixture() {
+  const header = Buffer.alloc(104);
+  Buffer.from([0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a]).copy(header);
+  // vkFormat R8G8B8A8_UNORM, typeSize, width, height, depth, layers, faces, levels, supercompression
+  [37, 1, 2, 2, 0, 0, 1, 1, 0].forEach((value, i) => header.writeUInt32LE(value, 12 + i * 4));
+  const dfd = Buffer.alloc(92);
+  dfd.writeUInt32LE(92, 0);
+  dfd.writeUInt16LE(2, 8); // version
+  dfd.writeUInt16LE(88, 10); // block size: 24 + 4 samples
+  dfd.set([1, 1, 1, 0], 12); // RGBSDA, BT.709, linear, no flags
+  dfd[20] = 4; // bytes per plane
+  [0, 1, 2, 15].forEach((channel, i) => {
+    const offset = 28 + i * 16;
+    dfd.writeUInt16LE(i * 8, offset);
+    dfd[offset + 2] = 7;
+    dfd[offset + 3] = channel;
+    dfd.writeUInt32LE(255, offset + 12);
+  });
+  const data = Buffer.from([0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255]);
+  header.writeUInt32LE(104, 48); // DFD offset and length; no key/value or global data
+  header.writeUInt32LE(92, 52);
+  header.writeBigUInt64LE(196n, 80); // level 0
+  header.writeBigUInt64LE(16n, 88);
+  header.writeBigUInt64LE(16n, 96);
+  return Buffer.concat([header, dfd, data]);
+}
+
 export async function kitChecks({ browser, base }) {
   const context = await browser.newContext({ serviceWorkers: "block", viewport: { width: 800, height: 600 } });
   await context.route("**/kit-fixture/triangle.glb", (route) => route.fulfill({ body: glbFixture(), headers: { "content-type": "model/gltf-binary" } }));
+  await context.route("**/kit-fixture/green.ktx2", (route) => route.fulfill({ body: ktx2Fixture(), headers: { "content-type": "image/ktx2" } }));
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -141,7 +170,8 @@ export async function kitChecks({ browser, base }) {
   const loaded = await page.evaluate(async () => {
     const THREE = await import("/runtime/three.js");
     const { createAssets } = await import("/runtime/kit/assets.js");
-    const renderer = new THREE.WebGLRenderer({ canvas: document.createElement("canvas") });
+    const renderer = new THREE.WebGPURenderer({ canvas: document.createElement("canvas") });
+    await renderer.init();
     const tracked = [];
     const cleanups = [];
     const progress = [];
@@ -152,6 +182,7 @@ export async function kitChecks({ browser, base }) {
     });
     const gltf = await assets.gltf("triangle.glb");
     const mesh = gltf.scene.getObjectByProperty("type", "Mesh");
+    const ktx2Texture = await assets.texture("green.ktx2", { colorSpace: THREE.NoColorSpace });
     const { DRACOLoader } = await import("/runtime/addons/DRACOLoader.js");
     const draco = new DRACOLoader().setDecoderPath("/runtime/addons/draco/");
     const dracoError = await draco.decodeDracoFile(new ArrayBuffer(16), () => {}).then(() => "decoded", (error) => String(error?.message ?? error));
@@ -161,13 +192,51 @@ export async function kitChecks({ browser, base }) {
     await ktx2.init();
     ktx2.dispose();
     for (const cleanup of cleanups) cleanup();
-    return { image: mesh.material.map.image.width, tracked: tracked.length, progress: progress.at(-1), dracoError, violations: window.__violations };
+    const ktx2Pixel = [...(ktx2Texture.mipmaps?.[0]?.data ?? ktx2Texture.image.data).slice(0, 4)];
+    await renderer.dispose();
+    return { image: mesh.material.map.image.width, ktx2: [ktx2Texture.image.width, ...ktx2Pixel], ktx2Tracked: tracked.includes(ktx2Texture), tracked: tracked.length, progress: progress.at(-1), dracoError, violations: window.__violations };
   });
   assert.equal(loaded.image, 2, "embedded texture decoded");
-  assert.ok(loaded.tracked >= 3, "geometry, material and texture are tracked");
+  assert.deepEqual(loaded.ktx2, [2, 0, 255, 0, 255], "KTX2 texture loaded through texture()");
+  assert.ok(loaded.ktx2Tracked, "KTX2 texture is tracked");
+  assert.ok(loaded.tracked >= 4, "geometry, material and textures are tracked");
   assert.equal(loaded.progress, 1);
   assert.doesNotMatch(loaded.dracoError, /Content Security|Refused|worker/i);
   assert.deepEqual(loaded.violations, [], "the player CSP admits loader workers, WASM and blob images");
+
+  // post.js: AO and bloom on a RenderPipeline that the host draws instead of the plain render.
+  const post = await page.evaluate(async () => {
+    const THREE = await import("/runtime/three.js");
+    const { createPost } = await import("/runtime/kit/post.js");
+    const canvas = Object.assign(document.createElement("canvas"), { width: 64, height: 64 });
+    const renderer = new THREE.WebGPURenderer({ canvas });
+    await renderer.init();
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 10);
+    camera.position.z = 3;
+    scene.add(new THREE.Mesh(new THREE.SphereGeometry(0.4), new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffffff, emissiveIntensity: 4 })), new THREE.AmbientLight());
+    const pipelines = [], tracked = [];
+    const context = {
+      THREE, renderer, scene, camera, graphics: { backend: "webgpu", tier: "high" }, signal: new AbortController().signal,
+      track: (resource) => (tracked.push(resource), resource), runtime: (name) => import(`/runtime/${name}`), setRenderPipeline: (pipeline) => pipelines.push(pipeline),
+    };
+    const plain = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+    plain.canvas.width = plain.canvas.height = 64;
+    // Brightness just outside the sphere's edge: bloom spreads light there.
+    const halo = () => { plain.drawImage(canvas, 0, 0); return plain.getImageData(32, 6, 1, 1).data[0]; };
+    renderer.render(scene, camera);
+    const before = halo();
+    const effects = await createPost(context, { ao: true, bloom: { strength: 1.5, threshold: 0.5 }, grade: { saturation: 1.1 } });
+    for (let i = 0; i < 3; i++) pipelines.at(-1).render();
+    const after = halo();
+    effects.dispose();
+    for (const resource of tracked.reverse()) resource.dispose();
+    await renderer.dispose();
+    return { set: pipelines[0]?.isRenderPipeline === true, cleared: pipelines.at(-1) === null, ao: !!effects.ao, bloom: !!effects.bloom, before, after };
+  });
+  assert.ok(post.set && post.cleared, `post.js sets and clears the pipeline: ${JSON.stringify(post)}`);
+  assert.ok(post.ao && post.bloom, "AO runs on the high tier");
+  assert.ok(post.after > post.before + 10, `bloom brightens around a bright object: ${post.before} -> ${post.after}`);
 
   // vision.js: the platform's MediaPipe runtime and every listed model load under the player CSP.
   const vision = await page.evaluate(async () => {

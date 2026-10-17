@@ -43,31 +43,34 @@ function release(object) {
 export async function renderThumbnail(bytes, size = 512) {
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size;
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // The same engine as the games: WebGPU where available, otherwise its WebGL 2 backend.
+  const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
   renderer.setClearColor(BACKGROUND, 1);
   const { scene, camera } = stage();
   const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-  const gltf = await new GLTFLoader().parseAsync(buffer, "");
+  let gltf = null;
   try {
+    await renderer.init();
+    gltf = await new GLTFLoader().parseAsync(buffer, "");
     scene.add(gltf.scene);
     frame(camera, gltf.scene);
+    // Shaders compile before the frame that is read, so the render and the read share one task.
+    await renderer.compileAsync(scene, camera);
     renderer.render(scene, camera);
     const blob = await new Promise((done) => canvas.toBlob(done, "image/png"));
     return new Uint8Array(await blob.arrayBuffer());
   } finally {
-    release(gltf.scene);
-    renderer.dispose();
-    renderer.forceContextLoss();
+    release(gltf?.scene);
+    void renderer.dispose();
   }
 }
 
 // A turntable for one model: drag to turn, pinch or scroll to zoom. It renders only while
 // something moves, and turns by itself unless motion is reduced.
 export function createViewer(container) {
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  const renderer = new THREE.WebGPURenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const ready = renderer.init();
   container.append(renderer.domElement);
   const { scene, camera } = stage();
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -75,7 +78,8 @@ export function createViewer(container) {
   controls.autoRotate = !matchMedia("(prefers-reduced-motion: reduce)").matches;
   controls.autoRotateSpeed = 1.5;
   controls.addEventListener("start", () => { controls.autoRotate = false; });
-  let model = null, frameRequest = 0, disposed = false;
+  let model = null, frameRequest = 0, disposed = false, initialized = false;
+  ready.then(() => { initialized = true; request(); }, () => {});
 
   function resize() {
     const { width, height } = container.getBoundingClientRect();
@@ -86,7 +90,7 @@ export function createViewer(container) {
     request();
   }
   function request() {
-    if (!frameRequest && !disposed) frameRequest = requestAnimationFrame(render);
+    if (!frameRequest && !disposed && initialized) frameRequest = requestAnimationFrame(render);
   }
   function render() {
     frameRequest = 0;
@@ -101,7 +105,7 @@ export function createViewer(container) {
   return {
     /** Loads a GLB and frames it; resolves when it is shown. */
     async load(url) {
-      const gltf = await new GLTFLoader().loadAsync(url);
+      const [gltf] = await Promise.all([new GLTFLoader().loadAsync(url), ready]);
       if (disposed) { release(gltf.scene); return; }
       if (model) { scene.remove(model); release(model); }
       model = gltf.scene;
@@ -119,7 +123,7 @@ export function createViewer(container) {
       observer.disconnect();
       controls.dispose();
       release(model);
-      renderer.dispose();
+      void renderer.dispose();
       renderer.domElement.remove();
     },
   };

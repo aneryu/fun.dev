@@ -136,9 +136,14 @@ export async function playerChecks({ browser, base, dist }) {
     video.currentTime = 0.5;
     await new Promise((resolve) => { video.onseeked = resolve; });
     const canvas = Object.assign(document.createElement("canvas"), { width: video.videoWidth, height: video.videoHeight });
-    const context = canvas.getContext("2d");
-    context.drawImage(video, 0, 0);
+    const context = canvas.getContext("2d", { willReadFrequently: true });
     const pixel = (x, y) => [...context.getImageData(x, y, 1, 1).data.slice(0, 3)];
+    // A seeked WebM frame can reach the canvas a little after "seeked" under load: wait for one.
+    for (let tries = 0; tries < 40; tries++) {
+      context.drawImage(video, 0, 0);
+      if (pixel(360, 1100).some((value) => value > 0)) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     const save = document.querySelector("#record-save");
     return { width: video.videoWidth, height: video.videoHeight, centre: pixel(360, 640), badge: pixel(100, 100), border: pixel(26, 100), below: pixel(360, 1100), src: video.src.slice(0, 5), file: save.download, note: document.querySelector("#record-note").textContent };
   });
@@ -235,7 +240,7 @@ export async function playerChecks({ browser, base, dist }) {
   await device.close();
 
   // Catalog entries for another API version explain themselves instead of loading.
-  for (const [apiVersion, text] of [[3, "has been updated"], [1, "being updated"]]) {
+  for (const [apiVersion, text] of [[4, "has been updated"], [2, "being updated"]]) {
     const context = await browser.newContext({ serviceWorkers: "block" });
     const mismatch = await open(context, "", { apiVersion });
     await mismatch.waitForFunction((expected) => document.querySelector("#player-status").textContent.includes(expected), text);
