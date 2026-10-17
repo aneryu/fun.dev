@@ -14,10 +14,14 @@ uploading again is safe. Uploaded versions appear under **审核** as 待审.
 
 ## What to upload
 
-Single props (`type: "prop"`) and modular pieces (`type: "piece"`) only, not scenes, demos or
-assemblies; characters, creatures, animations and scenes follow later. One model is one GLB
-made to the production spec: metres, glTF +Y up, front +Z, root at the centre of the bounding
-box's floor, no external files.
+Single props (`type: "prop"`), modular pieces (`type: "piece"`) and humanoid characters
+(`type: "character"`), not scenes, demos or assemblies; creatures, animations and scenes follow
+later. One model is one GLB made to the production spec: metres, glTF +Y up, front +Z, root at
+the centre of the bounding box's floor, no external files.
+
+A character is rigged to the Mixamo skeleton in a T-pose and may carry a one-frame
+`pose_display` animation for the library's pictures; the exact rules are in
+[models](models.md#characters). The upload check lists anything that does not fit.
 
 ## Layout
 
@@ -53,7 +57,7 @@ is fine; several zips are merged):
 
 - `name` (required): short Chinese and English names as people say them, at most 100
   characters each, without numbers or production terms.
-- `type` (required): `prop` or `piece`. It cannot change once a version is approved.
+- `type` (required): `prop`, `piece` or `character`. It cannot change once a version is approved.
 - `description` (required): one or two sentences in Chinese and English, at most 300
   characters each: what it is, how it looks, where it fits. Game makers choose models by it.
 - `kit` (optional): only for models built to one set of dimensions so they fit together (a

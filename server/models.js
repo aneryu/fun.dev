@@ -1,5 +1,5 @@
-import { GLBError, glbStats, readGLB } from "./glb.js";
-import { cleanTags, LIMITS, MAX_FILE, PUBLIC_FILES, typeProblem, validDescription, validFile, validId, validKit, validName, validTags, VERSION } from "./model-rules.js";
+import { GLBError, glbSkeleton, glbStats, readGLB } from "./glb.js";
+import { characterProblems, cleanTags, DISPLAY_POSE, LIMITS, MAX_FILE, PUBLIC_FILES, typeProblem, validDescription, validFile, validId, validKit, validName, validTags, VERSION } from "./model-rules.js";
 
 // The model library (docs/models.md). D1 (MODELS_DB) is the one source of truth. Uploads put the
 // public files (model.glb, thumbnail.png, source.blend) straight into the game bucket
@@ -130,8 +130,13 @@ export async function putFile(env, id, version, file, bytes, claimed = null) {
   if (claimed !== null && !SHA.test(claimed)) fail("invalid_request", 400, "X-Content-SHA256 must be 64 lowercase hex digits");
   let stats = null;
   if (file === "model.glb") {
-    try { stats = { ...glbStats(readGLB(bytes)), bytes: bytes.length }; }
-    catch (error) { if (error instanceof GLBError) fail("invalid_glb", 422, error.message); throw error; }
+    try {
+      const json = readGLB(bytes);
+      stats = { ...glbStats(json), bytes: bytes.length };
+      // Skinned files are measured against the character rules; approving a character needs them met.
+      const skeleton = glbSkeleton(json);
+      if (skeleton) stats.character = { joints: skeleton.count, problems: characterProblems(json), display: skeleton.animations.includes(DISPLAY_POSE) };
+    } catch (error) { if (error instanceof GLBError) fail("invalid_glb", 422, error.message); throw error; }
   }
   const row = await ensureVersion(db, id, version, now, file);
   const sha256 = claimed ?? hex(await crypto.subtle.digest("SHA-256", bytes));
@@ -240,6 +245,12 @@ export async function approveVersion(env, id, version, { defer = false } = {}) {
   const row = await sql(db, "SELECT * FROM versions WHERE model=? AND version=?", id, version).first();
   if (!row) fail("not_found", 404);
   if (row.status !== "pending") fail("not_pending", 409, "only pending versions can be approved");
+  const { type } = await sql(db, "SELECT type FROM models WHERE id=?", id).first();
+  if (type === "character") {
+    const character = JSON.parse(row.stats ?? "{}").character;
+    if (!character) fail("not_a_character", 409, "a character needs a skinned mesh on the Mixamo skeleton");
+    if (character.problems.length) fail("not_a_character", 409, character.problems.join("; "));
+  }
   const now = Date.now();
   const result = await sql(db, "UPDATE versions SET status='approved',note=NULL,reviewed_at=?,updated_at=? WHERE model=? AND version=? AND status='pending' AND files=?", now, now, id, version, row.files).run();
   if (!result.meta.changes) fail("changed_file", 409, "the version changed during review; reload it");

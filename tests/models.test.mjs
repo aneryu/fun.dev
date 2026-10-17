@@ -1,9 +1,9 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { glbStats, readGLB } from "../server/glb.js";
-import { cleanTags, textWarnings } from "../server/model-rules.js";
-import { boxGLB, modelStack } from "./helpers/models.mjs";
+import { glbSkeleton, glbStats, readGLB } from "../server/glb.js";
+import { characterProblems, characterWarnings, cleanTags, inspectVersion, textWarnings } from "../server/model-rules.js";
+import { boxGLB, characterGLB, modelStack } from "./helpers/models.mjs";
 import { applyPlan, warningsOf } from "../scripts/models-admin.mjs";
 
 const stack = await modelStack();
@@ -20,6 +20,25 @@ test("GLB stats: size, bounds and triangles from accessor bounds and node transf
   assert.throws(() => readGLB(new TextEncoder().encode("not a glb at all, really")), /not a GLB/);
   assert.throws(() => readGLB(boxGLB({ extra: { buffers: [{ byteLength: 120, uri: "box.bin" }] } })), /embedded/);
   assert.throws(() => readGLB(boxGLB({ extra: { extensionsRequired: ["EXT_meshopt_compression"] } })), /unsupported/);
+});
+
+test("characters: the Mixamo skeleton in a T-pose facing +z, four influences, a display pose", () => {
+  const skeleton = glbSkeleton(readGLB(characterGLB()));
+  assert.equal(skeleton.count, 22);
+  assert.deepEqual(skeleton.joints.LeftHand, [0.7, 1.45, 0]);
+  assert.deepEqual(skeleton.animations, ["pose_display"]);
+  assert.deepEqual(characterProblems(readGLB(characterGLB())), []);
+  assert.deepEqual(characterProblems(readGLB(characterGLB({ prefix: "mixamorig" }))), [], "three.js-style names without the colon");
+  assert.equal(glbSkeleton(readGLB(boxGLB())), null);
+  assert.match(characterProblems(readGLB(boxGLB()))[0], /skinned mesh/);
+  assert.match(characterProblems(readGLB(characterGLB({ prefix: "" }))).join(), /Mixamo names/);
+  assert.match(characterProblems(readGLB(characterGLB({ drop: ["LeftToeBase"] }))).join(), /lacks LeftToeBase/);
+  assert.match(characterProblems(readGLB(characterGLB({ more: true }))).join(), /4 joint influences/);
+  assert.match(characterProblems(readGLB(characterGLB({ arms: -1 }))).join(), /T-pose facing \+z/, "facing -z puts the left hand at -x");
+  assert.deepEqual(characterWarnings(readGLB(characterGLB({ pose: false }))), ["no pose_display animation: pages show the T-pose"]);
+  const meta = JSON.stringify({ name: { zh: "通勤男子", en: "Commuter" }, type: "character", description: { zh: "穿蓝衬衫的上班族。", en: "An office worker in a blue shirt." } });
+  assert.deepEqual(inspectVersion({ id: "commuter_01", version: "v001", meta, files: [{ name: "model.glb", bytes: characterGLB() }] }).problems, []);
+  assert.match(inspectVersion({ id: "commuter_01", version: "v001", meta, files: [{ name: "model.glb", bytes: boxGLB() }] }).problems.join(), /skinned mesh/);
 });
 
 test("tags that say nothing are dropped, and production jargon in names and descriptions is flagged", () => {
@@ -39,9 +58,9 @@ test("uploads need valid addresses, metadata and GLBs", async () => {
   const noDescription = await (await stack.upload("desk_chair_01/v001", metadata("书椅", { description: undefined }), { type: "application/json" })).json();
   assert.equal(noDescription.error, "invalid_metadata");
   const noType = await (await stack.upload("desk_chair_01/v001", metadata("书椅", { type: undefined }), { type: "application/json" })).json();
-  assert.deepEqual([noType.error, noType.detail], ["invalid_metadata", "type must be one of prop, piece"]);
-  const planned = await (await stack.upload("desk_chair_01/v001", metadata("书椅", { type: "character" }), { type: "application/json" })).json();
-  assert.equal(planned.detail, "type character is planned but not accepted yet");
+  assert.deepEqual([noType.error, noType.detail], ["invalid_metadata", "type must be one of prop, piece, character"]);
+  const planned = await (await stack.upload("desk_chair_01/v001", metadata("书椅", { type: "creature" }), { type: "application/json" })).json();
+  assert.equal(planned.detail, "type creature is planned but not accepted yet");
   assert.equal((await (await stack.upload("desk_chair_01/v001", undefined, { method: "GET" })).json()).status, "new");
 });
 
@@ -224,4 +243,19 @@ test("the console accepts only a valid Access token for the owner, and same-orig
   assert.equal((await stack.console("/api/upload/never_seen_01/v001", { method: "PUT", body: { name: { zh: "新", en: "New" }, type: "prop" }, headers: { "X-Fun-Console": "" } })).status, 403);
   assert.equal((await stack.console("/api/models/desk_chair_01", { method: "PATCH", body: { listed: true }, headers: { "X-Fun-Console": "" } })).status, 403);
   assert.equal((await stack.console("/api/models/desk_chair_01", { method: "PATCH", body: { listed: true }, headers: { "Sec-Fetch-Site": "cross-site" } })).status, 403);
+});
+
+test("a character is approved only when its GLB meets the character rules", async () => {
+  const meta = (extra = {}) => JSON.stringify({ name: { zh: "通勤男子", en: "Commuter" }, type: "character", description: { zh: "穿蓝衬衫的上班族。", en: "An office worker in a blue shirt." }, ...extra });
+  await stack.upload("commuter_01/v001", meta(), { type: "application/json" });
+  let status = await (await stack.upload("commuter_01/v001/model.glb", boxGLB({ size: [0.5, 1.7, 0.3] }))).json();
+  assert.equal(status.status, "pending");
+  let refused = await (await stack.console("/api/models/commuter_01/v001/approve", { method: "POST", body: {} })).json();
+  assert.equal(refused.error, "not_a_character");
+  status = await (await stack.upload("commuter_01/v002/model.glb", characterGLB({ arms: -1 }))).json();
+  assert.match(status.stats.character.problems.join(), /T-pose/);
+  status = await (await stack.upload("commuter_01/v003/model.glb", characterGLB())).json();
+  assert.deepEqual(status.stats.character, { joints: 22, problems: [], display: true });
+  assert.deepEqual(warningsOf({ ...status, id: "commuter_01", version: "v003", type: "character", description: {}, files: { ...status.files, "thumbnail.png": {} } }), []);
+  assert.equal((await stack.console("/api/models/commuter_01/v003/approve", { method: "POST", body: {} })).status, 200);
 });

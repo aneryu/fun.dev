@@ -33,6 +33,23 @@ export function boxGLB({ size = [1, 1, 1], lift = 0, extra = {} } = {}) {
   return out;
 }
 
+// A box GLB skinned to a Mixamo skeleton (joint positions only; the checks read the JSON). The
+// T-pose faces +Z unless `arms` points the left arm elsewhere; `prefix` names the joints.
+export function characterGLB({ prefix = "mixamorig:", arms = 1, drop = [], more = false, pose = true } = {}) {
+  const joints = { Hips: [0, 1, 0], Spine: [0, 1.1, 0], Spine1: [0, 1.2, 0], Spine2: [0, 1.3, 0], Neck: [0, 1.5, 0], Head: [0, 1.6, 0] };
+  for (const [side, sign] of [["Left", arms], ["Right", -arms]]) {
+    Object.assign(joints, { [side + "Shoulder"]: [sign * 0.05, 1.45, 0], [side + "Arm"]: [sign * 0.18, 1.45, 0], [side + "ForeArm"]: [sign * 0.45, 1.45, 0],
+      [side + "Hand"]: [sign * 0.7, 1.45, 0], [side + "UpLeg"]: [sign * 0.1, 0.95, 0], [side + "Leg"]: [sign * 0.1, 0.5, 0], [side + "Foot"]: [sign * 0.1, 0.08, 0], [side + "ToeBase"]: [sign * 0.1, 0.02, 0.1] });
+  }
+  const names = Object.keys(joints).filter((name) => !drop.includes(name));
+  const nodes = [{ mesh: 0, skin: 0 }, ...names.map((name) => ({ name: prefix + name, translation: joints[name] }))];
+  const glb = boxGLB({ size: [0.5, 1.7, 0.3] });
+  const length = new DataView(glb.buffer).getUint32(12, true);
+  const gltf = JSON.parse(new TextDecoder().decode(glb.subarray(20, 20 + length)));
+  if (more) gltf.meshes[0].primitives[0].attributes.JOINTS_1 = 0;
+  return boxGLB({ size: [0.5, 1.7, 0.3], extra: { nodes, meshes: gltf.meshes, skins: [{ joints: names.map((_, index) => index + 1) }], ...(pose ? { animations: [{ name: "pose_display", channels: [], samplers: [] }] } : {}) } });
+}
+
 // The console Worker (console.fun.dev) over one local D1 and two local R2 buckets. Requests carry
 // a JWT signed by a test Access key.
 export async function modelStack() {

@@ -29,6 +29,23 @@ function frame(camera, object) {
   return { center, radius, distance };
 }
 
+// Characters carry a one-frame `pose_display` clip (docs/models.md); the library shows it instead
+// of the T-pose they are rigged in. Bounds are measured on the posed skin.
+function pose(gltf) {
+  const clip = gltf.animations.find((item) => item.name === "pose_display");
+  if (!clip) return;
+  const mixer = new THREE.AnimationMixer(gltf.scene);
+  mixer.clipAction(clip).play();
+  mixer.update(0);
+  gltf.scene.updateMatrixWorld(true);
+  gltf.scene.traverse((node) => {
+    if (!node.isSkinnedMesh) return;
+    node.skeleton.update();
+    node.computeBoundingBox();
+    node.computeBoundingSphere();
+  });
+}
+
 function release(object) {
   object?.traverse((node) => {
     node.geometry?.dispose();
@@ -52,6 +69,7 @@ export async function renderThumbnail(bytes, size = 512) {
   try {
     await renderer.init();
     gltf = await new GLTFLoader().parseAsync(buffer, "");
+    pose(gltf);
     scene.add(gltf.scene);
     frame(camera, gltf.scene);
     // Shaders compile before the frame that is read, so the render and the read share one task.
@@ -108,6 +126,7 @@ export function createViewer(container) {
       const [gltf] = await Promise.all([new GLTFLoader().loadAsync(url), ready]);
       if (disposed) { release(gltf.scene); return; }
       if (model) { scene.remove(model); release(model); }
+      pose(gltf);
       model = gltf.scene;
       scene.add(model);
       const { center, radius, distance } = frame(camera, model);

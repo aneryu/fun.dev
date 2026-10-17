@@ -32,6 +32,13 @@ function warnings(stats, item = {}) {
     if (Math.abs(center) > 0.01) list.push(`${axis} 方向中心偏移 ${center.toFixed(3)} m`);
   }
   if (stats.triangles > 50000) list.push(`${stats.triangles} 个三角形，偏多`);
+  if (item.type === "character" || stats.character) {
+    if (!stats.character) list.push("人物需要绑定在 Mixamo 骨骼上的蒙皮网格");
+    else {
+      for (const problem of stats.character.problems) list.push(`人物不合规：${problem}`);
+      if (!stats.character.display) list.push("没有 pose_display 展示姿势，页面会显示 T 字姿势");
+    }
+  }
   return list;
 }
 const STATUS = { incomplete: "未传完", pending: "待审", approved: "已通过", rejected: "已退回" };
@@ -232,7 +239,7 @@ async function showModel(id, version) {
     ["GLB", stats ? `${Math.round(stats.bytes / 1024)} KB` : "—"],
     ["更新", new Date(entry.updated).toLocaleString("zh-CN")],
   ].map(([term, value]) => element("div", {}, element("dt", { textContent: term }), element("dd", { textContent: String(value) }))));
-  $("#warnings").replaceChildren(...warnings(stats).map((text) => element("li", { textContent: text })));
+  $("#warnings").replaceChildren(...warnings(stats, { type: model.type }).map((text) => element("li", { textContent: text })));
   $("#note").hidden = !entry.note;
   $("#note").textContent = entry.note ? `退回原因：${entry.note}` : "";
   $("#files").replaceChildren(...Object.entries(entry.files).map(([name, info]) =>

@@ -1,4 +1,4 @@
-import { GLBError, glbStats, readGLB } from "./glb.js";
+import { GLBError, glbSkeleton, glbStats, readGLB } from "./glb.js";
 
 // Rules for library uploads (docs/models-upload.md), shared by the console Worker and its upload
 // page and the upload tool, so a local check and the server agree.
@@ -6,9 +6,9 @@ export const ID = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
 export const VERSION = /^v\d{3}$/;
 export const FILE = /^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9_-]+)*$/;
 const TAG = /^[a-z0-9][a-z0-9_-]{0,31}$/;
-// Categories (docs/models.md). Only the static ones are accepted so far; the others are planned.
+// Categories (docs/models.md). Props, pieces and characters are accepted; the others are planned.
 export const MODEL_TYPES = ["prop", "piece", "character", "creature", "animation", "scene", "world"];
-export const SUPPORTED_TYPES = ["prop", "piece"];
+export const SUPPORTED_TYPES = ["prop", "piece", "character"];
 // Stored at upload in the public content-addressed store (docs/models.md); listing a version is
 // what makes them part of the library. thumbnail.png is rendered by the upload page. Everything
 // else (preview.png, qa.json, readme.md) stays private, for review only.
@@ -31,7 +31,7 @@ export function validName(value) {
 export function validKit(value) { return value === null || value === undefined || (typeof value === "string" && value.length <= 64 && ID.test(value)); }
 export function validTags(value) { return value === undefined || (Array.isArray(value) && value.length <= 20 && value.every((tag) => typeof tag === "string" && TAG.test(tag))); }
 // Tags every model would have, or that repeat the type or kit, say nothing; uploads drop them.
-export const NOISE_TAGS = new Set(["low-poly", "lowpoly", "static", "modular", "architecture", "standalone", "nonfunctional", "empty", "prop", "piece"]);
+export const NOISE_TAGS = new Set(["low-poly", "lowpoly", "static", "modular", "architecture", "standalone", "nonfunctional", "empty", "prop", "piece", "character", "rigged", "mixamo"]);
 export function cleanTags(tags = [], { type, kit } = {}) {
   return [...new Set(tags)].filter((tag) => !NOISE_TAGS.has(tag) && tag !== type && tag !== kit);
 }
@@ -51,6 +51,46 @@ export const textWarnings = (meta) => textIssues(meta).map((field) => TEXT_WARNI
 export function typeProblem(value) {
   if (SUPPORTED_TYPES.includes(value)) return null;
   return MODEL_TYPES.includes(value) ? `type ${value} is planned but not accepted yet` : `type must be one of ${SUPPORTED_TYPES.join(", ")}`;
+}
+
+// Characters (docs/models.md): the Mixamo skeleton, so any clip for it plays on any character.
+export const CHARACTER_BONES = ["Hips", "Spine", "Spine1", "Spine2", "Neck", "Head",
+  ...["Left", "Right"].flatMap((side) => ["Shoulder", "Arm", "ForeArm", "Hand", "UpLeg", "Leg", "Foot", "ToeBase"].map((bone) => side + bone))];
+export const CHARACTER_LIMITS = { joints: 64 };
+export const DISPLAY_POSE = "pose_display";
+
+/** Why a GLB is not a library character (empty when it is one). `json` is the parsed glTF. */
+export function characterProblems(json) {
+  const skeleton = glbSkeleton(json);
+  if (!skeleton) return ["a character needs a skinned mesh on the Mixamo skeleton"];
+  const problems = [];
+  if (!skeleton.mixamo) problems.push("joints need Mixamo names (mixamorig:Hips, mixamorig:Spine, …)");
+  const missing = CHARACTER_BONES.filter((bone) => !skeleton.joints[bone]);
+  if (missing.length) problems.push(`the skeleton lacks ${missing.join(", ")}`);
+  if (skeleton.count > CHARACTER_LIMITS.joints) problems.push(`${skeleton.count} joints; at most ${CHARACTER_LIMITS.joints}`);
+  if (skeleton.moreInfluences) problems.push("at most 4 joint influences per vertex (no JOINTS_1)");
+  if (!missing.length) {
+    // Rest pose: a T-pose facing +Z, so the character's left hand is out at +x, level with the shoulder.
+    for (const [side, sign] of [["Left", 1], ["Right", -1]]) {
+      const arm = skeleton.joints[side + "Arm"], hand = skeleton.joints[side + "Hand"];
+      const out = (hand[0] - arm[0]) * sign, length = Math.hypot(hand[0] - arm[0], hand[1] - arm[1], hand[2] - arm[2]);
+      if (out < 0.8 * length) problems.push(`the rest pose must be a T-pose facing +z (the ${side.toLowerCase()} arm does not point to ${sign > 0 ? "+" : "-"}x)`);
+    }
+  }
+  return problems;
+}
+
+/** Character notes that do not block: the display pose used by thumbnails and pages. */
+export function characterWarnings(json) {
+  const skeleton = glbSkeleton(json);
+  return skeleton && !skeleton.animations.includes(DISPLAY_POSE) ? [`no ${DISPLAY_POSE} animation: pages show the T-pose`] : [];
+}
+
+/** Review notes on a character version from its stored stats (problems block approval). */
+export function characterStatsWarnings(type, stats) {
+  if (type !== "character" || !stats) return [];
+  if (!stats.character) return ["a character needs a skinned mesh on the Mixamo skeleton"];
+  return [...stats.character.problems, ...(stats.character.display ? [] : [`no ${DISPLAY_POSE} animation: pages show the T-pose`])];
 }
 
 /** The production spec's placement: standing on y = 0, centred on x and z. */
@@ -94,11 +134,18 @@ export function inspectVersion({ id, version, meta, files }) {
     else accepted.push(file);
   }
   let stats = null;
+  const extra = [];
   const glb = files.find((file) => file.name === "model.glb");
   if (!glb) problems.push("model.glb is missing");
   else {
-    try { stats = glbStats(readGLB(glb.bytes)); }
-    catch (error) { if (error instanceof GLBError) problems.push(`model.glb: ${error.message}`); else throw error; }
+    try {
+      const json = readGLB(glb.bytes);
+      stats = glbStats(json);
+      if (data?.type === "character") {
+        problems.push(...characterProblems(json).map((problem) => `model.glb: ${problem}`));
+        extra.push(...characterWarnings(json));
+      }
+    } catch (error) { if (error instanceof GLBError) problems.push(`model.glb: ${error.message}`); else throw error; }
   }
   for (const name of ["thumbnail.png", "preview.png"]) {
     const image = files.find((file) => file.name === name);
@@ -106,5 +153,5 @@ export function inspectVersion({ id, version, meta, files }) {
   }
   // The upload page renders thumbnail.png when the browser can; otherwise review adds it.
   const later = files.some((file) => file.name === "thumbnail.png") ? [] : ["no thumbnail yet: it is rendered during review"];
-  return { meta: data, files: accepted, stats, problems, warnings: [...(stats ? placementWarnings(stats) : []), ...textWarnings(data ?? {}), ...later] };
+  return { meta: data, files: accepted, stats, problems, warnings: [...(stats ? placementWarnings(stats) : []), ...extra, ...textWarnings(data ?? {}), ...later] };
 }

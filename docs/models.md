@@ -21,7 +21,7 @@ through the same server functions, whether from the console or the maintenance s
 
 ## Contents
 
-Every model has a `type`. Only `prop` and `piece` are accepted so far; the others are decided
+Every model has a `type`. `prop`, `piece` and `character` are accepted; the others are decided
 below and implemented when the first one is uploaded. Models made for one game stay in that
 game's `assets/`.
 
@@ -29,7 +29,7 @@ game's `assets/`.
 | --- | --- | --- |
 | `prop` | a single object | `model.glb` |
 | `piece` | a modular building piece (wall, road, stair) | `model.glb` |
-| `character` | a humanoid on the shared skeleton | `model.glb` (planned) |
+| `character` | a humanoid on the shared skeleton (人物库: `/models?type=character`) | `model.glb` |
 | `creature` | a non-humanoid with its own skeleton | `model.glb` (planned) |
 | `animation` | CC0 clips for the shared skeleton, no mesh | `model.glb` (planned) |
 | `scene` | a composition of library models | `scene.json` (planned) |
@@ -41,12 +41,28 @@ game's `assets/`.
 - The type is set at upload and can be corrected in review until a version is approved; after
   that it is fixed, because games may rely on it.
 
-### Characters, creatures and animations (planned)
+### Characters
 
-- Humanoid characters are made by the pipeline and rigged to a Mixamo-compatible skeleton
-  (`mixamorig:*` bone names and hierarchy), so any clip for that skeleton plays on any character.
-  Rest pose, bone and weight limits for phones (at most 64 bones, 4 influences per vertex) and a
-  triangle budget are fixed when the first character is made.
+Humanoid characters are rigged to the Mixamo skeleton, so any clip for that skeleton plays on
+any character unchanged. Fixed with the first two (2026-10-18):
+
+- One skinned mesh on joints named `mixamorig:<Bone>` with Mixamo's hierarchy and bone axes;
+  at least the 22 body bones (`Hips`, `Spine`, `Spine1`, `Spine2`, `Neck`, `Head`, and per side
+  `Shoulder`, `Arm`, `ForeArm`, `Hand`, `UpLeg`, `Leg`, `Foot`, `ToeBase`), fingers optional; at
+  most 64 joints and 4 influences per vertex.
+- Rest pose: a T-pose facing +Z (the character's left hand out at +X), standing on the floor at
+  the origin, in real size. Upload and approval check this.
+- A single-frame animation `pose_display` (arms relaxed) is what pages, the console and
+  thumbnails show; without it they show the T-pose (a review warning). Games ignore it and play
+  their own clips.
+- No triangle budget (the file limit of 10 MB applies). Textures are baked into the GLB.
+
+How the first ones were made (concept sheet → Codex turnaround images → Tripo model and rig →
+Mixamo skeleton in Blender, head regenerated separately): `dev/characters/real/README.md` on the
+`archive/realistic-characters` branch.
+
+### Creatures and animations (planned)
+
 - Mixamo's own characters and animations are not in the library: its terms allow use inside a
   project but not redistribution as assets. A game that uses Mixamo clips keeps them in its own
   `assets/`. Shared `animation` entries are CC0 only (for example Quaternius UAL clips retargeted to

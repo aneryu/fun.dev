@@ -46,6 +46,39 @@ function local(node) {
 }
 const round = (value) => Math.round(value * 1e4) / 1e4;
 
+// Mixamo joint names with or without the "mixamorig:" prefix (three.js drops the colon).
+const MIXAMO = /^mixamorig:?/;
+
+/**
+ * The skeleton of a skinned GLB, for the character rules: joint names without the Mixamo prefix,
+ * each joint's rest position (world, metres), whether any vertex has more than four influences, and
+ * the animation names. Null when the file has no skin.
+ */
+export function glbSkeleton(json) {
+  const skin = json.skins?.[0];
+  if (!skin) return null;
+  const parent = new Map();
+  for (const [index, node] of (json.nodes ?? []).entries()) for (const child of node.children ?? []) parent.set(child, index);
+  const worldOf = (index, depth = 0) => {
+    if (depth > 64) throw new GLBError("the node hierarchy is invalid");
+    const node = json.nodes?.[index];
+    if (!node) throw new GLBError("the node hierarchy is invalid");
+    return parent.has(index) ? multiply(worldOf(parent.get(index), depth + 1), local(node)) : local(node);
+  };
+  const joints = {};
+  for (const index of skin.joints ?? []) {
+    const world = worldOf(index);
+    joints[String(json.nodes[index].name ?? index).replace(MIXAMO, "")] = [world[12], world[13], world[14]].map(round);
+  }
+  return {
+    count: (skin.joints ?? []).length,
+    mixamo: (skin.joints ?? []).every((index) => MIXAMO.test(json.nodes[index].name ?? "")),
+    joints,
+    moreInfluences: (json.meshes ?? []).some((mesh) => mesh.primitives.some((primitive) => primitive.attributes?.JOINTS_1 !== undefined)),
+    animations: (json.animations ?? []).map((animation) => animation.name ?? ""),
+  };
+}
+
 /** Size, bounds (metres, glTF axes: x width, y height, z depth) and triangles of the default scene. */
 export function glbStats(json) {
   const scene = json.scenes?.[json.scene ?? 0];
