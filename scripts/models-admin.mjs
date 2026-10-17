@@ -2,7 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { placementWarnings, textWarnings } from "../server/model-rules.js";
-import { approveVersion, blobKey, editModel, getModel, listVersions, publish, publishedIds, putFile, putKit, rejectVersion, sourceKey } from "../server/models.js";
+import { approveVersion, blobKey, eachLimited, editModel, listVersions, publish, publishedIds, putFile, putKit, rejectVersion, sourceKey } from "../server/models.js";
 
 // Maintenance for the model library (docs/models.md), run by the maintainer: the console's own
 // functions against the live database and storage, through Wrangler's remote bindings
@@ -48,13 +48,13 @@ export async function applyPlan(env, plan, { dryRun = false, log = console.log }
     const [id, version] = value.split("/");
     if (await attempt(`reject ${value}`, () => rejectVersion(env.MODELS_DB, id, version, note))) report.rejected.push(value);
   }
-  for (const value of plan.approve ?? []) {
+  await eachLimited(plan.approve ?? [], 6, async (value) => {
     const [id, version] = value.split("/");
     if (await attempt(`approve ${value}`, async () => { await approveVersion(env, id, version, { defer: true }); touched.add(id); })) report.approved.push(value);
-  }
+  });
   // Only models with an approved version have public pages.
-  const published = [];
-  for (const id of touched) if ((await getModel(env.MODELS_DB, id).catch(() => null))?.versions.some((version) => version.status === "approved")) published.push(id);
+  const approved = new Set(await publishedIds(env.MODELS_DB));
+  const published = [...touched].filter((id) => approved.has(id));
   if (!dryRun && published.length) report.listed = await publish(env, published);
   return report;
 }

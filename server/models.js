@@ -302,9 +302,15 @@ export async function writeIndexes(env) {
   return results.length;
 }
 
+/** Runs task on every item, a few at a time (each page is two queries and a write; reviews list hundreds). */
+export async function eachLimited(items, limit, task) {
+  const queue = [...items];
+  await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, async () => { while (queue.length) await task(queue.shift()); }));
+}
+
 /** Rewrites the given models' pages and the indexes, as part of the change that needs it. */
 export async function publish(env, ids = []) {
-  for (const id of new Set(ids)) await writeDetail(env, id);
+  await eachLimited(new Set(ids), 6, (id) => writeDetail(env, id));
   return writeIndexes(env);
 }
 
