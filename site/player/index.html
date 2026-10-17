@@ -16,8 +16,8 @@
     <title>开玩 — fun.dev</title>
   </head>
   <body class="player-page">
-    <!-- One menu on every screen: the game's controls and the language. On phones the header
-         (site link, back link, title) moves into it too and the game fills the viewport. -->
+    <!-- One menu on every screen: the game's controls, the language and the header (site link,
+         back link, title), which moves into it; the game fills the viewport. -->
     <button class="player-menu-toggle" id="menu-toggle" type="button" aria-haspopup="dialog" aria-controls="controls-dialog" aria-label="游戏菜单" data-i18n-aria="menu"><span aria-hidden="true">☰</span></button>
     <dialog id="controls-dialog" class="controls-dialog" aria-labelledby="controls-title">
       <div class="controls-heading"><h2 id="controls-title" data-i18n="controls">游戏控制</h2><select class="language-toggle" id="language-toggle" aria-label="语言" data-i18n-aria="language"><option value="auto" data-i18n="languageAuto">自动</option><option value="zh" lang="zh-CN">中文</option><option value="en" lang="en">English</option></select><button id="close-controls" class="close-controls" type="button" autofocus aria-label="关闭菜单" data-i18n-aria="closeMenu">×</button></div>

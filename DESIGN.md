@@ -91,7 +91,7 @@ Only include short game descriptions, instructions, and necessary status text.
 Use Duck Brown for secondary text. All interface copy supports Chinese and
 English; keep `fun.dev` unchanged. Detect the browser language automatically;
 keep the optional Auto/中文/English selector small and borderless at the right of the lobby
-header and inside the mobile player menu. Preserve its 44px touch area and focus outline.
+header and inside the player menu. Preserve its 44px touch area and focus outline.
 
 ### Model library
 
@@ -119,11 +119,11 @@ supported), My progress, options, share, record video (games that allow it) and 
 language. Opening it pauses the game. While recording, an ink stop button with a
 blinking Beak Orange dot and the elapsed time sits beside the menu button; the finished
 clip opens in a dialog styled like Options.
-On phones and tablets the game fills the available dynamic viewport, the menu button
-floats at the top left and the site link, back link and title move into the menu;
-respect display cutouts and safe areas in both orientations. Desktop keeps a slim
-yellow header (wordmark, back link, title, menu button at the right) and no footer;
-short action messages show briefly over the bottom of the game. Wooden Fish
+On every screen the page gives way to the game: the game fills the available dynamic
+viewport, the menu button floats at the top left and the site link, back link and title
+live in the menu; respect display cutouts and safe areas in both orientations. Short
+action messages show briefly over the bottom of the game. Orientation prompts apply to
+phones and small windows only. Wooden Fish
 (敲木鱼) uses the yellow canvas, brown wood, and simple dark text without neon effects.
 All of it stays keyboard accessible, including the return to the lobby.
 Loading, pause, and error messages are plain text in a high-contrast inset.

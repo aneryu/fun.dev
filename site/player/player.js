@@ -34,6 +34,7 @@ const optionsDialog = $("#options-dialog");
 const loadingBar = $("#player-loading");
 const announcer = $("#game-announcer");
 const header = $(".player-header");
+// Phones and small windows: where orientation prompts apply. The layout is the same everywhere.
 const compact = window.matchMedia("(max-width: 64rem), (pointer: coarse)");
 const portrait = window.matchMedia("(orientation: portrait)");
 const debug = new URLSearchParams(window.location.search).get("debug") === "1";
@@ -179,8 +180,8 @@ function safeArea(rect) {
     bottom: parseFloat(probe.paddingBottom) - (window.innerHeight - rect.bottom),
     left: parseFloat(probe.paddingLeft) - rect.left,
   };
-  // On phones the menu button floats over the game's top-left corner.
-  if (compact.matches) insets.top = Math.max(insets.top, menuToggle.getBoundingClientRect().bottom - rect.top + 8);
+  // The menu button floats over the game's top-left corner.
+  insets.top = Math.max(insets.top, menuToggle.getBoundingClientRect().bottom - rect.top + 8);
   return insets;
 }
 
@@ -204,11 +205,10 @@ document.addEventListener("close", (event) => {
 }, true);
 function adaptControls() {
   closeMenu();
-  if (compact.matches) menu.insertBefore(header, $("#player-controls"));
-  else document.body.insertBefore(header, $("#player"));
   renderText();
   syncPause();
 }
+menu.insertBefore(header, $("#player-controls"));
 compact.addEventListener("change", adaptControls);
 portrait.addEventListener("change", () => { renderText(); syncPause(); });
 adaptControls();
