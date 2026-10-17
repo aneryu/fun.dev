@@ -161,6 +161,7 @@ npm run models -- sheet [status]            # contact sheets in test-results/mod
 npm run models -- thumbnails [status] [--all]   # render missing (or all) thumbnails
 npm run models -- apply plan.json [--dry-run]
 npm run models -- rebuild                   # rewrite every page and the indexes
+npm run models -- upload <folder>           # upload <id>/<version>/ folders, with the console's checks
 ```
 
 `list`, `sheet` and `thumbnails` also take `--only id,id` to look at some models only.
