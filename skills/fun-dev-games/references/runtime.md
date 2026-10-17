@@ -98,6 +98,11 @@ player caches it with the game. Do not list `models/` in `files`. Every model us
 glTF +Y up, front facing +Z, and its origin at the centre of the bottom, so it stands on
 y = 0 where it is placed. To use a newer version, change the version and release again.
 
+Props can be scaled to vary their size (rocks, trees, rugs); kit pieces keep theirs so they meet
+on the kit's grid. Many models name their main colour material `mat_body`: clone it and set its
+colour to recolour one instance. Moving parts (wheels, doors, lids) are separate named nodes with
+their origins on the hinge or axle; the description says how far they move.
+
 ## Options
 
 Export `options` beside `createGame`: items `{ id, section: "settings"|"cheats",
