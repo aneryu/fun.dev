@@ -108,8 +108,11 @@ test("source origin configuration rejects URL injection and local endpoints", ()
   for(const value of ["http://games.example.com","https://x.example.com/a","https://user@x.example.com","https://127.0.0.1","https://x.localhost","https://x.example.com:443/a","https://x.example.com?q=1"]) assert.throws(()=>gameOrigin(value));
 });
 test("local game sources build an unhashed preview catalog and require matching directory IDs", async () => {
-  const [release] = await loadLocalGames();
-  assert.equal(release.game.id, "muyu");
+  const releases = await loadLocalGames();
+  const ids = releases.map((entry) => entry.game.id);
+  assert.deepEqual(ids, [...ids].sort(), "sorted by ID");
+  const release = releases.find((entry) => entry.game.id === "muyu");
+  assert.ok(release);
   assert.ok(release.assets.every((asset) => !/^(?:dev\/|package\.json|README\.md)/.test(asset.path)));
   assert.equal(localCatalog([release])[0].release, undefined);
   const dir = await mkdtemp(join(tmpdir(), "fundev-games-"));
