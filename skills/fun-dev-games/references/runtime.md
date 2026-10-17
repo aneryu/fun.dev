@@ -120,7 +120,7 @@ CanvasTexture text; `createHudLayer`, CSS-pixel HUD with safe-area corners),
 `kit/loop.js` (`createFixedStep`), `kit/vision.js` (MediaPipe: `load()`, `fileset`,
 `model(name)`), `kit/assets.js` (`createAssets(context)` for
 JSON, textures, glTF with Draco/KTX2), `kit/random.js` (`createRandom`,
-`dailySeed`), and `addons/GLTFLoader.js`, `DRACOLoader.js`, `KTX2Loader.js`. Do not
+`dailySeed`), and `addons/GLTFLoader.js`, `DRACOLoader.js`, `KTX2Loader.js`, `MeshoptDecoder.js`. Do not
 bundle these or import `/runtime/...` URLs directly: bundles load from the game
 origin. The starter in `assets/game.js` uses `kit/text.js`.
 

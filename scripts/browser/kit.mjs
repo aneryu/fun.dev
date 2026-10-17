@@ -166,7 +166,7 @@ export async function kitChecks({ browser, base }) {
   assert.ok(stick.x > 0.95 && Math.abs(stick.y) < 0.05, `joystick pushes right: ${JSON.stringify(stick)}`);
   assert.deepEqual(await page.evaluate(() => { window.__actions.poll(); return window.__actions.axis("move"); }), { x: 0, y: 0 });
 
-  // assets.js + addons: embedded-texture GLB, plus Draco/KTX2 decoders (Blob workers and WASM).
+  // assets.js + addons: embedded-texture GLB, plus Draco/KTX2/meshopt decoders (Blob workers and WASM).
   const loaded = await page.evaluate(async () => {
     const THREE = await import("/runtime/three.js");
     const { createAssets } = await import("/runtime/kit/assets.js");
@@ -191,10 +191,13 @@ export async function kitChecks({ browser, base }) {
     const ktx2 = new KTX2Loader().setTranscoderPath("/runtime/addons/basis/").detectSupport(renderer);
     await ktx2.init();
     ktx2.dispose();
+    const { MeshoptDecoder } = await import("/runtime/addons/MeshoptDecoder.js");
+    await MeshoptDecoder.ready;
+    const meshopt = MeshoptDecoder.supported;
     for (const cleanup of cleanups) cleanup();
     const ktx2Pixel = [...(ktx2Texture.mipmaps?.[0]?.data ?? ktx2Texture.image.data).slice(0, 4)];
     await renderer.dispose();
-    return { image: mesh.material.map.image.width, ktx2: [ktx2Texture.image.width, ...ktx2Pixel], ktx2Tracked: tracked.includes(ktx2Texture), tracked: tracked.length, progress: progress.at(-1), dracoError, violations: window.__violations };
+    return { image: mesh.material.map.image.width, ktx2: [ktx2Texture.image.width, ...ktx2Pixel], ktx2Tracked: tracked.includes(ktx2Texture), tracked: tracked.length, progress: progress.at(-1), dracoError, meshopt, violations: window.__violations };
   });
   assert.equal(loaded.image, 2, "embedded texture decoded");
   assert.deepEqual(loaded.ktx2, [2, 0, 255, 0, 255], "KTX2 texture loaded through texture()");
@@ -202,6 +205,7 @@ export async function kitChecks({ browser, base }) {
   assert.ok(loaded.tracked >= 4, "geometry, material and textures are tracked");
   assert.equal(loaded.progress, 1);
   assert.doesNotMatch(loaded.dracoError, /Content Security|Refused|worker/i);
+  assert.equal(loaded.meshopt, true, "the meshopt decoder compiles its WASM");
   assert.deepEqual(loaded.violations, [], "the player CSP admits loader workers, WASM and blob images");
 
   // post.js: AO and bloom on a RenderPipeline that the host draws instead of the plain render.

@@ -296,11 +296,11 @@ inside a game would resolve against the game origin instead.
 | `kit/text.js` | `createText()` draws text with system fonts (Chinese and emoji included) into a `CanvasTexture` on a plane or sprite; `createHudLayer(camera)` maps CSS pixels and safe-area corners onto a camera-attached layer. |
 | `kit/input.js` | `createPointer()` (viewport pixels, tap/drag/long press, multi-touch), `createActions()` (keyboard, gamepad and virtual input mapped to named actions), `createVirtualControls()` (on-screen joystick and buttons). |
 | `kit/loop.js` | `createFixedStep()` for fixed-step simulation with an interpolation `alpha`. |
-| `kit/assets.js` | `createAssets(context)` loads JSON, textures (PNG/JPEG/WebP or KTX2) and glTF/GLB (with Draco and KTX2) with cancellation, `track` ownership and `reportLoading`. Prefer KTX2 for large textures: it stays compressed in GPU memory. |
+| `kit/assets.js` | `createAssets(context)` loads JSON, textures (PNG/JPEG/WebP or KTX2) and glTF/GLB (with Draco, meshopt and KTX2) with cancellation, `track` ownership and `reportLoading`. Prefer KTX2 for large textures: it stays compressed in GPU memory. |
 | `kit/post.js` | `createPost(context, { ao, bloom, grade })`: shared postprocessing scaled to the device tier; see [Postprocessing](#postprocessing). |
 | `kit/random.js` | `createRandom(seed)`, `hashString()` and `dailySeed({ timeZone })` (UTC days by default). |
 | `kit/vision.js` | MediaPipe Tasks Vision at the platform's pinned version: `load()` imports the library (`FaceLandmarker`, `ImageSegmenter`, …), `fileset` is its wasm, `model(name)` the URL of a platform model (`models`: `face_landmarker`, `hair_segmenter`, `selfie_segmenter`). About 17 MB, downloaded only when used. |
-| `addons/GLTFLoader.js`, `DRACOLoader.js`, `KTX2Loader.js` | Three.js loaders at the pinned version; decoders at `/runtime/addons/draco/` and `/runtime/addons/basis/`. |
+| `addons/GLTFLoader.js`, `DRACOLoader.js`, `KTX2Loader.js`, `MeshoptDecoder.js` | Three.js loaders at the pinned version; decoders at `/runtime/addons/draco/` and `/runtime/addons/basis/`. `MeshoptDecoder` (`EXT_meshopt_compression`, WASM built in) goes to `GLTFLoader.setMeshoptDecoder()`. |
 
 ```js
 export async function createGame(context) {

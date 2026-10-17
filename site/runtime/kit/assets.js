@@ -44,10 +44,10 @@ export function createAssets(context) {
   let loaders = null;
   async function gltfLoader() {
     loaders ??= (async () => {
-      const [{ GLTFLoader }, { DRACOLoader }, ktx2] = await Promise.all([import("../addons/GLTFLoader.js"), import("../addons/DRACOLoader.js"), ktx2Loader()]);
+      const [{ GLTFLoader }, { DRACOLoader }, { MeshoptDecoder }, ktx2] = await Promise.all([import("../addons/GLTFLoader.js"), import("../addons/DRACOLoader.js"), import("../addons/MeshoptDecoder.js"), ktx2Loader()]);
       const draco = new DRACOLoader().setDecoderPath(new URL("../addons/draco/", import.meta.url).href);
       onCleanup(() => draco.dispose());
-      return new GLTFLoader().setDRACOLoader(draco).setKTX2Loader(ktx2);
+      return new GLTFLoader().setDRACOLoader(draco).setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
     })();
     return loaders;
   }
@@ -75,7 +75,7 @@ export function createAssets(context) {
       texture.needsUpdate = true;
       return texture;
     }),
-    // glTF/GLB with optional Draco meshes and KTX2 textures. Returns the parsed result;
+    // glTF/GLB with optional Draco or meshopt meshes and KTX2 textures. Returns the parsed result;
     // add result.scene to the game scene. All its resources are released at teardown.
     gltf: (path) => task(async () => {
       const [loader, data] = await Promise.all([gltfLoader(), (await fetchOk(path)).arrayBuffer()]);

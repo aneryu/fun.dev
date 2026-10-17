@@ -46,8 +46,8 @@ await build({
 });
 const addons = new URL("runtime/addons/", output);
 await build({
-  entryPoints: Object.fromEntries(["loaders/GLTFLoader", "loaders/DRACOLoader", "loaders/KTX2Loader", "controls/OrbitControls", "tsl/display/BloomNode", "tsl/display/GTAONode"]
-    .map((path) => [path.split("/").at(-1), fileURLToPath(new URL(`node_modules/three/examples/jsm/${path}.js`, root))])),
+  entryPoints: Object.fromEntries(["loaders/GLTFLoader", "loaders/DRACOLoader", "loaders/KTX2Loader", "controls/OrbitControls", "tsl/display/BloomNode", "tsl/display/GTAONode", "libs/meshopt_decoder.module:MeshoptDecoder"]
+    .map((entry) => { const [path, name = path.split("/").at(-1)] = entry.split(":"); return [name, fileURLToPath(new URL(`node_modules/three/examples/jsm/${path}.js`, root))]; })),
   outdir: fileURLToPath(addons), bundle: true, format: "esm", minify: true, target: "es2022", legalComments: "eof", logLevel: "warning",
   plugins: [platformThree],
 });
