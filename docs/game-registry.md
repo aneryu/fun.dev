@@ -64,8 +64,9 @@ node scripts/publish-game.mjs publish games/my-game/game.json --dry-run
 
 The dry run needs no credentials and prints the exact file list, size and hash.
 Only listed files are uploaded. It rejects unsafe paths, symlinks, unsupported
-file types and literal imports outside the list. Limits are 4096 files/64 MiB
-per release for this simple publisher; it does not use multipart upload.
+file types and literal imports outside the list. A release may list up to 4096 files,
+each at most 300 MiB (one upload per file, no multipart); the whole bundle has no size limit.
+Put large optional files under `lazy/` so players download them only when used.
 These checks are not code review or a sandbox. Review file contents, computed
 asset URLs and runtime behavior separately. HTML/CSS pages are not game bundles.
 

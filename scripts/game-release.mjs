@@ -34,7 +34,8 @@ export async function prepareRelease(manifestPath) {
     }
     const info = await lstat(target);
     total += info.size;
-    if (!info.isFile() || total > 64 * 1024 * 1024) throw new Error("Bundle must contain files totalling at most 64 MiB.");
+    // No limit on a whole bundle; each file is one R2 upload (no multipart), which Wrangler caps.
+    if (!info.isFile() || info.size > 300 * 1024 * 1024) throw new Error(`Runtime files must be regular files of at most 300 MiB: ${path}`);
     const body = await readFile(target);
     const hash = digest(body);
     // Files under assets/ are content-addressed blobs shared across versions and games.
@@ -43,7 +44,6 @@ export async function prepareRelease(manifestPath) {
   // Library models: content-addressed blobs like assets/ files, pinned by version.
   for (const model of await resolveModels(models)) {
     total += model.body.length;
-    if (total > 64 * 1024 * 1024) throw new Error("Bundle must contain files totalling at most 64 MiB.");
     assets.push(model);
   }
   // The same order as the listed files (plain code-unit sort), so other games' releases keep their hashes.
