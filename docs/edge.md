@@ -40,6 +40,10 @@ Cloudflare: 1.2 s, up to 3.3 s. Resolvers that have cached the record skip the D
   `cdn.fun.dev`, and a 308 redirect for every other path. It stores no files, cache or
   secrets, so a release never touches it, and it can be rebuilt from this file.
 
+The workshop's `/editor/` and `/editor/guide.html` also use the document proxy;
+its JavaScript and CSS load from the asset origin. When adding a new document route,
+update the Caddyfile on the edge server as well as publishing Pages.
+
 The server has 5 Mbps. A first visit costs it about 10 KB of pages; a returning visitor, a
 revalidation of `/sw.js`. Files on Cloudflare stay as slow in the mainland as before: these are
 the next thing to improve (a mainland-friendly asset origin is one variable away).

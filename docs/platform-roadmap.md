@@ -96,6 +96,10 @@ Each module is written together with the first game that needs it.
 
 ## Platform and tooling
 
+- Low-poly workshop at `/editor/`: static model authoring with shared human/agent
+  commands, editable JSON, geometry diagnostics and GLB export into the existing
+  asset pipeline. See [model editor](model-editor.md) for the desktop scope and limits.
+
 - Regression gate: a Playwright smoke test for every catalog game at mobile and
   desktop sizes: reaches running, no console errors, non-blank canvas,
   menu pause/resume, language switch, restart, and error-free cleanup when leaving.

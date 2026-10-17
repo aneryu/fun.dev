@@ -37,6 +37,10 @@ npm run dev -- muyu          # prints the player URL for one game, with ?debug=1
   files, or after a merge, run `npm run assets` and commit the changed locks; see
   [assets](assets.md). `npm run dev` restores missing files on start.
 - `npm test` (~20 s) runs only the unit tests, including each game's `dev/` tests.
+- `npm run editor` develops the low-poly workshop without game binary assets;
+  `npm run verify:editor` runs its focused build, geometry and browser checks
+  ([model editor](model-editor.md)). The same guide covers `npm run editor:agent`
+  for local CLI / stdio MCP modeling, previews and export reports.
 
 ## 2. Verify
 
@@ -50,6 +54,7 @@ npm run dev -- muyu          # prints the player URL for one game, with ?debug=1
 | kit | text/HUD placement, pointer/keyboard/joystick, glTF with embedded textures, Draco/KTX2 and the MediaPipe vision runtime under the player CSP |
 | player | loading bar, announcements, options/settings/cheats, mute, share, restart, debug panel, rotation prompt, API mismatch |
 | site | lobby covers, game pages and their redirects, sitemap, 404, manifest/icons, offline play through the service worker |
+| editor | desktop editing, single-writer drafts, parametric shapes, agent transactions, observations and GLB round trip through the runtime kit |
 
 `npm run verify -- smoke player` runs only some browser suites;
 `npm run verify -- smoke --game=<id>` smoke-tests a single game;

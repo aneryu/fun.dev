@@ -1,0 +1,997 @@
+.editor-page {
+  height: 100dvh;
+  min-height: 32rem;
+  display: flex;
+  flex-direction: column;
+  font-size: 0.8rem;
+}
+.editor-header {
+  min-height: 3.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 1rem;
+  border-bottom: 2px solid var(--duck-ink);
+}
+.editor-header h1 {
+  flex: 1;
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+.editor-header .wordmark {
+  font-size: 1.2rem;
+}
+.editor-header > a:not(.wordmark) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+.editor-page button,
+.editor-page select {
+  border: 1px solid var(--duck-brown);
+  background: transparent;
+  border-radius: 0;
+  padding: 0.35rem 0.65rem;
+}
+.editor-page button:hover:not(:disabled),
+.editor-page button[aria-pressed="true"] {
+  background: var(--duck-cream);
+}
+.editor-page button:disabled {
+  opacity: 0.45;
+}
+.editor-page .primary {
+  background: var(--duck-ink);
+  color: var(--duck-cream);
+}
+.editor-page .primary:hover:not(:disabled) {
+  background: var(--water-deep);
+}
+.editor-page input:not([type="range"]),
+.editor-page textarea {
+  min-width: 0;
+  border: 1px solid var(--duck-brown);
+  border-radius: 0;
+  background: var(--duck-cream);
+  padding: 0.4rem;
+}
+.editor-page input,
+.editor-page select,
+.editor-page textarea {
+  width: 100%;
+}
+.editor-page .language-toggle {
+  width: auto;
+  border: 0;
+}
+.file-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--duck-ink);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+.file-tools button {
+  flex: 0 0 auto;
+}
+.tool-divider {
+  height: 1.5rem;
+  border-left: 1px solid var(--duck-brown);
+  margin: 0 0.3rem;
+}
+.workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 190px minmax(340px, 1fr) 310px;
+}
+.panel {
+  padding: 1rem;
+  overflow-y: auto;
+  min-width: 0;
+  scrollbar-width: thin;
+}
+.panel h2 {
+  font-size: 0.85rem;
+}
+.objects-panel {
+  border-right: 1px solid var(--duck-ink);
+}
+.inspector {
+  border-left: 1px solid var(--duck-ink);
+}
+.inspector > h2 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.panel-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+.panel label,
+dialog label {
+  display: block;
+  margin: 0.65rem 0 0.25rem;
+}
+.panel button {
+  margin-top: 0.5rem;
+}
+.panel-heading button {
+  margin: 0;
+}
+.panel fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0.7rem 0;
+  min-width: 0;
+}
+.panel legend {
+  padding: 0;
+  margin-bottom: 0.25rem;
+}
+.xyz {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+.xyz label {
+  margin: 0;
+  color: var(--duck-brown);
+  font-size: 0.7rem;
+}
+.xyz input {
+  font-size: 0.75rem;
+}
+.parts {
+  list-style: none;
+  padding: 0;
+  margin: 0.7rem -0.5rem;
+}
+.parts li {
+  min-width: 0;
+}
+.parts button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 0;
+  margin: 0;
+  padding-left: calc(0.5rem + var(--depth, 0) * 0.65rem);
+}
+.parts button[aria-pressed="true"] {
+  color: var(--water-deep);
+  box-shadow: inset 3px 0 var(--water-deep);
+}
+.part-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+details {
+  border-top: 1px solid var(--duck-brown);
+  padding-top: 0.75rem;
+  margin-top: 1rem;
+}
+summary {
+  cursor: pointer;
+  min-height: 44px;
+}
+summary:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid var(--focus-blue);
+  outline-offset: 3px;
+}
+.small {
+  font-size: 0.7rem;
+  line-height: 1.7;
+}
+.project-settings .small {
+  margin-top: 0.8rem;
+}
+#node-id {
+  overflow-wrap: anywhere;
+}
+#mesh-properties,
+#face-tools,
+#vertex-form {
+  border-top: 1px solid var(--duck-brown);
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+}
+#color {
+  padding: 0.2rem;
+}
+.viewport {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.viewport-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--duck-brown);
+}
+.viewport-tools > select {
+  width: auto;
+  min-width: 5rem;
+}
+.viewport-tools button {
+  white-space: nowrap;
+}
+.transform-tools {
+  display: flex;
+  gap: 0.2rem;
+}
+.stage {
+  flex: 1;
+  position: relative;
+  min-height: 12rem;
+  overflow: hidden;
+}
+#canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+#canvas:focus-visible {
+  outline-offset: -4px;
+}
+.view-tools {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  display: flex;
+  gap: 0.25rem;
+}
+.view-tools button {
+  background: var(--duck-yellow);
+  border-color: transparent;
+  font-size: 0.7rem;
+}
+.viewport-hint {
+  position: absolute;
+  bottom: 0.75rem;
+  left: 1rem;
+  right: 1rem;
+  color: var(--duck-brown);
+  font-size: 0.65rem;
+  pointer-events: none;
+}
+.viewport-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  border-top: 1px solid var(--duck-brown);
+  font-size: 0.65rem;
+}
+.viewport-bottom button {
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+.editor-page footer {
+  border-top: 1px solid var(--duck-ink);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 1rem max(0.4rem, env(safe-area-inset-bottom));
+  min-height: 2rem;
+  font-size: 0.7rem;
+}
+#status {
+  overflow-wrap: anywhere;
+}
+#status[data-error="true"],
+#add-error {
+  color: var(--beak-deep);
+}
+#save-status {
+  flex-shrink: 0;
+}
+.panel-tabs {
+  display: none;
+}
+dialog {
+  background: var(--duck-yellow);
+  color: var(--duck-ink);
+  border: 2px solid var(--duck-ink);
+  padding: 1.25rem;
+  width: min(30rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+dialog::backdrop {
+  background: rgb(33 31 23 / 35%);
+}
+dialog h2 {
+  margin-bottom: 0.75rem;
+}
+dialog p {
+  margin: 0.75rem 0;
+}
+dialog textarea {
+  resize: vertical;
+  font: inherit;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+#info-content pre {
+  background: var(--duck-cream);
+  padding: 0.7rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 40vh;
+  overflow: auto;
+}
+#boot-message {
+  position: absolute;
+  inset: 45% 1rem auto;
+  text-align: center;
+  background: var(--duck-cream);
+  padding: 1rem;
+}
+
+/* The workshop is a desktop authoring surface, independent of player layouts. */
+.editor-page {
+  min-width: 1024px;
+  min-height: 600px;
+}
+.editor-page button,
+.editor-page select,
+.editor-page input {
+  min-height: 32px;
+}
+.editor-header {
+  min-height: 44px;
+}
+.panel h3 {
+  font-size: 0.8rem;
+  margin-top: 1rem;
+}
+.viewport-tools {
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+.viewport-tools button,
+.viewport-tools select {
+  font-size: 0.7rem;
+  padding-inline: 0.4rem;
+}
+.view-options {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.3rem 0.7rem;
+  border-top: 1px solid var(--duck-brown);
+}
+.view-options select {
+  width: auto;
+}
+.view-options button,
+.view-options select {
+  font-size: 0.7rem;
+}
+.view-tools button {
+  background: #e9ebed;
+  color: #28323b;
+}
+.viewport-hint {
+  color: #3c4852;
+}
+#axes {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  width: 80px;
+  height: 80px;
+  pointer-events: none;
+}
+#axes line {
+  stroke-width: 2;
+}
+#axes text {
+  font-size: 10px;
+  text-anchor: middle;
+  fill: #25303a;
+}
+[data-axis="x"] {
+  stroke: #a13d35;
+}
+[data-axis="y"] {
+  stroke: #39784e;
+}
+[data-axis="z"] {
+  stroke: #285c97;
+}
+.selection-box {
+  position: absolute;
+  border: 1px solid #005f93;
+  background: rgb(0 111 166 / 12%);
+  pointer-events: none;
+}
+#selection-summary {
+  border-bottom: 1px solid var(--duck-brown);
+  padding-bottom: 0.5rem;
+}
+.inspector-navigation {
+  position: sticky;
+  top: -0.7rem;
+  z-index: 2;
+  background: #f1f1ed;
+  border-bottom: 1px solid #b8bbb6;
+  padding: 0.4rem 0;
+}
+.inspector-navigation p {
+  margin: 0 0 0.3rem;
+  overflow-wrap: anywhere;
+}
+.inspector-navigation nav {
+  display: flex;
+  gap: 0.25rem;
+}
+.inspector-navigation button {
+  flex: 1;
+  padding-inline: 0.2rem;
+}
+#recipe-tools,
+#assembly-tools,
+#object-properties {
+  scroll-margin-top: 100px;
+}
+.recipe-step > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.recipe-step > summary::before {
+  content: "▸";
+}
+.recipe-step[open] > summary::before {
+  content: "▾";
+}
+.recipe-step > summary small {
+  margin-left: auto;
+  color: var(--duck-brown);
+}
+.recipe-step > summary input {
+  width: auto;
+  margin: 0;
+}
+#object-properties {
+  margin-top: 0.6rem;
+}
+#object-properties summary {
+  min-height: 32px;
+}
+.check {
+  display: flex !important;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.7rem;
+}
+.check input {
+  width: auto;
+  min-height: 20px;
+}
+#align-tools {
+  display: flex;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+#align-tools select {
+  width: auto;
+  flex: 1;
+}
+#align-tools button {
+  flex-basis: 100%;
+}
+.draft-banner {
+  padding: 0.4rem 1rem;
+  background: var(--duck-cream);
+  border-bottom: 1px solid var(--duck-brown);
+}
+.draft-banner button {
+  margin-left: 0.5rem;
+}
+.notice {
+  padding: 0.5rem;
+  background: var(--duck-cream);
+  font-size: 0.75rem;
+}
+input[data-dirty="true"] {
+  outline: 2px solid var(--water-deep);
+  outline-offset: 1px;
+}
+#profile-editor {
+  display: block;
+  width: 100%;
+  height: 190px;
+  background: var(--duck-cream);
+  touch-action: none;
+  border: 1px solid var(--duck-brown);
+}
+#profile-editor .profile-axes {
+  stroke: #b4ae93;
+  fill: none;
+}
+#profile-editor .profile-line {
+  stroke: var(--water-deep);
+  fill: none;
+  stroke-width: 2;
+}
+#profile-editor circle {
+  fill: var(--water-deep);
+  cursor: grab;
+}
+#profile-editor circle:focus {
+  fill: var(--focus-blue);
+  stroke: var(--duck-ink);
+  stroke-width: 2;
+  outline: none;
+}
+#info-content .diagnostic {
+  display: block;
+  width: 100%;
+  text-align: left;
+}
+@media (min-width: 1500px) {
+  .workspace {
+    grid-template-columns: 210px minmax(340px, 1fr) 330px;
+  }
+}
+
+/* Long desktop sessions: neutral working surfaces, yellow for identity/actions. */
+.workspace,
+.file-tools,
+.editor-page footer {
+  background: #ecebe5;
+}
+.panel {
+  background: #f3f2ed;
+  padding: 0.8rem;
+}
+.editor-page .panel input:not([type="color"]):not([type="range"]),
+.editor-page dialog input:not([type="range"]),
+.editor-page textarea {
+  background: #fffefa;
+  border-color: #a8aaa5;
+}
+.editor-page button,
+.editor-page select {
+  border-color: #8c908e;
+  color: #29312f;
+}
+.editor-page button:hover:not(:disabled),
+.editor-page button[aria-pressed="true"] {
+  background: #dde8ec;
+}
+.editor-page .primary {
+  background: var(--duck-yellow);
+  color: var(--duck-ink);
+  border-color: var(--duck-ink);
+}
+.editor-page .primary:hover:not(:disabled) {
+  background: #ffe477;
+}
+.parts {
+  margin-inline: -0.4rem;
+}
+.parts li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 23px 23px;
+  align-items: center;
+}
+.parts button {
+  font-size: 0.72rem;
+}
+.parts .tree-toggle {
+  padding: 0;
+  text-align: center;
+  color: #5b676c;
+  width: 23px;
+  font-size: 0.65rem;
+}
+.parts button[data-active="true"] {
+  background: #fff0b0;
+  box-shadow: inset 3px 0 #9a4f00;
+  color: #5d3100;
+  font-weight: bold;
+}
+.parts button[data-related="true"] {
+  text-decoration: underline dotted;
+  text-underline-offset: 4px;
+}
+.parts li[data-hidden="true"] > [data-node] {
+  opacity: 0.5;
+}
+.parts .tree-toggle[aria-pressed="true"] {
+  background: #d4dce0;
+}
+.panel label {
+  margin-top: 0.45rem;
+}
+.panel h3 {
+  margin-top: 0.6rem;
+}
+.panel button {
+  margin-top: 0.35rem;
+}
+.panel details {
+  margin-top: 0.65rem;
+  padding-top: 0.5rem;
+  border-color: #b8bbb6;
+}
+.panel summary {
+  min-height: 28px;
+}
+#selection-summary {
+  border-color: #b8bbb6;
+  margin-bottom: 0.4rem;
+}
+#selection-help {
+  margin-block: 0.35rem;
+  line-height: 1.5;
+}
+#face-tools,
+#edge-tools,
+#vertex-form,
+#mesh-properties {
+  margin-top: 0.6rem;
+  border-color: #b8bbb6;
+  padding-top: 0.4rem;
+}
+#selection-tools {
+  margin-top: 0.7rem;
+  border-top: 1px solid #b8bbb6;
+  padding-top: 0.35rem;
+}
+#selection-tools h3 {
+  margin-top: 0;
+  margin-bottom: 0.35rem;
+}
+#face-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.3rem 0.4rem;
+}
+#face-tools > label,
+#face-tools > select {
+  grid-column: 1/-1;
+}
+#face-tools > button {
+  margin: 0;
+}
+#face-tools > input {
+  min-width: 0;
+}
+#face-tools[hidden],
+[hidden] {
+  display: none !important;
+}
+#material-tools {
+  border-top: 1px solid #b8bbb6;
+  margin-top: 0.7rem;
+  padding-top: 0.2rem;
+}
+#paint-scope,
+#material-usage {
+  margin-block: 0.25rem;
+  line-height: 1.5;
+}
+.precision-tools {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.2rem 0.6rem;
+  border-bottom: 1px solid #a6adaa;
+  font-size: 0.65rem;
+  flex-wrap: wrap;
+}
+.precision-tools label {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+  white-space: nowrap;
+}
+.precision-tools select {
+  width: auto;
+  min-height: 26px;
+  padding: 0.1rem 0.2rem;
+  font-size: 0.65rem;
+}
+.precision-tools #grid-label {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 0.65rem;
+}
+.viewport-tools,
+.view-options,
+.viewport-bottom {
+  background: #e5e6e2;
+  border-color: #a6adaa;
+}
+.notice {
+  background: #e5edf0;
+}
+#add-dialog {
+  width: min(980px, calc(100% - 3rem));
+  background: #f3f2ed;
+  padding: 1rem;
+}
+.shape-workspace {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.95fr) minmax(340px, 1.05fr);
+  gap: 1.25rem;
+}
+.shape-preview {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 470px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+#shape-canvas {
+  width: 100%;
+  height: 400px;
+  min-height: 280px;
+  display: block;
+  border: 1px solid #a6adaa;
+  touch-action: none;
+}
+.shape-preview button {
+  align-self: flex-start;
+}
+#profile-editor {
+  background: #fffefa;
+}
+#profile-editor circle[aria-pressed="true"] {
+  fill: #9a4f00;
+  stroke: #fffefa;
+  stroke-width: 1.5;
+}
+.profile-controls {
+  display: grid;
+  grid-template-columns: 30px 1fr 1fr 65px;
+  align-items: end;
+  gap: 0.4rem;
+  font-size: 0.7rem;
+}
+.profile-controls label {
+  margin-top: 0.4rem;
+}
+.profile-controls input,
+.profile-controls select {
+  min-width: 0;
+  font-size: 0.75rem;
+}
+@media (min-width: 1500px) {
+  .workspace {
+    grid-template-columns: 240px minmax(340px, 1fr) 330px;
+  }
+}
+@media (max-width: 1499px) {
+  .workspace {
+    grid-template-columns: 210px minmax(340px, 1fr) 310px;
+  }
+}
+.shape-workspace .dialog-actions {
+  position: sticky;
+  bottom: 0;
+  background: #f3f2ed;
+  padding-block: 0.5rem;
+  z-index: 2;
+  border-top: 1px solid #b8bbb6;
+}
+@media (max-height: 850px) {
+  #profile-editor {
+    height: 160px;
+  }
+  #outline {
+    height: 88px;
+  }
+  #add-dialog label {
+    margin-top: 0.45rem;
+  }
+}
+
+/* Agent changes remain inspectable alongside the manual workbench. */
+.recipe-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+.recipe-steps h4 {
+  margin-block: 0.75rem 0.25rem;
+}
+.recipe-step {
+  border-bottom: 1px solid #b5b8b4;
+  padding-block: 0.6rem;
+}
+.recipe-step label,
+.recipe-steps > label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-block: 0.3rem;
+  font-size: 0.75rem;
+}
+.recipe-step input:not([type="checkbox"]),
+.recipe-step select {
+  min-width: 0;
+  width: 8rem;
+  margin-left: auto;
+}
+.recipe-step input[type="checkbox"] {
+  width: auto;
+}
+.recipe-step-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+.recipe-step-actions button {
+  flex: 1;
+}
+.recipe-steps > label select {
+  min-width: 0;
+  flex: 1;
+}
+.recipe-scope {
+  margin-block: 0.5rem;
+}
+.recipe-scope label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+}
+.recipe-scope select {
+  width: 100%;
+  margin: 0;
+}
+.recipe-scope canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid #b5b8b4;
+  margin-block: 0.4rem;
+}
+.recipe-step-scope {
+  margin-top: 0.5rem;
+}
+.recipe-step-scope summary {
+  font-size: 0.75rem;
+}
+#recipe-tools p {
+  font-size: 0.7rem;
+  line-height: 1.6;
+  color: var(--duck-brown);
+}
+.activity-list {
+  padding-left: 1.5rem;
+  max-height: 50vh;
+  overflow: auto;
+}
+.activity-list li {
+  border-bottom: 1px solid #b5b8b4;
+  padding: 0.65rem 0;
+  overflow-wrap: anywhere;
+}
+.activity-list p {
+  margin: 0.3rem 0;
+  font-size: 0.75rem;
+}
+.comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+.comparison figure {
+  margin: 0;
+}
+.comparison canvas {
+  width: 100%;
+  height: auto;
+}
+.checkpoint-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.checkpoint-row button:first-child {
+  flex: 1;
+}
+#info-dialog:has(.comparison) {
+  width: min(1000px, 90vw);
+  max-width: 90vw;
+}
+#info-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+  background: #f1f0ea;
+}
+#info-dialog > h2,
+#info-dialog > button {
+  flex-shrink: 0;
+}
+#info-content {
+  min-height: 0;
+  overflow: auto;
+}
+#info-dialog > button[data-close] {
+  align-self: flex-end;
+  margin-top: 0.75rem;
+}
+
+.delivery-summary {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) minmax(0, 1.6fr);
+  gap: 0.65rem 1rem;
+  margin: 0.5rem 0 1rem;
+}
+.delivery-summary dt {
+  color: var(--muted, #5c5133);
+}
+.delivery-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.activity-list li {
+  overflow-wrap: anywhere;
+}
+.activity-list ul {
+  padding-left: 1.2rem;
+  margin: 0.5rem 0;
+}
+#recipe-tools > button,
+#assembly-tools > button {
+  margin-right: 0.4rem;
+}
+
+.parameter-recovery:not(:empty),
+.driven-field-hint {
+  border-left: 3px solid var(--ink, #211f17);
+  padding-left: 0.6rem;
+}
+.recipe-paint button,
+.parameter-recovery button {
+  margin: 0.3rem 0.4rem 0.3rem 0;
+}
+.recipe-paint label,
+.parameter-recovery label {
+  display: block;
+  margin-block: 0.4rem;
+}
+#asset-copy-mode {
+  width: 100%;
+}

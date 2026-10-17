@@ -26,11 +26,14 @@ reference commands and operations. Requires Node.js 22+ and `tar`.
 
 - `site/index.html`: original personal homepage, with a Games entry.
 - `site/games.html`: game lobby at `/games`, with search and category filtering.
+- `site/editor/`: low-poly model workshop at `/editor/`, with a shared command API
+  for people and agents, editable JSON projects and GLB export. See [model editor](docs/model-editor.md).
 - `site/player/`: shared player. Its `index.html` is a template: the build writes one page per
   game to `/games/<id>` with that game's title, description, canonical URL and Chinese Open
   Graph tags, so a game's address is also its share link. The build also writes
   `sitemap.xml` (home, lobby, games) and `i18n-boot.js`, which sets the visitor's language
-  before the first paint. Addresses have no trailing slash (`_redirects`).
+  before the first paint. Game addresses have no trailing slash (`_redirects`);
+  the workshop uses `/editor/`.
 - `site/runtime/`: Three.js host (API v2: lifecycle, shared audio, options,
   safe area, announcements, haptics), the runtime kit (`kit/`: text, input,
   fixed-step loop, assets, seeded random, MediaPipe vision) and built loaders (`addons/`: glTF,
@@ -157,3 +160,7 @@ to analytics.
 The production Content Security Policy permits Cloudflare's beacon script,
 including its versioned path, and both same-origin collection and the
 `https://cloudflareinsights.com/cdn-cgi/rum` endpoint.
+
+The PC model workshop also provides parameter recipes, persistent checkpoints,
+reproducible observations and a local Agent CLI / stdio MCP adapter:
+`npm run editor:agent -- --help`. See [model editor](docs/model-editor.md).

@@ -18,8 +18,8 @@ blue.
 The page should feel lightweight, curious, and personal. Prefer one strong idea
 over a collection of polished portfolio components. The homepage retains the
 original centered “Code for / − work. / + fun.” composition and introductory
-line, with a Games link in the header. The separate `/games/` lobby uses only the
-`fun.dev` wordmark, a language switch, and a simple game list. A game with a cover
+line, with a Games link in the header. The separate `/games/` lobby uses the
+`fun.dev` wordmark, a quiet Workshop link, a language switch, and a simple game list. A game with a cover
 shows it as a small square thumbnail in place of its row number; the list stays a
 single column of rows, never a card grid. Avoid introductory
 essays, slogans, about sections, or repeated explanations.
@@ -100,6 +100,22 @@ previews with a Duck Ink border, like game covers, in a plain grid with the name
 below: no card backgrounds, shadows or rounded corners. A model page puts the 3D view on
 Duck Cream with an ink border beside its facts, stacked on phones. The homepage links it
 next to Games.
+
+### Model workshop
+
+`/editor/` is a PC-only authoring workbench (minimum 1024px wide). It keeps yellow
+branding and primary actions, with quiet warm-gray panels, monospace controls,
+and a neutral gray 3D viewport for judging
+geometry and material color. The authoring workspace is an intentional exception to the
+dominant yellow canvas rule; the header retains the site identity. A part list, central viewport and property panel
+scroll independently. Inputs use Duck Cream; selection uses Water Deep and focus
+uses Focus Blue. Orthographic views, clay and silhouette display modes support
+shape inspection. Desktop controls may use 32px heights. The game lobby
+has one quiet Workshop link beside its language selector. Editor helpers and grid
+are only for authoring and never appear in exported models. Agent work uses the
+same workbench: a quiet Activity dialog shows changes and fixed-camera comparisons,
+Checkpoints provide named recovery, and recipe parameters sit in a collapsible
+inspector section. A sticky part/owner strip links to object properties, modeling steps and asset parameters. Steps use compact expandable summaries, retaining the current expansion during edits. Export choices show origin and resulting bounds before download. Asset parameters identify their owning asset and any shared source. Driven fields stay read-only, with direct links to their controlling parameters and an explicit detach action. Independent, shared-parameter and static asset copies are named choices. Material-binding failures offer a visible recovery action without discarding staged parameter edits. Pending values have explicit Rebuild/Cancel actions. Activity describes field changes and affected parts; delivery reports lead with dimensions, size and diagnostics, with JSON in expandable details. Saving state must distinguish pending, saved and failed. Do not expose protocol details in ordinary modeling controls.
 
 ### Future surfaces
 

@@ -9,6 +9,21 @@ import { relay, origin } from "./helpers/relay.mjs";
 const assets = "https://cdn.example.com";
 const api = "https://api.transfer.test";
 
+test("editor documents stay on the site while editor modules and styles use the asset origin", async () => {
+  const config = await readFile(new URL("../config/Caddyfile", import.meta.url), "utf8");
+  const document = new RegExp(config.match(/path_regexp (\S+)/)[1]);
+  for (const path of ["/editor", "/editor/", "/editor/index.html", "/editor/guide.html", "/games/muyu", "/models/crate"])
+    assert.equal(document.test(path), true, path);
+  for (const path of ["/editor/app.js", "/editor/editor.css", "/editor/materials.js", "/runtime/three.js"])
+    assert.equal(document.test(path), false, path);
+  for (const page of ["index", "guide"]) {
+    const html = assetHTML(await readFile(new URL(`../site/editor/${page}.html`, import.meta.url), "utf8"), assets);
+    assert.match(html, /<link rel="stylesheet" href="https:\/\/cdn\.example\.com\/editor\//);
+    assert.doesNotMatch(html, /<script[^>]+src="\//);
+    assert.match(html, page === "index" ? /href="\/games"/ : /href="\/editor\/"/);
+  }
+});
+
 test("pages load scripts, stylesheets and icons from the asset origin; links and the manifest stay", async () => {
   const html = assetHTML(await readFile(new URL("../site/player/index.html", import.meta.url), "utf8"), assets);
   assert.match(html, /<script src="https:\/\/cdn\.example\.com\/progress\/link-entry\.js">/);

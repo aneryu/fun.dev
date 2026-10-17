@@ -6,7 +6,7 @@ import { loadLocalGames } from "./local-games.mjs";
 
 const root = resolve(fileURLToPath(new URL("../site/", import.meta.url)));
 const errors = [];
-const generated = new Set(["/vendor/three/three.webgpu.js", "/runtime/tsl.js", "/skills/fun-dev-games.tar.gz", "/i18n-boot.js"]);
+const generated = new Set(["/vendor/three/three.webgpu.js", "/runtime/tsl.js", "/skills/fun-dev-games.tar.gz", "/i18n-boot.js", "/editor/tools.js"]);
 
 async function checkReference(source, value) {
   if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(value)) return;
@@ -56,12 +56,15 @@ async function walk(directory) {
 
 // The release preparation validates manifests, listed files and literal imports, as the publisher does.
 let games = [];
+const editorOnly = process.argv.slice(2).includes("--editor");
 try {
-  games = await loadLocalGames();
-  for (const { game, assets } of games) {
-    for (const asset of assets.filter((file) => /\.m?js$/.test(file.path))) {
-      const result = spawnSync(process.execPath, ["--check", "--input-type=module"], { input: asset.body, encoding: "utf8" });
-      if (result.status !== 0) errors.push(`games/${game.id}/${asset.path}: ${result.stderr}`);
+  if (!editorOnly) {
+    games = await loadLocalGames();
+    for (const { game, assets } of games) {
+      for (const asset of assets.filter((file) => /\.m?js$/.test(file.path))) {
+        const result = spawnSync(process.execPath, ["--check", "--input-type=module"], { input: asset.body, encoding: "utf8" });
+        if (result.status !== 0) errors.push(`games/${game.id}/${asset.path}: ${result.stderr}`);
+      }
     }
   }
 } catch (error) { errors.push(error.message); }

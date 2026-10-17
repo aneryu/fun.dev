@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/platform.css" />
+    <link rel="stylesheet" href="/editor/guide.css" />
+    <title>Model workshop guide — fun.dev</title>
+  </head>
+  <body>
+    <main>
+      <a class="wordmark" href="/editor/">← fun.dev / 工坊 · Workshop</a>
+      <h1>捏一个小模型。<br />Make a little model.</h1>
+      <p>
+        PC 工作台：Shift 多选，B 框选，F 聚焦，G / R / S 移动、旋转、缩放，X
+        切换穿透。数值在回车或移开焦点时保存，Esc 取消输入；Ctrl / Cmd + Z
+        撤销，Shift + Ctrl / Cmd + Z 重做。吸附步长和角度可设置，长度输入支持
+        m/cm/mm，网格显示实际间距。物体模式才能删除整个部件。
+      </p>
+      <p>
+        Desktop workshop: numeric edits commit on Enter or blur; Escape cancels.
+        Front, side and top views are orthographic. Focus frames the selection.
+        Use Material, Clay or Silhouette shading to inspect shape. The work
+        surface supports desktop widths of 1024px and above.
+      </p>
+      <p>
+        形状保留分段和轮廓参数。轮廓可以回折制作内壁；拖点改形，双击线段加点，Delete
+        删除聚焦的点。转为网格后可以多选顶点或面进行变换、挤出、内插。简单倒角用于闭合凸体；边模式支持凹槽等闭合网格的局部倒角，以及四边面环切。平面切线可按轴和位置分割面。截面编辑提供轴约束、坐标、独立撤销和实时
+        3D 预览。联动副本和对称部件从源部件继承几何，解除联动后可独立编辑。
+      </p>
+      <p>
+        Drafts use a single-writer browser lock. A second window is read-only:
+        close the original and Reconnect, or open an Independent copy. Download
+        project JSON for backups. A GLB is a runtime delivery file; it does not
+        include editor helpers or procedural relationships.
+      </p>
+      <p>
+        树中的圆点控制隐藏，菱形控制锁定；隔离选区方便编辑内部结构。它们是当前窗口的观察状态，不会删除模型或影响
+        GLB
+        导出。框选尊重穿透开关。金色为主选区，蓝色为其他选区。多选复制和赋材质作用于整个选区，赋材质会显示联动影响数量。
+      </p>
+      <h2>Agent API · v3</h2>
+      <p>
+        视图优先使用 WebGPU，不可用时自动回退 WebGL2。底栏显示实际后端；
+        <code>funEditor.inspect().renderer</code> 提供相同信息。 在地址中加入
+        <code>?renderer=webgl</code> 可强制使用 WebGL2。 Wait for
+        <code>window.funEditor</code>: renderer initialization is asynchronous,
+        but <code>renderViews</code> still returns images synchronously.
+      </p>
+      <p>
+        Wait for <code>window.funEditor</code>. The API is local to this browser
+        page; it neither uploads nor publishes. Project JSON remains
+        <code>fun.dev/model</code> v1, with optional generator and link
+        metadata. API v3 adds guarded component references, recipes, previews
+        and persistent checkpoints. It defaults extrusion to world meters and
+        reparenting to preserving world appearance.
+      </p>
+      <pre>
+const state = funEditor.inspect();
+funEditor.apply([
+  { op: "symmetry", id: "wing-left", newId: "other-wing",
+    axis: "x", space: "world", offset: 0, linked: true }
+], { ifRevision: state.revision });
+const detail = funEditor.inspect({ id: "wing-left", detail: "full" });
+// detail.bounds, detail.worldMatrix, detail.faces[i].center / normal
+const pictures = funEditor.renderViews(["front", "left", "perspective"]);
+const report = funEditor.validate({ triangles: 5000, drawCalls: 32 });
+const file = await funEditor.exportGLB({ encoding: "base64" });</pre
+      >
+      <table>
+        <thead>
+          <tr>
+            <th>Method</th>
+            <th>Result / behavior</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>capabilities()</code></td>
+            <td>
+              JSON Schema for all commands and geometric queries, limits and
+              supported features. Pass <code>{detail:"summary"}</code> for the
+              small command index, or <code>{command:"recipeStep"}</code> for
+              one complete schema. MCP capabilities defaults to the summary;
+              execution always uses the complete schema for validation.
+            </td>
+          </tr>
+          <tr>
+            <td><code>query({id,kind,...})</code></td>
+            <td>
+              Faces by normal/largest area; components on a plane; edges by
+              length/crease; adjacentTo face IDs; quad edge rings via loopFrom
+              ref. Returns items with current {node,kind,id,topology} refs,
+              total, truncation and nextOffset. Continue with offset and the
+              same topology token and ifRevision from the first page. A changed
+              revision invalidates pagination.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <code>preview(commands,{ifRevision,views?,size?,detail?})</code>
+            </td>
+            <td>
+              Evaluate without changing project/revision/history; returns
+              compact proposed nodes/bounds, materials, name, per-command
+              results, validation and optional images. detail:"full"
+              additionally returns the complete proposed project mesh.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <code>checkpoint({name},{ifRevision}) / checkpoints()</code>
+            </td>
+            <td>
+              Up to five persistent named snapshots.
+              restoreCheckpoint(id,{ifRevision}) restores as one undoable
+              change; removeCheckpoint removes one. Browser storage errors are
+              explicit.
+            </td>
+          </tr>
+          <tr>
+            <td><code>activity() / getSession()</code></td>
+            <td>
+              Recent changes/errors; complete local session with project,
+              revision, checkpoints and activity. Editable project JSON itself
+              excludes session history.
+            </td>
+          </tr>
+          <tr>
+            <td><code>exportReport({ids?,mergeStatic?,origin?})</code></td>
+            <td>
+              Editable/render/unique-buffer vertices, shared geometry,
+              triangles, material groups and bounds. Optional static merging
+              accepts leaf meshes and removes their separate runtime names.
+            </td>
+          </tr>
+          <tr>
+            <td><code>inspect({id?,detail?})</code></td>
+            <td>
+              Revision, draft ID, writable state, meter units. Without ID:
+              selection, stats, camera, node world bounds, materials with user
+              IDs, and session viewState (hidden, locked, isolated). With ID:
+              compact node and recipe metadata, counts, topology token, world
+              matrix and bounds. Use detail:"full" for the complete mesh, world
+              face centers/normals and edge references. getProject() returns the
+              complete editable project.
+            </td>
+          </tr>
+          <tr>
+            <td><code>getRecipe({id,index?,ifRevision?})</code></td>
+            <td>
+              Read the retained recipe (including the base mesh for scripted
+              sources). With index, returns only the saved step, evaluated
+              arguments, parameters, basis and revision, without mesh arrays.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <code
+                >recipeStage({id,index,query?,views?,size?,ifRevision?})</code
+              >
+            </td>
+            <td>
+              Read input geometry before a recipe step; index equal to step
+              count reads append input. Returns compact input metadata,
+              paginated components with guarded refs, saved/evaluated step and
+              optional images. Query coordinates are before bakes (local only);
+              images show placed geometry and highlight the query page. No
+              document or view changes. Use these refs when inserting/updating
+              this step, instead of refs from the final mesh. Fixed refs expire
+              when input geometry changes.
+            </td>
+          </tr>
+          <tr>
+            <td><code>getProject()</code></td>
+            <td>An independent editable JSON copy.</td>
+          </tr>
+          <tr>
+            <td><code>loadProject(project, {ifRevision})</code></td>
+            <td>Validate, replace, frame and autosave; undoable.</td>
+          </tr>
+          <tr>
+            <td><code>apply(commands, {ifRevision})</code></td>
+            <td>
+              1–256 commands in one atomic history entry. Returns revision,
+              statistics, changed/removed node IDs, materials and per-command
+              geometry results. operationId deduplicates the last 32
+              acknowledged requests; label appears in Activity. Errors include
+              commandIndex (zero-based), operation, node, components, path and
+              geometry issues. Linked geometry is synchronized between commands.
+              Invalid commands leave state untouched. Pending valid human input
+              commits first, so a stale agent revision is rejected.
+            </td>
+          </tr>
+          <tr>
+            <td><code>undo() / redo()</code></td>
+            <td>
+              Revision is monotonic, including history changes and reloads.
+              History is in memory, bounded to 30 entries / about 8 MB per
+              direction.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <code>select(idOrIds, {mode, faces, vertices, edges})</code>
+            </td>
+            <td>
+              Modes: object, face, vertex, edge. Edge keys are sorted vertex
+              indices, e.g. "2:3". Inspect again after topology changes.
+              Components belong to the last selected node. Singular face /
+              vertex / edge fields also work.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <code>view(name, {focus, projection, preserve}) / focus()</code>
+            </td>
+            <td>
+              front, back, left, right, top default to orthographic; perspective
+              defaults to perspective. focus:true frames the selection. focus()
+              keeps the camera direction. preserve:true changes
+              direction/projection without reframing the current working target.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <code>renderViews(names, {size:512, focus, projection})</code>
+            </td>
+            <td>
+              1–6 PNG observations, each with revision, draftId, camera
+              (projection, world/projection matrices, target, frustum), shading,
+              view, width, height, mimeType, dataUrl. Size: 64–2048. Includes
+              current view. Options: ids, visibility:"all",
+              shading:"material"|"clay"|"silhouette"|"ids", helpers,
+              overlays:{wire,selection},
+              camera:{position,target,up?,projection?,near?,far?,fov?,height?,zoom?}.
+              Observation metadata records visible IDs, selection, view state,
+              helpers/overlays and object-color lookup. All temporary view
+              changes are restored.
+            </td>
+          </tr>
+          <tr>
+            <td><code>validate(budget)</code></td>
+            <td>
+              Revision, geometry errors/warnings, statistics and explicit check
+              coverage. Topology edits reject surface intersections/collapse;
+              inward closed shells are warnings. Inter-object collisions and
+              minimum wall thickness are not certified. Budget fields:
+              triangles, vertices, drawCalls. drawCalls counts mesh/material
+              groups, not measured renderer passes.
+            </td>
+          </tr>
+          <tr>
+            <td><code>exportGLB({encoding,ids?,origin?})</code></td>
+            <td>
+              buffer (default) or base64. Base64 result: revision, filename,
+              mimeType, data, report (including bytes). Indexed geometry retains
+              flat normals and identical geometry shares buffers. Optional ids
+              selects subtrees; mergeStatic explicitly combines static leaf
+              meshes by parent and material. Takes a snapshot before
+              asynchronous export. origin is "world" (default), "asset-root"
+              (one ids root required) or "ground-center". The chosen
+              project-space anchor moves to zero in the exported scene;
+              orientation, scale and hinge relationships are preserved. Reports
+              include that anchor and exported bounds.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <h2>Commands · 编辑命令</h2>
+      <p>
+        World units are meters; Y is up, front is +Z, rotations are XYZ Euler
+        degrees. Node transforms are local to their parent. Component mutations
+        require query/inspect refs, or a topology token with raw IDs. Geometry
+        edits invalidate earlier refs. A geometry edit bakes/removes its
+        generator or recipe; the UI exposes an explicit Convert to mesh action.
+        Linked targets must be edited through their source or unlinked first.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>op</th>
+            <th>Fields</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>create</td>
+            <td>
+              <code
+                >id, name?, kind, parent?, position?, rotation?, scale?,
+                material?, options?</code
+              >. box, sphere, cylinder, cone, extrude, lathe, group, mesh.
+              Custom mesh uses the top-level mesh field.
+            </td>
+          </tr>
+          <tr>
+            <td>recipe / recipeParameters / recipeStep</td>
+            <td>
+              recipe: id, definition:{parameters,generator,steps,basis?};
+              recipeParameters: id, values. Local-meter steps rebuild
+              atomically; {$param:"width",factor?,offset?} references a named
+              value. No script strings. Inspector includes a hollow-box preset.
+              recipeStep: id, action (append/update/patch/remove/move), index?,
+              to?, step?, patch?. Append inserts at index or the end. On a
+              primitive, the first append keeps its shape and promotes it to a
+              recipe, retaining colors, baked transforms, asset dimensions and
+              linked copies. getRecipe exposes that implicit recipe; recipeStage
+              also accepts scripted mesh sources. For kind:"mesh", a recipe
+              retains generator:{kind:"mesh",mesh:{vertices,faces}} as its base,
+              including face colors. All subsequent steps rebuild from that
+              base. recipeStage index 0 inspects its unbaked shape. The
+              inspector also offers Keep shape and start modeling steps. Update
+              replaces a step. Patch replaces supplied fields only; null removes
+              an optional field. Nested selectors are replaced as a whole. Read
+              getRecipe first. Steps support enabled and label. Failed steps
+              report recipeStepIndex, recipeOperation, evaluated
+              recipeArguments, recipeParameters and a node/step path, including
+              over MCP. Whole-mesh transforms modify geometry before the next
+              step while retaining object TRS. Scope previews show matched
+              components on the input geometry before a step. Fixed selections
+              require rebinding after geometry changes; normal/boundary
+              selectors follow dimensions. Direct component edits detach
+              recipes.
+            </td>
+          </tr>
+          <tr>
+            <td>parameters / convert</td>
+            <td>
+              <code>id, options</code> updates retained generator parameters. On
+              a recipe it edits literal base shape options and rebuilds the
+              steps. Options driven by expressions require recipeParameters;
+              assembly dimensions remain controlled by their asset. convert
+              takes id and freezes the current mesh.
+            </td>
+          </tr>
+          <tr>
+            <td>set</td>
+            <td>
+              <code
+                >id, name?, parent?, position?, rotation?, scale?,
+                keepWorld?</code
+              >. Reparenting preserves world appearance by default, including
+              affine shear via geometry baking. keepWorld:false explicitly keeps
+              local transforms. Additional supplied TRS values override the
+              preserved transform.
+            </td>
+          </tr>
+          <tr>
+            <td>transform</td>
+            <td>
+              <code>ids</code> for objects, or
+              <code>id, vertices:[indices]</code> /
+              <code>id, faces:[ids]</code> / <code>id, edges:[keys]</code> for
+              components;
+              <code>translation?, rotation?, scale?, pivot?, space?</code>.
+              Default space: world; default pivot: selection bounds center.
+              Local space uses the last (active) node's frame, matching the
+              viewport gizmo. A finite affine column-major
+              <code>matrix</code> may supply an exact world delta. Selected
+              parent/child objects are transformed only once. A selected
+              mirrored pair supports transforms that preserve its plane; group
+              the pair for arbitrary overall movement.
+            </td>
+          </tr>
+          <tr>
+            <td>dimensions / applyScale</td>
+            <td>
+              <code>id, size:[x,y,z]</code> sets world bounds dimensions about
+              their center. applyScale takes id, resets scale to 1 and preserves
+              geometry, children and generator shape.
+            </td>
+          </tr>
+          <tr>
+            <td>ground / align</td>
+            <td>
+              <code>ids</code>. ground places each root on Y=0. align adds
+              <code>axis, mode:"min"|"center"|"max", reference?</code>; default
+              reference is the last selected ID.
+            </td>
+          </tr>
+          <tr>
+            <td>vertices</td>
+            <td>
+              <code>id, changes:[{index,position:[x,y,z]}]</code>. Absolute
+              local coordinates.
+            </td>
+          </tr>
+          <tr>
+            <td>extrude</td>
+            <td>
+              <code>id, faces:[ids], distance, space?</code>; singular face also
+              works. Shared edges of a coplanar region create no internal side
+              walls. Default distance: world meters; space:"local" opts into
+              local distance. Cap IDs survive.
+            </td>
+          </tr>
+          <tr>
+            <td>inset / bevel</td>
+            <td>
+              <code>id, distance, space?</code>. inset also takes faces or face,
+              insets convex faces individually. bevel without edges applies one
+              segment to a closed convex solid. With <code>edges:[keys]</code>,
+              bevel trims selected edges of a closed consistently oriented mesh
+              with planar, locally convex adjacent faces, including concave
+              recessed solids. Too-wide or unsupported operations are rejected
+              atomically.
+            </td>
+          </tr>
+          <tr>
+            <td>cut / loopCut</td>
+            <td>
+              cut: <code>id, axis, offset, space?</code> splits polygons across
+              a plane, preserving the surface. loopCut:
+              <code>id, edge, ratio:.5</code> follows a manifold quad strip;
+              ratio must be .01–.99. Both freeze generator geometry.
+            </td>
+          </tr>
+          <tr>
+            <td>group</td>
+            <td>
+              <code>ids, newId, name?</code> creates a container at selection
+              bounds center and preserves world appearance. Internal mirrored
+              pairs carry their plane with the container. Select both source and
+              target when grouping a linked pair.
+            </td>
+          </tr>
+          <tr>
+            <td>symmetry</td>
+            <td>
+              <code
+                >id, newId, axis:"x"|"y"|"z", offset:0, space:"world"|"parent",
+                linked:true</code
+              >. Reflects the subtree across the specified center plane with
+              corrected winding. Linked geometry, transforms and materials
+              follow the source. linked:false creates an independent mirrored
+              copy.
+            </td>
+          </tr>
+          <tr>
+            <td>duplicate / unlink</td>
+            <td>
+              <code>id,newId,name?,offset?,linked?</code>. Clone subtree,
+              default parent-space offset [.2,0,0]. linked:true shares source
+              geometry/materials but keeps independent placement. Descendant
+              IDs: newId-1, newId-2, etc. unlink takes id and releases subtree
+              links.
+            </td>
+          </tr>
+          <tr>
+            <td>mirror / pivot</td>
+            <td>
+              mirror: <code>id,axis</code>, flip mesh locally, leaving children
+              unchanged. pivot: <code>id,offset:[x,y,z]</code>, relocate local
+              origin while preserving geometry and child world positions.
+            </td>
+          </tr>
+          <tr>
+            <td>paint / material</td>
+            <td>
+              paint: <code>id,material,faces?</code>. material:
+              <code>id,name?,color?,roughness?</code>, update shared material or
+              create with #rrggbb color. UI Make unique clones and assigns a
+              material in one transaction. Metallic is 0.
+            </td>
+          </tr>
+          <tr>
+            <td>delete / renameProject</td>
+            <td>
+              delete takes id, removes subtree and linked mirrors; surviving
+              geometry copies become independent. renameProject takes name.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        Primitive options: box <code>{size:[1,1,1],bevel:0}</code>; sphere
+        <code>{radius:.5,segments:8,rings:6}</code>; cylinder/cone
+        <code>{radius:.5,height:1,segments:8}</code>; outline extrusion
+        <code>{points:[[x,y],…],depth:.5}</code>; lathe
+        <code>{profile:[[radius,height],…],segments:8}</code>. Ordered lathe
+        profiles may return down an inner wall; use axis endpoints to close a
+        hollow container. 2D extruded outlines have no holes.
+      </p>
+      <pre>
+// Hollow planter, with retained wall/profile parameters.
+funEditor.apply([{ op: "create", id: "planter", kind: "lathe",
+  options: { segments: 8,
+    profile: [[0,0],[.3,0],[.45,.7],[.4,.7],[.26,.06],[0,.06]] } }]);
+funEditor.apply([{ op: "parameters", id: "planter", options: { segments: 12 } }]);
+// Taper the four bottom corners of a box leg in one operation.
+funEditor.apply([{ op: "transform", id: "leg", topology: funEditor.inspect({id:"leg"}).topology, vertices: [0,1,4,5],
+  scale: [.6,1,.6], space: "local" }]);</pre
+      >
+      <h2>可靠改稿 · Reliable iteration</h2>
+      <pre>
+const state = funEditor.inspect();
+const top = funEditor.query({id:"body",kind:"faces",normal:[0,1,0],largest:true});
+const commands = [{op:"inset",id:"body",faces:top.items.map(f=>f.ref),distance:.02}];
+const preview = funEditor.preview(commands,{ifRevision:state.revision,views:["perspective"]});
+funEditor.apply(commands,{ifRevision:state.revision,operationId:"unique-inset-id"});
+funEditor.checkpoint({name:"Shape approved"},{ifRevision:funEditor.inspect().revision});</pre
+      >
+      <h2>Local CLI / MCP</h2>
+      <pre>
+npm run editor -- --build
+node scripts/editor-agent.mjs --mcp --session /tmp/model-session.json --artifacts /tmp/models
+# CLI: omit --mcp, send one JSON line per request:
+{"method":"inspect","arguments":{}}</pre
+      >
+      <p>
+        Uses an isolated local Chromium and the same editor API; stdout is JSON,
+        progress is stderr. --project seeds a new session. For an already
+        debug-enabled Chrome tab: --cdp http://127.0.0.1:9222 --url
+        EXACT_EDITOR_URL. The adapter does not enable debugging or replace an
+        attached tab's project. No hosted endpoint or arbitrary evaluation tool.
+      </p>
+      <h2>Project · 工程</h2>
+      <pre>
+{
+  "format": "fun.dev/model", "version": 1, "name": "My model",
+  "materials": [{ "id": "yellow", "name": "Yellow", "color": "#ffd43b", "roughness": 0.85 }],
+  "nodes": [{
+    "id": "body", "name": "Body", "parent": null,
+    "position": [0,0,0], "rotation": [0,0,0], "scale": [1,1,1],
+    "mesh": { "vertices": [[0,0,0],[1,0,0],[0,1,0]],
+      "faces": [{ "id": "front", "vertices": [0,1,2], "material": "yellow" }] }
+  }]
+}</pre
+      >
+      <p>
+        Limits: 128 nodes, 32 materials, 12,000 editable vertices, 20,000
+        triangles, 64 vertices per polygon, 4 MB project JSON. Nodes may
+        additionally retain generator {kind,options,material,basis?}, symmetry
+        {source,axis,offset,reference,basis?}, or instanceOf with optional
+        instanceBasis. Link cycles are rejected. Errors throw; a non-writer
+        throws code "readonly"; stale <code>ifRevision</code> throws with
+        <code>code: "conflict"</code>. Non-planar faces are triangulated and
+        reported. Validation does not judge appearance or measure device frame
+        rate.
+      </p>
+      <p>
+        Save editable JSON with the game's development files. Place the GLB in
+        <code>games/&lt;id&gt;/assets/</code>, include it in
+        <code>game.json</code>, and run <code>npm run assets</code>. The game
+        loads it using
+        <code>createAssets(context).gltf("assets/model.glb")</code>. Resolve
+        parts using <code>scene.getObjectByName("body")</code>.
+      </p>
+      <p><a href="/editor/">← 回到工坊 / Back to the workshop</a></p>
+      <section>
+        <h2>Durability and asset parameters</h2>
+        <p>
+          Inspect <code>persistence</code> and await
+          <code>funEditor.flush()</code> after synchronous mutations. MCP waits
+          for saving before replying. IndexedDB stores the full draft; a compact
+          local journal protects interrupted saves. Pending recipe or asset
+          inputs block unrelated edits until Rebuild or Cancel.
+        </p>
+        <p>
+          <code>funEditor.presets()</code> returns the hollow-box recipe and
+          toolbox assembly commands. On an empty default-palette project, apply
+          <code>presets().toolbox</code>, then use
+          <code
+            >{op:"assemblyParameters",root:"toolbox",values:{width:.92,height:.5}}</code
+          >. Asset parameters drive body, lid, feet and hinge anchors together;
+          derived values and dependency cycles are checked. Detach with
+          <code>{op:"assembly",root:"toolbox",definition:null}</code>.
+        </p>
+        <p>
+          Expressions support <code>{$param:"width"}</code>,
+          <code>{$expr:"sub",args:[a,b]}</code> (add/sub/mul/div) and assembly
+          <code>{$anchor:{node:"body",point:"max",axis:"y"}}</code>. Anchors use
+          the driven part's parent frame. See
+          <code>capabilities().commands.$defs</code> for the complete schema.
+        </p>
+        <p>
+          Assets own their parameter scopes in <code>assemblies</code>.
+          Independent, shared-parameter and static copies are explicit. Anchors
+          use the driven parent's frame; rotating an asset preserves its
+          internal layout. Imported recipes and assemblies are evaluated before
+          export. Use <code>{op:"detachBinding",id:"body"}</code> to release one
+          part. Material segmentation failures provide recovery commands; the
+          inspector can rebind by local face direction and rebuild in one step.
+        </p>
+        <p>
+          Shared instances support per-parameter overrides:
+          <code
+            >{op:"assemblyParameters",root:"second",override:true,values:{openAngle:-90}}</code
+          >. Reset with <code>values:{},resetOverrides:["openAngle"]</code>.
+          <code>{op:"detachBinding",id:"hinge",fields:["rotation"]}</code>
+          keeps the position attachment while releasing rotation.
+        </p>
+        <p>
+          Assets may nest. A child declares <code>exposed:["width"]</code>; the
+          parent can bind its root using
+          <code>{id:"toolbox",assetValues:{width:{$param:"width"}}}</code>.
+          Child internals stay owned by the child, and dependency cycles reject
+          atomically. Static export merges are partitioned by parent and
+          material, preserving asset and hinge motion. Inspect
+          <code>mergeGroups</code> for source IDs.
+        </p>
+        <p>
+          Material rules evaluate every matching face, independently of query
+          pagination; replies include matched counts. Damaged saved data enters
+          protected recovery. The editor displays the intact project or cached
+          geometry and keeps originals read-only. Download original data or
+          recover an independent copy from the banner. Valid recipes remain
+          editable in the copy; failed dependencies become static geometry.
+          <code>getSession()</code> (MCP <code>fun_editor_getSession</code>)
+          includes original recovery sources for backup. Protected MCP session
+          files remain unchanged, including on shutdown.
+        </p>
+        <p>
+          Local face colors on primitives start a zero-step recipe while keeping
+          base-shape editing available. Face colors retain their recipe across
+          dimension changes. Incompatible topology rejects the rebuild and
+          requests a material remap. The shape dialog can preview a directional
+          repair or cleared overrides; Apply commits the repair with the shape
+          edit, and Cancel discards both. An open shape dialog reports
+          <code>pendingInput</code> and blocks agent mutations.
+        </p>
+        <p>
+          Apply replies use compact geometry counts; request
+          <code>includeComponents:true</code> for full refs. The last 32
+          operation IDs support retries. MCP also exposes undo, redo and
+          presets.
+        </p>
+        <p>
+          Exports validate selected roots, remove unrelated nodes and attach
+          diagnostics. Errors block export unless <code>force:true</code> is
+          explicitly requested. Observation camera descriptions can be replayed
+          directly through MCP.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

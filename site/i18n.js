@@ -1,6 +1,6 @@
 export const messages = {
   zh: {
-    language: "语言", languageAuto: "自动",
+    language: "语言", languageAuto: "自动", workshop: "工坊",
     home: "fun.dev 首页", skip: "跳到游戏", games: "游戏", gameList: "游戏列表",
     description: "fun.dev — 做着玩的小游戏，点开就玩。",
     search: "搜索", searchPlaceholder: "搜索游戏", category: "分类", allCategories: "全部分类",
@@ -31,7 +31,7 @@ export const messages = {
     modelSize: "尺寸", triangles: "三角形", fileSize: "文件", versions: "版本", licence: "CC0：随便用，不用署名。",
   },
   en: {
-    language: "Language", languageAuto: "Auto",
+    language: "Language", languageAuto: "Auto", workshop: "Workshop",
     home: "fun.dev home", skip: "Skip to games", games: "Games", gameList: "Game list",
     description: "fun.dev — Little games, made for fun.",
     search: "Search", searchPlaceholder: "Search games", category: "Category", allCategories: "All categories",

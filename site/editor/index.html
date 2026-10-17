@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#ffd43b" />
+    <meta
+      name="description"
+      content="在 fun.dev 捏一个低多边形模型。Make a little low-poly model."
+    />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/platform.css" />
+    <link rel="stylesheet" href="/editor/editor.css" />
+    <script type="module" src="/editor/app.js"></script>
+    <title>低模工坊 — fun.dev</title>
+  </head>
+  <body class="editor-page">
+    <a class="skip-link" href="#canvas" data-i18n="edTitle">低模工坊</a>
+    <header class="editor-header">
+      <a class="wordmark" href="/" data-language-link>fun.dev</a>
+      <h1 data-i18n="edTitle">低模工坊</h1>
+      <a href="/games" data-i18n="games" data-language-link>游戏</a>
+      <select
+        id="language-toggle"
+        class="language-toggle"
+        aria-label="语言"
+        data-i18n-aria="language"
+      >
+        <option value="auto" data-i18n="languageAuto">自动</option>
+        <option value="zh">中文</option>
+        <option value="en">English</option>
+      </select>
+    </header>
+    <nav class="file-tools" aria-label="工程" data-i18n-aria="edProject">
+      <button id="new" data-i18n="edNew">新建</button
+      ><button id="duck" data-i18n="edDuck">小鸭子</button
+      ><button id="stool" data-i18n="edStool">板凳</button
+      ><button id="planter" data-i18n="edPlanter">花盆</button>
+      <button id="open" data-i18n="edOpen">打开</button
+      ><button id="save" data-i18n="edSave">保存工程</button>
+      <button id="export" class="primary" data-i18n="edExport">导出 GLB</button>
+      <span class="tool-divider"></span
+      ><button id="undo" data-i18n="edUndo">撤销</button
+      ><button id="redo" data-i18n="edRedo">重做</button>
+      <button id="agent" data-i18n="edAgent">Agent 接口</button>
+      <input
+        id="project-file"
+        type="file"
+        accept=".json,.funmodel,application/json"
+        hidden
+      />
+    </nav>
+    <aside id="draft-banner" class="draft-banner" hidden>
+      <span id="draft-message"></span
+      ><button id="draft-retry" data-i18n="edRetry">重新连接</button
+      ><button id="draft-copy" data-i18n="edDraftCopy">独立副本</button>
+      <button id="draft-original" data-i18n="edRecoveryOriginal" hidden>
+        下载原始工程
+      </button>
+    </aside>
+    <main class="workspace">
+      <section class="panel objects-panel" aria-labelledby="parts-heading">
+        <div class="panel-heading">
+          <h2 id="parts-heading" data-i18n="edObjects">部件</h2>
+          <button id="add" data-i18n="edAdd">+ 添加</button>
+        </div>
+        <ul id="parts" class="parts"></ul>
+        <p id="empty" class="muted" data-i18n="edEmpty" hidden>
+          加一个形状，开始捏吧。
+        </p>
+        <div class="part-actions">
+          <button id="duplicate" data-i18n="edDuplicate">复制</button
+          ><button id="delete" data-i18n="edDelete">删除</button>
+        </div>
+        <label class="check"
+          ><input type="checkbox" id="linked-duplicate" /><span
+            data-i18n="edLinkedDuplicate"
+            >联动复制</span
+          ></label
+        >
+        <label hidden
+          ><span data-i18n="edAssetCopyMode">资产复制方式</span>
+          <select id="asset-copy-mode">
+            <option value="independent" data-i18n="edAssetIndependent">
+              独立参数副本
+            </option>
+            <option value="linked" data-i18n="edAssetLinked">
+              共享参数副本
+            </option>
+            <option value="static" data-i18n="edAssetStatic">
+              静态网格副本
+            </option>
+          </select>
+        </label>
+        <div class="part-actions">
+          <button id="group-selection" data-i18n="edGroupSelection">
+            编组选区</button
+          ><button id="isolate" aria-pressed="false" data-i18n="edIsolate">
+            隔离</button
+          ><button id="show-all" data-i18n="edShowAll">显示全部</button>
+        </div>
+        <p class="small muted" data-i18n="edMultiHint">
+          Shift 多选 · B 框选 · F 聚焦
+        </p>
+        <details class="project-settings" open>
+          <summary data-i18n="edProject">工程</summary>
+          <label for="project-name" data-i18n="edProjectName">工程名称</label
+          ><input id="project-name" maxlength="100" />
+          <button id="check" data-i18n="edCheck">检查模型</button>
+          <button id="material-library" data-i18n="edMaterialLibrary">
+            材质库
+          </button>
+          <p class="muted small" data-i18n="edLocal">
+            修改只保存在本机，记得下载工程。
+          </p>
+        </details>
+      </section>
+      <section class="viewport" aria-label="模型视口" data-i18n-aria="edCanvas">
+        <div class="viewport-tools">
+          <select
+            id="selection-mode"
+            aria-label="选择模式"
+            data-i18n-aria="edSelection"
+          >
+            <option value="object" data-i18n="edObject">物体</option>
+            <option value="face" data-i18n="edFace">面</option>
+            <option value="edge" data-i18n="edEdge">边</option>
+            <option value="vertex" data-i18n="edVertex">顶点</option>
+          </select>
+          <div class="transform-tools">
+            <button
+              data-transform="translate"
+              aria-pressed="true"
+              data-i18n="edMove"
+            >
+              移动</button
+            ><button
+              data-transform="rotate"
+              aria-pressed="false"
+              data-i18n="edRotate"
+            >
+              旋转</button
+            ><button
+              data-transform="scale"
+              aria-pressed="false"
+              data-i18n="edScale"
+            >
+              缩放
+            </button>
+          </div>
+          <select id="space" aria-label="变换空间" data-i18n-aria="edSpace">
+            <option value="world" data-i18n="edWorld">世界</option>
+            <option value="local" data-i18n="edLocalSpace">局部</option>
+          </select>
+          <button id="box-select" aria-pressed="false" data-i18n="edBoxSelect">
+            框选 B</button
+          ><button id="xray" aria-pressed="false" data-i18n="edXray">
+            穿透</button
+          ><button id="wire" aria-pressed="false" data-i18n="edWire">
+            边线</button
+          ><button id="snap" aria-pressed="false" data-i18n="edSnap">
+            吸附
+          </button>
+        </div>
+        <div class="precision-tools">
+          <label
+            ><span data-i18n="edSnapStep">移动步长</span
+            ><select id="snap-step">
+              <option value="0.001">1 mm</option>
+              <option value="0.005">5 mm</option>
+              <option value="0.01" selected>1 cm</option>
+              <option value="0.1">10 cm</option>
+              <option value="1">1 m</option>
+            </select></label
+          >
+          <label
+            ><span data-i18n="edSnapAngle">旋转步长</span
+            ><select id="snap-angle">
+              <option>1</option>
+              <option>5</option>
+              <option selected>15</option>
+              <option>45</option></select
+            >°</label
+          >
+          <label
+            ><span data-i18n="edUnit">长度输入</span
+            ><select id="length-unit">
+              <option value="m">m</option>
+              <option value="cm">cm</option>
+              <option value="mm">mm</option>
+            </select></label
+          >
+          <span id="grid-label" class="small"></span>
+        </div>
+        <div class="stage">
+          <canvas
+            id="canvas"
+            tabindex="0"
+            aria-label="模型视口"
+            data-i18n-aria="edCanvas"
+          ></canvas>
+          <div class="view-tools">
+            <button data-view="perspective" data-i18n="edFrame">全貌</button
+            ><button data-view="front" data-i18n="edFront">正面</button
+            ><button data-view="left" data-i18n="edSide">侧面</button
+            ><button data-view="top" data-i18n="edTop">顶部</button>
+          </div>
+          <svg id="axes" viewBox="0 0 80 80" role="img" aria-label="XYZ">
+            <line x1="40" y1="40" data-axis="x" />
+            <line x1="40" y1="40" data-axis="y" />
+            <line x1="40" y1="40" data-axis="z" />
+            <text data-label="x">X</text>
+            <text data-label="y">Y</text>
+            <text data-label="z">Z</text>
+          </svg>
+          <p class="viewport-hint" data-i18n="edHint">
+            拖动旋转 · 滚轮 / 双指缩放
+          </p>
+          <p id="boot-message" role="status">
+            正在打开工坊 / Opening the workshop…
+          </p>
+        </div>
+        <div class="view-options">
+          <button id="focus" data-i18n="edFocus">聚焦选区 F</button
+          ><button id="projection" data-i18n="edProjection">正交 / 透视</button
+          ><select
+            id="shading"
+            aria-label="显示模式"
+            data-i18n-aria="edShading"
+          >
+            <option value="material" data-i18n="edShaded">材质</option>
+            <option value="clay" data-i18n="edClay">黏土</option>
+            <option value="silhouette" data-i18n="edSilhouette">
+              轮廓
+            </option></select
+          ><span id="view-label" class="small muted"></span>
+        </div>
+        <div class="viewport-bottom">
+          <span id="renderer-label" class="small muted"></span>
+          <span id="stats"></span
+          ><button id="screenshot" data-i18n="edScreenshot">保存视图</button>
+        </div>
+      </section>
+      <section class="panel inspector" aria-labelledby="properties-heading">
+        <h2 id="properties-heading" data-i18n="edProperties">属性</h2>
+        <p id="choose" class="muted" data-i18n="edChoose">选择一个部件。</p>
+        <div id="properties" hidden>
+          <p id="selection-summary" class="small"></p>
+          <p id="selection-help" class="small muted"></p>
+          <p id="linked-note" class="notice" hidden></p>
+          <div id="link-actions" hidden>
+            <button id="select-source" data-i18n="edSelectSource">
+              编辑源部件</button
+            ><button id="unlink" data-i18n="edUnlink">解除联动</button>
+          </div>
+          <div id="generator-tools" hidden>
+            <p class="small muted" data-i18n="edParametric">
+              参数化形状。自由改点前请转为网格。
+            </p>
+            <button id="parameters" data-i18n="edParameters">
+              编辑形状参数</button
+            ><button id="convert" data-i18n="edConvert">转为网格</button>
+          </div>
+          <section id="selection-tools" hidden>
+            <h3 data-i18n="edSelectionTransform">选区变换</h3>
+            <div class="xyz" data-vector="selectionMove"></div>
+            <button id="move-selection" data-i18n="edMoveSelection">
+              移动选区（米）
+            </button>
+            <div class="xyz" data-vector="selectionRotate"></div>
+            <button id="rotate-selection" data-i18n="edRotateSelection">
+              旋转选区（度）
+            </button>
+            <div class="xyz" data-vector="selectionScale"></div>
+            <button id="scale-selection" data-i18n="edScaleSelection">
+              缩放选区
+            </button>
+          </section>
+          <details id="object-properties" open>
+            <summary data-i18n="edObjectProperties">物体属性</summary>
+            <form id="transform-form">
+              <label for="node-name" data-i18n="edName">名称</label
+              ><input id="node-name" maxlength="100" required />
+              <p id="node-id" class="muted small"></p>
+              <label for="parent" data-i18n="edParent">父部件</label
+              ><select id="parent"></select>
+              <fieldset>
+                <legend data-i18n="edPosition">位置</legend>
+                <div class="xyz" data-vector="position"></div>
+              </fieldset>
+              <fieldset>
+                <legend data-i18n="edRotation">旋转（度）</legend>
+                <div class="xyz" data-vector="rotation"></div>
+              </fieldset>
+              <fieldset>
+                <legend data-i18n="edSize">缩放</legend>
+                <div class="xyz" data-vector="scale"></div>
+              </fieldset>
+              <button type="submit" data-i18n="edApply">应用</button>
+            </form>
+            <fieldset>
+              <legend data-i18n="edDimensions">世界尺寸（米）</legend>
+              <div class="xyz" data-vector="dimensions"></div>
+              <button id="set-dimensions" data-i18n="edSetDimensions">
+                设置尺寸
+              </button>
+            </fieldset>
+            <div class="part-actions">
+              <button id="apply-scale" data-i18n="edApplyScale">应用缩放</button
+              ><button id="ground" data-i18n="edGround">落地</button>
+            </div>
+            <div id="align-tools">
+              <select id="align-axis" aria-label="Axis">
+                <option>x</option>
+                <option>y</option>
+                <option>z</option></select
+              ><select id="align-mode" aria-label="Alignment">
+                <option value="center" data-i18n="edCenter">中心</option>
+                <option value="min" data-i18n="edMinimum">最小端</option>
+                <option value="max" data-i18n="edMaximum">
+                  最大端
+                </option></select
+              ><button id="align" data-i18n="edAlign">对齐到最后选中</button>
+            </div>
+          </details>
+          <p id="group-note" class="muted small" data-i18n="edNoMesh" hidden>
+            这是一个空部件，可以作为分组、枢轴或挂点。
+          </p>
+          <div id="mesh-properties">
+            <section id="face-tools" hidden>
+              <label for="face" data-i18n="edFaceId">选择面</label
+              ><select id="face"></select>
+              <label for="extrude-distance" data-i18n="edDistance"
+                >挤出距离</label
+              ><input
+                id="extrude-distance"
+                type="number"
+                value="0.15"
+                step="0.05"
+                min="-1000"
+                max="1000"
+              />
+              <button id="extrude" data-i18n="edExtrude">挤出选区</button
+              ><label for="inset-distance" data-i18n="edInsetDistance"
+                >内插距离</label
+              ><input
+                id="inset-distance"
+                type="number"
+                min="0.00001"
+                value="0.03"
+                step="any"
+              /><button id="inset" data-i18n="edInset">内插各面</button>
+            </section>
+            <form id="vertex-form" hidden>
+              <label for="vertex" data-i18n="edVertexId">选择顶点</label
+              ><select id="vertex"></select>
+              <fieldset>
+                <legend data-i18n="edVertexPosition">顶点坐标（局部）</legend>
+                <div class="xyz" data-vector="vertex"></div>
+              </fieldset>
+              <button type="submit" data-i18n="edApply">应用</button>
+            </form>
+            <section id="edge-tools" hidden>
+              <label for="edge" data-i18n="edEdge">边</label
+              ><select id="edge"></select>
+              <label for="edge-bevel-distance" data-i18n="edBevelDistance"
+                >倒角宽度</label
+              ><input
+                id="edge-bevel-distance"
+                type="number"
+                value="0.01"
+                step="any"
+                min="0.00001"
+              />
+              <button id="bevel-edges" data-i18n="edBevelEdges">
+                选边倒角
+              </button>
+              <label for="loop-ratio" data-i18n="edLoopRatio">环切位置</label
+              ><input
+                id="loop-ratio"
+                type="number"
+                min="0.01"
+                max="0.99"
+                step="0.05"
+                value="0.5"
+              />
+              <button id="loop-cut" data-i18n="edLoopCut">沿选边环切</button>
+            </section>
+            <button id="face-edges" data-i18n="edFaceEdges">
+              选择面的边界
+            </button>
+            <details id="cut-tools">
+              <summary data-i18n="edCutPlane">平面切线</summary>
+              <select id="cut-axis" aria-label="Axis">
+                <option>x</option>
+                <option>y</option>
+                <option>z</option>
+              </select>
+              <label for="cut-offset" data-i18n="edCutOffset"
+                >位置（当前空间）</label
+              ><input id="cut-offset" type="number" step="any" value="0" />
+              <button id="cut" data-i18n="edCut">切开经过的面</button>
+            </details>
+            <div id="bevel-tools">
+              <label for="bevel-distance" data-i18n="edBevelDistance"
+                >倒角宽度（米）</label
+              ><input
+                id="bevel-distance"
+                type="number"
+                min="0.00001"
+                value="0.02"
+                step="any"
+              /><button id="bevel" data-i18n="edBevel">简单倒角</button>
+              <p class="small muted" data-i18n="edBevelHint">
+                用于闭合凸体，一段倒角。
+              </p>
+            </div>
+            <section id="material-tools">
+              <h3 data-i18n="edMaterial">材质</h3>
+              <button id="manage-materials" data-i18n="edMaterialLibrary">
+                材质库
+              </button>
+              <p id="material-usage" class="small muted"></p>
+              <label for="material" data-i18n="edMaterial">材质</label
+              ><select id="material"></select>
+              <button id="paint">应用到部件</button>
+              <p id="paint-scope" class="small muted"></p>
+              <div class="part-actions">
+                <button id="new-material" data-i18n="edNewMaterial">
+                  新增材质</button
+                ><button id="unique-material" data-i18n="edUniqueMaterial">
+                  独立副本
+                </button>
+              </div>
+              <label for="material-name" data-i18n="edMaterialName"
+                >材质名称</label
+              ><input id="material-name" maxlength="100" />
+              <label for="color" data-i18n="edShared">共享材质颜色</label
+              ><input type="color" id="color" />
+              <label for="roughness" data-i18n="edRoughness">粗糙度</label
+              ><input type="range" id="roughness" min="0" max="1" step="0.05" />
+            </section>
+            <button id="mirror" data-i18n="edMirror">镜像局部 X</button>
+          </div>
+          <details>
+            <summary data-i18n="edSymmetry">对称复制</summary>
+            <label for="symmetry-axis" data-i18n="edAxis">对称轴</label
+            ><select id="symmetry-axis">
+              <option>x</option>
+              <option>y</option>
+              <option>z</option></select
+            ><label for="symmetry-space" data-i18n="edPlaneSpace"
+              >中心平面空间</label
+            ><select id="symmetry-space">
+              <option value="world" data-i18n="edWorld">世界</option>
+              <option value="parent" data-i18n="edParentSpace">
+                父部件
+              </option></select
+            ><label for="symmetry-offset" data-i18n="edPlaneOffset"
+              >平面偏移（米）</label
+            ><input
+              id="symmetry-offset"
+              type="number"
+              value="0"
+              step="any"
+            /><label class="check"
+              ><input id="symmetry-linked" type="checkbox" checked /><span
+                data-i18n="edKeepLinked"
+                >保持联动</span
+              ></label
+            ><button id="symmetry" data-i18n="edCreateSymmetry">
+              生成另一侧
+            </button>
+          </details>
+          <details>
+            <summary data-i18n="edPivot">枢轴</summary>
+            <p class="muted small" data-i18n="edPivotHint">
+              新原点在当前局部坐标的位置；外形保持不动。
+            </p>
+            <div class="xyz" data-vector="pivot"></div>
+            <button id="pivot" data-i18n="edSetPivot">移动原点</button>
+          </details>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <p id="status" role="status" aria-live="polite"></p>
+      <span id="save-status" class="muted"></span>
+    </footer>
+    <dialog id="add-dialog" aria-labelledby="add-title">
+      <div class="shape-workspace">
+        <form id="add-form">
+          <h2 id="add-title" data-i18n="edAddTitle">添加形状</h2>
+          <label for="kind" data-i18n="edKind">形状</label
+          ><select id="kind">
+            <option value="box" data-i18n="edBox">方块</option>
+            <option value="sphere" data-i18n="edSphere">低模球</option>
+            <option value="cylinder" data-i18n="edCylinder">圆柱</option>
+            <option value="cone" data-i18n="edCone">圆锥</option>
+            <option value="extrude" data-i18n="edOutline">轮廓挤出</option>
+            <option value="lathe" data-i18n="edLathe">旋转成型</option>
+            <option value="group" data-i18n="edGroup">空部件 / 挂点</option>
+          </select>
+          <div id="size-field">
+            <label data-i18n="edPrimitiveSize">长宽高（米）</label>
+            <div class="xyz" data-vector="primitiveSize"></div>
+            <label for="box-bevel" data-i18n="edBevelDistance"
+              >倒角宽度（米）</label
+            ><input id="box-bevel" type="number" value="0" min="0" step="any" />
+          </div>
+          <div id="radius-field" hidden>
+            <label for="radius" data-i18n="edRadius">半径（米）</label
+            ><input
+              id="radius"
+              type="number"
+              value="0.5"
+              min="0.001"
+              step="any"
+            />
+          </div>
+          <div id="height-field" hidden>
+            <label for="height" data-i18n="edHeight">高度（米）</label
+            ><input
+              id="height"
+              type="number"
+              value="1"
+              min="0.001"
+              step="any"
+            />
+          </div>
+          <div id="rings-field" hidden>
+            <label for="rings" data-i18n="edRings">纬向分段</label
+            ><input id="rings" type="number" value="6" min="3" max="64" />
+          </div>
+          <div id="segment-field" hidden>
+            <label for="segments" data-i18n="edSegments">圆周分段</label
+            ><input
+              id="segments"
+              type="number"
+              value="8"
+              min="3"
+              max="64"
+              step="1"
+            />
+          </div>
+          <div id="outline-field" hidden>
+            <label for="outline"
+              ><span data-i18n="edPoints">轮廓点，每行两个数</span> (<span
+                data-length-unit
+                >m</span
+              >)</label
+            ><svg
+              id="profile-editor"
+              viewBox="0 0 280 190"
+              aria-label="轮廓编辑"
+              data-i18n-aria="edProfileEditor"
+            ></svg>
+            <p class="small muted" data-i18n="edProfileHint">
+              拖动点 · 双击线段添加 · Delete 删除选中点
+            </p>
+            <div class="profile-controls">
+              <span id="profile-point">#0</span
+              ><label
+                >X (<span data-length-unit>m</span>)<input
+                  id="profile-x"
+                  type="number"
+                  step="any"
+                  value="0" /></label
+              ><label
+                >Y (<span data-length-unit>m</span>)<input
+                  id="profile-y"
+                  type="number"
+                  step="any"
+                  value="0" /></label
+              ><select id="profile-constraint" aria-label="Constraint">
+                <option value="free" data-i18n="edFree">自由</option>
+                <option value="x">X</option>
+                <option value="y">Y</option>
+              </select>
+            </div>
+            <div class="part-actions">
+              <button id="profile-undo" type="button" data-i18n="edUndo">
+                撤销</button
+              ><button id="profile-redo" type="button" data-i18n="edRedo">
+                重做
+              </button>
+            </div>
+            <button id="cup-profile" type="button" data-i18n="edCupProfile">
+              空心花盆轮廓</button
+            ><textarea id="outline" rows="5" spellcheck="false"></textarea>
+            <p id="outline-hint" class="muted small"></p>
+          </div>
+          <div id="depth-field" hidden>
+            <label for="depth" data-i18n="edDepth">厚度</label
+            ><input
+              id="depth"
+              type="number"
+              value="0.5"
+              min="0.001"
+              max="1000"
+              step="any"
+            />
+          </div>
+          <p id="add-error" role="alert"></p>
+          <div id="shape-recovery" class="parameter-recovery"></div>
+          <div class="dialog-actions">
+            <button type="button" data-close="add-dialog" data-i18n="edCancel">
+              取消</button
+            ><button type="submit" class="primary" id="shape-submit">
+              添加
+            </button>
+          </div>
+        </form>
+        <section class="shape-preview">
+          <canvas id="shape-canvas" aria-label="3D preview"></canvas
+          ><button id="shape-fit" type="button" data-i18n="edFrame">
+            全貌
+          </button>
+          <p
+            id="shape-preview-status"
+            data-i18n="edLivePreview"
+            class="small muted"
+            aria-live="polite"
+          >
+            实时预览 · 拖动旋转 · 提交前可取消
+          </p>
+        </section>
+      </div>
+    </dialog>
+    <dialog id="info-dialog" aria-labelledby="info-title">
+      <h2 id="info-title"></h2>
+      <div id="info-content"></div>
+      <button data-close="info-dialog" data-i18n="edClose">关闭</button>
+    </dialog>
+    <noscript
+      >请开启 JavaScript 来使用工坊。 / Enable JavaScript to use the
+      workshop.</noscript
+    >
+  </body>
+</html>

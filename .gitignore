@@ -3,6 +3,7 @@
 node_modules
 dist/
 dist-console/
+.editor-preview/
 .env
 .env.*
 .dev.vars

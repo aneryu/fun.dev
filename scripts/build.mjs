@@ -1,5 +1,5 @@
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { build, transform } from "esbuild";
+import { buildThree } from "./build-three.mjs";
 import { gameOrigin, publicOrigin } from "./game-origin.mjs";
 import { assetHTML, assetManifest } from "./asset-origin.mjs";
 import { loadLocalGames, localCatalog } from "./local-games.mjs";
@@ -24,38 +24,7 @@ const assetOrigin = publicOrigin(process.env.FUNDEV_ASSET_ORIGIN, "FUNDEV_ASSET_
 const apiOrigin = publicOrigin(process.env.FUNDEV_API_ORIGIN, "FUNDEV_API_ORIGIN");
 await rm(output, { recursive: true, force: true });
 await cp(new URL("site/", root), output, { recursive: true });
-const vendor = new URL("vendor/three/", output);
-await mkdir(vendor, { recursive: true });
-// The platform engine is the WebGPU build (WebGPU, with a WebGL 2 fallback, and TSL node materials).
-for (const name of ["three.webgpu.js", "three.core.js"]) {
-  const source = await readFile(new URL(`node_modules/three/build/${name}`, root), "utf8");
-  const result = await transform(source, { loader: "js", minify: true, target: "es2022", legalComments: "eof" });
-  await writeFile(new URL(name, vendor), result.code);
-}
-await cp(new URL("node_modules/three/LICENSE", root), new URL("LICENSE.txt", vendor));
-// Shared loaders, controls and postprocessing nodes at the pinned Three.js version; their `three`
-// imports resolve to the platform runtime, and TSL to its one shared copy.
-const platformThree = { name: "platform-three", setup(builder) {
-  builder.onResolve({ filter: /^three(?:\/webgpu)?$/ }, () => ({ path: "/runtime/three.js", external: true }));
-  builder.onResolve({ filter: /^three\/tsl$/ }, () => ({ path: "/runtime/tsl.js", external: true }));
-} };
-await build({
-  entryPoints: { tsl: fileURLToPath(new URL("node_modules/three/build/three.tsl.js", root)) },
-  outdir: fileURLToPath(new URL("runtime/", output)), bundle: true, format: "esm", minify: true, target: "es2022", legalComments: "eof", logLevel: "warning",
-  plugins: [platformThree],
-});
-const addons = new URL("runtime/addons/", output);
-await build({
-  entryPoints: Object.fromEntries(["loaders/GLTFLoader", "loaders/DRACOLoader", "loaders/KTX2Loader", "controls/OrbitControls", "tsl/display/BloomNode", "tsl/display/GTAONode", "libs/meshopt_decoder.module:MeshoptDecoder"]
-    .map((entry) => { const [path, name = path.split("/").at(-1)] = entry.split(":"); return [name, fileURLToPath(new URL(`node_modules/three/examples/jsm/${path}.js`, root))]; })),
-  outdir: fileURLToPath(addons), bundle: true, format: "esm", minify: true, target: "es2022", legalComments: "eof", logLevel: "warning",
-  plugins: [platformThree],
-});
-// Decoders load only when a game uses Draco or KTX2.
-for (const [directory, files] of [["draco", ["draco_wasm_wrapper.js", "draco_decoder.wasm"]], ["basis", ["basis_transcoder.js", "basis_transcoder.wasm"]]]) {
-  await mkdir(new URL(`${directory}/`, addons), { recursive: true });
-  for (const file of files) await cp(new URL(`node_modules/three/examples/jsm/libs/${directory}/${file}`, root), new URL(`${directory}/${file}`, addons));
-}
+await buildThree(root, output);
 await buildVision(root, output);
 const skillFiles = ["SKILL.md", "agents/openai.yaml", "assets/game.js", "references/runtime.md", "references/release.md", "references/security.md"];
 const skillOutput = new URL("skills/fun-dev-games/", output);
@@ -140,7 +109,7 @@ await rm(template);
 await writeFile(new URL("sitemap.xml", output), sitemap(catalog));
 const headersFile = new URL("_headers", output);
 if (assetOrigin) {
-  for (const page of ["index.html", "404.html", "games.html", "models.html", "model.html", ...catalog.filter(compatible).map((game) => `games/${game.id}.html`)]) {
+  for (const page of ["index.html", "404.html", "games.html", "models.html", "model.html", "editor/index.html", "editor/guide.html", ...catalog.filter(compatible).map((game) => `games/${game.id}.html`)]) {
     const path = new URL(page, output);
     await writeFile(path, assetHTML(await readFile(path, "utf8"), assetOrigin));
   }
@@ -163,7 +132,7 @@ async function files(directory) {
 const outputPath = fileURLToPath(output);
 const shell = (await files(output))
   .map((file) => `/${relative(outputPath, fileURLToPath(file)).split("\\").join("/")}`)
-  .filter((path) => !/^\/(?:games\/[^/]+\/|blobs\/|skills\/|runtime\/vision\/|runtime\/addons\/(?:draco|basis)\/|vendor\/three\/LICENSE|_headers|_redirects|robots\.txt|sitemap\.xml|games\.json|library\/|model\.html|sw\.js)/.test(path))
+  .filter((path) => !/^\/(?:editor\/|games\/[^/]+\/|blobs\/|skills\/|runtime\/vision\/|runtime\/addons\/(?:draco|basis)\/|vendor\/three\/LICENSE|_headers|_redirects|robots\.txt|sitemap\.xml|games\.json|library\/|model\.html|sw\.js)/.test(path))
   .map((path) => path.replace(/(?:^|\/)index\.html$/, "/").replace(/^\/\//, "/").replace(/^(\/games(?:\/[^/]+)?|\/models?)\.html$/, "$1"))
   .sort();
 // Cached under the addresses pages are visited at: "/x/" for x/index.html, "/games" and
