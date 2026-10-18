@@ -1,8 +1,11 @@
 # Low-poly model workshop
 
 The static `/editor/` page lets people and browser-connected agents build game
-models using the same document and command engine. The lobby links to it.
-No model service, credentials, upload endpoint or new dependency is required.
+models using the same document and command engine. The lobby links to it. Its goal is
+to take over as much of Blender's work as possible
+([roadmap](platform-roadmap.md#workshop-replacing-blender-decided-2026-10-18)). No model
+service, credentials or upload endpoint is required; beyond Three.js its only library is
+the solid-geometry kernel (manifold-3d).
 
 ```sh
 npm run editor          # http://127.0.0.1:8001/editor/; rebuilds on save, refresh the tab
@@ -21,8 +24,8 @@ The viewport footer and `funEditor.inspect().renderer` report the actual backend
 including whether fallback occurred. Add `?renderer=webgl` to force WebGL2 for
 compatibility checks. Initialization finishes before `window.funEditor` becomes
 available; `renderViews` remains synchronous. Shape previews also wait for their
-renderer and can be cancelled safely during initialization. The player retains
-its existing engine entry point; project JSON and GLB formats are unchanged.
+renderer and can be cancelled safely during initialization. The player keeps its
+engine entry point.
 
 ## Desktop workflow
 
@@ -81,7 +84,8 @@ tapered legs; Planter has an editable profile with a returning inner wall.
   own placement. Edit a source or unlink before changing derived geometry. Deleting
   a source removes its linked mirrors and makes surviving geometry copies independent.
 - Multi-select duplication copies all selected roots in one undo step. Component
-  mode disables whole-part duplication/deletion and Delete never removes a part.
+  mode disables whole-part duplication/deletion; there Delete removes the selected faces
+  (or the faces using the selected edges and vertices), never the part.
   Paint applies to the selected objects (or faces), resolves linked sources, and
   displays the total affected parts including copies. Active selection is amber;
   other selected parts are blue.
