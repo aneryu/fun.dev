@@ -707,12 +707,32 @@ export function createRasterizer(THREE) {
         x1 = (b[0] / b[3] * 0.5 + 0.5) * W,
         y1 = (0.5 - (b[1] / b[3]) * 0.5) * H,
         z1 = (b[2] / b[3]) * 0.5 + 0.5;
-      const steps = Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)));
-      if (steps > 4 * (W + H)) continue;
+      // Clip to the screen (Liang–Barsky): lines passing near the eye project very long.
+      let t0 = 0,
+        t1 = 1;
+      const dx = x1 - x0,
+        dy = y1 - y0,
+        margin = thick + 1;
+      for (const [p, q] of [
+        [-dx, x0 + margin],
+        [dx, W + margin - x0],
+        [-dy, y0 + margin],
+        [dy, H + margin - y0],
+      ]) {
+        if (p === 0) {
+          if (q < 0) t0 = 2;
+          continue;
+        }
+        const r = q / p;
+        if (p < 0) t0 = Math.max(t0, r);
+        else t1 = Math.min(t1, r);
+      }
+      if (t0 > t1) continue;
+      const steps = Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) * (t1 - t0));
       for (let s = 0; s <= steps; s++) {
-        const t = steps ? s / steps : 0;
-        const px = Math.floor(x0 + (x1 - x0) * t - (thick - 1) / 2),
-          py = Math.floor(y0 + (y1 - y0) * t - (thick - 1) / 2),
+        const t = t0 + (steps ? s / steps : 0) * (t1 - t0);
+        const px = Math.floor(x0 + dx * t - (thick - 1) / 2),
+          py = Math.floor(y0 + dy * t - (thick - 1) / 2),
           z = toward(z0 + (z1 - z0) * t, state.perspective);
         if (z < 0 || z > 1) continue;
         fragment.color[0] = a[12] + (b[12] - a[12]) * t;

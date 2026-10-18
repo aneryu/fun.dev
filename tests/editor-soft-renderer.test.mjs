@@ -150,3 +150,22 @@ test("supersampling smooths edges between the part and the background", () => {
   const [low, high] = [Math.min(...values), Math.max(...values)];
   assert.ok([...values].filter((v) => v > low + 4 && v < high - 4).length >= 3, `edge steps: ${[...values]}`);
 });
+
+test("lines passing close to the eye are clipped to the screen, not dropped", () => {
+  const scene = stage();
+  scene.background = new THREE.Color("#000000");
+  // A floor line running from behind the camera far ahead: huge on screen once projected.
+  scene.add(
+    new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 9.999), new THREE.Vector3(0, 0, -50)]),
+      new THREE.LineBasicMaterial({ color: "#ffffff" }),
+    ),
+  );
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.0006, 120);
+  camera.position.set(0, 0.3, 10);
+  camera.lookAt(0, 0, 0);
+  const at = render(scene, camera);
+  let lit = 0;
+  for (let y = 0; y < 64; y++) if (at(32, y)[0] > 100 || at(31, y)[0] > 100) lit++;
+  assert.ok(lit > 10, `the line crosses the lower screen: ${lit} rows`);
+});
