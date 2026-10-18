@@ -1483,8 +1483,11 @@ export async function createViewport(
               shot.up.length() < 1e-8
             )
               throw new Error("Degenerate camera pose");
-            shot.near = pose.near ?? 0.0001;
-            shot.far = pose.far ?? 10000;
+            // Without explicit clipping, keep the depth range of the named views: a fixed
+            // 0.0001–10000 m range leaves too little depth precision (striped surfaces).
+            const distance = shot.position.distanceTo(target);
+            shot.near = pose.near ?? Math.max(0.0001, distance / 10000);
+            shot.far = pose.far ?? Math.max(100, distance * 20);
             if (
               !(
                 shot.near > 0 &&
