@@ -48,7 +48,7 @@ writes `games/<id>/models.lock`; commit it with `game.json`. Files are served as
 `models/<id>@<version>.fun3d` blobs.
 
 ```js
-const [THREE, TSL] = [context.THREE, await import("/runtime/tsl.js")];
+const { THREE } = context, TSL = THREE.TSL;
 const { createFun3d } = await context.runtime("kit/fun3d.js");
 const { createMaterials } = await context.runtime("kit/materials.js");
 const { createModels } = await context.runtime("kit/models.js");
