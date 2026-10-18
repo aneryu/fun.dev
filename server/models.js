@@ -190,9 +190,10 @@ export function modelView(row) {
   return { id: row.id, name: row.name ? JSON.parse(row.name) : null, type: row.type ?? null, description: row.description ? JSON.parse(row.description) : null, kit: row.kit, tags: JSON.parse(row.tags), extra: JSON.parse(row.extra), listed: !!row.listed };
 }
 
-export async function listVersions(db, status) {
+/** Versions with their models, newest first; the console shows 1000, maintenance passes { limit: null } for all. */
+export async function listVersions(db, status, { limit = 1000 } = {}) {
   const where = status === "all" ? "" : "WHERE v.status=?";
-  const { results } = await sql(db, `SELECT v.*, m.name, m.type, m.description, m.kit, m.tags, m.extra, m.listed, m.id FROM versions v JOIN models m ON m.id=v.model ${where} ORDER BY v.updated_at DESC LIMIT 1000`, ...(status === "all" ? [] : [status])).all();
+  const { results } = await sql(db, `SELECT v.*, m.name, m.type, m.description, m.kit, m.tags, m.extra, m.listed, m.id FROM versions v JOIN models m ON m.id=v.model ${where} ORDER BY v.updated_at DESC${limit ? ` LIMIT ${Number(limit)}` : ""}`, ...(status === "all" ? [] : [status])).all();
   return results.map((row) => ({ ...modelView(row), version: row.version, ...versionView(row), updated: row.updated_at }));
 }
 
@@ -274,7 +275,8 @@ export async function putDerived(env, id, version, bytes, { converter, profile, 
   const sha256 = hex(await crypto.subtle.digest("SHA-256", bytes));
   await env.MODELS_PUBLIC.put(blobKey("model.fun3d", sha256), bytes, { httpMetadata: { contentType: typeOf("model.fun3d"), cacheControl: IMMUTABLE }, sha256 });
   const derived = { sha256, size: bytes.length, converter, profile, at: Date.now(), ...(report ? { report } : {}) };
-  const result = await sql(db, "UPDATE versions SET derived=json(?),updated_at=? WHERE model=? AND version=? AND status='approved'", JSON.stringify(derived), Date.now(), id, version).run();
+  // Not a change to the version itself: updated_at (the console's order) stays.
+  const result = await sql(db, "UPDATE versions SET derived=json(?) WHERE model=? AND version=? AND status='approved'", JSON.stringify(derived), id, version).run();
   if (!result.meta.changes) fail("changed_file", 409, "the version changed meanwhile");
   return derived;
 }

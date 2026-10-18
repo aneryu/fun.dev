@@ -45,5 +45,20 @@ export async function liveCheck({ browser, site, assetOrigin, apiOrigin, games, 
     assert.equal(response.headers.get("access-control-allow-origin"), site, "API allows the site");
   }
   if (assetOrigin || apiOrigin) log("  ok   asset and API origins");
+  // The vision and physics runtimes live under their content hashes, which the build writes into
+  // their kit modules: those directories must be deployed, cacheable for good and open to the site.
+  for (const [kit, file] of [["vision", "vision_wasm_internal.wasm"], ["physics", "jolt-physics.wasm.wasm"]]) {
+    const origin = assetOrigin || site;
+    const module = await request(`${origin}/runtime/kit/${kit}.js`, { cache: "no-store" });
+    assert.equal(module.status, 200, `kit/${kit}.js returned ${module.status}`);
+    const runtime = (await module.text()).match(/const VERSION = "([a-f0-9]{16})";/)?.[1];
+    assert.ok(runtime, `kit/${kit}.js names its runtime's hash`);
+    const response = await request(`${origin}/runtime/${kit}/${runtime}/${file}`, { method: "HEAD" });
+    assert.equal(response.status, 200, `the ${kit} runtime ${runtime} returned ${response.status}`);
+    assert.match(response.headers.get("cache-control") ?? "", /immutable/, `the ${kit} runtime is immutable`);
+    assert.equal(response.headers.get("content-type"), "application/wasm", `the ${kit} runtime's wasm type`);
+    if (assetOrigin) assert.ok(["*", site].includes(response.headers.get("access-control-allow-origin")), `the ${kit} runtime allows the site`);
+  }
+  log("  ok   vision and physics runtimes");
   await smoke({ browser, base: site, games, log });
 }

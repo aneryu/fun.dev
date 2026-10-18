@@ -98,6 +98,15 @@ player caches it with the game. Do not list `models/` in `files`. Every model us
 glTF +Y up, front facing +Z, and its origin at the centre of the bottom, so it stands on
 y = 0 where it is placed. To use a newer version, change the version and release again.
 
+With `"modelFormat": "fun3d"` beside `models`, the build gives the same models in fun.dev's
+native format instead, at `models/<id>@<version>.fun3d` (commit the `models.lock` the build
+writes): GPU-ready data that `kit/fun3d.js` loads and `kit/models.js` places, rigid parts of every
+model batched into a few draws, emitter roles (`headlight`, `taillight`, `lamp`, `window`,
+`screen`…) lit together, per-copy tints on `mat_body`, a static hull per prop, a wheeled Jolt
+vehicle per `vehicle`. The code is on one page:
+https://github.com/aneryu/fun.dev/blob/main/docs/fun3d-agents.md. The GLB stays the simpler
+choice for a handful of props.
+
 Props can be scaled to vary their size (rocks, trees, rugs); kit pieces keep theirs so they meet
 on the kit's grid. Many models name their main colour material `mat_body`: clone it and set its
 colour to recolour one instance. Moving parts (wheels, doors, lids) are separate named nodes with
@@ -120,7 +129,12 @@ CanvasTexture text; `createHudLayer`, CSS-pixel HUD with safe-area corners),
 `kit/loop.js` (`createFixedStep`), `kit/vision.js` (MediaPipe: `load()`, `fileset`,
 `model(name)`), `kit/assets.js` (`createAssets(context)` for
 JSON, textures, glTF with Draco/KTX2), `kit/random.js` (`createRandom`,
-`dailySeed`), and `addons/GLTFLoader.js`, `DRACOLoader.js`, `KTX2Loader.js`, `MeshoptDecoder.js`. Do not
+`dailySeed`), `.fun3d` models: `kit/fun3d.js` (`createFun3d({ THREE, decoder, materials })`,
+`load(bytes)`), `kit/materials.js` (`createMaterials({ THREE, TSL: THREE.TSL })`, `roles.set`),
+`kit/models.js` (`createModels({ THREE, TSL, materials, scene })`, `place(model, { position,
+tint })`, `update(camera)`), `kit/physics.js` (`createPhysics({ THREE, scene })`: Jolt, loaded on
+first use; `add(copy)`, vehicles' `drive()`, `step(dt)`), `kit/animation.js` (`createAnimator`),
+and `addons/GLTFLoader.js`, `DRACOLoader.js`, `KTX2Loader.js`, `MeshoptDecoder.js`. Do not
 bundle these or import `/runtime/...` URLs directly: bundles load from the game
 origin. The starter in `assets/game.js` uses `kit/text.js`.
 

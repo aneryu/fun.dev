@@ -290,6 +290,7 @@ test("derived .fun3d files are recorded for approved versions and published; a m
   assert.notEqual(converted.sha256, sha(bytes));
   assert.ok(await env.MODELS_PUBLIC.head(`blobs/${converted.sha256}.fun3d`));
   const again = (await (await stack.console("/api/versions?status=approved")).json()).versions.filter((item) => item.id === "wagon_01");
+  assert.equal(again[0].updated, listed.updated, "derived records leave the version's updated time (the console's order) alone");
   assert.deepEqual((await convertVersions(env, again, { log: () => {} })).skipped, ["wagon_01/v001"]);
   // The console refuses to retype an approved model; the maintainer's one-time retype republishes.
   assert.equal((await stack.console("/api/models/wagon_01", { method: "PATCH", body: { type: "vehicle" } })).status, 409);

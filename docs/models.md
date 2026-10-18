@@ -241,8 +241,8 @@ stores the file by content (`blobs/<sha256>.fun3d`) and records it on the versio
 converter that made it (`derived` in the page data; the console and `npm run models -- list`
 show `未转换` / `not converted` until then). A game built with `"modelFormat": "fun3d"`
 downloads that file when the converter matches, else converts locally to the same bytes. The
-one-time `npm run models -- retype <id> vehicle` fixes vehicles that were typed `prop` before
-the type existed, so their derived files get a wheeled vehicle.
+one-time `npm run models -- retype <id>[,<id>...] vehicle` fixes vehicles that were typed `prop`
+before the type existed, so their derived files get a wheeled vehicle.
 
 A model's public address (`games.fun.dev/blobs/<sha256>.glb`, copied from its page) also works
 anywhere and never changes, but is not cached with a game.

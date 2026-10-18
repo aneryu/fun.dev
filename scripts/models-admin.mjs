@@ -2,7 +2,8 @@ import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { characterStatsWarnings, inspectVersion, placementWarnings, textWarnings, VERSION } from "../server/model-rules.js";
-import { approveVersion, blobKey, eachLimited, editModel, listVersions, publish, publishedIds, putDerived, putFile, putKit, putMetadata, rejectVersion, retypeModel, sourceKey } from "../server/models.js";
+import { approveVersion, blobKey, eachLimited, editModel, listVersions, publish, publishedIds, putDerived, putFile, putKit, putMetadata, rejectVersion, retypeModel, sourceKey, writeDetail } from "../server/models.js";
+import { blobPath, cached } from "./blobs.mjs";
 
 // Maintenance for the model library (docs/models.md), run by the maintainer: the console's own
 // functions against the live database and storage, through Wrangler's remote bindings
@@ -17,7 +18,7 @@ import { approveVersion, blobKey, eachLimited, editModel, listVersions, publish,
 //   npm run models -- convert [--only id,id] [--force] [--dry-run]
 //                                             derive the .fun3d of approved versions that lack one (docs/model-format.md §8);
 //                                             --force also those made by another converter
-//   npm run models -- retype <id> <type>      one-time type change of an approved model (prop → vehicle), republished
+//   npm run models -- retype <id>[,<id>...] <type>   one-time type change of approved models (prop → vehicle), republished
 //
 // list, sheet and thumbnails also take --only id,id to look at some models only.
 //
@@ -70,26 +71,42 @@ export async function applyPlan(env, plan, { dryRun = false, log = console.log }
 export async function convertVersions(env, items, { force = false, dryRun = false, log = console.log } = {}) {
   const { converterStamp, createConverter } = await import("./fun3d-convert.mjs");
   const { PROFILE } = await import("../site/runtime/kit/fun3d-import.js");
-  const stamp = await converterStamp(), converter = createConverter(), touched = new Set();
+  const stamp = await converterStamp(), converter = createConverter();
   const report = { converter: stamp, converted: [], skipped: [], failed: [] };
-  for (const item of items) {
+  // Remote bindings drop a request now and then: those are retried, the library's own refusals not.
+  const retry = async (task) => {
+    for (let attempt = 1; ; attempt++) {
+      try { return await task(); }
+      catch (error) { if (error.code || attempt === 4) throw error; await new Promise((done) => setTimeout(done, 1500 * attempt)); }
+    }
+  };
+  const todo = items.filter((item) => {
     const label = `${item.id}/${item.version}`;
-    if (item.status !== "approved") { report.skipped.push(label); continue; }
-    if (item.derived?.converter === stamp && !force) { report.skipped.push(label); continue; }
-    try {
-      const glb = await modelBytes(env, item);
-      if (!glb) throw new Error("model.glb is missing");
-      const { bytes, report: made } = await converter.convert(glb, { type: item.type, name: item.id, hash: `sha256:${item.files["model.glb"].sha256}` });
-      const problems = await converter.fun3d.validate(bytes);
-      if (problems.length) throw new Error(problems[0]);
-      const summary = { type: made.type, vertices: made.vertices, triangles: made.triangles, materials: made.materials, roles: made.roles, wheels: made.wheels.length, hull: made.hull, mass: made.mass, rig: made.rig, warnings: made.warnings };
-      if (!dryRun) await putDerived(env, item.id, item.version, bytes, { converter: stamp, profile: PROFILE, report: summary });
-      touched.add(item.id);
-      report.converted.push(label);
-      log(`✓ ${label} ${(bytes.length / 1024).toFixed(1)} KB${made.warnings.length ? `  ⚠ ${made.warnings.join("; ")}` : ""}`);
-    } catch (error) { report.failed.push({ item: label, error: error.detail ?? error.message }); log(`✗ ${label}: ${error.detail ?? error.message}`); }
+    if (item.status !== "approved" || (item.derived?.converter === stamp && !force)) { report.skipped.push(label); return false; }
+    return true;
+  });
+  // In chunks, each published as it completes, so an interrupted run leaves consistent pages and
+  // a rerun picks up where it stopped. Derived records do not change the indexes.
+  for (let start = 0; start < todo.length; start += 100) {
+    const touched = new Set();
+    await eachLimited(todo.slice(start, start + 100), 4, async (item) => {
+      const label = `${item.id}/${item.version}`;
+      try {
+        const glb = await retry(() => modelBytes(env, item));
+        if (!glb) throw new Error("model.glb is missing");
+        const { bytes, report: made } = await converter.convert(glb, { type: item.type, name: item.id, hash: `sha256:${item.files["model.glb"].sha256}` });
+        const problems = await converter.fun3d.validate(bytes);
+        if (problems.length) throw new Error(problems[0]);
+        const summary = { type: made.type, vertices: made.vertices, triangles: made.triangles, materials: made.materials, roles: made.roles, wheels: made.wheels.length, hull: made.hull, mass: made.mass, rig: made.rig, warnings: made.warnings };
+        if (!dryRun) await retry(() => putDerived(env, item.id, item.version, bytes, { converter: stamp, profile: PROFILE, report: summary }));
+        touched.add(item.id);
+        report.converted.push(label);
+        log(`✓ ${label} ${(bytes.length / 1024).toFixed(1)} KB${made.warnings.length ? `  ⚠ ${made.warnings.join("; ")}` : ""}`);
+      } catch (error) { report.failed.push({ item: label, error: error.detail ?? error.message }); log(`✗ ${label}: ${error.detail ?? error.message}`); }
+    });
+    if (!dryRun) await eachLimited([...touched], 6, (id) => retry(() => writeDetail(env, id)));
+    log(`  ${Math.min(start + 100, todo.length)}/${todo.length} converted and published`);
   }
-  if (!dryRun && touched.size) report.listed = await publish(env, [...touched]);
   return report;
 }
 
@@ -123,6 +140,8 @@ window.thumbnail = async (base64) => { const png = await renderThumbnail(Uint8Ar
 
 async function modelBytes(env, item) {
   const entry = item.files["model.glb"];
+  // The local blob cache holds files by their SHA-256 (games' builds and npm run fun3d -- library fill it).
+  if (entry && await cached(entry.sha256)) return new Uint8Array(await readFile(blobPath(entry.sha256)));
   const object = entry && (await env.MODELS_PUBLIC.get(blobKey("model.glb", entry.sha256)) ?? await env.MODELS_SOURCES.get(sourceKey(item.id, item.version, "model.glb")));
   return object ? new Uint8Array(await object.arrayBuffer()) : null;
 }
@@ -211,7 +230,7 @@ const STATUSES = ["pending", "rejected", "approved", "incomplete", "all"];
 
 async function main([command, ...args]) {
   if (!["list", "sheet", "thumbnails", "apply", "rebuild", "upload", "convert", "retype"].includes(command)) {
-    console.error("Usage: npm run models -- list|sheet [status] | thumbnails [status] [--all] | apply <plan.json> [--dry-run] | rebuild | upload <folder> | convert [--only id,id] [--force] [--dry-run] | retype <id> <type>");
+    console.error("Usage: npm run models -- list|sheet [status] | thumbnails [status] [--all] | apply <plan.json> [--dry-run] | rebuild | upload <folder> | convert [--only id,id] [--force] [--dry-run] | retype <id>[,<id>...] <type>");
     return 1;
   }
   const status = args.find((arg) => STATUSES.includes(arg)) ?? "pending";
@@ -239,15 +258,17 @@ async function main([command, ...args]) {
       const found = await findVersions(args[0]);
       console.log(`Uploaded ${await upload(env, found)} of ${found.length} versions.`);
     } else if (command === "convert") {
-      const items = (await listVersions(env.MODELS_DB, "approved")).filter((item) => !only || only.has(item.id)).sort((a, b) => a.id.localeCompare(b.id));
+      const items = (await listVersions(env.MODELS_DB, "approved", { limit: null })).filter((item) => !only || only.has(item.id)).sort((a, b) => a.id.localeCompare(b.id));
       const report = await convertVersions(env, items, { force: args.includes("--force"), dryRun: args.includes("--dry-run") });
       console.log(`Converted ${report.converted.length} of ${items.length} approved versions (${report.skipped.length} already current, ${report.failed.length} failed) with converter ${report.converter.slice(7, 15)}${args.includes("--dry-run") ? " (dry run)" : ""}.`);
       if (report.failed.length) return 1;
     } else if (command === "retype") {
-      const [id, type] = args;
-      if (!id || !type) throw new Error("retype needs <id> <type>.");
-      await retypeModel(env, id, type);
-      console.log(`${id} is now a ${type}; its page is republished. Run convert for its derived file.`);
+      const [list, type] = args;
+      if (!list || !type) throw new Error("retype needs <id>[,<id>...] <type>.");
+      const ids = list.split(",").filter(Boolean);
+      for (const id of ids) await retypeModel(env, id, type, { defer: true });
+      await publish(env, ids);
+      console.log(`${ids.length} model${ids.length === 1 ? " is" : "s are"} now ${type}; pages republished. Run convert for their derived files (--only ${list}).`);
     } else if (command === "apply") {
       const file = args.find((arg) => !arg.startsWith("--") && !STATUSES.includes(arg));
       if (!file) throw new Error("apply needs a plan file.");
