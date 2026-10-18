@@ -9,6 +9,7 @@ import { editorRendererChecks } from "./editor-renderer.mjs";
 import { editorDeliveryChecks } from "./editor-delivery.mjs";
 import { editorMaterialChecks } from "./editor-materials.mjs";
 import { editorSolidChecks } from "./editor-solids.mjs";
+import { editorGeneratorChecks } from "./editor-generators.mjs";
 import { results, watch } from "./harness.mjs";
 import { headersFor, parseHeaders } from "../headers.mjs";
 
@@ -509,4 +510,5 @@ export async function editorChecks({ browser, base }) {
   await editorDeliveryChecks({ browser, base });
   await editorMaterialChecks({ browser, base });
   await editorSolidChecks({ browser, base });
+  await editorGeneratorChecks({ browser, base });
 }

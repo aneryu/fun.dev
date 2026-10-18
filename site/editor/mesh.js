@@ -1,4 +1,5 @@
 // Editable polygon meshes. IDs belong to faces, not generated render triangles.
+import { extrudeShape, revolveShape, sweepShape } from "./generators.js";
 export class ModelError extends Error {
   constructor(message, code = "invalid", path = "") {
     super(message);
@@ -236,6 +237,11 @@ export function primitive(kind, options = {}, material = "yellow") {
     if (rows.at(-1).length > 1) faces.push([...rows.at(-1)].reverse());
     return mesh(vertices, faces, material);
   }
+  // Holes, rounded corners, revolved sections and sweeps: generators.js.
+  if (kind === "extrude" && (options.holes?.length || options.round))
+    return extrudeShape(options, material);
+  if (kind === "revolve") return revolveShape(options, material);
+  if (kind === "sweep") return sweepShape(options, material);
   if (kind === "extrude") {
     const points = options.points ?? [
       [-0.5, -0.5],

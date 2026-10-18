@@ -32,6 +32,7 @@ import {
 import { meshEdges, bevelEdges, cutPlane, loopCut } from "./topology.js";
 import { surfaceDiagnostics } from "./diagnostics.js";
 import { booleanMesh } from "./booleans.js";
+import { arrayStep, stepMatrix, arrayMesh } from "./arrays.js";
 import {
   removeMaterial,
   purgeMaterials,
@@ -169,9 +170,16 @@ export function normalizeProject(input) {
     if (node.generator) {
       const g = node.generator;
       if (
-        !["box", "sphere", "cylinder", "cone", "lathe", "extrude"].includes(
-          g.kind,
-        )
+        ![
+          "box",
+          "sphere",
+          "cylinder",
+          "cone",
+          "lathe",
+          "extrude",
+          "revolve",
+          "sweep",
+        ].includes(g.kind)
       )
         fail("Unknown generator kind");
       result.generator = {
@@ -1835,6 +1843,55 @@ function run(project, command) {
         loopCut(node.mesh, command.edge, command.ratio);
       transformMesh(node.mesh, inverse(m));
       break;
+    }
+    case "array": {
+      const step = arrayStep(command);
+      // Inside a recipe (local space) copies can only merge into this mesh.
+      if (command.merge || command.space === "local") {
+        if (!node.mesh) fail("Merged arrays need a mesh part", "id");
+        if (node.instanceOf) fail("Edit the source or unlink this copy first");
+        if (bindingFor(project, node.id))
+          throw new ModelError(
+            "Edit assembly parameters or detach the assembly before changing a driven field",
+            "dependency",
+            `nodes.${node.id}`,
+          );
+        delete node.generator;
+        delete node.recipe;
+        node.mesh = arrayMesh(node.mesh, step);
+        break;
+      }
+      if (
+        command.newIds !== undefined &&
+        command.newIds.length !== step.count - 1
+      )
+        fail(`newIds needs ${step.count - 1} IDs`, "newIds");
+      // Copies step in the parent's coordinates, turning about the part's origin by default.
+      const one = stepMatrix({ ...step, pivot: step.pivot ?? node.position }),
+        local = matrix(node),
+        inner = [...descendants(project, node.id)].slice(1),
+        copies = [];
+      let m = one;
+      for (let k = 2; k <= step.count; k++) {
+        const newId = command.newIds?.[k - 2] ?? `${node.id}_${k}`,
+          result = run(project, {
+            op: "duplicate",
+            id: node.id,
+            newId,
+            idMap: Object.fromEntries(inner.map((id) => [id, `${id}_${k}`])),
+            offset: [0, 0, 0],
+            linked: command.linked !== false,
+            name: `${node.name} ${k}`,
+          });
+        setMatrix(
+          project,
+          project.nodes.find((n) => n.id === newId),
+          multiply(m, local),
+        );
+        copies.push({ root: newId, idMap: result.idMap });
+        m = multiply(one, m);
+      }
+      return { copies };
     }
     case "boolean": {
       delete node.generator;

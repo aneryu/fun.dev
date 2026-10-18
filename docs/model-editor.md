@@ -93,6 +93,39 @@ are derived from polygons. Topology changes can replace face IDs when segmentati
 changes. Face extrusion retains cap IDs. Flat face normals are explicit. World units
 are meters, Y is up, front is +Z and XYZ Euler rotations are degrees.
 
+## Shapes from sections and paths, and arrays
+
+Beyond boxes, spheres, cylinders, cones, outlines and lathes (`site/editor/generators.js`):
+
+- **Extrusions with holes and rounded corners**: `holes:[[[x,y],…],…]` lie inside the
+  outline and apart from each other; `round` fillets every corner of the outline and the
+  holes (`roundSegments`, default 3), filling concave corners and cutting convex ones.
+  Without holes and within 64 corners an extrusion keeps the plain face layout (caps f0
+  and f1, then one side per edge); otherwise the solid kernel builds it and its caps
+  become a few simple polygons.
+- **revolve**: a closed section (x = distance from the Y axis, at least 0; holes and
+  rounding as above) turned around +Y. `segments` count a full circle; an `angle` below
+  360° starts on +X, turns like a positive rotation about +Y and caps both ends: pipe
+  elbows, rings, arches.
+- **sweep**: a closed section moved along `path:[[x,y,z],…]` with rotation-minimising
+  frames, so it never flips or twists on a 3D path. Section x runs sideways and y up; a
+  level path keeps y on +Y. Polyline corners are mitred to keep the full thickness (at
+  most 150° per corner); `smooth` runs a centripetal Catmull–Rom curve through the points
+  (`pathSegments` per span); `closed` joins the ends without caps; `scale` sets the end
+  size. Pipes, handrails, rails, cables, frames. Curved sweeps keep slightly non-planar
+  quads, which validation reports as warnings.
+- **array** command: `count` copies stepped by `rotation` about `pivot`, then `offset`, in
+  the parent's coordinates (the pivot defaults to the part's origin; give one for radial
+  arrays). Copies are linked parts named `<id>_2`, `<id>_3`… with their descendants
+  suffixed the same way, or the roots listed in `newIds`; `linked:false` copies
+  independently. `merge:true` appends the copies to the part's own mesh instead, which is
+  also the recipe step form (count as a parameter, e.g. fence pickets). Merged copies must
+  not overlap.
+
+The add-shape dialog offers revolve and sweep (section in the profile editor, path as
+`x, y, z` lines) and a corner radius; holes are agent-only. The parts panel's **Array**
+control makes linked or independent copies of the selected part.
+
 ## Draft ownership
 
 A modern desktop browser with Web Locks (Chrome on localhost or HTTPS) grants one
@@ -318,7 +351,8 @@ A mesh may retain `recipe:{name?,parameters,generator,steps,basis?}`. Parameter
 values have optional min/max. A value expression is `{$param:"width",factor:1,
 offset:0}`; no script strings are evaluated. Up to 32 steps operate on this mesh
 in local meters, using semantic selections. Supported steps: transform, vertices,
-inset, extrude, bevel, cut, loopCut, paint and mirror. A recipe is rebuilt
+inset, extrude, bevel, cut, loopCut, paint, mirror and array (copies merged into this
+mesh, so a count can be a parameter). A recipe is rebuilt
 atomically; other objects and the node's transform are retained, and linked copies
 update. Pivot/reparent/apply-scale bakes are retained in its affine basis.
 Whole-mesh `transform` steps transform every vertex immediately, so later cuts and

@@ -294,8 +294,8 @@ const file = await funEditor.exportGLB({ encoding: "base64" });</pre
               <code
                 >id, name?, kind, parent?, position?, rotation?, scale?,
                 material?, options?</code
-              >. box, sphere, cylinder, cone, extrude, lathe, group, mesh.
-              Custom mesh uses the top-level mesh field.
+              >. box, sphere, cylinder, cone, extrude, lathe, revolve, sweep,
+              group, mesh. Custom mesh uses the top-level mesh field.
             </td>
           </tr>
           <tr>
@@ -381,6 +381,22 @@ const file = await funEditor.exportGLB({ encoding: "base64" });</pre
               <code>ids</code>. ground places each root on Y=0. align adds
               <code>axis, mode:"min"|"center"|"max", reference?</code>; default
               reference is the last selected ID.
+            </td>
+          </tr>
+          <tr>
+            <td>array</td>
+            <td>
+              <code
+                >id, count (2–256), offset?:[x,y,z], rotation?:[x,y,z], pivot?,
+                linked?, merge?, newIds?</code
+              >. Each copy steps by rotation about pivot, then offset, in the
+              parent's coordinates (pivot defaults to the part's origin; give
+              one for radial arrays). Copies are linked parts named
+              <code>&lt;id&gt;_2…</code> (descendants <code>&lt;child&gt;_2…</code>)
+              unless newIds lists the roots; linked:false copies independently.
+              merge:true appends the copies to this part's own mesh in local
+              coordinates; that form is also a recipe step, so count can be a
+              parameter. Merged copies must not overlap.
             </td>
           </tr>
           <tr>
@@ -515,7 +531,28 @@ const file = await funEditor.exportGLB({ encoding: "base64" });</pre
         <code>{points:[[x,y],…],depth:.5}</code>; lathe
         <code>{profile:[[radius,height],…],segments:8}</code>. Ordered lathe
         profiles may return down an inner wall; use axis endpoints to close a
-        hollow container. 2D extruded outlines have no holes.
+        hollow container. Extrusions also take
+        <code>holes:[[[x,y],…],…]</code> (inside the outline, apart from each
+        other) and <code>round</code> (corner radius for the outline and holes,
+        <code>roundSegments</code> 3): concave corners fill in, convex corners
+        cut off. Without holes and within 64 corners the faces keep the plain
+        layout (caps f0/f1, then sides); otherwise caps split into a few simple
+        polygons. revolve
+        <code>{profile:[[x,y],…],holes?,round?,segments:12,angle:360}</code>
+        turns a closed section (x = distance from the Y axis, ≥ 0) around +Y;
+        segments count a full circle; below 360° it starts on +X, turns like a
+        positive rotation about +Y and caps both ends (elbows, rings, arches).
+        sweep
+        <code
+          >{profile:[[x,y],…],path:[[x,y,z],…],round?,smooth?,pathSegments:6,closed?,caps:true,scale?}</code
+        >
+        moves a closed section along a path with rotation-minimising frames:
+        profile x runs sideways, y up (a level path keeps y on +Y; a vertical
+        start uses −Z). Polyline corners are mitred to keep the thickness and
+        may turn at most 150°; smooth runs a centripetal Catmull–Rom curve
+        through the points; closed joins the ends without caps; scale is the
+        end scale (number or [x, y]). Curved sweeps keep slightly non-planar
+        quads, reported as warnings.
       </p>
       <pre>
 // Hollow planter, with retained wall/profile parameters.
@@ -523,6 +560,19 @@ funEditor.apply([{ op: "create", id: "planter", kind: "lathe",
   options: { segments: 8,
     profile: [[0,0],[.3,0],[.45,.7],[.4,.7],[.26,.06],[0,.06]] } }]);
 funEditor.apply([{ op: "parameters", id: "planter", options: { segments: 12 } }]);
+// A wall with a rounded window, a 90° pipe elbow, a handrail and six radial seats.
+funEditor.apply([
+  { op: "create", id: "wall", kind: "extrude", options: { depth: .24,
+    points: [[-1.5,0],[1.5,0],[1.5,2.8],[-1.5,2.8]],
+    holes: [[[-.5,.3],[.5,.3],[.5,2.2],[-.5,2.2]]], round: .4, roundSegments: 6 } },
+  { op: "create", id: "elbow", kind: "revolve", options: { angle: 90, segments: 16,
+    profile: [[.3,-.05],[.4,-.05],[.4,.05],[.3,.05]], round: .02 } },
+  { op: "create", id: "rail", kind: "sweep", options: { round: .02, smooth: true,
+    profile: [[-.025,-.025],[.025,-.025],[.025,.025],[-.025,.025]],
+    path: [[0,.9,0],[1,.9,0],[1.6,1.4,.4],[2.6,1.4,.4]] } },
+  { op: "create", id: "seat", kind: "box", position: [2, .25, 0], options: { size: [.4,.5,.4] } },
+  { op: "array", id: "seat", count: 6, rotation: [0, 60, 0], pivot: [0, 0, 0] },
+]);
 // Taper the four bottom corners of a box leg in one operation.
 funEditor.apply([{ op: "transform", id: "leg", topology: funEditor.inspect({id:"leg"}).topology, vertices: [0,1,4,5],
   scale: [.6,1,.6], space: "local" }]);</pre

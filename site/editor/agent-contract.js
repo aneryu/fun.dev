@@ -111,6 +111,8 @@ const props = {
       "cone",
       "lathe",
       "extrude",
+      "revolve",
+      "sweep",
       "mesh",
       "group",
     ],
@@ -135,6 +137,24 @@ const props = {
       points: list({ type: "array", items: number, minItems: 2, maxItems: 2 }),
       profile: list({ type: "array", items: number, minItems: 2, maxItems: 2 }),
       depth: number,
+      // Extrusions and revolved sections: holes and rounded corners.
+      holes: {
+        type: "array",
+        maxItems: 32,
+        items: list({ type: "array", items: number, minItems: 2, maxItems: 2 }),
+      },
+      round: number,
+      roundSegments: { type: "integer" },
+      angle: number,
+      // Sweeps: a closed profile along a 3D path.
+      path: list(vector),
+      closed: boolean,
+      caps: boolean,
+      smooth: boolean,
+      pathSegments: { type: "integer" },
+      scale: {
+        oneOf: [number, { type: "array", items: number, minItems: 2, maxItems: 2 }],
+      },
     },
     additionalProperties: false,
   },
@@ -168,6 +188,9 @@ const props = {
   },
   ids: list(string),
   operation: { enum: ["union", "difference", "intersection"] },
+  count: { type: "integer", minimum: 2, maximum: 256 },
+  merge: boolean,
+  newIds: { type: "array", items: string, minItems: 1, maxItems: 255 },
   with: { type: "array", items: string, minItems: 1, maxItems: 64 },
   keep: boolean,
   faces: list(component),
@@ -224,7 +247,18 @@ const props = {
 props.shape = {
   type: "object",
   properties: {
-    kind: { enum: ["box", "sphere", "cylinder", "cone", "lathe", "extrude"] },
+    kind: {
+      enum: [
+        "box",
+        "sphere",
+        "cylinder",
+        "cone",
+        "lathe",
+        "extrude",
+        "revolve",
+        "sweep",
+      ],
+    },
     options: props.options,
     position: vector,
     rotation: vector,
@@ -279,6 +313,7 @@ const specs = {
   detachBinding: ["id", "fields mode"],
   recipePaint: ["id mode", "rules"],
   boolean: ["id operation", "with shape keep"],
+  array: ["id count", "offset rotation pivot linked merge newIds"],
 };
 export const commandSchema = {
   oneOf: Object.entries(specs).map(([op, [required, optional]]) => ({
@@ -350,11 +385,21 @@ const steps = commandSchema.oneOf
       "paint",
       "mirror",
       "boolean",
+      "array",
     ].includes(c.properties.op.const),
   )
   .map((c) => {
     const step = expressions(structuredClone(c));
-    for (const key of ["id", "ids", "matrix", "space", "with", "keep"])
+    for (const key of [
+      "id",
+      "ids",
+      "matrix",
+      "space",
+      "with",
+      "keep",
+      "linked",
+      "newIds",
+    ])
       delete step.properties[key];
     step.required = step.required.filter((k) => k !== "id");
     step.properties.enabled = boolean;
@@ -416,7 +461,16 @@ export const modelDefinitions = {
           obj(
             {
               kind: {
-                enum: ["box", "sphere", "cylinder", "cone", "lathe", "extrude"],
+                enum: [
+                  "box",
+                  "sphere",
+                  "cylinder",
+                  "cone",
+                  "lathe",
+                  "extrude",
+                  "revolve",
+                  "sweep",
+                ],
               },
               options: expressions(optionsSchema),
               material: string,

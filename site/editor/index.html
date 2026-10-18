@@ -95,6 +95,21 @@
             </option>
           </select>
         </label>
+        <details id="array-tools">
+          <summary data-i18n="edArray">阵列</summary>
+          <label for="array-count" data-i18n="edArrayCount">总数</label
+          ><input id="array-count" type="number" value="3" min="2" max="256" step="1" />
+          <label data-i18n="edArrayOffset">每份偏移</label>
+          <div class="xyz" data-vector="arrayOffset"></div>
+          <label data-i18n="edArrayRotation">每份旋转（度）</label>
+          <div class="xyz" data-vector="arrayRotation"></div>
+          <label class="check"
+            ><input type="checkbox" id="array-linked" checked /><span
+              data-i18n="edLinkedDuplicate"
+              >联动复制</span
+            ></label
+          ><button id="array-apply" data-i18n="edArrayApply">生成阵列</button>
+        </details>
         <div class="part-actions">
           <button id="group-selection" data-i18n="edGroupSelection">
             编组选区</button
@@ -570,6 +585,8 @@
             <option value="cone" data-i18n="edCone">圆锥</option>
             <option value="extrude" data-i18n="edOutline">轮廓挤出</option>
             <option value="lathe" data-i18n="edLathe">旋转成型</option>
+            <option value="revolve" data-i18n="edRevolve">截面旋转</option>
+            <option value="sweep" data-i18n="edSweep">沿路径扫掠</option>
             <option value="group" data-i18n="edGroup">空部件 / 挂点</option>
           </select>
           <div id="size-field">
@@ -660,6 +677,35 @@
               空心花盆轮廓</button
             ><textarea id="outline" rows="5" spellcheck="false"></textarea>
             <p id="outline-hint" class="muted small"></p>
+          </div>
+          <div id="round-field" hidden>
+            <label for="round" data-i18n="edRound">圆角半径（米）</label
+            ><input id="round" type="number" value="0" min="0" step="any" />
+          </div>
+          <div id="angle-field" hidden>
+            <label for="angle" data-i18n="edAngle">旋转角度（度）</label
+            ><input
+              id="angle"
+              type="number"
+              value="360"
+              min="1"
+              max="360"
+              step="any"
+            />
+          </div>
+          <div id="path-field" hidden>
+            <label for="path"
+              ><span data-i18n="edPath">路径点，每行 x, y, z</span> (<span
+                data-length-unit
+                >m</span
+              >)</label
+            ><textarea id="path" rows="4" spellcheck="false"></textarea
+            ><label class="check"
+              ><input type="checkbox" id="path-smooth" checked /><span
+                data-i18n="edPathSmooth"
+                >平滑路径</span
+              ></label
+            >
           </div>
           <div id="depth-field" hidden>
             <label for="depth" data-i18n="edDepth">厚度</label

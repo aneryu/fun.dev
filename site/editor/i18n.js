@@ -1,5 +1,24 @@
 import { messages } from "../i18n.js";
 const additions = {
+  edRevolve: ["截面旋转", "Revolved section"],
+  edSweep: ["沿路径扫掠", "Sweep along a path"],
+  edRound: ["圆角半径（米）", "Corner radius (m)"],
+  edAngle: ["旋转角度（度）", "Turn (degrees)"],
+  edPath: ["路径点，每行 x, y, z", "Path points, one x, y, z per line"],
+  edPathSmooth: ["平滑路径", "Smooth path"],
+  edRevolveHint: [
+    "闭合截面：X 是离竖直轴的距离（≥ 0），Y 是高度。小于 360° 时两端封口，可做弯管、圆环和拱。",
+    "A closed section: X is the distance from the vertical axis (≥ 0), Y the height. Below 360° both ends are capped: elbows, rings and arches.",
+  ],
+  edSweepHint: [
+    "闭合截面沿路径移动：X 朝路径侧面，Y 朝上。用于管子、扶手、栏杆和线缆。",
+    "A closed section moved along the path: X to the side, Y up. For pipes, handrails, rails and cables.",
+  ],
+  edArray: ["阵列", "Array"],
+  edArrayCount: ["总数（含原件）", "Count (with the original)"],
+  edArrayOffset: ["每份偏移", "Offset per copy"],
+  edArrayRotation: ["每份旋转（度）", "Turn per copy (degrees)"],
+  edArrayApply: ["生成阵列", "Make array"],
   edNodeId: ["导出名（ID）", "Export name (ID)"],
   edUnion: ["并集", "Union"],
   edDifference: ["减去", "Subtract"],

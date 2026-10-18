@@ -40,6 +40,7 @@ const allowed = new Set([
   "paint",
   "mirror",
   "boolean",
+  "array",
 ]);
 export function normalizeRecipe(input) {
   const r = structuredClone(input);
@@ -56,9 +57,17 @@ export function normalizeRecipe(input) {
       "recipe",
     );
   if (
-    !["box", "sphere", "cylinder", "cone", "extrude", "lathe", "mesh"].includes(
-      r.generator.kind,
-    )
+    ![
+      "box",
+      "sphere",
+      "cylinder",
+      "cone",
+      "extrude",
+      "lathe",
+      "revolve",
+      "sweep",
+      "mesh",
+    ].includes(r.generator.kind)
   )
     throw new ModelError("Invalid recipe generator");
   validateSchema(

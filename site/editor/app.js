@@ -89,6 +89,7 @@ function options(select, entries, selected) {
 let lengthUnit = "m";
 const unitFactor = () => ({ m: 1, cm: 0.01, mm: 0.001 })[lengthUnit];
 const lengthVectors = new Set([
+  "arrayOffset",
   "position",
   "dimensions",
   "vertex",
@@ -107,6 +108,7 @@ const lengthFields = [
   "height",
   "depth",
   "box-bevel",
+  "round",
 ];
 const distanceValue = (id) => Number($("#" + id).value) * unitFactor();
 function vectorValue(name) {
@@ -600,8 +602,9 @@ async function start() {
     $("#choose").hidden = !!n;
     $("#properties").hidden = !n;
     $("#selection-mode").value = selection.mode;
-    $("#duplicate").disabled = $("#delete").disabled =
-      !n || !draft.writable || selectionLocked || component;
+    $("#duplicate").disabled = $("#delete").disabled = $(
+      "#array-apply",
+    ).disabled = !n || !draft.writable || selectionLocked || component;
     $("#duplicate").textContent = t("edDuplicateCount").replace(
       "{count}",
       selectedRoots().length,
@@ -1257,6 +1260,21 @@ async function start() {
         updateSelection(true);
       }
     };
+  $("#array-apply").onclick = () => {
+    if (!flushPending() || selection.mode !== "object" || !selection.id) return;
+    act(() =>
+      store.apply([
+        {
+          op: "array",
+          id: selection.id,
+          count: Number($("#array-count").value),
+          offset: vectorValue("arrayOffset"),
+          rotation: vectorValue("arrayRotation"),
+          linked: $("#array-linked").checked,
+        },
+      ]),
+    );
+  };
   $("#group-selection").onclick = () => {
     const id = newId("group");
     if (
@@ -1648,6 +1666,19 @@ async function start() {
       )
       .join("\n");
   }
+  function scalePath(text, factor) {
+    return text
+      .trim()
+      .split(/\n+/)
+      .map((line) =>
+        line
+          .trim()
+          .split(/[,\s]+/)
+          .map((n) => Number((Number(n) * factor).toPrecision(12)))
+          .join(", "),
+      )
+      .join("\n");
+  }
   function shapeFields(reset = false) {
     const kind = $("#kind").value;
     for (const [field, visible] of Object.entries({
@@ -1655,23 +1686,40 @@ async function start() {
       radius: ["sphere", "cylinder", "cone"].includes(kind),
       height: ["cylinder", "cone"].includes(kind),
       rings: kind === "sphere",
-      segment: ["sphere", "cylinder", "cone", "lathe"].includes(kind),
-      outline: ["extrude", "lathe"].includes(kind),
+      segment: ["sphere", "cylinder", "cone", "lathe", "revolve"].includes(kind),
+      outline: ["extrude", "lathe", "revolve", "sweep"].includes(kind),
       depth: kind === "extrude",
+      round: ["extrude", "revolve", "sweep"].includes(kind),
+      angle: kind === "revolve",
+      path: kind === "sweep",
     }))
       $("#" + field + "-field").hidden = !visible;
     $("#cup-profile").hidden = kind !== "lathe";
     $("#outline-hint").textContent = t(
-      kind === "lathe" ? "edLatheHint" : "edOutlineHint",
+      {
+        lathe: "edLatheHint",
+        revolve: "edRevolveHint",
+        sweep: "edSweepHint",
+      }[kind] ?? "edOutlineHint",
     );
-    if (reset)
+    if (reset) {
       $("#outline").value = scaleOutline(
-        kind === "lathe"
-          ? cupProfile
-          : "-0.5, -0.5\n0.5, -0.5\n0.3, 0.3\n0, 0.6\n-0.3, 0.3",
+        {
+          lathe: cupProfile,
+          revolve: "0.35, -0.08\n0.55, -0.08\n0.55, 0.08\n0.35, 0.08",
+          sweep: "-0.04, -0.04\n0.04, -0.04\n0.04, 0.04\n-0.04, 0.04",
+        }[kind] ?? "-0.5, -0.5\n0.5, -0.5\n0.3, 0.3\n0, 0.6\n-0.3, 0.3",
         1 / unitFactor(),
       );
-    if (["lathe", "extrude"].includes(kind)) profile.draw();
+      $("#round").value = kind === "sweep" ? 0.03 / unitFactor() : 0;
+      $("#angle").value = 360;
+      $("#path-smooth").checked = true;
+      $("#path").value = scalePath(
+        "0, 0, 0\n0, 0.8, 0\n0.5, 1.2, 0\n1.2, 1.2, 0",
+        1 / unitFactor(),
+      );
+    }
+    if (["lathe", "extrude", "revolve", "sweep"].includes(kind)) profile.draw();
   }
   function shapeOptions() {
     const kind = $("#kind").value,
@@ -1685,10 +1733,10 @@ async function start() {
     if (["cylinder", "cone"].includes(kind))
       opts.height = distanceValue("height");
     if (kind === "sphere") opts.rings = Number($("#rings").value);
-    if (["sphere", "cylinder", "cone", "lathe"].includes(kind))
+    if (["sphere", "cylinder", "cone", "lathe", "revolve"].includes(kind))
       opts.segments = Number($("#segments").value);
-    if (["lathe", "extrude"].includes(kind))
-      opts[kind === "lathe" ? "profile" : "points"] = $("#outline")
+    if (["lathe", "extrude", "revolve", "sweep"].includes(kind))
+      opts[kind === "extrude" ? "points" : "profile"] = $("#outline")
         .value.trim()
         .split(/\n+/)
         .map((line) =>
@@ -1698,6 +1746,22 @@ async function start() {
             .map((n) => Number(n) * unitFactor()),
         );
     if (kind === "extrude") opts.depth = distanceValue("depth");
+    // A zero radius keeps plain outlines (and their face IDs) unchanged.
+    if (["extrude", "revolve", "sweep"].includes(kind))
+      opts.round = distanceValue("round");
+    if (kind === "revolve") opts.angle = Number($("#angle").value);
+    if (kind === "sweep") {
+      opts.path = $("#path")
+        .value.trim()
+        .split(/\n+/)
+        .map((line) =>
+          line
+            .trim()
+            .split(/[,\s]+/)
+            .map((n) => Number(n) * unitFactor()),
+        );
+      opts.smooth = $("#path-smooth").checked;
+    }
     return { kind, opts };
   }
   function scheduleShapePreview() {
@@ -1854,6 +1918,8 @@ async function start() {
         segments: o.segments ?? 8,
         "box-bevel": o.bevel ?? 0,
         depth: o.depth ?? 0.5,
+        round: o.round ?? 0,
+        angle: o.angle ?? 360,
       }))
         $("#" + id).value =
           value / (lengthFields.includes(id) ? unitFactor() : 1);
@@ -1862,6 +1928,12 @@ async function start() {
           p.map((v) => Number((v / unitFactor()).toPrecision(12))).join(", "),
         )
         .join("\n");
+      $("#path").value = (o.path ?? [])
+        .map((p) =>
+          p.map((v) => Number((v / unitFactor()).toPrecision(12))).join(", "),
+        )
+        .join("\n");
+      $("#path-smooth").checked = o.smooth === true;
     } else {
       setVector("primitiveSize", [1, 1, 1]);
       $("#box-bevel").value = 0;
@@ -2094,6 +2166,7 @@ async function start() {
     "convert",
     "unlink",
     "new-material",
+    "array-apply",
     "color",
     "roughness",
     "material-name",
