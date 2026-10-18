@@ -166,13 +166,13 @@ const definitions = [
   [
     "exportGLB",
     "Export all or selected roots; reuse geometry and optionally merge static leaves by parent and material, preserving asset motion. Returns the asset and merge-group report.",
-    object({ ids, mergeStatic: ids, origin, force: bool }),
+    object({ ids, mergeStatic: ids, origin, rootName: str, force: bool }),
     true,
   ],
   [
     "exportReport",
     "Report render vertices, shared buffers, mesh/material groups and bounds.",
-    object({ ids, mergeStatic: ids, origin }),
+    object({ ids, mergeStatic: ids, origin, rootName: str }),
     true,
   ],
   [

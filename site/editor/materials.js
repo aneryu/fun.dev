@@ -63,6 +63,72 @@ export function materialUsage(project) {
   }));
 }
 
+// glTF metallic-roughness PBR plus the KHR emissive-strength and transmission extensions.
+// Defaults are omitted, so older projects keep their exact JSON.
+const COLOR = /^#[0-9a-f]{6}$/i;
+const OPTIONAL = {
+  metalness: [0, 0, 1],
+  emissiveIntensity: [1, 0, 1000],
+  opacity: [1, 0, 1],
+  transmission: [0, 0, 1],
+  ior: [1.5, 1, 3],
+};
+export const MATERIAL_FIELDS = [
+  "name",
+  "color",
+  "roughness",
+  "metalness",
+  "emissive",
+  "emissiveIntensity",
+  "opacity",
+  "transmission",
+  "ior",
+  "doubleSided",
+];
+export function normalizeMaterial(m, path = "material") {
+  const bad = (message, field) => {
+    throw new ModelError(message, "invalid", `${path}.${field}`);
+  };
+  if (!m || typeof m !== "object") bad("Expected a material", "id");
+  if (typeof m.id !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(m.id))
+    bad("Invalid ID", "id");
+  if (typeof m.name !== "string" || !m.name.trim() || m.name.length > 100)
+    bad("Expected a name of 1–100 characters", "name");
+  if (!COLOR.test(m.color ?? "")) bad("Expected a #rrggbb material color", "color");
+  const number = (field, fallback, min, max) => {
+    const value = m[field] ?? fallback;
+    if (!Number.isFinite(value) || value < min || value > max)
+      bad(`Expected ${field} from ${min} to ${max}`, field);
+    return value;
+  };
+  const result = {
+    id: m.id,
+    name: m.name,
+    color: m.color,
+    roughness: number("roughness", 0.85, 0, 1),
+  };
+  for (const [field, [fallback, min, max]] of Object.entries(OPTIONAL)) {
+    const value = number(field, fallback, min, max);
+    if (value !== fallback) result[field] = value;
+  }
+  if (m.emissive != null) {
+    if (!COLOR.test(m.emissive)) bad("Expected a #rrggbb emissive color", "emissive");
+    if (m.emissive.toLowerCase() !== "#000000") result.emissive = m.emissive;
+  }
+  // Strength only means something on an emitting material.
+  if (!result.emissive) delete result.emissiveIntensity;
+  if (!result.transmission) delete result.ior;
+  if (m.doubleSided !== undefined && typeof m.doubleSided !== "boolean")
+    bad("Expected doubleSided true or false", "doubleSided");
+  if (m.doubleSided) result.doubleSided = true;
+  // Stable key order keeps documents and history comparisons deterministic.
+  return Object.fromEntries(
+    ["id", ...MATERIAL_FIELDS]
+      .filter((k) => result[k] !== undefined)
+      .map((k) => [k, result[k]]),
+  );
+}
+
 export function validateMaterialReferences(project) {
   const ids = new Set(project.materials.map((m) => m.id));
   visitMaterials(project, ({ material, path }) => {

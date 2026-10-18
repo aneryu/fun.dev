@@ -39,6 +39,7 @@ const allowed = new Set([
   "vertices",
   "paint",
   "mirror",
+  "boolean",
 ]);
 export function normalizeRecipe(input) {
   const r = structuredClone(input);
@@ -85,7 +86,7 @@ export function normalizeRecipe(input) {
       throw new ModelError(
         "Material rules need local face selections and a material",
       );
-    if (!Array.isArray(r.paint.faces) || r.paint.faces.length > 20000)
+    if (!Array.isArray(r.paint.faces) || r.paint.faces.length > 50000)
       throw new ModelError("Invalid recipe material overrides");
     for (const f of r.paint.faces)
       if (

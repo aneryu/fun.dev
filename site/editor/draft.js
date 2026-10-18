@@ -368,9 +368,9 @@ export async function openDraft(fallback, onState = () => {}) {
       const next = { ...record, ...metadata };
       if (
         new TextEncoder().encode(JSON.stringify(next)).length >
-        32 * 1024 * 1024
+        96 * 1024 * 1024
       )
-        throw new ModelError("Draft with checkpoints exceeds 32 MB", "budget");
+        throw new ModelError("Draft with checkpoints exceeds 96 MB", "budget");
       record = next;
       schedule();
       return this.persistence;

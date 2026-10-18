@@ -97,8 +97,40 @@ Each module is written together with the first game that needs it.
 ## Platform and tooling
 
 - Low-poly workshop at `/editor/`: static model authoring with shared human/agent
-  commands, editable JSON, geometry diagnostics and GLB export into the existing
+  commands, editable projects, geometry diagnostics and GLB export into the existing
   asset pipeline. See [model editor](model-editor.md) for the desktop scope and limits.
+
+### Workshop: replacing Blender (decided 2026-10-18)
+
+Goal: the workshop takes over as much of Blender's work as possible. Blender's users here
+are agents (the library uploader, the Beijing asset pipeline, the game pipelines), so every
+capability is an agent command first; the page adds only the most common controls. Projects
+are GLB files with the editable document in a `FUNDEV_workshop` extension: one file both
+previews anywhere and edits in the workshop. Libraries: manifold-3d (solids), later xatlas
+(UVs) and three-mesh-bvh (baking, weight transfer), loaded only by the workshop.
+
+1. **Static flat-colour models** (the library's props and pieces, 93% of it): PBR materials
+   (metal, emission, opacity, glass), node renaming and named copies, export naming
+   conventions, booleans, outlines with holes, revolve, basic mesh editing (delete, weld,
+   bridge, fill, connect, solidify, separate, join), sweeps and arrays, rounded outlines,
+   static GLB import, library integration (workshop source files, "open in workshop"),
+   reference images, an agent runtime package that needs no repository, limits of 50,000
+   triangles and 512 parts.
+2. **Organic shapes and large models** (food, plants, rocks, terrain, whole buildings): binary
+   mesh storage and incremental history, smooth shading and subdivision, procedural shaping
+   (displace, inflate, smooth, soft selection, voxel remesh, decimate), scatter and
+   instancing, scene assembly from library models.
+3. **UVs, textures and baking**: corner attributes (two UV sets, vertex colours), unwrapping
+   and packing, textures embedded in GLB, AO/normal/colour baking and direct-light
+   lightmaps, compression, LOD chains, colliders.
+4. **Characters and animation**: skeletons (Mixamo template, rest-pose fixes), automatic
+   weights and weight transfer, shape keys, animation import, retargeting and baking.
+5. **Parametric humans**: the MakeHuman CC0 data (base mesh, targets, rigs, proxies) read
+   directly for body sliders and fitted clothes and hair; non-rigid wrapping onto the shared
+   topology; projection of reference views onto UVs.
+
+Later: Cycles-quality global illumination baking, cloth and fluid simulation, a general
+geometry-nodes system, arbitrary third-party FBX rigs.
 
 - Regression gate: a Playwright smoke test for every catalog game at mobile and
   desktop sizes: reaches running, no console errors, non-blank canvas,

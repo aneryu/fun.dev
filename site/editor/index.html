@@ -284,7 +284,15 @@
             <form id="transform-form">
               <label for="node-name" data-i18n="edName">名称</label
               ><input id="node-name" maxlength="100" required />
-              <p id="node-id" class="muted small"></p>
+              <label for="node-id" data-i18n="edNodeId">导出名（ID）</label
+              ><input
+                id="node-id"
+                maxlength="64"
+                required
+                spellcheck="false"
+                autocomplete="off"
+                pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,63}"
+              />
               <label for="parent" data-i18n="edParent">父部件</label
               ><select id="parent"></select>
               <fieldset>
@@ -442,6 +450,54 @@
               ><input type="color" id="color" />
               <label for="roughness" data-i18n="edRoughness">粗糙度</label
               ><input type="range" id="roughness" min="0" max="1" step="0.05" />
+              <details id="material-more">
+                <summary data-i18n="edMaterialMore">金属、发光与玻璃</summary>
+                <label for="metalness" data-i18n="edMetalness">金属度</label
+                ><input
+                  type="range"
+                  id="metalness"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                /><label class="check"
+                  ><input type="checkbox" id="emissive-on" /><span
+                    data-i18n="edEmissive"
+                    >发光</span
+                  ></label
+                ><label for="emissive" data-i18n="edEmissiveColor"
+                  >发光颜色</label
+                ><input type="color" id="emissive" /><label
+                  for="emissive-intensity"
+                  data-i18n="edEmissiveIntensity"
+                  >发光强度</label
+                ><input
+                  type="number"
+                  id="emissive-intensity"
+                  min="0"
+                  max="1000"
+                  step="0.5"
+                /><label for="opacity" data-i18n="edOpacity">不透明度</label
+                ><input
+                  type="range"
+                  id="opacity"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                /><label for="transmission" data-i18n="edTransmission"
+                  >玻璃透光</label
+                ><input
+                  type="range"
+                  id="transmission"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                /><label class="check"
+                  ><input type="checkbox" id="double-sided" /><span
+                    data-i18n="edDoubleSided"
+                    >双面显示</span
+                  ></label
+                >
+              </details>
             </section>
             <button id="mirror" data-i18n="edMirror">镜像局部 X</button>
           </div>

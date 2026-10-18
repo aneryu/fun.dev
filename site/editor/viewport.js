@@ -35,22 +35,40 @@ function indexAttributes(positions, normals) {
   return { positions: uniquePositions, normals: uniqueNormals, indices };
 }
 
+// The same material drives the viewport and the GLB: metallic-roughness PBR, emission
+// (KHR_materials_emissive_strength above 1), blended opacity, and glass through
+// KHR_materials_transmission/ior on a physical material.
+export function createMaterial(m) {
+  const options = {
+    name: m.id,
+    color: m.color,
+    roughness: m.roughness,
+    metalness: m.metalness ?? 0,
+    ...(m.emissive
+      ? { emissive: m.emissive, emissiveIntensity: m.emissiveIntensity ?? 1 }
+      : {}),
+    ...((m.opacity ?? 1) < 1
+      ? { transparent: true, opacity: m.opacity, depthWrite: false }
+      : {}),
+    ...(m.doubleSided ? { side: THREE.DoubleSide } : {}),
+  };
+  return m.transmission
+    ? new THREE.MeshPhysicalMaterial({
+        ...options,
+        transmission: m.transmission,
+        ior: m.ior ?? 1.5,
+        thickness: 0,
+      })
+    : new THREE.MeshStandardMaterial(options);
+}
+
 export function buildModel(project) {
   const root = new THREE.Group(),
     objects = new Map(),
     materials = new Map(),
     geometries = new Map();
   root.name = project.name;
-  for (const m of project.materials)
-    materials.set(
-      m.id,
-      new THREE.MeshStandardMaterial({
-        name: m.id,
-        color: m.color,
-        roughness: m.roughness,
-        metalness: 0,
-      }),
-    );
+  for (const m of project.materials) materials.set(m.id, createMaterial(m));
   for (const node of project.nodes) {
     let object;
     if (node.mesh) {
@@ -1424,15 +1442,22 @@ export async function createViewport(
 
 function exportModel(
   project,
-  { ids, mergeStatic = [], origin = "world" } = {},
+  { ids, mergeStatic = [], origin = "world", rootName } = {},
 ) {
   if (!["world", "asset-root", "ground-center"].includes(origin))
     throw new Error("Unknown export origin");
   if (origin === "asset-root" && ids?.length !== 1)
     throw new Error("Asset-root origin needs exactly one export root");
+  if (
+    rootName !== undefined &&
+    (typeof rootName !== "string" ||
+      !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(rootName))
+  )
+    throw new Error("rootName uses letters, digits, _ . - (1–64)");
   const scoped = exportScope(project, { ids }),
     model = buildModel(scoped),
     nodes = new Map(scoped.nodes.map((n) => [n.id, n]));
+  if (rootName !== undefined) model.root.name = rootName;
   const included = (id) => !!nodes.get(id)?.mesh;
   model.root.updateMatrixWorld(true);
   const anchor = new THREE.Vector3();
@@ -1525,9 +1550,15 @@ function exportModel(
         );
         g.setIndex(indexed.indices);
         pieces.forEach((p) => p.dispose());
-        do {
-          o.name = `merged-static-${++i}`;
-        } while (model.objects.has(o.name));
+        // Library convention: static__<material> under the root, <pivot>__<material>
+        // under a moving part.
+        const base =
+          parent === model.root
+            ? `static__${material.name}`
+            : `${parent.name}__${material.name}`;
+        o.name = base;
+        for (let n = 2; model.objects.has(o.name); n++) o.name = `${base}-${n}`;
+        i++;
         o.userData = { sourceIds: [...sourceIds] };
         parent.add(o);
         model.objects.set(o.name, o);

@@ -24,6 +24,11 @@ export async function buildThree(root, output) {
     entryPoints: [fileURLToPath(new URL("scripts/editor-tools.js", root))], outfile: fileURLToPath(new URL("editor/tools.js", output)),
     bundle: true, format: "esm", minify: true, target: "es2022", legalComments: "eof", logLevel: "warning", plugins: [platform],
   });
+  // The workshop's geometry kernel (manifold-3d): its ES module finds the .wasm beside it.
+  const kernel = new URL("editor/vendor/", output);
+  await mkdir(kernel, { recursive: true });
+  for (const [from, to] of [["manifold.js", "manifold.js"], ["manifold.wasm", "manifold.wasm"], ["LICENSE", "manifold-LICENSE.txt"]])
+    await cp(new URL(`node_modules/manifold-3d/${from}`, root), new URL(to, kernel));
   const addons = new URL("runtime/addons/", output);
   await build({
     entryPoints: Object.fromEntries(["loaders/GLTFLoader", "loaders/DRACOLoader", "loaders/KTX2Loader", "controls/OrbitControls", "tsl/display/BloomNode", "tsl/display/GTAONode", "libs/meshopt_decoder.module:MeshoptDecoder"]

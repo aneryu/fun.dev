@@ -52,8 +52,8 @@ export const querySchema = {
     largest: boolean,
     adjacentTo: list(string),
     loopFrom: ref,
-    limit: { type: "integer", minimum: 1, maximum: 12000 },
-    offset: { type: "integer", minimum: 0, maximum: 60000 },
+    limit: { type: "integer", minimum: 1, maximum: 50000 },
+    offset: { type: "integer", minimum: 0, maximum: 200000 },
     topology: string,
     ifRevision: { type: "integer", minimum: 0 },
   },
@@ -100,6 +100,8 @@ const props = {
     },
   },
   newId: string,
+  idMap: { type: "object", additionalProperties: string },
+  replace: { type: "array", items: string, minItems: 2, maxItems: 2 },
   name: string,
   kind: {
     enum: [
@@ -141,11 +143,11 @@ const props = {
     required: ["vertices", "faces"],
     additionalProperties: false,
     properties: {
-      vertices: { type: "array", minItems: 3, maxItems: 12000, items: vector },
+      vertices: { type: "array", minItems: 3, maxItems: 30000, items: vector },
       faces: {
         type: "array",
         minItems: 1,
-        maxItems: 20000,
+        maxItems: 50000,
         items: {
           type: "object",
           required: ["id", "vertices", "material"],
@@ -165,6 +167,9 @@ const props = {
     },
   },
   ids: list(string),
+  operation: { enum: ["union", "difference", "intersection"] },
+  with: { type: "array", items: string, minItems: 1, maxItems: 64 },
+  keep: boolean,
   faces: list(component),
   face: component,
   edges: list(component),
@@ -190,6 +195,23 @@ const props = {
   }),
   color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" },
   roughness: { type: "number", minimum: 0, maximum: 1 },
+  // Optional PBR fields; null removes them from an existing material.
+  metalness: { oneOf: [{ type: "number", minimum: 0, maximum: 1 }, { type: "null" }] },
+  emissive: {
+    oneOf: [
+      { type: "string", pattern: "^#[0-9a-fA-F]{6}$" },
+      { type: "null" },
+    ],
+  },
+  emissiveIntensity: {
+    oneOf: [{ type: "number", minimum: 0, maximum: 1000 }, { type: "null" }],
+  },
+  opacity: { oneOf: [{ type: "number", minimum: 0, maximum: 1 }, { type: "null" }] },
+  transmission: {
+    oneOf: [{ type: "number", minimum: 0, maximum: 1 }, { type: "null" }],
+  },
+  ior: { oneOf: [{ type: "number", minimum: 1, maximum: 3 }, { type: "null" }] },
+  doubleSided: { oneOf: [boolean, { type: "null" }] },
   definition: object,
   values: object,
   action: { enum: ["append", "update", "patch", "remove", "move"] },
@@ -198,12 +220,28 @@ const props = {
   step: { $ref: "#/$defs/recipeStep" },
   patch: { $ref: "#/$defs/recipeStepPatch" },
 };
+// An inline tool solid in the part's local coordinates (recipe steps use only this form).
+props.shape = {
+  type: "object",
+  properties: {
+    kind: { enum: ["box", "sphere", "cylinder", "cone", "lathe", "extrude"] },
+    options: props.options,
+    position: vector,
+    rotation: vector,
+    scale: vector,
+    material: string,
+  },
+  additionalProperties: false,
+};
 const specs = {
   create: [
     "id kind",
     "name parent position rotation scale material options mesh",
   ],
-  material: ["id", "name color roughness"],
+  material: [
+    "id",
+    "name color roughness metalness emissive emissiveIntensity opacity transmission ior doubleSided",
+  ],
   removeMaterial: ["id", "replacement"],
   purgeMaterials: ["", ""],
   renameProject: ["name", ""],
@@ -220,8 +258,9 @@ const specs = {
   pivot: ["id offset", ""],
   parameters: ["id options", ""],
   convert: ["id", ""],
-  duplicate: ["id newId", "name offset linked assetMode"],
-  symmetry: ["id newId axis", "offset space linked"],
+  rename: ["id newId", ""],
+  duplicate: ["id newId", "name offset linked assetMode idMap replace"],
+  symmetry: ["id newId axis", "name offset space linked idMap replace"],
   unlink: ["id", ""],
   vertices: ["id changes", "topology"],
   extrude: ["id distance", "faces face select topology space"],
@@ -239,6 +278,7 @@ const specs = {
   assemblyParameters: ["values", "root override resetOverrides"],
   detachBinding: ["id", "fields mode"],
   recipePaint: ["id mode", "rules"],
+  boolean: ["id operation", "with shape keep"],
 };
 export const commandSchema = {
   oneOf: Object.entries(specs).map(([op, [required, optional]]) => ({
@@ -309,11 +349,12 @@ const steps = commandSchema.oneOf
       "vertices",
       "paint",
       "mirror",
+      "boolean",
     ].includes(c.properties.op.const),
   )
   .map((c) => {
     const step = expressions(structuredClone(c));
-    for (const key of ["id", "ids", "matrix", "space"])
+    for (const key of ["id", "ids", "matrix", "space", "with", "keep"])
       delete step.properties[key];
     step.required = step.required.filter((k) => k !== "id");
     step.properties.enabled = boolean;
@@ -425,7 +466,7 @@ export const modelDefinitions = {
       parameters: { $ref: "#/$defs/parameters" },
       bindings: {
         type: "array",
-        maxItems: 128,
+        maxItems: 512,
         items: obj(
           {
             id: string,
@@ -580,11 +621,11 @@ export function capabilities({ detail = "full", command } = {}) {
     query: querySchema,
     limits: {
       commands: 256,
-      nodes: 128,
+      nodes: 512,
       materials: 32,
-      documentBytes: 4 * 1024 * 1024,
-      vertices: 12000,
-      triangles: 20000,
+      documentBytes: 8 * 1024 * 1024,
+      vertices: 30000,
+      triangles: 50000,
       checkpoints: 5,
     },
     persistence:

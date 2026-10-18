@@ -54,10 +54,10 @@ export function queryComponents(
     !["local", "world"].includes(space)
   )
     throw new ModelError("Unknown query kind or space");
-  if (!Number.isInteger(limit) || limit < 1 || limit > 12000)
-    throw new ModelError("Query limit must be 1–12000");
-  if (!Number.isInteger(offset) || offset < 0 || offset > 60000)
-    throw new ModelError("Query offset must be 0–60000");
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50000)
+    throw new ModelError("Query limit must be 1–50000");
+  if (!Number.isInteger(offset) || offset < 0 || offset > 200000)
+    throw new ModelError("Query offset must be 0–200000");
   const m = worldMatrix(project, id),
     vertices = node.mesh.vertices.map((v) =>
       space === "world" ? point(m, v) : v,

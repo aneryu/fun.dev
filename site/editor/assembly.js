@@ -26,8 +26,8 @@ export const bindingFor = (project, id) =>
 export function normalizeAssembly(input, nodes) {
   const a = structuredClone(input),
     ids = new Set(nodes.map((n) => n.id));
-  if (!a || !Array.isArray(a.bindings) || a.bindings.length > 128)
-    throw new ModelError("Assembly needs up to 128 bindings");
+  if (!a || !Array.isArray(a.bindings) || a.bindings.length > 512)
+    throw new ModelError("Assembly needs up to 512 bindings");
   // Legacy single-assembly files acquire their common asset container.
   if (!a.root) {
     let root = nodes.find((n) => n.id === a.bindings[0]?.id)?.parent;

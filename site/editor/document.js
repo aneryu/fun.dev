@@ -31,10 +31,13 @@ import {
 } from "./spatial.js";
 import { meshEdges, bevelEdges, cutPlane, loopCut } from "./topology.js";
 import { surfaceDiagnostics } from "./diagnostics.js";
+import { booleanMesh } from "./booleans.js";
 import {
   removeMaterial,
   purgeMaterials,
   validateMaterialReferences,
+  normalizeMaterial,
+  MATERIAL_FIELDS,
 } from "./materials.js";
 import {
   topologyToken,
@@ -75,11 +78,11 @@ function surfaces(mesh) {
 export const FORMAT = "fun.dev/model",
   VERSION = 1;
 export const LIMITS = {
-  nodes: 128,
+  nodes: 512,
   materials: 32,
-  vertices: 12000,
-  triangles: 20000,
-  bytes: 4 * 1024 * 1024,
+  vertices: 30000,
+  triangles: 50000,
+  bytes: 8 * 1024 * 1024,
 };
 const copy = (value) => structuredClone(value);
 function affine(value) {
@@ -130,30 +133,21 @@ export function normalizeProject(input) {
   if (!input || input.format !== FORMAT || input.version !== VERSION)
     fail("Unsupported project format/version", "version");
   if (new TextEncoder().encode(JSON.stringify(input)).length > LIMITS.bytes)
-    fail("Project exceeds 4 MB");
+    fail("Project exceeds 8 MB");
   if (
     !Array.isArray(input.materials) ||
     !input.materials.length ||
     input.materials.length > LIMITS.materials
   )
-    fail("Expected 1–32 materials");
-  const materials = input.materials.map((m) => {
-    if (!m || !/^#[0-9a-f]{6}$/i.test(m.color))
-      fail("Expected a #rrggbb material color");
-    return {
-      id: identifier(m.id, "material.id"),
-      name: label(m.name, "material.name"),
-      color: m.color,
-      roughness: number(m.roughness ?? 0.85, 0, 1, "roughness"),
-    };
-  });
+    fail(`Expected 1–${LIMITS.materials} materials`);
+  const materials = input.materials.map((m) => normalizeMaterial(m));
   unique(
     materials.map((m) => m.id),
     "materials",
   );
   const materialIds = new Set(materials.map((m) => m.id));
   if (!Array.isArray(input.nodes) || input.nodes.length > LIMITS.nodes)
-    fail("Expected at most 128 nodes");
+    fail(`Expected at most ${LIMITS.nodes} nodes`);
   let vertexCount = 0,
     triangleCount = 0;
   const nodes = input.nodes.map((node) => {
@@ -875,6 +869,41 @@ export function selectionVertices(node, command) {
     fail("Unknown selected vertex");
   return [...new Set(indices)];
 }
+// New IDs for a copied hierarchy: the root takes newId; descendants take an explicit
+// idMap entry, a last-occurrence replacement (e.g. ["_l", "_r"]), or newId-<n>.
+function copyIds(project, ids, command) {
+  const map = new Map();
+  if (command.replace !== undefined) {
+    const [from, to] = command.replace ?? [];
+    if (typeof from !== "string" || !from || typeof to !== "string")
+      fail("replace needs [from, to] strings", "replace");
+  }
+  for (const key of Object.keys(command.idMap ?? {}))
+    if (key === ids[0] || !ids.includes(key))
+      fail(`idMap: ${key} is not a copied descendant`, "idMap");
+  ids.forEach((id, i) => {
+    let next = command.newId;
+    if (i) {
+      next = command.idMap?.[id];
+      if (next === undefined && command.replace) {
+        const [from, to] = command.replace,
+          at = id.lastIndexOf(from);
+        if (at < 0)
+          fail(`replace: ${id} does not contain "${from}"`, "replace");
+        next = id.slice(0, at) + to + id.slice(at + from.length);
+      }
+      next ??= `${command.newId}-${i}`;
+    }
+    map.set(id, identifier(next, "newId"));
+  });
+  const values = [...map.values()],
+    taken = new Set(project.nodes.map((n) => n.id));
+  if (new Set(values).size !== values.length)
+    fail("Copied IDs collide; adjust newId, idMap or replace", "idMap");
+  for (const value of values)
+    if (taken.has(value)) fail(`ID already exists: ${value}`, "newId");
+  return map;
+}
 function rootIds(project, ids) {
   if (!ids?.length || ids.some((id) => !project.nodes.some((n) => n.id === id)))
     fail("Unknown selected part");
@@ -1179,8 +1208,16 @@ function run(project, command) {
   if (command.op === "material") {
     const old = project.materials.find((m) => m.id === command.id);
     if (old) {
-      for (const key of ["name", "color", "roughness"])
-        if (command[key] !== undefined) old[key] = command[key];
+      // null removes an optional property (emission, glass, metalness…).
+      const next = { ...old };
+      for (const key of MATERIAL_FIELDS)
+        if (command[key] === null) {
+          if (["name", "color", "roughness"].includes(key))
+            fail(`${key} cannot be removed`, key);
+          delete next[key];
+        } else if (command[key] !== undefined) next[key] = command[key];
+      project.materials[project.materials.indexOf(old)] =
+        normalizeMaterial(next);
     } else {
       if (project.materials.length >= LIMITS.materials) {
         const error = new ModelError(
@@ -1192,12 +1229,15 @@ function run(project, command) {
           "Use purgeMaterials to remove unused materials, or removeMaterial with a replacement to consolidate existing materials.";
         throw error;
       }
-      project.materials.push({
-        id: command.id,
-        name: command.name ?? command.id,
-        color: command.color,
-        roughness: command.roughness ?? 0.85,
-      });
+      const fields = Object.fromEntries(
+        MATERIAL_FIELDS.filter((k) => command[k] != null).map((k) => [
+          k,
+          command[k],
+        ]),
+      );
+      project.materials.push(
+        normalizeMaterial({ name: command.id, ...fields, id: command.id }),
+      );
     }
     return;
   }
@@ -1344,12 +1384,47 @@ function run(project, command) {
       "mirror",
       "pivot",
       "applyScale",
+      "boolean",
     ].includes(command.op)
   )
     fail("Edit the source or unlink this copy first");
-  if (node.symmetry && !["unlink", "delete", "duplicate"].includes(command.op))
+  if (
+    node.symmetry &&
+    !["unlink", "delete", "duplicate", "rename"].includes(command.op)
+  )
     fail("Unlink the mirrored part before editing it");
   switch (command.op) {
+    case "rename": {
+      // A node ID is its glTF name: games find wheels, doors and lights by it.
+      const from = node.id,
+        to = identifier(command.newId, "newId");
+      if (to === from) fail("newId equals the current ID", "newId");
+      if (project.nodes.some((n) => n.id === to))
+        fail(`ID already exists: ${to}`, "newId");
+      for (const n of project.nodes) {
+        if (n.id === from) n.id = to;
+        if (n.parent === from) n.parent = to;
+        if (n.instanceOf === from) n.instanceOf = to;
+        if (n.symmetry?.source === from) n.symmetry.source = to;
+        if (n.symmetry?.reference === from) n.symmetry.reference = to;
+      }
+      remapRecipeReferences(node.recipe, from, to);
+      const remap = (value) =>
+        Array.isArray(value)
+          ? value.map(remap)
+          : value && typeof value === "object"
+            ? Object.fromEntries(
+                Object.entries(value).map(([k, v]) => [
+                  k,
+                  ["id", "root", "node", "source"].includes(k) && v === from
+                    ? to
+                    : remap(v),
+                ]),
+              )
+            : value;
+      project.assemblies = remap(project.assemblies ?? []);
+      return { idMap: { [from]: to } };
+    }
     case "recipe":
     case "recipeParameters":
     case "recipeStep": {
@@ -1552,12 +1627,7 @@ function run(project, command) {
     case "duplicate": {
       identifier(command.newId, "newId");
       const ids = descendants(project, node.id),
-        map = new Map(
-          [...ids].map((id, i) => [
-            id,
-            i ? `${command.newId}-${i}` : command.newId,
-          ]),
-        );
+        map = copyIds(project, [...ids], command);
       const clones = project.nodes
         .filter((n) => ids.has(n.id))
         .map((n) => {
@@ -1680,9 +1750,7 @@ function run(project, command) {
       identifier(command.newId, "newId");
       if (node.symmetry) fail("Mirror an independent source");
       const ids = [...descendants(project, node.id)],
-        map = new Map(
-          ids.map((id, i) => [id, i ? `${command.newId}-${i}` : command.newId]),
-        );
+        map = copyIds(project, ids, command);
       const clones = ids.map((id) => {
         const src = project.nodes.find((n) => n.id === id);
         if (src.symmetry)
@@ -1711,7 +1779,7 @@ function run(project, command) {
       project.nodes.push(...clones);
       synchronize(project);
       if (command.linked === false) clones.forEach((n) => delete n.symmetry);
-      break;
+      return { idMap: Object.fromEntries(map) };
     }
     case "unlink":
       for (const n of project.nodes.filter((n) =>
@@ -1767,6 +1835,15 @@ function run(project, command) {
         loopCut(node.mesh, command.edge, command.ratio);
       transformMesh(node.mesh, inverse(m));
       break;
+    }
+    case "boolean": {
+      delete node.generator;
+      delete node.recipe;
+      const { consumed } = booleanMesh(project, node, command);
+      for (const id of consumed)
+        if (project.nodes.some((n) => n.id === id))
+          run(project, { op: "delete", id });
+      return { consumed };
     }
     case "recipePaint": {
       if (!node.recipe) fail("Material bindings need a recipe");
@@ -1853,7 +1930,8 @@ export function evaluateTransaction(
 ) {
   if (!Array.isArray(commands) || !commands.length || commands.length > 256)
     fail("Expected 1–256 commands");
-  let next = copy(project);
+  // Every command copies its input below, so the store's project is never mutated.
+  let next = project;
   const results = [];
   for (const [index, input] of commands.entries()) {
     let command;
@@ -1892,6 +1970,7 @@ export function evaluateTransaction(
             "bevel",
             "cut",
             "loopCut",
+            "boolean",
           ].includes(command.op))
       )
         throw new ModelError(
@@ -1920,6 +1999,13 @@ export function evaluateTransaction(
       if (next.assemblies?.length) rebuildAssemblies(next, run, synchronize);
       next = normalizeProject(next);
       synchronize(next);
+      // Mirrors and linked copies are rebuilt after normalization: keep its -0 → 0 rule.
+      for (const n of next.nodes)
+        if (n.symmetry || n.instanceOf) {
+          for (const key of ["position", "rotation", "scale"])
+            n[key] = n[key].map((v) => v || 0);
+          if (n.mesh) n.mesh.vertices = n.mesh.vertices.map((p) => p.map((v) => v || 0));
+        }
       const changed = next.nodes.filter(
         (n) =>
           JSON.stringify(n) !==
@@ -2093,15 +2179,16 @@ export function createStore(
     while (
       stack.length > 30 ||
       (stack.length > 1 &&
-        stack.reduce((n, s) => n + s.length, 0) > 8 * 1024 * 1024)
+        stack.reduce((n, s) => n + s.length, 0) > 64 * 1024 * 1024)
     )
       stack.shift();
   };
-  function commit(next, options = {}, evaluated = false) {
+  function commit(next, { results = [], ...options } = {}, evaluated = false) {
     beforeChange(revision);
     if (options.ifRevision !== undefined && options.ifRevision !== revision)
       throw new ModelError("Project changed; inspect and retry", "conflict");
-    const valid = evaluated ? normalizeProject(next) : prepare(next);
+    // A transaction result is normalized after its last command already.
+    const valid = evaluated ? next : prepare(next);
     const changed = valid.nodes
       .filter(
         (n) =>
@@ -2127,7 +2214,8 @@ export function createStore(
     future.length = 0;
     project = valid;
     revision++;
-    listeners.forEach((listener) => listener());
+    // Listeners see command results, e.g. to follow a renamed selection.
+    listeners.forEach((listener) => listener(results));
     return {
       revision,
       stats: statistics(project),
@@ -2166,7 +2254,11 @@ export function createStore(
         throw new ModelError("Project changed; inspect and retry", "conflict");
       const evaluated = evaluateTransaction(project, commands, options);
       return {
-        ...commit(evaluated.project, options, true),
+        ...commit(
+          evaluated.project,
+          { ...options, results: evaluated.results },
+          true,
+        ),
         results: evaluated.results,
       };
     },

@@ -32,6 +32,7 @@ import {
   exportReport,
 } from "./viewport.js";
 import { openDraft } from "./draft.js";
+import { loadKernel } from "./kernel.js";
 import { meshEdges, edgeKey } from "./topology.js";
 import { profileEditor } from "./profile.js";
 import { stoolProject, planterProject } from "./examples.js";
@@ -204,6 +205,8 @@ async function start() {
             : "edReadOnly",
     );
   }
+  // Drafts may hold kernel-built geometry, so the kernel is ready before they evaluate.
+  await loadKernel();
   draft = await openDraft(duckProject(), draftState);
   let initial,
     restoreError = draft.restoreError;
@@ -550,6 +553,15 @@ async function start() {
     $("#color").value = m.color;
     $("#roughness").value = m.roughness;
     $("#material-name").value = m.name;
+    $("#metalness").value = m.metalness ?? 0;
+    $("#emissive-on").checked = !!m.emissive;
+    $("#emissive").value = m.emissive ?? "#ffffff";
+    $("#emissive").disabled = $("#emissive-intensity").disabled =
+      !m.emissive || !draft.writable;
+    $("#emissive-intensity").value = m.emissiveIntensity ?? 1;
+    $("#opacity").value = m.opacity ?? 1;
+    $("#transmission").value = m.transmission ?? 0;
+    $("#double-sided").checked = !!m.doubleSided;
     const usage = materialUsage(p).find((v) => v.id === m.id);
     $("#material-usage").textContent = t("edMaterialReferences")
       .replace("{users}", usage.users.length)
@@ -658,7 +670,7 @@ async function start() {
     $("#material-tools").hidden =
       !paintTargets().length || ["edge", "vertex"].includes(selection.mode);
     $("#node-name").value = n.name;
-    $("#node-id").textContent = n.id;
+    $("#node-id").value = n.id;
     const excluded = new Set([n.id]);
     for (let i = 0; i < p.nodes.length; i++)
       for (const other of p.nodes)
@@ -849,8 +861,21 @@ async function start() {
     for (const el of all("[data-dirty]")) delete el.dataset.dirty;
     rendering = false;
   }
-  store.subscribe(() => {
+  store.subscribe((results = []) => {
     const p = store.snapshot();
+    // A rename keeps the selection and session view state on the same part.
+    for (const r of results)
+      if (r.op === "rename")
+        for (const [from, to] of Object.entries(r.idMap ?? {})) {
+          if (selection.id === from) selection.id = to;
+          selection.ids = selection.ids.map((id) => (id === from ? to : id));
+          for (const set of [
+            viewState.hidden,
+            viewState.locked,
+            viewState.isolated,
+          ])
+            if (set?.delete(from)) set.add(to);
+        }
     try {
       viewport.setProject(p);
       updateSelection();
@@ -872,6 +897,9 @@ async function start() {
     } else if (input.id === "node-name") {
       if (input.value !== n.name)
         commands = [{ op: "set", id: n.id, name: input.value }];
+    } else if (input.id === "node-id") {
+      if (input.value !== n.id)
+        commands = [{ op: "rename", id: n.id, newId: input.value }];
     } else if (input.id === "parent") {
       if ((input.value || null) !== n.parent)
         commands = [{ op: "set", id: n.id, parent: input.value || null }];
@@ -1505,20 +1533,40 @@ async function start() {
     materialUI();
   };
   $("#paint").onclick = () => apply(paintCommands(materialId));
-  for (const [id, key] of [
+  for (const [id, key, numeric] of [
     ["color", "color"],
-    ["roughness", "roughness"],
+    ["roughness", "roughness", true],
     ["material-name", "name"],
+    ["metalness", "metalness", true],
+    ["emissive", "emissive"],
+    ["emissive-intensity", "emissiveIntensity", true],
+    ["opacity", "opacity", true],
+    ["transmission", "transmission", true],
   ])
     $("#" + id).onchange = () =>
       apply([
         {
           op: "material",
           id: materialId,
-          [key]:
-            key === "roughness" ? Number($("#" + id).value) : $("#" + id).value,
+          [key]: numeric ? Number($("#" + id).value) : $("#" + id).value,
         },
       ]);
+  $("#emissive-on").onchange = () =>
+    apply([
+      {
+        op: "material",
+        id: materialId,
+        emissive: $("#emissive-on").checked ? $("#emissive").value : null,
+      },
+    ]);
+  $("#double-sided").onchange = () =>
+    apply([
+      {
+        op: "material",
+        id: materialId,
+        doubleSided: $("#double-sided").checked,
+      },
+    ]);
   for (const id of ["new-material", "unique-material"])
     $("#" + id).onclick = () => {
       const old = store.snapshot().materials.find((m) => m.id === materialId),
@@ -2006,6 +2054,13 @@ async function start() {
     "color",
     "roughness",
     "material-name",
+    "metalness",
+    "emissive-on",
+    "emissive",
+    "emissive-intensity",
+    "opacity",
+    "transmission",
+    "double-sided",
     "project-name",
     "pivot",
   ])

@@ -15,6 +15,12 @@
   ! Content-Security-Policy
   Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com/beacon.min.js https://static.cloudflareinsights.com/beacon.min.js/; connect-src 'self' blob: https://cloudflareinsights.com/cdn-cgi/rum; img-src 'self' blob:; media-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; frame-src 'none'; worker-src 'self' blob:
 
+# The model workshop compiles its geometry kernel (WebAssembly) and reads opened GLB files and
+# reference images through Blob URLs.
+/editor/*
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com/beacon.min.js https://static.cloudflareinsights.com/beacon.min.js/; connect-src 'self' blob: https://cloudflareinsights.com/cdn-cgi/rum; img-src 'self' blob: data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; frame-src 'none'; worker-src 'self' blob:
+
 # Model pages run the glTF loader, which reads embedded textures through Blob URLs.
 /models/*
   ! Content-Security-Policy

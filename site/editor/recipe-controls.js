@@ -90,15 +90,15 @@ export function recipeScopeControls({
       value.topology = topologyToken(input.mesh);
     } else if (scope.value === "whole") {
       if (kind === "faces")
-        value.select = { kind, space: "local", limit: 12000 };
+        value.select = { kind, space: "local", limit: 50000 };
     } else {
       const [axis, side] = scope.value.split(":"),
         direction = [0, 0, 0];
       direction[["x", "y", "z"].indexOf(axis)] = side === "min" ? -1 : 1;
       value.select =
         kind === "edges"
-          ? { kind, space: "local", boundary: { axis, side }, limit: 12000 }
-          : { kind, space: "local", normal: direction, limit: 12000 };
+          ? { kind, space: "local", boundary: { axis, side }, limit: 50000 }
+          : { kind, space: "local", normal: direction, limit: 50000 };
     }
     return value;
   };

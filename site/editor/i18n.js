@@ -1,5 +1,14 @@
 import { messages } from "../i18n.js";
 const additions = {
+  edNodeId: ["导出名（ID）", "Export name (ID)"],
+  edMaterialMore: ["金属、发光与玻璃", "Metal, emission and glass"],
+  edMetalness: ["金属度", "Metalness"],
+  edEmissive: ["发光", "Emits light"],
+  edEmissiveColor: ["发光颜色", "Emission colour"],
+  edEmissiveIntensity: ["发光强度", "Emission strength"],
+  edOpacity: ["不透明度", "Opacity"],
+  edTransmission: ["玻璃透光", "Glass transmission"],
+  edDoubleSided: ["双面显示", "Double-sided"],
   edMaterialLibrary: ["材质库", "Material library"],
   edMaterialBudget: [
     "{count} / {limit} 个材质 · {unused} 个可清理",
