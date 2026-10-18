@@ -15,6 +15,7 @@ import {
 import { bindingFor } from "./assembly.js";
 import { meshEdges } from "./topology.js";
 import { normal, triangulate } from "./mesh.js";
+import { nameMeshes } from "./glb.js";
 
 function indexAttributes(positions, normals) {
   const uniquePositions = [],
@@ -1789,11 +1790,15 @@ export async function exportAsset(project, options = {}) {
   const model = exportModel(project, options);
   try {
     const report = modelReport(project, model, options);
-    const buffer = await new GLTFExporter().parseAsync(model.root, {
-      binary: true,
-      trs: true,
-      onlyVisible: true,
-    });
+    const buffer = nameMeshes(
+      new Uint8Array(
+        await new GLTFExporter().parseAsync(model.root, {
+          binary: true,
+          trs: true,
+          onlyVisible: true,
+        }),
+      ),
+    ).buffer;
     return {
       buffer,
       report: {

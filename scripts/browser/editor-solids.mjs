@@ -70,6 +70,7 @@ export async function editorSolidChecks({ browser, base }) {
     for (const extension of ["KHR_materials_transmission", "KHR_materials_ior", "KHR_materials_emissive_strength"])
       assert.ok(gltf.extensionsUsed.includes(extension), extension);
     const names = gltf.nodes.map((n) => n.name);
+    assert.ok(gltf.meshes.every((m) => m.name), "meshes carry their node names, as Blender exports do");
     assert.ok(names.includes("crate_01_ROOT"), names.join(","));
     // One top-level asset group becomes the named root itself; its static parts merge into
     // static__<material> beside the moving ones.

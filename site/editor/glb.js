@@ -128,3 +128,13 @@ export function fromBase64(text) {
   for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
   return out;
 }
+
+// GLTFExporter leaves meshes unnamed; tools that read meshes[].name (as Blender's exports
+// provide) get the name of the first node using each mesh.
+export function nameMeshes(glb) {
+  const { json, buffers } = parseModelFile(glb);
+  for (const node of json.nodes ?? [])
+    if (node.mesh !== undefined && json.meshes?.[node.mesh] && !json.meshes[node.mesh].name)
+      json.meshes[node.mesh].name = node.name;
+  return writeGLB(json, buffers[0] ?? null);
+}
