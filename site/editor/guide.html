@@ -755,6 +755,29 @@ node fundev-workshop.mjs --mcp --session model.json --artifacts out/</pre
       </p>
       <p><a href="/editor/">← 回到工坊 / Back to the workshop</a></p>
       <section>
+        <h2>Blueprints · 蓝图</h2>
+        <p>
+          A blueprint is a parametric model family: <code>funEditor.blueprints()</code>
+          lists them with their parameter schemas (id, version, title, params with
+          value, min, max, unit, <code>structural</code>). Build one with
+          <code>apply([{op:"blueprint", id:"lamp-post", params:{height:6, arms:2}, root:"lamp_1"}])</code>:
+          it expands into the parts under <code>root</code> and an assembly whose live
+          parameters keep driving them, so
+          <code>{op:"assemblyParameters", root:"lamp_1", values:{height:4.5}}</code>
+          re-derives the model; structural parameters (counts, styles) are fixed
+          when built — apply the blueprint again to change them. The assembly
+          records <code>blueprint:{id, version, params}</code>. Every command
+          of the expansion reports the blueprint's index. Blueprints are modules
+          in <code>/editor/blueprints.js</code>: a title, a parameter schema, materials
+          and a <code>build(values, {root, id})</code> that returns parts and
+          bindings, using the same library conventions as hand-built models.
+          蓝图是参数化的模型族：<code>blueprints()</code> 列出参数；<code>blueprint</code>
+          命令按参数生成零件和驱动它们的装配体，之后用 <code>assemblyParameters</code>
+          改实时参数即可衍生新模型；结构参数（数量、样式）要重新生成。
+          <code>npm run derive</code> 在命令行里完成同样的事并写出可上传到库的文件夹。
+        </p>
+      </section>
+      <section>
         <h2>Durability and asset parameters</h2>
         <p>
           Inspect <code>persistence</code> and await

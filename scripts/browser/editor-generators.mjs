@@ -69,6 +69,23 @@ export async function editorGeneratorChecks({ browser, base }) {
     assert.deepEqual(validation.errors, []);
     await page.screenshot({ path: resolve(results, "editor-generators.png") });
     assert.deepEqual(errors, []);
+    // Blueprints: a parametric family builds through the page API, re-derives through its asset
+    // parameters, and exports a library-ready GLB.
+    const blueprint = await page.evaluate(async () => {
+      funEditor.loadProject((await import("/editor/document.js")).emptyProject("Blueprints"), { ifRevision: funEditor.inspect().revision });
+      const listed = funEditor.blueprints().map((b) => b.id);
+      funEditor.apply([{ op: "blueprint", id: "lamp-post", params: { height: 7, arms: 2 }, root: "lamp" }], { ifRevision: funEditor.inspect().revision });
+      const tall = funEditor.inspect({ id: "lamp" }).bounds;
+      funEditor.apply([{ op: "assemblyParameters", root: "lamp", values: { height: 4 } }], { ifRevision: funEditor.inspect().revision });
+      const short = funEditor.inspect({ id: "lamp" }).bounds;
+      const exported = await funEditor.exportGLB({ encoding: "base64", origin: "ground-center", rootName: "lamp_ROOT", mergeStatic: "auto" });
+      return { listed, tall, short, stamp: funEditor.inspect().assemblies[0].blueprint, bytes: exported.data.length, validation: funEditor.validate().errors.length };
+    });
+    assert.deepEqual(blueprint.listed, ["lamp-post", "railing", "building-block"]);
+    assert.ok(Math.abs(blueprint.tall.max[1] - 7) < 0.05 && Math.abs(blueprint.short.max[1] - 4) < 0.05, `the lamp follows its height: ${JSON.stringify([blueprint.tall.max, blueprint.short.max])}`);
+    assert.deepEqual(blueprint.stamp, { id: "lamp-post", version: 1, params: { arms: 2 } });
+    assert.equal(blueprint.validation, 0);
+    assert.ok(blueprint.bytes > 1000, "the derived model exports");
   } finally {
     await context.close();
   }

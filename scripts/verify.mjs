@@ -17,14 +17,16 @@ import { loadLocalGames } from "./local-games.mjs";
 //   npm run verify -- --transfer        also the slower account-transfer test (wrangler pages dev)
 //   npm run verify -- smoke --game=<id> smoke-test one game only (for parallel game work)
 //   npm run verify -- --webgpu          browser suites on this machine's GPU, games forced to WebGPU
+//   npm run verify -- --skip=editor,kit  leave out browser suites (the release skips what its change cannot touch)
 const args = process.argv.slice(2);
+const skipped = new Set(args.find((arg) => arg.startsWith("--skip="))?.slice("--skip=".length).split(",").filter(Boolean) ?? []);
 const only = args.find((arg) => arg.startsWith("--game="))?.slice("--game=".length);
 const suites = { smoke: null, kit: kitChecks, fun3d: fun3dChecks, player: playerChecks, site: siteChecks, editor: editorChecks };
 const selected = args.filter((arg) => !arg.startsWith("--"));
 const webgpu = args.includes("--webgpu");
-const unknown = [...selected.filter((name) => !(name in suites)), ...args.filter((arg) => arg.startsWith("--") && !["--transfer", "--webgpu"].includes(arg) && !arg.startsWith("--game="))];
+const unknown = [...selected.filter((name) => !(name in suites)), ...[...skipped].filter((name) => !(name in suites)), ...args.filter((arg) => arg.startsWith("--") && !["--transfer", "--webgpu"].includes(arg) && !arg.startsWith("--game=") && !arg.startsWith("--skip="))];
 if (unknown.length) {
-  console.error(`Unknown: ${unknown.join(", ")}. Usage: npm run verify [-- ${Object.keys(suites).join("|")} ...] [--game=<id>] [--transfer] [--webgpu]`);
+  console.error(`Unknown: ${unknown.join(", ")}. Usage: npm run verify [-- ${Object.keys(suites).join("|")} ...] [--game=<id>] [--transfer] [--webgpu] [--skip=<suite>,...]`);
   process.exit(1);
 }
 const results = [];
@@ -51,14 +53,14 @@ await step("local build", () => {
   // Local games/ sources; the service worker stays on for the offline check (other suites block it).
   execFileSync("npm", ["run", "--silent", "build"], { cwd: root, stdio: "inherit", env: { ...process.env, FUNDEV_GAME_ORIGIN: "", FUNDEV_TRANSFER: "", FUNDEV_NO_SW: "" } });
 });
-if (results.every(([, status]) => status === "ok")) {
+if (results.every(([, status]) => status === "ok" || status === "skip")) {
   const server = await serve();
   const browser = await launch({ webgpu });
   try {
     const games = JSON.parse(await readFile(resolve(dist, "games.json"), "utf8")).filter((game) => !only || game.id === only);
     if (only && !games.length) results.push([`no game "${only}" in games/`, "FAIL", 0]);
     else for (const [name, run] of Object.entries(suites)) {
-      if (selected.length && !selected.includes(name)) continue;
+      if ((selected.length && !selected.includes(name)) || skipped.has(name)) { if (skipped.has(name)) results.push([`browser: ${name}`, "skip", 0]); continue; }
       await step(`browser: ${name}`, () => name === "smoke" ? smoke({ browser, base: server.base, games, renderer: webgpu ? "webgpu" : "" }) : run({ browser, base: server.base, dist }));
     }
   } finally {
@@ -88,4 +90,4 @@ if (releases.length) {
 console.log("\nSummary");
 for (const [name, status, time] of results) console.log(`  ${status.padEnd(4)} ${name.padEnd(28)} ${(time / 1000).toFixed(1)}s`);
 console.log("  Screenshots: test-results/");
-if (results.some(([, status]) => status !== "ok")) process.exitCode = 1;
+if (results.some(([, status]) => status !== "ok" && status !== "skip")) process.exitCode = 1;

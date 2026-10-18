@@ -693,6 +693,48 @@ arbitrary evaluation tool. The MCP transport follows the
 and [typed tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
 contracts; nothing is hosted on fun.dev.
 
+## Blueprints and derivation
+
+A blueprint is a parametric model family (`site/editor/blueprints.js`): a title, a parameter
+schema, materials and a `build(values, { root, id })` that returns parts and the assembly
+bindings that keep the live parameters driving them. `funEditor.blueprints()` (MCP
+`fun_editor_blueprints`) lists them; `{op:"blueprint", id, params?, root?, name?}` builds one
+in a batch, expanding into `material` commands the project lacks, the parts under `root`
+(default: the blueprint id with `_`) and an `assembly` stamped with
+`blueprint: { id, version, params }`. Parameters come in two kinds:
+
+- **live** (height, length, width…): bound in the assembly, so `assemblyParameters` re-derives
+  the model at any time, in the page or in a script;
+- **structural** (`structural: true`: counts, styles): fixed when built; apply the blueprint
+  again to change them. They are what the assembly's `blueprint.params` records.
+
+```js
+funEditor.apply([{ op: "blueprint", id: "lamp-post", params: { height: 7, arms: 2 }, root: "lamp_1" }], { ifRevision });
+funEditor.apply([{ op: "assemblyParameters", root: "lamp_1", values: { height: 4.5, armLength: 1.6 } }], { ifRevision });
+```
+
+The first blueprints: `lamp-post` (height, arm length; arms), `railing` (length, height;
+posts, rails) and `building-block` (width, depth, storey height; storeys, bays, roof). Values
+are checked against the schema (range, whole numbers, options); every expanded command reports
+the blueprint's index in results and errors. Recipe array steps take expressions in their
+offsets, so spacing follows a length while the count stays structural.
+
+`npm run derive` runs the same thing headless and writes a library upload folder:
+
+```sh
+npm run derive -- --list
+npm run derive -- --blueprint lamp-post --id street_lamp_02 --set height=5 arms=2 --out out [--gpu]
+npm run derive -- --from source.funmodel.glb --id desk_02 --set width=1.2 [--root <asset>]
+```
+
+`out/<id>/v001/` holds `model.glb` (ground-centred, static parts merged), `source.funmodel.glb`
+(the editable project, parameters included), `preview.png`, `model.fun3d` for a look in a game,
+and a `meta.json` to finish before `npm run models -- upload`; its `extra.blueprint` records the
+family and parameters. The library's checks run on the result (the thumbnail is rendered in
+review). Adding a blueprint is adding a module to `BLUEPRINTS`; the unit tests build every one
+at its defaults and check that it stands on the ground, is centred, validates and keeps its
+parameters bound.
+
 ## Durable drafts, pending inputs and asset relationships
 
 IndexedDB stores the project, up to five checkpoints, 30 activity records and 32

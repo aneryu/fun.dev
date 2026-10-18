@@ -38,7 +38,9 @@ npm run dev -- muyu          # prints the player URL for one game, with ?debug=1
   [assets](assets.md). `npm run dev` restores missing files on start.
 - `npm test` (~20 s) runs only the unit tests, including each game's `dev/` tests.
 - `npm run fun3d -- inspect|validate|convert` works with `.fun3d` model files
-  ([docs/fun3d-agents.md](fun3d-agents.md)).
+  ([docs/fun3d-agents.md](fun3d-agents.md)); `npm run derive` builds a model from a
+  blueprint or a project's parameters into a library upload folder
+  ([model editor](model-editor.md#blueprints-and-derivation)).
 - `npm run editor` develops the low-poly workshop without game binary assets;
   `npm run verify:editor` runs its focused build, geometry and browser checks
   ([model editor](model-editor.md)). The same guide covers `npm run editor:agent`

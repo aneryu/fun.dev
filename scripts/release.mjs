@@ -58,6 +58,13 @@ const changed = known ? git("diff", "--name-only", deployed, head).split("\n").f
 const touches = (pattern) => !changed || changed.some((file) => pattern.test(file));
 const siteChanged = touches(/^(?:site|skills|functions|server|migrations|migrations-models)\/|^scripts\/(?:build|check|csp|game-pages|local-games|game-release|vision|physics|library-models|fun3d-convert)\.mjs$|^package(?:-lock)?\.json$|^wrangler\.jsonc$|^config\/mediapipe-LICENSE\.txt$|^sources\/sources\.lock$/);
 const transferChanged = touches(/^(?:site\/progress|site\/player|server|functions|migrations)\//);
+// Browser suites a change cannot have touched are left out of the local verification (the
+// production smoke and the live checks still run everything that ships): the workshop's
+// suite alone takes several minutes.
+const editorChanged = touches(/^site\/editor\/|^scripts\/(?:editor|browser\/editor|build-three\.mjs)|^docs\/workshop-agents\.md$|^tests\/editor|^package(?:-lock)?\.json$/);
+const fun3dChanged = touches(/^site\/runtime\/kit\/(?:fun3d|materials|models|physics|animation)|^scripts\/(?:fun3d|physics|browser\/fun3d)|^site\/sw\.js$|^site\/_headers$|^package(?:-lock)?\.json$/);
+const kitChanged = touches(/^site\/runtime\/|^site\/sw\.js$|^site\/_headers$|^scripts\/(?:vision|build-three|build)\.mjs$|^package(?:-lock)?\.json$/);
+const skipSuites = [["editor", editorChanged], ["fun3d", fun3dChanged], ["kit", kitChanged]].filter(([, changed]) => !changed).map(([name]) => name);
 
 // Two databases: DB (progress and transfers) and MODELS_DB (the model library, docs/models.md).
 // MODELS_DB is bound to the console Worker, so its migrations are read through that config.
@@ -79,7 +86,7 @@ const deploySite = siteChanged || publish.length > 0; // new releases also refre
 
 console.log(`
 Release plan for ${head.slice(0, 7)} (live site: ${deployed ?? "unknown"})
-  1. verify locally            unit tests + browser checks${transferChanged ? " + account transfer" : ""}
+  1. verify locally            unit tests + browser checks${transferChanged ? " + account transfer" : ""}${skipSuites.length ? ` (without ${skipSuites.join(", ")}: untouched)` : ""}
      back up assets           ${backups.length ? `${backups.length} new files to the private bucket` : "all backed up"}
   2. D1 migrations             ${pendingMigrations ? `apply pending migrations (${pendingDatabases.map(([binding]) => binding).join(", ")})` : "none pending"}
   3. cleanup Worker            ${workerChanged ? (workerMissing ? "deploy (not deployed yet)" : "redeploy (server code changed)") : "unchanged"}
@@ -105,7 +112,7 @@ if (!args.includes("--yes")) {
 // ── Execute ──────────────────────────────────────────────────────────────────
 const step = (title) => console.log(`\n▶ ${title}`);
 step("Verify locally");
-if (spawnSync(process.execPath, ["scripts/verify.mjs", ...(transferChanged ? ["--transfer"] : [])], { cwd: root, stdio: "inherit" }).status !== 0) fail("Local verification failed; nothing was changed remotely.");
+if (spawnSync(process.execPath, ["scripts/verify.mjs", ...(transferChanged ? ["--transfer"] : []), ...(skipSuites.length ? [`--skip=${skipSuites.join(",")}`] : [])], { cwd: root, stdio: "inherit" }).status !== 0) fail("Local verification failed; nothing was changed remotely.");
 
 if (backups.length) {
   step("Back up assets");

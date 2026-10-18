@@ -19,6 +19,7 @@ import {
   shapeGenerator,
 } from "./document.js";
 import { toolboxAssemblyCommands, assetFor, bindingFor } from "./assembly.js";
+import { listBlueprints } from "./blueprints.js";
 import { describeChanges } from "./changes.js";
 import { hollowBoxRecipe, recipeValue } from "./recipe.js";
 import { recipeScopeControls } from "./recipe-controls.js";
@@ -212,6 +213,7 @@ export function createWorkbench({
       hollowBox: hollowBoxRecipe(),
       toolbox: toolboxAssemblyCommands(hollowBoxRecipe()),
     }),
+    blueprints: () => listBlueprints(),
     flush: () => draft.flush(),
     undo(options = {}) {
       flush();

@@ -74,6 +74,12 @@ const render = {
 };
 const definitions = [
   [
+    "blueprints",
+    "List the parametric blueprints (id, version, title, parameter schema). Build one with apply [{op:'blueprint', id, params?, root?}]; live parameters then follow assemblyParameters, structural ones need the blueprint again.",
+    object(),
+    true,
+  ],
+  [
     "presets",
     "Get ready-to-use hollow-box recipe and toolbox assembly commands. Toolbox commands require an empty project with the default palette.",
     object(),

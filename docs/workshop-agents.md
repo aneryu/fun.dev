@@ -100,6 +100,15 @@ body with wheel-arch notches is one concave outline.
 - Selectors: `{ kind:"faces"|"edges"|"vertices", space:"world", normal?:[x,y,z], at?:{axis,
   value}, boundary?:{axis, side:"min"|"max"}, largest?, crease?:degrees }`.
 
+## Blueprints: parametric families
+
+`await ws.call("blueprints")` lists them (`lamp-post`, `railing`, `building-block`) with their
+parameter schemas. `ws.apply([{ op: "blueprint", id: "lamp-post", params: { height: 6, arms: 2 },
+root: "lamp" }])` builds one; `{ op: "assemblyParameters", root: "lamp", values: { height: 4 } }`
+re-derives it (structural parameters such as `arms` need the blueprint again). From the command
+line, `npm run derive -- --blueprint lamp-post --id street_lamp_02 --set height=5` writes a
+library upload folder. A new blueprint is a module in `site/editor/blueprints.js`.
+
 ## Before delivering
 
 - `ws.validate()` has no errors (`shell-overlap` and `nonplanar` warnings are fine).

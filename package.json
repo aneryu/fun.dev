@@ -19,6 +19,7 @@
     "console:build": "node scripts/build-console.mjs",
     "models": "node scripts/models-admin.mjs",
     "fun3d": "node scripts/fun3d.mjs",
+    "derive": "node scripts/derive.mjs",
     "editor:agent": "node scripts/editor-agent.mjs"
   },
   "engines": {

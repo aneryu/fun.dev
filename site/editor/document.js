@@ -33,6 +33,7 @@ import { meshEdges, bevelEdges, cutPlane, loopCut } from "./topology.js";
 import { surfaceDiagnostics } from "./diagnostics.js";
 import { booleanMesh } from "./booleans.js";
 import { arrayStep, stepMatrix, arrayMesh } from "./arrays.js";
+import { blueprintCommands } from "./blueprints.js";
 import {
   MESH_EDITS,
   DISTANCE_EDITS,
@@ -2053,10 +2054,30 @@ export function evaluateTransaction(
 ) {
   if (!Array.isArray(commands) || !commands.length || commands.length > 256)
     fail("Expected 1–256 commands");
+  // A blueprint stands for the commands that build its asset (blueprints.js); they run in its
+  // place and report its index. Materials created earlier in the batch are not created again.
+  const expanded = [],
+    materialIds = new Set((project.materials ?? []).map((m) => m.id));
+  const add = (index, c) => {
+    expanded.push([index, c]);
+    if (c && c.op === "material" && typeof c.id === "string") materialIds.add(c.id);
+  };
+  for (const [index, input] of commands.entries()) {
+    if (input && input.op === "blueprint") {
+      let built;
+      try {
+        built = blueprintCommands(input, { materials: [...materialIds].map((id) => ({ id })) });
+      } catch (e) {
+        if (e instanceof ModelError && e.commandIndex === undefined) e.commandIndex = index;
+        throw e;
+      }
+      for (const c of built) add(index, c);
+    } else add(index, input);
+  }
   // Every command copies its input below, so the store's project is never mutated.
   let next = project;
   const results = [];
-  for (const [index, input] of commands.entries()) {
+  for (const [index, input] of expanded) {
     let command;
     try {
       const before = next;

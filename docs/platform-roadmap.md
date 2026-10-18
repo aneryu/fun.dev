@@ -132,6 +132,29 @@ previews anywhere and edits in the workshop. Libraries: manifold-3d (solids), la
 Later: Cycles-quality global illumination baking, cloth and fluid simulation, a general
 geometry-nodes system, arbitrary third-party FBX rigs.
 
+### Parametric and procedural: extend and derive (decided 2026-10-19)
+
+The owner's second pillar beside the format: content is programs and parameters at the source,
+data at runtime. Runtime files (`.fun3d`) stay compiled data; derivation happens at build and
+conversion time, deterministic and cached by (source, generator, parameters). What exists and
+what follows:
+
+1. **Done**: parameter recipes per mesh and asset parameters with bindings and expressions
+   (workshop stage 1); runtime parameters in the format (placements with tints, morph targets,
+   emitter roles; variants and references in release 2); **blueprints** — parametric families
+   (`site/editor/blueprints.js`: lamp post, railing, building block) built by
+   `{op:"blueprint"}`, re-derived by `assemblyParameters`, stamped on the asset, and
+   `npm run derive` writing library upload folders with their provenance
+   ([model editor](model-editor.md#blueprints-and-derivation)).
+2. **Next**: blueprints for the library's commonest families (trees, benches, signs, fences,
+   kit pieces), each judged against the library's hand-built counterparts; the model pages and
+   the console showing a model's family and parameters (`extra.blueprint`), with "derive" in the
+   console; scatter rules (along a path, on a surface, on a grid) whose result is placements
+   (workshop stage 2); game builds deriving variants with the same blueprints (`derive` beside
+   `convert` in `game.json`), so a city gets fifty lamp heights without fifty uploads.
+3. **Later**: node graphs for shading (`fun3d.nodes`), generators over textures and baking
+   (stage 3), parametric humans (stage 5).
+
 - Regression gate: a Playwright smoke test for every catalog game at mobile and
   desktop sizes: reaches running, no console errors, non-blank canvas,
   menu pause/resume, language switch, restart, and error-free cleanup when leaving.

@@ -100,6 +100,7 @@ const props = {
     },
   },
   newId: string,
+  params: { type: "object", additionalProperties: { oneOf: [number, string, boolean] } },
   idMap: { type: "object", additionalProperties: string },
   replace: { type: "array", items: string, minItems: 2, maxItems: 2 },
   name: string,
@@ -314,6 +315,7 @@ const specs = {
   recipeStep: ["id action", "index to step patch"],
   assembly: ["definition", "root"],
   assemblyParameters: ["values", "root override resetOverrides"],
+  blueprint: ["id", "params root name"],
   detachBinding: ["id", "fields mode"],
   recipePaint: ["id mode", "rules"],
   boolean: ["id operation", "with shape keep"],
@@ -378,6 +380,8 @@ const optionsSchema = structuredClone(props.options);
 function expressions(schema) {
   if (schema.type === "number" || schema.type === "integer") return expression;
   const result = { ...schema };
+  // Alternatives (an array offset is a number or a vector) take expressions in each form.
+  if (schema.oneOf) result.oneOf = schema.oneOf.map(expressions);
   if (schema.items) result.items = expressions(schema.items);
   if (schema.properties)
     result.properties = Object.fromEntries(
@@ -538,6 +542,14 @@ export const modelDefinitions = {
       exposed: list(string),
       overrides: { type: "object", additionalProperties: number },
       parameters: { $ref: "#/$defs/parameters" },
+      blueprint: obj(
+        {
+          id: string,
+          version: { type: "integer" },
+          params: { type: "object", additionalProperties: { oneOf: [number, string, boolean] } },
+        },
+        ["id", "version"],
+      ),
       bindings: {
         type: "array",
         maxItems: 512,
