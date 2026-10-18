@@ -1,0 +1,16 @@
+import { readFileSync } from "node:fs";
+import * as THREE from "three";
+import { createFun3d } from "../../site/runtime/kit/fun3d.js";
+const fun3d = createFun3d({ THREE });
+const bytes = readFileSync(process.argv[2]);
+const { manifest } = await fun3d.read(bytes);
+const use = new Map();
+const tag = (stream, label) => use.set(stream, label);
+(manifest.geometries ?? []).forEach((g, gi) => { for (const [n, a] of Object.entries(g.attributes)) tag(a.stream, `attr:${n}:${a.format}`); if (g.index) tag(g.index.stream, `index:${g.index.format}`); });
+(manifest.textures ?? []).forEach((t) => tag(t.stream, `texture:${t.mime}`));
+(manifest.animations ?? []).forEach((a) => a.tracks.forEach((t) => { tag(t.values.stream, `anim:${t.path}:${t.values.format}`); if (t.times.stream !== undefined) tag(t.times.stream, "anim:times"); }));
+(manifest.skins ?? []).forEach((s) => tag(s.inverseBindMatrices.stream, "skin:ibm"));
+const sums = new Map();
+manifest.streams.forEach((s, i) => { const k = (use.get(i) ?? "other").replace(/:[^:]*$/, (m) => m); sums.set(k, (sums.get(k) ?? 0) + s.length); });
+console.log("file", bytes.length, "json", JSON.stringify(manifest).length);
+for (const [k, v] of [...sums].sort((a, b) => b[1] - a[1])) console.log(k.padEnd(36), v);

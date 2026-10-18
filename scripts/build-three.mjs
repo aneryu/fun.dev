@@ -51,4 +51,11 @@ export async function buildThree(root, output) {
     await mkdir(new URL(`${directory}/`, addons), { recursive: true });
     for (const file of files) await cp(new URL(`node_modules/three/examples/jsm/libs/${directory}/${file}`, root), new URL(`${directory}/${file}`, addons));
   }
+  // .fun3d writers compress geometry with meshopt's encoder (an ES module with its WebAssembly inlined).
+  await cp(new URL("node_modules/meshoptimizer/meshopt_encoder.js", root), new URL("MeshoptEncoder.js", addons));
+  // Jolt Physics (single-threaded WebAssembly): its ES module finds the .wasm beside it.
+  const jolt = new URL("vendor/jolt/", output);
+  await mkdir(jolt, { recursive: true });
+  for (const [from, to] of [["dist/jolt-physics.wasm.js", "jolt-physics.wasm.js"], ["dist/jolt-physics.wasm.wasm", "jolt-physics.wasm.wasm"], ["LICENSE", "LICENSE.txt"]])
+    await cp(new URL(`node_modules/jolt-physics/${from}`, root), new URL(to, jolt));
 }
