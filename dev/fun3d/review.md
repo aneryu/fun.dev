@@ -150,3 +150,51 @@ All accepted unless noted; the decision is what v3 does.
 | E31 | `deflate-raw` needs Node ≥ 20.12, Safari ≥ 16.4; stream offsets must align | Stated; alignment in the validator |
 
 Round 1 closed: v3 written from all four lists (S1–S12, P1–P31, D1–D67, E1–E31).
+
+## Round 2
+
+### Resolution and regression check (28 regressions, plus partial/missing/contradicted decisions)
+
+Implemented in v4 unless noted.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| R1 | `asset.content` self-referential and undefined for editing chunks | Defined: SHA-256 over inflated runtime BIN payloads in ordinal order, then the manifest with `asset.content` = ""; editing excluded |
+| R2 | Console validation of uploads that are GLB | Validator runs in the console only for direct `.fun3d` uploads (release 2) |
+| R3 | `pbr` still listed an emissive map | Moved to `features.emitter.map` |
+| R4 | Id suffixing "recorded in the editing section" | Pure function of document order (`_2`, `_3`…) plus charset mapping |
+| R5 | "core" meant both schema-defined and first release | Core = schema-defined; a release column in section 9; section 10 is a table of what each release implements and what the loader does with the rest |
+| R6 | Exposure anchors numerically wrong | One anchor: emitter 1 and a white surface under π cd at 1 m give radiance 1 (≈ 0.8 after ACES); about 8 clips |
+| R7 | `position` vs `translation` channel | `position` |
+| R8 | `_tint` vs `placements.tint` | `tint` in the file; `_tint` only as the runtime attribute |
+| R9 | `uint16x4` skinIndex with 128 bones | Dropped |
+| R10 | Example stride 12 for an 8-byte buffer | 8 |
+| R11 | One node example violating the combination rules | Split into valid examples and a combination table |
+| R12 | Ragdoll example referenced undefined parts | Parts added |
+| R13 | Id derivation pointed to section 8 | Section 6 |
+| R14 | Extension versions in `uses` | Extensions carry no version; a breaking change is a new name |
+| R15 | Bind matrix claim | Identity in attached mode, as GLTFLoader |
+| R16 | Images "stored without deflate" was unplaced | Image streams live in BIN chunks without bit 0; raw data may deflate |
+| R17 | `EDIT` type vs flag; EDIT's BIN addressing | EDIT always flagged, JSON never; ordinals among all BIN chunks |
+| R18 | Ref hash zlib-dependent | `content` = the referenced file's `asset.content` |
+| R19 | "atlases" | "texture arrays" |
+| R20 | Attenuation without distance | `attenuationDistance` (0 = infinite) |
+| R21 | Differential and swing-twist fields unmapped | `split`, `engineShare`, `limitedSlip`; `normalCone`, `planeCone` |
+| R22 | Hull points | Jolt keeps at most 256 hull vertices, stated |
+| R23 | Missing caps | chunks, streams, textures, skeletons, sockets, variants, refs, events |
+| R24 | Uniform scale per placed copy | Stated |
+| R25 | City tiles "conflict" without a restriction | Restriction stated (caps per tile, no streaming inside a file) |
+| R26 | Pack tracks' `node` | Bone ids of the pack's skeleton; roles for `mask` and `root` |
+| R27 | Three.js names → ids at write | Charset mapping, duplicates refused |
+| R28 | Supersessions unmarked in this log | S1, D30–D32 (caps) superseded by E17; S8 superseded by D17–D24 (static only); S4 superseded by E8 |
+| partial D8 | Defaults missing | Section 4.13 defaults table |
+| partial D27/E2 | Batch slot derivation unstated; `skinIndex` plain | Stated in 4.2 |
+| partial D47 | Failure handling | A shape the runtime cannot build marks the model's physics failed; the library records it |
+| partial D56–D58 | Charset mapping of glTF names | Stated in section 6 |
+| partial D66–D67 | Empty Lights row | Filled |
+| partial P1, P4, P5, P7, P8, P11, P18, P20, P21, P23, P26, E31 | Size in the lock; one publish per run and orphan deletion; converter stamp; 200 k triangle cap in browsers; `list` shows 未转换; closure collection and resolver; stripping paths and allowed contents; duplicates refused at write; both-ways render diff; `handle.remove()`; schema first and `npm test`; DecompressionStream versions and offset alignment | All stated |
+| missing S12 | Byte determinism | Scoped to one converter build; `asset.content` for data identity |
+| missing P15 | `retype` | Recorded in `asset.source.profile` (section 6); the type itself stays an owner decision |
+| contradicted D33 | `extensions` on materials | Excluded; features only |
+| contradicted D63–D65 | Conventions "documented once in models.md" were not there | Section 6 is normative; models.md links to it |
+| scope | Section 10 narrower than the review's first release; "core (release 2)" rows | Section 10 rewritten as a release table including the loader's behaviour with unimplemented data |
