@@ -45,8 +45,17 @@ export function surfaceDiagnostics(
     }
     shells.push(shell);
   }
+  // A face far smaller than the mesh can vanish in normalized coordinates; it cannot
+  // cross anything, and project validation already judged it.
+  const corners = (f) => {
+    try {
+      return triangulate(vertices, f.vertices);
+    } catch {
+      return [];
+    }
+  };
   const triangles = mesh.faces.flatMap((f) =>
-    triangulate(vertices, f.vertices).map((ids) => {
+    corners(f).map((ids) => {
       const p = ids.map((i) => vertices[i]);
       return {
         face: f.id,

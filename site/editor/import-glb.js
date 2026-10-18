@@ -255,7 +255,11 @@ export function editableMesh(positions, triangles, materials) {
       for (let k = 0; k < 3; k++) {
         const a = t[k],
           b = t[(k + 1) % 3];
-        for (const j of byEdge.get(a < b ? `${a}:${b}` : `${b}:${a}`)) {
+        const shared = byEdge.get(a < b ? `${a}:${b}` : `${b}:${a}`);
+        // An edge with a third face (a fin standing on a plate) stays a polygon edge:
+        // merging across it would leave the fin standing inside a face.
+        if (shared.length > 2) continue;
+        for (const j of shared) {
           if (
             group[j] >= 0 ||
             !normals[j] ||

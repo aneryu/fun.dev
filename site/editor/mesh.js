@@ -85,13 +85,28 @@ export function triangulate(vertices, face) {
     }
   const left = points.map((_, i) => i),
     triangles = [];
+  // An ear on a nearly straight corner (float noise along an edge) would be a sliver that
+  // overlaps its neighbours: such corners count as straight, relative to edge lengths.
+  const straight = (a, b, c) =>
+    sign * turn(a, b, c) <=
+    Math.max(1e-12, 1e-3 * Math.hypot(b[0] - a[0], b[1] - a[1]) * Math.hypot(c[0] - b[0], c[1] - b[1]));
+  // Clip the best-shaped ear each time (largest area against its longest edge), so corners
+  // along a straight crease are cut last and never become slivers that a neighbour shares.
+  const quality = (a, b, c) =>
+    Math.abs(turn(a, b, c)) /
+    Math.max(
+      (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2,
+      (c[0] - b[0]) ** 2 + (c[1] - b[1]) ** 2,
+      (a[0] - c[0]) ** 2 + (a[1] - c[1]) ** 2,
+    );
   while (left.length > 3) {
-    let clipped = false;
+    let best = -1,
+      bestQuality = -1;
     for (let i = 0; i < left.length; i++) {
       const a = left[(i + left.length - 1) % left.length],
         b = left[i],
         c = left[(i + 1) % left.length];
-      if (sign * turn(points[a], points[b], points[c]) <= 1e-12) continue;
+      if (straight(points[a], points[b], points[c])) continue;
       if (
         left.some(
           (p) =>
@@ -104,17 +119,54 @@ export function triangulate(vertices, face) {
         )
       )
         continue;
-      triangles.push([face[a], face[b], face[c]]);
-      left.splice(i, 1);
-      clipped = true;
-      break;
+      const q = quality(points[a], points[b], points[c]);
+      if (q > bestQuality) {
+        bestQuality = q;
+        best = i;
+      }
     }
-    if (!clipped)
+    if (best < 0)
       fail("Cannot triangulate face; check overlapping or collinear vertices");
+    const a = left[(best + left.length - 1) % left.length],
+      c = left[(best + 1) % left.length];
+    triangles.push([face[a], face[left[best]], face[c]]);
+    left.splice(best, 1);
   }
   if (sign * turn(...left.map((i) => points[i])) <= 1e-12)
     fail("Degenerate face triangle");
   triangles.push(left.map((i) => face[i]));
+  // The last ear can still be a sliver along a straight crease: flip its longest edge with
+  // the neighbouring triangle when both new triangles keep their orientation.
+  const at = new Map(face.map((id, i) => [id, points[i]]));
+  for (let t = 0; t < triangles.length; t++) {
+    const tri = triangles[t].map((id) => at.get(id));
+    if (!tri.some((_, k) => straight(tri[(k + 2) % 3], tri[k], tri[(k + 1) % 3])))
+      continue;
+    const lengths = [0, 1, 2].map((k) => Math.hypot(tri[(k + 1) % 3][0] - tri[k][0], tri[(k + 1) % 3][1] - tri[k][1]));
+    const k = lengths.indexOf(Math.max(...lengths)),
+      p = triangles[t][k],
+      q = triangles[t][(k + 1) % 3],
+      r = triangles[t][(k + 2) % 3];
+    const u = triangles.findIndex(
+      (other, j) => j !== t && other.some((v, m) => v === q && other[(m + 1) % 3] === p),
+    );
+    if (u < 0) continue;
+    const other = triangles[u],
+      m = other.indexOf(q),
+      s2 = other[(m + 2) % 3];
+    const flipped = [
+      [r, p, s2],
+      [r, s2, q],
+    ];
+    if (
+      flipped.every(
+        (f) => sign * turn(...f.map((id) => at.get(id))) > 1e-12 && !straight(...f.map((id) => at.get(id))),
+      )
+    ) {
+      triangles[t] = flipped[0];
+      triangles[u] = flipped[1];
+    }
+  }
   return triangles;
 }
 

@@ -237,9 +237,22 @@ export function cutPlane(mesh, axis, offset) {
   const k = ["x", "y", "z"].indexOf(axis);
   if (k < 0) fail("Choose x, y or z");
   number(offset, -10000, 10000);
+  // Points this close to the plane (relative to the mesh) lie on it: no sliver next to them.
+  const extent = Math.max(
+    ...[0, 1, 2].map(
+      (j) =>
+        Math.max(...mesh.vertices.map((v) => v[j])) -
+        Math.min(...mesh.vertices.map((v) => v[j])),
+    ),
+  );
+  const eps = Math.max(1e-9, extent * 1e-5);
   const next = nextFace(mesh),
     intersections = new Map(),
     faces = [];
+  const side = (i) => {
+    const d = mesh.vertices[i][k] - offset;
+    return Math.abs(d) <= eps ? 0 : Math.sign(d);
+  };
   const intersection = (a, b) => {
     const id = edgeKey(a, b);
     if (intersections.has(id)) return intersections.get(id);
@@ -251,32 +264,44 @@ export function cutPlane(mesh, axis, offset) {
     intersections.set(id, i);
     return i;
   };
+  // Split one polygon crossed at most twice into its two sides.
+  const halves = (vertices) => {
+    const result = [[], []];
+    vertices.forEach((a, i) => {
+      const b = vertices[(i + 1) % vertices.length],
+        sa = side(a),
+        sb = side(b);
+      if (sa >= 0) result[0].push(a);
+      if (sa <= 0) result[1].push(a);
+      if (sa * sb < 0) {
+        const v = intersection(a, b);
+        result.forEach((h) => h.push(v));
+      }
+    });
+    return result.filter((h) => h.length >= 3);
+  };
   let split = 0;
   for (const face of mesh.faces) {
-    const sides = face.vertices.map((i) => mesh.vertices[i][k] - offset);
-    if (!sides.some((n) => n > 1e-8) || !sides.some((n) => n < -1e-8)) {
+    const sides = face.vertices.map(side);
+    if (!sides.some((n) => n > 0) || !sides.some((n) => n < 0)) {
       faces.push(face);
       continue;
     }
-    const halves = [[], []];
-    let crossings = 0;
-    face.vertices.forEach((a, i, vs) => {
-      const b = vs[(i + 1) % vs.length],
-        da = sides[i],
-        db = sides[(i + 1) % vs.length];
-      if (da >= -1e-8) halves[0].push(a);
-      if (da <= 1e-8) halves[1].push(a);
-      if (da * db < -1e-16) {
-        const v = intersection(a, b);
-        halves.forEach((h) => h.push(v));
-        crossings++;
-      }
-    });
-    if (crossings > 2)
-      fail(
-        "This cut crosses a concave face more than twice; choose a different plane",
+    const crossings = face.vertices.filter(
+      (a, i) => sides[i] * sides[(i + 1) % sides.length] < 0,
+    ).length;
+    // A concave face crossed more than twice is cut triangle by triangle; dissolve can
+    // merge the coplanar pieces again.
+    const byTriangles = () =>
+      triangulate(mesh.vertices, face.vertices).flatMap((t) =>
+        t.map(side).some((n) => n > 0) && t.map(side).some((n) => n < 0)
+          ? halves(t)
+          : [t],
       );
-    halves.forEach((vertices, i) => {
+    let pieces = crossings > 2 ? byTriangles() : halves(face.vertices);
+    // A 64-corner face gains corners where it is cut; split such a face by triangles too.
+    if (pieces.some((p) => p.length > 64)) pieces = byTriangles();
+    pieces.forEach((vertices, i) => {
       triangulate(mesh.vertices, vertices);
       faces.push({ ...face, id: i ? next() : face.id, vertices });
     });
