@@ -1587,7 +1587,6 @@ function exportModel(
   const scoped = exportScope(project, { ids }),
     model = buildModel(scoped),
     nodes = new Map(scoped.nodes.map((n) => [n.id, n]));
-  if (rootName !== undefined) model.root.name = rootName;
   const included = (id) => !!nodes.get(id)?.mesh;
   model.root.updateMatrixWorld(true);
   const anchor = new THREE.Vector3();
@@ -1608,6 +1607,20 @@ function exportModel(
   };
   model.root.position.sub(anchor);
   model.root.updateMatrixWorld(true);
+  if (rootName !== undefined) {
+    // The library convention: one <id>_ROOT node holds the asset. A single top-level
+    // part becomes that root itself, without another wrapper.
+    const tops = scoped.nodes.filter((n) => n.parent === null);
+    if (tops.length === 1) {
+      const top = model.objects.get(tops[0].id),
+        wrapper = model.root;
+      wrapper.remove(top);
+      top.applyMatrix4(wrapper.matrix);
+      top.name = rootName;
+      model.root = top;
+      top.updateMatrixWorld(true);
+    } else model.root.name = rootName;
+  }
   if (mergeStatic.length) {
     if (
       new Set(mergeStatic).size !== mergeStatic.length ||

@@ -260,7 +260,8 @@ const file = await funEditor.exportGLB({ encoding: "base64" });</pre
               selects subtrees; mergeStatic explicitly combines static leaf
               meshes by parent and material into static__&lt;material&gt; (under
               the root) or &lt;parent&gt;__&lt;material&gt; nodes; rootName
-              names the exported root (e.g. crate_01_ROOT). Takes a snapshot before
+              names the exported root (e.g. crate_01_ROOT); a single top-level
+              part becomes that root itself. Takes a snapshot before
               asynchronous export. origin is "world" (default), "asset-root"
               (one ids root required) or "ground-center". The chosen
               project-space anchor moves to zero in the exported scene;

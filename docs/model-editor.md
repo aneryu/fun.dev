@@ -217,7 +217,8 @@ A node ID is its glTF name, which games use to find parts. `{op:'rename',id,newI
 updates parents, mirrors, linked copies, asset bindings and anchors; the object panel's
 "Export name (ID)" field does the same. `symmetry` and `duplicate` name copied descendants
 by `idMap` (explicit), `replace:["_l","_r"]` (last occurrence) or `newId-1…`, and report the
-map. Exports take `rootName` (e.g. `crate_01_ROOT`), and `mergeStatic` groups are named
+map. Exports take `rootName` (e.g. `crate_01_ROOT`): with one top-level part, that part
+becomes the root under this name (no extra wrapper). `mergeStatic` groups are named
 `static__<material>` under the root and `<parent>__<material>` under a moving part, as in
 the model library.
 

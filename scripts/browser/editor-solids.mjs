@@ -71,7 +71,10 @@ export async function editorSolidChecks({ browser, base }) {
       assert.ok(gltf.extensionsUsed.includes(extension), extension);
     const names = gltf.nodes.map((n) => n.name);
     assert.ok(names.includes("crate_01_ROOT"), names.join(","));
-    assert.ok(names.includes("crate__mat_steel") && names.includes("crate__mat_glass"), names.join(","));
+    // One top-level asset group becomes the named root itself; its static parts merge into
+    // static__<material> beside the moving ones.
+    assert.ok(names.includes("static__mat_steel") && names.includes("static__mat_glass"), names.join(","));
+    assert.ok(!names.includes("crate"), "no extra wrapper around the root");
 
     // Renaming through the object panel keeps the part selected.
     await page.evaluate(() => funEditor.select("lamp"));
