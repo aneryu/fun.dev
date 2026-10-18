@@ -198,3 +198,48 @@ Implemented in v4 unless noted.
 | contradicted D33 | `extensions` on materials | Excluded; features only |
 | contradicted D63–D65 | Conventions "documented once in models.md" were not there | Section 6 is normative; models.md links to it |
 | scope | Section 10 narrower than the review's first release; "core (release 2)" rows | Section 10 rewritten as a release table including the loader's behaviour with unimplemented data |
+
+### Fresh-eyes reviewer (30 findings, 5 simplifications, biggest risk)
+
+Implemented in v5 unless noted.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| F1 | Decoded stream size unbounded | Σ `count × stride` ≤ 256 MB, checked before decoding; vertex stride ≤ 64 |
+| F2 | Alignment rules missing | Stream offsets, vertex strides and attribute offsets multiples of 4; index streams their element size; validator refuses |
+| F3 | `SkeletonUtils.retarget` is not rest-pose compensated | Reference dropped; the delta formula stated; `kit/animation.js` owns it |
+| F4 | Packs bind by node id but claim rig compatibility | Pack tracks bind by role (bone → role → bone); same rig skips rest compensation only |
+| F5 | Two animation systems with undefined blending | One mixer: material and light channels bind to per-model proxy objects; the runtime copies proxy values after each update |
+| F6 | Refs pin a file; parts lack inverse binds | Refs pin the base skeleton's `hash` (bone ids, rest, inverse binds); parts carry their own inverse binds; `models.lock` verifies at build, the loader never fetches |
+| F7 | Characters need region hiding and shared morphs | `regions` on base nodes, `hides` on parts; morph targets with the same id drive together |
+| F8 | No image sharing across tiles | Images and textures may be referenced across files |
+| F9 | Destructibles cannot start stable | `active` and `switchable` on bodies; `break` detection from contact impulses |
+| F10 | Wheel attachment ambiguous | `suspension.rest`: the node's position is the wheel centre at rest length |
+| F11 | Exposure sentence numerically wrong | Formulas and a worked lamp value; intensities capped at 1000 |
+| F12 | Minor versions cannot absorb enum growth; strictness; prototype pollution | New enum values are extensions or major; strict schema for the writer's minor, loader tolerates unknown fields; null-prototype reviver |
+| F13 | Profile ids underivable for non-ASCII names | Slug + six hex of the name's SHA-256 when lossy; `_2` suffixes in document order; every later profile reproduces `@1` ids |
+| F14 | Conventions not in models.md; approved models never asked to follow them | Section 6 normative; the parity run reports convention coverage before anything but hulls is promised |
+| F15 | `asset.content` circular, no consumer | Deleted; `derived.sha256` and `asset.source.hash` defined over stored bytes; refs pin skeleton hashes instead |
+| F16 | Offline closure misses the physics runtime | Jolt and decoders listed in each release's `files.json` closure |
+| F17 | Constraint frames half-specified; springs ambiguous; no world anchors; character origin | Assembled-pose rule; `limitSpring` vs `motor.spring`; `bodies: [null, …]` anchors to the world; `characters[].offset` |
+| F18 | Hull cap above Jolt's 256 | Cap 256 |
+| F19 | Bone cap justification | Stated as policy |
+| F20 | Shadow toggles recompile | Shadow is a slot property |
+| F21 | Map semantics ambiguous | `metalRough` + `occlusion`; colour-map alpha rule; feature × model table |
+| F22 | Unlisted LOD children hidden forever | Unlisted children always show |
+| F23 | Missing validator rules | Added (intensity bounds, determinants, cone order, morph weights, slots, UV sets, event times, bodies on bones, refs of refs, counts) |
+| F24 | Library uploads can require `x.*` or unknown codecs | Library accepts only registered `fun3d.*`; meshopt is the only 1.0 codec |
+| F25 | Morph row did not fit its cap | Restated: 100 targets on a 10 k-vertex face, the face its own geometry |
+| F26 | Parity gate without a threshold | Per-model thresholds on a masked metric; derived-data checks are the gate |
+| F27 | One format per game vs tiles staying GLB | One format per library model; game-local assets may stay GLB |
+| F28 | Editing-section rules | EDIT always flagged; BIN ordinals; unknown chunk types skipped; hashes defined over stored bytes |
+| F29 | Encoded bytes kept on textures double memory | Loader option; off in games |
+| F30 | Conflict table cells | Fixed (refs × batching, morphs × placements, transmission × placements, blend × placements) |
+| Simplify 1 | `buffers` table | Deleted; streams name the chunk |
+| Simplify 2 | `asset.content`, `licence`, `attribution` | Deleted; the catalogue owns them |
+| Simplify 3 | `bone: true` | Deleted; bones are what skeletons list |
+| Simplify 4 | Unbuilt schema slots | Moved to appendix A (toon, lines/points, raw image data, uv2/uv3, cubic, pingpong, cone/sixDOF/distance, manual transmission, exponential filter, texture arrays, other codecs) |
+| Simplify 5 | Multi-tool editing sections | One section; a tool that does not understand it drops it |
+| Risk | Irreversibility before the consumer exists | Section 10 order: 帝都 runs on trial derived files, the converter is frozen only after the parity gate passes over the library, pins come last |
+
+Round 2 closed: v5 written. Round 3 is a final consistency check of v5.
