@@ -59,12 +59,15 @@ const { createModels } = await context.runtime("kit/models.js");
 const { MeshoptDecoder } = await context.runtime("addons/MeshoptDecoder.js");
 const materials = createMaterials({ THREE, TSL });
 const fun3d = createFun3d({ THREE, decoder: MeshoptDecoder, materials });
-const models = createModels({ THREE, TSL, materials, scene });
 const taxi = await fun3d.load(new Uint8Array(await (await fetch(context.asset("models/city_taxi_01@v003.fun3d"))).arrayBuffer()));
 const car = models.place(taxi, { position: [0, 0, 0], tint: [1, 0.2, 0.2] });   // batched with every other rigid part
 car.node("wheel_fl"); car.socket("hub"); car.live = true;                         // Object3Ds; live copies follow their nodes
 materials.roles.set("headlight", 0);                                               // every emitter of a role at once
-models.update(camera, { height: viewport.height });                               // each frame before rendering
+const { createLightSlots } = await context.runtime("kit/lights.js");
+const lights = createLightSlots({ THREE, scene, kind: "spot", tier: graphics.tier });  // real lights lent to the nearest lamps
+const models = createModels({ THREE, TSL, materials, scene, lights });            // (pass lights here when creating models)
+lights.factor = night;                                                             // lamps off by day
+models.update(camera, { height: viewport.height, dt, at: car.position });         // each frame before rendering
 
 const { createPhysics } = await context.runtime("kit/physics.js");
 const physics = await createPhysics({ THREE, scene });                             // Jolt, served with the platform

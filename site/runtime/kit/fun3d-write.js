@@ -340,6 +340,11 @@ export function createWriter({ THREE, encoder = null }) {
         if (!object.isPointLight && !object.isSpotLight) throw new Error(`node "${id}": only point and spot lights are carried`);
         node.light = { type: object.isSpotLight ? "spot" : "point", color: hex(object.color), intensity: round(Math.min(1000, object.intensity), 4), range: round(object.distance ?? 0, 4) };
         if (object.isSpotLight) node.light.cone = [round(object.angle * (1 - object.penumbra), 4), round(object.angle, 4)];
+        if (object.userData.light?.importance !== undefined) node.light.importance = object.userData.light.importance;
+      } else if (object.userData.light) {
+        // A loaded file's light node: intent kept as data (kit/fun3d.js), written back as it was.
+        const l = object.userData.light;
+        node.light = { type: l.type, color: l.color, intensity: l.intensity, range: l.range ?? 0, ...(l.type === "spot" ? { cone: l.cone } : {}), importance: l.importance ?? 0.5 };
       }
       manifest.nodes.push(node);
     }

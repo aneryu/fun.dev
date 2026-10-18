@@ -595,6 +595,9 @@ before anything but hulls is promised:
   never emissive, so names are all there is; a colour named like a light — `mat_light_amber`
   on a flower — is an upload to fix, and the conversion report lists every model's roles for
   review). `mat_body` gets `tint`; transmissive materials `transmission`.
+- Lamps light their surroundings: every `lamp`-role emitter gets a `light` node (a spot shining
+  down from the glow, about 5 cd per square metre of its height, range three times the height,
+  at most eight per model) for the runtime's light slots.
 - Physics by library type (recorded in `asset.source.type`): props and pieces a convex hull
   (`collider*` nodes when present; convex decomposition later as `fun3d.decomposition`),
   vehicles (type `vehicle`, after the one-time `retype` of approved vehicles typed `prop`) a
@@ -620,6 +623,7 @@ before anything but hulls is promised:
 | `kit/models.js` | places loaded models and returns handles: batches rigid batchable meshes, instances placements, picks LOD levels, fills light slots, applies variants and tints; `model.node(id)`, `model.socket(id)`, `handle.tint`, `handle.remove()`, `roles.set` |
 | `kit/physics.js` | Jolt: bodies, constraints, vehicles, ragdolls, characters; asynchronous API, pooled temporaries, `dispose()`; the world can move to a worker |
 | `kit/animation.js` | clips through one mixer (proxies for material and light channels), masks, additive blending, events; retargeting by role (release 2) |
+| `kit/lights.js` | light slots: a fixed set of real lights per device tier (phones 4 with 1 shadow, desktops 8 with 2) lent each frame to the best candidates by importance and distance, faded rather than added or removed; `kit/models.js` feeds placed copies' light nodes to it, games feed their own lamps |
 
 The kit, not the file, decides whether a mesh is drawn alone, instanced or batched, which LOD
 level shows, how many lights are real and where physics steps. Physics steps at a fixed rate
@@ -739,8 +743,8 @@ only with the stated restriction).
 
 | Release | Runtime implements | Loader behaviour with the rest |
 | --- | --- | --- |
-| 1 | container, schema, validator; nodes with meshes, sockets, tags, placements with tint; geometries with groups, flat groups, geometry LOD, morph targets; `pbr` and `unlit` with `emitter` and `tint`; images and textures (webp, png, jpeg, ktx2); skeletons and skinned meshes; clips with node channels on the same bone ids; batching; physics static and dynamic bodies, wheeled vehicles; `models.lock`; agent one-pager (`docs/fun3d-agents.md`); `verify fun3d` with synthetic scenarios, batched/single parity and real files | variants, group LOD, lights, constraints, kinematic bodies, ragdolls, characters, material and light channels, events, additive and masks: ignored with a warning; refs: refused; `transmission`, extension features: dropped to the base |
-| 2 | references, retargeting, ragdolls, characters, constraints and kinematic bodies, morphs, variants, group LOD, lights with slots, material and light channels through proxies, events, additive clips and masks, `transmission`; direct `.fun3d` uploads; 准点下班 adopts | extension features: dropped to the base |
+| 1 | container, schema, validator; nodes with meshes, sockets, tags, placements with tint; geometries with groups, flat groups, geometry LOD, morph targets; `pbr` and `unlit` with `emitter` and `tint`; images and textures (webp, png, jpeg, ktx2); skeletons and skinned meshes; clips with node channels on the same bone ids; batching; lights with slots (`kit/lights.js`, 2026-10-19); physics static and dynamic bodies, wheeled vehicles; `models.lock`; agent one-pager (`docs/fun3d-agents.md`); `verify fun3d` with synthetic scenarios, batched/single parity and real files | variants, group LOD, constraints, kinematic bodies, ragdolls, characters, material and light channels, events, additive and masks: ignored with a warning; refs: refused; `transmission`, extension features: dropped to the base |
+| 2 | references, retargeting, ragdolls, characters, constraints and kinematic bodies, variants, group LOD, material and light channels through proxies, events, additive clips and masks, `transmission`; direct `.fun3d` uploads; 准点下班 adopts | extension features: dropped to the base |
 | 3 | workshop: `.fun3d` save and open with editing sections, GLB export, physics commands; library pages on `.fun3d` | — |
 | later | extensions as needed, each with its producer and consumer: `fun3d.wind`, `fun3d.clearcoat`, `fun3d.decals`, `fun3d.hair`, `fun3d.skin`, `fun3d.softbody`, `fun3d.vat`, `fun3d.nodes`, `fun3d.clusters`, `fun3d.heightfield`, `fun3d.motorcycle`, `fun3d.tracked`, `fun3d.buoyancy`, `fun3d.decomposition`, texture arrays; appendix A items as they find producers | — |
 
@@ -764,7 +768,7 @@ derived-data warnings in review, and pins; then release 2; then the workshop.
    library-wide gate is `scripts/browser/fun3d-parity.mjs` over `npm run fun3d -- library`.
 6. Emitter roles depend on the model class (vehicles read `mat_light*` as their lights, anything
    else as lamps), because the library's lights are named, never emissive.
-7. The converter is frozen after the gate of 2026-10-18 (stamp `234100ab…`): 帝都 runs on a
+7. The converter is frozen after the gate of 2026-10-18 (stamp `f6eed04d…`; lamps' light nodes added 2026-10-19): 帝都 runs on a
    derived taxi, the gate passed over the library, and the 19 road vehicles retyped to `vehicle`
    each settle on all wheels, drive, turn at full lock without rolling and brake to a stop in a
    Jolt run (Node, the kit's own physics). A change to the kit's writer or importer makes a new

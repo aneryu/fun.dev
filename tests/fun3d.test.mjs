@@ -37,6 +37,10 @@ function crate() {
   bulb.name = "bulb";
   bulb.position.set(0, 0.7, 0);
   root.add(bulb);
+  const glow = new THREE.PointLight("#ffe0b0", 12, 4, 2);
+  glow.name = "glow";
+  glow.userData.light = { importance: 0.8 };
+  bulb.add(glow);
   const studs = new THREE.InstancedMesh(new THREE.SphereGeometry(0.03, 6, 4), steel, 3);
   studs.name = "studs";
   for (let i = 0; i < 3; i++) studs.setMatrixAt(i, new THREE.Matrix4().makeTranslation(-0.4 + i * 0.4, 0.6, 0.41));
@@ -188,6 +192,11 @@ test("static parts, materials, placements, sockets and physics survive a round t
   const emitter = model.materials.get("mat_light").features.emitter;
   assert.deepEqual(emitter, { role: "headlight", color: "#fff0c8", intensity: 3 });
   assert.equal(model.node("bulb").userData.mesh.material.emissiveIntensity, 3);
+  // Lights are intent: listed on the model, kept on the node, written back as they were.
+  assert.deepEqual(model.lights, [{ node: "glow", type: "point", color: "#ffe0b0", intensity: 12, range: 4, cone: [0.5, 0.6], importance: 0.8 }]);
+  assert.ok(!model.node("glow").isLight, "no real light in the loaded tree");
+  const rewritten = (await fun3d.read(await fun3d.write(model.root))).manifest.nodes.find((n) => n.id === "glow");
+  assert.deepEqual(rewritten.light, { type: "point", color: "#ffe0b0", intensity: 12, range: 4, importance: 0.8 });
   // Placements: copies in the parent's space, tints per copy.
   const studs = model.node("studs"), instanced = studs.userData.mesh;
   assert.equal(instanced.count, 3);

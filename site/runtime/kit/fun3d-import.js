@@ -276,10 +276,43 @@ export function createImporter({ THREE, loader, fun3d, encoder = null }) {
     root.traverse((o) => { if (/^wheel_/.test(o.name) && !wheels.some((w) => w === o || w.getObjectById(o.id))) wheels.push(o); });
     const effectiveType = kind === "animations" ? "animations" : type === "vehicle" && !wheels.length ? "prop" : skinned.length && type !== "character" ? "character" : type;
     if (effectiveType !== type) warnings.push(`typed ${type}, converted as ${effectiveType}`);
+    // Lamps light their surroundings: a spot shining down from each lamp-role emitter, sized by
+    // its height (about radiance 1.5 on the ground below), for kit/lights.js to lend slots to.
+    if (!skinned.length) addLampLights(root, roles);
     const rig = rigName && (skinned.length || kind === "animations") ? await rigOf(rigName, bones, root) : null;
     if (rig) for (const mesh of skinned) mesh.userData.fun3d = { ...mesh.userData.fun3d, rig, skeleton: "rig" };
     const physics = kind === "animations" ? null : await derivePhysics(root, effectiveType, { wheels, rig });
     return { root, animations: gltf.animations, physics, kind, type: effectiveType, rig, roles, warnings, wheels: wheels.map((w) => w.name) };
+  }
+
+  function addLampLights(root, roles) {
+    const lamps = new Set([...roles].filter(([, role]) => role === "lamp").map(([name]) => name));
+    if (!lamps.size) return;
+    const inverse = new THREE.Matrix4(), v = new THREE.Vector3();
+    root.updateMatrixWorld(true);
+    const meshes = [];
+    root.traverse((o) => { if (o.isMesh) meshes.push(o); });
+    let count = 0;
+    for (const mesh of meshes) {
+      const materials = [mesh.material].flat(), geometry = mesh.geometry, position = geometry.getAttribute("position"), index = geometry.index;
+      const groups = geometry.groups.length ? geometry.groups : [{ start: 0, count: index ? index.count : position.count, materialIndex: 0 }];
+      const box = new THREE.Box3();
+      for (const group of groups) {
+        if (!lamps.has(materials[group.materialIndex ?? 0]?.name)) continue;
+        for (let i = group.start; i < group.start + group.count; i++) box.expandByPoint(v.fromBufferAttribute(position, index ? index.getX(i) : i));
+      }
+      if (box.isEmpty() || count >= 8) continue;
+      const centre = box.getCenter(new THREE.Vector3()), world = centre.clone().applyMatrix4(mesh.matrixWorld);
+      inverse.copy(root.matrixWorld).invert();
+      const height = Math.max(0.5, world.clone().applyMatrix4(inverse).y);
+      const light = new THREE.SpotLight(0xfff1c8, Math.round(5 * height * height), round(3 * height, 2), 0.95, 0.42, 2);
+      light.name = `${mesh.name}_light${count ? `_${count + 1}` : ""}`;
+      light.position.set(centre.x, box.min.y - 0.02, centre.z);
+      light.rotation.x = -Math.PI / 2; // the spot shines down the node's −Z: −Z turned to −Y
+      light.userData.light = { importance: 0.5 };
+      mesh.add(light);
+      count++;
+    }
   }
 
   async function rigOf(name, bones, root) {

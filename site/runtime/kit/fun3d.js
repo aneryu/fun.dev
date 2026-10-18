@@ -20,7 +20,7 @@ export { CAPS, VERSION, packChunks, stripEditing, unpackChunks };
 const FILTERS = { octahedral: "OCTAHEDRAL", quaternion: "QUATERNION" };
 const WRAP = { repeat: "RepeatWrapping", clamp: "ClampToEdgeWrapping", mirror: "MirroredRepeatWrapping" };
 const FILTER = { nearest: "NearestFilter", linear: "LinearFilter", "nearest-mipmap-nearest": "NearestMipmapNearestFilter", "linear-mipmap-nearest": "LinearMipmapNearestFilter", "nearest-mipmap-linear": "NearestMipmapLinearFilter", "linear-mipmap-linear": "LinearMipmapLinearFilter" };
-const IGNORED = { light: "lights", lod: "lod groups", variants: "variants" };
+const IGNORED = { lod: "lod groups", variants: "variants" };
 
 /** Width and height from an encoded image's header, or null when the header is not one we read. */
 export function imageSize(bytes, mime) {
@@ -379,7 +379,7 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
 
     // Nodes.
     const boneIds = new Set((manifest.skeletons ?? []).flatMap((s) => s.bones));
-    const nodes = new Map(), placements = new Map();
+    const nodes = new Map(), placements = new Map(), lights = [];
     const ignored = new Set();
     for (const n of manifest.nodes) {
       let object;
@@ -430,6 +430,8 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
       if (n.visible === false) object.visible = false;
       if (n.tags) object.userData.tags = [...n.tags];
       if (n.sockets) object.userData.sockets = structuredClone(n.sockets);
+      // A light is intent: kit/lights.js lends real lights to the best candidates (§4.1).
+      if (n.light) { object.userData.light = { type: n.light.type, color: n.light.color ?? "#ffffff", intensity: n.light.intensity, range: n.light.range ?? 0, cone: n.light.cone ?? [0.5, 0.6], importance: n.light.importance ?? 0.5 }; lights.push({ node: n.id, ...object.userData.light }); }
       for (const key of Object.keys(IGNORED)) if (n[key] !== undefined) ignored.add(IGNORED[key]);
       nodes.set(n.id, object);
       if (n.parent !== undefined) nodes.get(n.parent).add(object);
@@ -483,7 +485,7 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
     for (const s of manifest.physics?.shapes ?? []) if (s.type === "convex") physicsData.points.set(s.id, streams.of(s.points));
 
     const model = {
-      manifest, kind: manifest.kind, asset: manifest.asset, root, nodes, geometries, materials: materialDescs, textures, images, skeletons, animations, placements, physicsData, warnings,
+      manifest, kind: manifest.kind, asset: manifest.asset, root, nodes, geometries, materials: materialDescs, textures, images, skeletons, animations, placements, lights, physicsData, warnings,
       node: (id) => nodes.get(id) ?? null,
       clip: (id) => animations.find((c) => c.name === id) ?? null,
       textureFor,

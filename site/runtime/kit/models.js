@@ -13,10 +13,12 @@
 // Batched copies mirror their nodes' world matrices: static copies when placed and on
 // `copy.sync()`, live copies (`copy.live = true`; physics sets it for dynamic bodies) every update.
 
-export function createModels({ THREE, TSL = null, materials = null, scene, warn = (message) => console.warn(`models: ${message}`), lodPixels = 1.5, batch: batching = !!materials } = {}) {
+export function createModels({ THREE, TSL = null, materials = null, scene, lights = null, warn = (message) => console.warn(`models: ${message}`), lodPixels = 1.5, batch: batching = !!materials } = {}) {
   if (!scene) throw new TypeError("createModels needs the scene");
   if (batching && !materials) throw new TypeError("batching needs the materials builder");
   const batches = new Map(), copies = new Set();
+  let placed = 0;
+  const lightList = [];
   const matrix = new THREE.Matrix4(), matrix2 = new THREE.Matrix4(), vector = new THREE.Vector3(), sphere = new THREE.Sphere();
 
   // ---- batches: one per vertex layout and blend mode ----
@@ -153,8 +155,23 @@ export function createModels({ THREE, TSL = null, materials = null, scene, warn 
     scene.add(root);
     root.updateMatrixWorld(true);
 
+    // The copy's lights, as candidates for the slot manager: world positions, cached for
+    // static copies at sync, spots shining down the node's −Z.
+    const serial = placed++;
+    const lightNodes = (file.lights ?? []).map((l) => ({ ...l, object: nodes.get(l.node), id: `${serial}:${l.node}` }));
+    const candidates = lightNodes.map((l) => ({ id: l.id, x: 0, y: 0, z: 0, color: l.color, intensity: l.intensity, range: l.range, cone: l.cone, importance: l.importance, direction: [0, -1, 0] }));
+    const direction = new THREE.Vector3();
+    const lightsAt = () => {
+      lightNodes.forEach((l, i) => {
+        l.object.updateWorldMatrix(true, false);
+        vector.setFromMatrixPosition(l.object.matrixWorld);
+        candidates[i].x = vector.x; candidates[i].y = vector.y; candidates[i].z = vector.z;
+        if (l.type === "spot") { direction.set(0, 0, -1).transformDirection(l.object.matrixWorld); candidates[i].direction = [direction.x, direction.y, direction.z]; }
+      });
+      return candidates;
+    };
     const copy = {
-      file, root, nodes, parts, singles, live: false, hasLod: lodParts.length > 0,
+      file, root, nodes, parts, singles, live: false, hasLod: lodParts.length > 0, lights: candidates, lightsAt,
       manifest, geometries: file.geometries, animations: file.animations, physicsData: file.physicsData, placements: file.placements,
       node: (id) => nodes.get(id) ?? null,
       /** An Object3D at the socket's frame, created on first use under its node. */
@@ -175,6 +192,7 @@ export function createModels({ THREE, TSL = null, materials = null, scene, warn 
       /** Writes the batch instances' matrices from the nodes (static copies do this when moved). */
       sync() {
         root.updateMatrixWorld(true);
+        if (lightNodes.length) lightsAt();
         for (const part of parts) {
           part.node.updateWorldMatrix(false, false);
           const d = part.entry.dequantize;
@@ -231,10 +249,12 @@ export function createModels({ THREE, TSL = null, materials = null, scene, warn 
   return {
     batches, copies, place,
     roles: materials?.roles ?? { set() {}, get: () => 1 },
-    /** Each frame before rendering: live copies' batch matrices, LOD levels. */
-    update(camera, { height = 1080 } = {}) {
+    /** Each frame before rendering: live copies' batch matrices, LOD levels, the light slots. */
+    update(camera, { height = 1080, dt = 1 / 60, at = camera.position } = {}) {
+      if (lights) lightList.length = 0;
       for (const copy of copies) {
         if (copy.live) copy.sync();
+        if (lights && copy.lights.length) for (const c of (copy.live ? copy.lightsAt() : copy.lights)) lightList.push(c);
         if (!copy.hasLod) continue;
         copy.root.updateMatrixWorld(true);
         for (const part of copy.parts) {
@@ -253,6 +273,7 @@ export function createModels({ THREE, TSL = null, materials = null, scene, warn 
           if (single.mesh.geometry !== geometry) single.mesh.geometry = geometry;
         }
       }
+      if (lights) lights.update(dt, at, lightList);
     },
     dispose() {
       for (const copy of [...copies]) copy.remove();

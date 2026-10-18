@@ -130,6 +130,18 @@ test("a character converts with its rig roles, capsule and ragdoll; a prop gets 
   // Light names on things that are not vehicles are lamps, not headlights.
   const shopfront = await importer.importGLB(boxGLB({ size: [1, 2, 1], extra: { materials: [{ name: "mat_light_red" }], meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1, material: 0 }] }] } }), { type: "prop", name: "shopfront" });
   assert.equal(shopfront.manifest.materials[0].features.emitter.role, "lamp");
+  // A lamp-role emitter gets a spot shining down from it, sized by its height, as intent for light slots.
+  const lamp = await importer.importGLB(boxGLB({ size: [0.4, 0.2, 0.4], lift: 6, extra: { materials: [{ name: "mat_lamp" }], meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1, material: 0 }] }] } }), { type: "prop", name: "lamp_head" });
+  assert.deepEqual(await fun3d.validate(lamp.bytes), []);
+  const light = lamp.manifest.nodes.find((n) => n.light);
+  assert.ok(light, "a light node");
+  assert.equal(light.light.type, "spot");
+  assert.ok(light.light.intensity > 150 && light.light.intensity < 260, `about 5 cd per square metre of height: ${light.light.intensity}`);
+  assert.deepEqual(light.transform.rotation.map((v) => Math.round(v * 1000) / 1000), [-0.707, 0, 0, 0.707], "turned to shine down");
+  const loaded = await fun3d.load(lamp.bytes);
+  assert.equal(loaded.lights.length, 1);
+  assert.equal(loaded.lights[0].node, light.id);
+  assert.deepEqual(loaded.warnings, [], "lights are data, not ignored");
   const prop = await importer.importGLB(boxGLB({ size: [1, 2, 1] }), { type: "prop", name: "crate" });
   assert.deepEqual(await fun3d.validate(prop.bytes), []);
   assert.equal(prop.manifest.physics.bodies[0].switchable, true);
