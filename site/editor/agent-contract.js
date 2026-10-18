@@ -133,6 +133,7 @@ const props = {
       radius: number,
       height: number,
       segments: { type: "integer" },
+      bevelSegments: { type: "integer", minimum: 1, maximum: 16 },
       rings: { type: "integer" },
       points: list({ type: "array", items: number, minItems: 2, maxItems: 2 }),
       profile: list({ type: "array", items: number, minItems: 2, maxItems: 2 }),
@@ -193,6 +194,9 @@ const props = {
   newIds: { type: "array", items: string, minItems: 1, maxItems: 255 },
   with: { type: "array", items: string, minItems: 1, maxItems: 64 },
   keep: boolean,
+  loose: boolean,
+  thickness: { type: "number", minimum: 0 },
+  angle: { type: "number", minimum: 0, maximum: 30 },
   faces: list(component),
   face: component,
   edges: list(component),
@@ -314,6 +318,15 @@ const specs = {
   recipePaint: ["id mode", "rules"],
   boolean: ["id operation", "with shape keep"],
   array: ["id count", "offset rotation pivot linked merge newIds"],
+  deleteComponents: ["id", "faces edges vertices select topology"],
+  dissolve: ["id", "edges vertices select topology angle"],
+  weld: ["id", "distance vertices select topology space"],
+  fill: ["id", "edges select topology material"],
+  bridge: ["id", "faces edges select topology"],
+  connect: ["id vertices", "topology"],
+  solidify: ["id thickness", "offset space"],
+  separate: ["id newId", "faces select topology loose"],
+  join: ["id with", ""],
 };
 export const commandSchema = {
   oneOf: Object.entries(specs).map(([op, [required, optional]]) => ({
@@ -386,6 +399,13 @@ const steps = commandSchema.oneOf
       "mirror",
       "boolean",
       "array",
+      "deleteComponents",
+      "dissolve",
+      "weld",
+      "fill",
+      "bridge",
+      "connect",
+      "solidify",
     ].includes(c.properties.op.const),
   )
   .map((c) => {

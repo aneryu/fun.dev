@@ -41,6 +41,13 @@ const allowed = new Set([
   "mirror",
   "boolean",
   "array",
+  "deleteComponents",
+  "dissolve",
+  "weld",
+  "fill",
+  "bridge",
+  "connect",
+  "solidify",
 ]);
 export function normalizeRecipe(input) {
   const r = structuredClone(input);

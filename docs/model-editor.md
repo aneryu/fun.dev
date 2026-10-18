@@ -56,10 +56,19 @@ tapered legs; Planter has an editable profile with a returning inner wall.
 - Convert to mesh enables component edits. Coplanar face regions extrude without
   internal walls. Convex faces support individual insets; closed convex solids
   support a one-segment whole-solid bevel. Edge selection also supports local
-  one-segment bevels on closed solids with planar, locally convex faces, including
-  the rims and floor of a recessed box. Plane cuts split crossed polygons; loop
-  cuts follow a manifold quad strip. Unsupported/too-wide operations fail atomically.
-  Inspect edges again after topology changes; vertex indices/edge keys may change.
+  one-segment bevels on closed solids with planar faces, including the rims and
+  floor of a recessed box and concave corners whose two edges are both bevelled
+  (an extruded car profile with wheel-arch notches). A box with
+  `bevelSegments` above 1 rounds every edge and corner. Plane cuts split crossed
+  polygons; loop cuts follow a manifold quad strip. Unsupported/too-wide operations
+  fail atomically. Inspect edges again after topology changes; vertex indices/edge
+  keys may change.
+- Mesh tools: Delete in face, edge or vertex mode removes the selected faces (or the
+  faces on the selected edges/vertices) and leaves an open boundary; Fill holes
+  closes open boundaries (in edge mode only the selected loops); Weld vertices merges
+  points within the weld distance (in vertex mode only the selection); Separate moves
+  the selected faces, or in object mode every loose piece, into new parts; Join parts
+  merges the other selected parts into the active one.
 - Reparenting keeps world appearance by default, including nonuniform parent
   transforms. Affine shear that cannot be represented by TRS is baked into geometry
   and the generator basis, with child transforms preserved. Set `keepWorld:false`
@@ -207,6 +216,37 @@ results, statistics and validation. It includes the proposed project name and op
 images. Use `detail:'full'` only when you need the complete proposed `project` mesh.
 Preview leaves the live project, revision and undo history unchanged.
 
+## Mesh editing commands
+
+These change one part's polygons and fail before the document changes when the result
+would be invalid. Weld distances and solidify thickness are world meters unless
+`space:"local"`.
+
+- `deleteComponents {id, faces|edges|vertices|select}` removes faces (or every face
+  using the edges/vertices) and leaves an open boundary.
+- `dissolve {id, edges|vertices|select, angle?}` joins coplanar faces across edges
+  (within `angle` degrees, default 0.1) or removes vertices. Without components it
+  cleans the whole mesh: coplanar faces of one material merge into the fewest simple
+  polygons and corners on a straight edge drop out — use it after imports and
+  booleans.
+- `weld {id, distance?, vertices?}` merges points within the distance at their centre;
+  coincident faces collapse, and a weld that would pinch a face is refused.
+- `fill {id, edges?, material?}` closes open boundaries; holes with more than 64
+  corners become several faces.
+- `bridge {id, faces:[a,b]}` (or `edges` on two open loops) joins two loops with the
+  same corner count by quads, e.g. a tunnel between two inset faces.
+- `connect {id, vertices:[a,b]}` splits a face along a new edge between two corners.
+- `solidify {id, thickness, offset?}` thickens an open surface into a closed shell
+  (offset -1 grows against the normals, 1 along them, 0 both ways) with even walls at
+  corners; a closed mesh gains an inward cavity shell.
+- `separate {id, newId, faces|select|loose:true}` moves faces, or every loose part
+  after the first (`newId`, `newId-2`, …), into new parts with the same parent and
+  transform. `join {id, with:[ids]}` moves other parts into this part's coordinates and
+  consumes them; their children and mirrors stay. Parts that touch or overlap are
+  refused: boolean union makes one clean solid instead.
+
+All but separate and join are also recipe steps.
+
 ## Limits and verification
 
 Untextured static models. UV/textures, rigs and animation are later stages of the
@@ -351,8 +391,9 @@ A mesh may retain `recipe:{name?,parameters,generator,steps,basis?}`. Parameter
 values have optional min/max. A value expression is `{$param:"width",factor:1,
 offset:0}`; no script strings are evaluated. Up to 32 steps operate on this mesh
 in local meters, using semantic selections. Supported steps: transform, vertices,
-inset, extrude, bevel, cut, loopCut, paint, mirror and array (copies merged into this
-mesh, so a count can be a parameter). A recipe is rebuilt
+inset, extrude, bevel, cut, loopCut, paint, mirror, boolean, array (copies merged into this
+mesh, so a count can be a parameter), deleteComponents, dissolve, weld, fill, bridge,
+connect and solidify. A recipe is rebuilt
 atomically; other objects and the node's transform are retained, and linked copies
 update. Pivot/reparent/apply-scale bakes are retained in its affine basis.
 Whole-mesh `transform` steps transform every vertex immediately, so later cuts and

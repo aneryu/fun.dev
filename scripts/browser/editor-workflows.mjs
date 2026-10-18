@@ -49,13 +49,26 @@ export async function editorWorkflowChecks({ browser, base }) {
     await page.locator('[data-node="leg"]').click();
     await page.locator("#selection-mode").selectOption("vertex");
     await page.locator("#canvas").focus();
-    const revision = await page.evaluate(() => funEditor.inspect().revision);
+    const revision = await page.evaluate(() => funEditor.inspect().revision),
+      faces = await page.evaluate(
+        () => funEditor.inspect({ id: "leg" }).node.faces,
+      );
+    // Delete in component mode removes the faces at the selection, never the part.
     await page.keyboard.press("Delete");
     assert.equal(
       await page.evaluate(() => funEditor.inspect().revision),
-      revision,
+      revision + 1,
+    );
+    assert.ok(
+      (await page.evaluate(() => funEditor.inspect({ id: "leg" }).node.faces)) <
+        faces,
     );
     assert.ok(await page.locator("#delete").isDisabled());
+    await click("undo");
+    assert.equal(
+      await page.evaluate(() => funEditor.inspect({ id: "leg" }).node.faces),
+      faces,
+    );
     await page.locator("#selection-mode").selectOption("object");
     await click("focus");
     const focused = await page.evaluate(() => funEditor.inspect().camera);

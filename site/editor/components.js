@@ -254,6 +254,13 @@ export function resolveComponents(
       loopCut: ["edges"],
       vertices: ["vertices"],
       transform: ["faces", "edges", "vertices"],
+      deleteComponents: ["faces", "edges", "vertices"],
+      dissolve: ["edges", "vertices"],
+      weld: ["vertices"],
+      fill: ["edges"],
+      bridge: ["faces", "edges"],
+      connect: ["vertices"],
+      separate: ["faces"],
     }[c.op] ?? [];
   const requireKind = (kind) => {
     if (selectionOnly) return;

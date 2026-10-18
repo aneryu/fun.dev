@@ -265,3 +265,15 @@ function join(p, q, a, b) {
   // first runs b … a, second runs a … b: drop each shared end once.
   return [...first.slice(0, -1), ...second.slice(0, -1)];
 }
+
+// One loop of existing vertices -> simple polygons of at most 64 corners (ear clipping in
+// the loop's dominant plane, then region growing). Used to fill holes that a single face
+// cannot cover.
+export function splitPolygon(vertices, loop) {
+  const triangles = triangulate(vertices, loop);
+  return simplePieces(
+    vertices,
+    triangles.map((_, i) => i),
+    triangles,
+  );
+}

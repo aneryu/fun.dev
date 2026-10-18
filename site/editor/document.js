@@ -34,6 +34,13 @@ import { surfaceDiagnostics } from "./diagnostics.js";
 import { booleanMesh } from "./booleans.js";
 import { arrayStep, stepMatrix, arrayMesh } from "./arrays.js";
 import {
+  MESH_EDITS,
+  DISTANCE_EDITS,
+  editMesh,
+  separateParts,
+  joinParts,
+} from "./edit-ops.js";
+import {
   removeMaterial,
   purgeMaterials,
   validateMaterialReferences,
@@ -1078,7 +1085,16 @@ function selectionSummary(project, command) {
           kind,
           count: Array.isArray(command[field]) ? command[field].length : 1,
         };
-  return ["bevel", "paint", "mirror", "cut"].includes(command.op)
+  return [
+    "bevel",
+    "paint",
+    "mirror",
+    "cut",
+    "dissolve",
+    "weld",
+    "fill",
+    "solidify",
+  ].includes(command.op)
     ? { scope: "mesh", kind: "faces", count: node.mesh.faces.length }
     : null;
 }
@@ -1393,6 +1409,9 @@ function run(project, command) {
       "pivot",
       "applyScale",
       "boolean",
+      ...MESH_EDITS,
+      "separate",
+      "join",
     ].includes(command.op)
   )
     fail("Edit the source or unlink this copy first");
@@ -1893,6 +1912,53 @@ function run(project, command) {
       }
       return { copies };
     }
+    case "deleteComponents":
+    case "dissolve":
+    case "weld":
+    case "fill":
+    case "bridge":
+    case "connect":
+    case "solidify": {
+      if (!node.mesh) fail("Select a mesh");
+      const { generator, recipe } = node;
+      delete node.generator;
+      delete node.recipe;
+      // Weld distances and solidify thickness are world meters unless space is local.
+      const m =
+        DISTANCE_EDITS.includes(command.op) && command.space !== "local"
+          ? worldMatrix(project, node.id)
+          : identity();
+      const vertices = node.mesh.vertices;
+      transformMesh(node.mesh, m);
+      const output = editMesh(node.mesh, command);
+      transformMesh(node.mesh, inverse(m));
+      // A weld that merged nothing keeps the part exactly as it was, parametric too.
+      if (output.unchanged) {
+        node.mesh.vertices = vertices;
+        if (generator) node.generator = generator;
+        if (recipe) node.recipe = recipe;
+      }
+      return output;
+    }
+    case "separate":
+      return separateParts(project, node, command, identifier);
+    case "join": {
+      const output = joinParts(project, node, command);
+      for (const id of output.consumed) {
+        // Children and mirrors of a joined part stay, attached to the result.
+        for (const n of project.nodes.filter(
+          (n) =>
+            !output.consumed.includes(n.id) &&
+            (n.parent === id || n.symmetry?.source === id),
+        )) {
+          if (n.symmetry) run(project, { op: "unlink", id: n.id });
+          if (n.parent === id) run(project, { op: "set", id: n.id, parent: node.id });
+        }
+        if (project.nodes.some((n) => n.id === id))
+          run(project, { op: "delete", id });
+      }
+      return output;
+    }
     case "boolean": {
       delete node.generator;
       delete node.recipe;
@@ -2028,6 +2094,9 @@ export function evaluateTransaction(
             "cut",
             "loopCut",
             "boolean",
+            ...MESH_EDITS,
+            "separate",
+            "join",
           ].includes(command.op))
       )
         throw new ModelError(
@@ -2090,7 +2159,9 @@ export function evaluateTransaction(
           );
           error.issues = invalid.map((i) => ({ ...i, node: n.id }));
           error.suggestion =
-            "Reduce the edit distance or split the operation; inspect the reported faces.";
+            command.op === "join"
+              ? "The joined parts touch or overlap; use boolean union for one clean solid, or keep them as separate parts."
+              : "Reduce the edit distance or split the operation; inspect the reported faces.";
           throw error;
         }
         if (includeResults) {

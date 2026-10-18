@@ -453,6 +453,20 @@
                 用于闭合凸体，一段倒角。
               </p>
             </div>
+            <div id="mesh-edit-tools">
+              <label for="weld-distance" data-i18n="edWeldDistance"
+                >合并距离</label
+              ><input
+                id="weld-distance"
+                type="number"
+                min="0"
+                value="0.001"
+                step="any"
+              /><button id="weld" data-i18n="edWeld">合并顶点</button
+              ><button id="fill" data-i18n="edFill">补洞</button
+              ><button id="separate" data-i18n="edSeparate">分离</button
+              ><button id="join" data-i18n="edJoin">合并部件</button>
+            </div>
             <section id="material-tools">
               <h3 data-i18n="edMaterial">材质</h3>
               <button id="manage-materials" data-i18n="edMaterialLibrary">

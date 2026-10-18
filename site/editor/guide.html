@@ -522,10 +522,69 @@ const file = await funEditor.exportGLB({ encoding: "base64" });</pre
               a hole become a few simple polygons.
             </td>
           </tr>
+          <tr>
+            <td>deleteComponents / dissolve</td>
+            <td>
+              deleteComponents: <code>id, faces | edges | vertices | select</code>,
+              removes those faces (or every face using the edges/vertices) and
+              leaves an open boundary. dissolve:
+              <code>id, edges | vertices | select, angle?</code> joins coplanar
+              faces across edges (angle in degrees, default 0.1) or removes
+              vertices; with no components it cleans the whole mesh (coplanar
+              faces of one material merge, collinear corners drop out) — use it
+              after imports and booleans. Results stay simple polygons of at
+              most 64 corners.
+            </td>
+          </tr>
+          <tr>
+            <td>weld / fill</td>
+            <td>
+              weld: <code>id, distance?, vertices?, space?</code> merges points
+              within distance (default 0.00001 world meters) at their centre;
+              coincident faces collapse, pinched faces are refused. fill:
+              <code>id, edges?, material?</code> closes every open boundary, or
+              the loops containing the edges; large holes split into several
+              faces.
+            </td>
+          </tr>
+          <tr>
+            <td>bridge / connect</td>
+            <td>
+              bridge: <code>id, faces:[a,b]</code> removes two faces with the
+              same corner count and joins their loops with quads (a tunnel
+              between two inset faces), or <code>edges</code> on two open
+              boundary loops. connect: <code>id, vertices:[a,b]</code> splits
+              one face along a new edge between two of its corners.
+            </td>
+          </tr>
+          <tr>
+            <td>solidify</td>
+            <td>
+              <code>id, thickness, offset?, space?</code> thickens an open
+              surface into a closed shell; offset -1 (default) grows against
+              the normals, 1 along them, 0 both ways. On a closed mesh it adds
+              an inward cavity shell. Thickness is world meters; corners keep
+              an even wall.
+            </td>
+          </tr>
+          <tr>
+            <td>separate / join</td>
+            <td>
+              separate: <code>id, newId, faces | select | loose:true</code>
+              moves faces (or every loose part after the first: newId,
+              newId-2, …) into new parts with the same parent and transform.
+              join: <code>id, with:[ids]</code> moves other parts' geometry into
+              this part's coordinates and consumes them; their children and
+              mirrors stay. Overlapping parts are refused: use boolean union
+              for one clean solid.
+            </td>
+          </tr>
         </tbody>
       </table>
       <p>
-        Primitive options: box <code>{size:[1,1,1],bevel:0}</code>; sphere
+        Primitive options: box <code>{size:[1,1,1],bevel:0,bevelSegments:1}</code>
+        (more than one bevel segment rounds every edge and corner; the six flat
+        sides keep IDs f0–f5); sphere
         <code>{radius:.5,segments:8,rings:6}</code>; cylinder/cone
         <code>{radius:.5,height:1,segments:8}</code>; outline extrusion
         <code>{points:[[x,y],…],depth:.5}</code>; lathe

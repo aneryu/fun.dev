@@ -65,6 +65,7 @@ export function bevelEdges(mesh, selection, distance) {
   const old = structuredClone(mesh),
     corners = new Map(),
     next = nextFace(mesh);
+  const convexFaces = new Set();
   for (const face of old.faces) {
     const n = normal(old.vertices, face.vertices);
     if (
@@ -76,31 +77,43 @@ export function bevelEdges(mesh, selection, distance) {
       )
     )
       fail("Bevel needs planar faces");
+    let convex = true;
     corners.set(
       face.id,
       face.vertices.map((v, i, vs) => {
         const prev = vs[(i + vs.length - 1) % vs.length],
           after = vs[(i + 1) % vs.length],
           p = old.vertices[v];
+        const incoming = unit(sub(p, old.vertices[prev])),
+          outgoing = unit(sub(old.vertices[after], p)),
+          turn = dot(cross(incoming, outgoing), n);
+        if (turn < -1e-8) convex = false;
         const a = selected.has(edgeKey(prev, v)) ? distance : 0,
           b = selected.has(edgeKey(v, after)) ? distance : 0;
         if (!a && !b) return [...p];
-        const incoming = unit(sub(p, old.vertices[prev])),
-          outgoing = unit(sub(old.vertices[after], p));
         const u = cross(n, incoming),
           w = cross(n, outgoing),
           c = dot(u, w),
           det = 1 - c * c;
-        if (dot(cross(incoming, outgoing), n) < -1e-8 || det < 1e-10)
-          fail(
-            "Bevel needs convex, non-collinear corners around the selected edges",
-          );
+        if (det < 1e-10) {
+          // A straight corner: both sides must move by the same width.
+          if (dot(incoming, outgoing) < 0 || Math.abs(a - b) > 1e-12)
+            fail(
+              "Bevel needs both edges of a straight corner, or neither, selected",
+            );
+          return add(p, mul(u, a));
+        }
+        // A concave corner moves inward along its bisector, which only keeps the
+        // neighbouring edge in place when both of its edges are bevelled.
+        if (turn < -1e-8 && (!a || !b))
+          fail("Bevel at a concave corner needs both of its edges selected");
         return add(
           p,
           add(mul(u, (a - c * b) / det), mul(w, (b - c * a) / det)),
         );
       }),
     );
+    if (convex) convexFaces.add(face.id);
   }
   const cuts = new Map();
   for (const e of edges.filter((e) => !selected.has(e.id))) {
@@ -156,7 +169,9 @@ export function bevelEdges(mesh, selection, distance) {
     const originalNormal = normal(old.vertices, face.vertices);
     if (dot(normal(vertices, result), originalNormal) < 0.99999)
       fail("Bevel is too wide or creates a non-planar face");
-    // Every new corner must stay inside its original convex face.
+    // Every new corner must stay inside its original convex face. Concave faces rely
+    // on the simple-polygon check below and the surface check after the edit.
+    if (convexFaces.has(face.id))
     for (let i = 0; i < face.vertices.length; i++) {
       const p = old.vertices[face.vertices[i]],
         q = old.vertices[face.vertices[(i + 1) % face.vertices.length]];

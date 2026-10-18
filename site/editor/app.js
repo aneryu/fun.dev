@@ -109,6 +109,7 @@ const lengthFields = [
   "depth",
   "box-bevel",
   "round",
+  "weld-distance",
 ];
 const distanceValue = (id) => Number($("#" + id).value) * unitFactor();
 function vectorValue(name) {
@@ -185,7 +186,8 @@ async function start() {
     previewRevision = 0,
     shapeSignature = null,
     previewFrame = 0,
-    previousMode = null;
+    previousMode = null,
+    componentsEditable = false;
   const viewState = { hidden: new Set(), locked: new Set(), isolated: null };
   function draftState() {
     if (!draft || !store) return;
@@ -592,6 +594,7 @@ async function start() {
       ),
       geometryEditable =
         !!n?.mesh && !n.generator && !linked && !selectionLocked && !driven;
+    componentsEditable = draft.writable && geometryEditable;
     document.title = `${t("edTitle")} — fun.dev`;
     $("#project-name").value = p.name;
     $("#stats").textContent =
@@ -754,6 +757,15 @@ async function start() {
       $("#edge-tools").hidden = selection.mode !== "edge";
       $("#face-edges").hidden = selection.mode !== "face";
       $("#face-edges").disabled = !selection.faces.length;
+      for (const id of ["weld", "fill", "separate"])
+        $("#" + id).disabled = !draft.writable || !geometryEditable;
+      $("#separate").disabled ||=
+        selection.mode === "face" ? !selection.faces.length : component;
+      $("#join").disabled =
+        !draft.writable ||
+        !geometryEditable ||
+        component ||
+        selection.ids.filter((id) => id !== selection.id).length === 0;
       options(
         $("#edge"),
         meshEdges(n.mesh).map((e) => [
@@ -1538,6 +1550,40 @@ async function start() {
         distance: distanceValue("bevel-distance"),
       },
     ]);
+  // Mesh tools: vertex mode welds the selection, edge mode fills the chosen holes,
+  // face mode separates the selected faces, object mode works on the whole part.
+  $("#weld").onclick = () =>
+    topology({
+      op: "weld",
+      id: selection.id,
+      distance: distanceValue("weld-distance"),
+      ...(selection.mode === "vertex" ? { vertices: selection.vertices } : {}),
+    });
+  $("#fill").onclick = () =>
+    topology({
+      op: "fill",
+      id: selection.id,
+      ...(selection.mode === "edge" && selection.edges.length
+        ? { edges: selection.edges }
+        : {}),
+    });
+  $("#separate").onclick = () =>
+    topology({
+      op: "separate",
+      id: selection.id,
+      newId: newId(`${selection.id}-part`),
+      ...(selection.mode === "face"
+        ? { faces: selection.faces }
+        : { loose: true }),
+    });
+  $("#join").onclick = () =>
+    apply([
+      {
+        op: "join",
+        id: selection.id,
+        with: selection.ids.filter((id) => id !== selection.id),
+      },
+    ]);
   $("#set-dimensions").onclick = () =>
     act(() =>
       store.apply([
@@ -2120,6 +2166,25 @@ async function start() {
     ) {
       e.preventDefault();
       $("#delete").click();
+    }
+    // In component mode Delete removes the selected faces (or the faces on the
+    // selected edges or vertices); undo brings them back.
+    if (
+      (e.key === "Delete" || e.key === "Backspace") &&
+      selection.mode !== "object" &&
+      componentsEditable &&
+      flushPending()
+    ) {
+      e.preventDefault();
+      const field = { face: "faces", edge: "edges", vertex: "vertices" }[
+        selection.mode
+      ];
+      if (selection[field]?.length)
+        topology({
+          op: "deleteComponents",
+          id: selection.id,
+          [field]: selection[field],
+        });
     }
   });
   onLocaleChange(() => {

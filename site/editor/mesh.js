@@ -1,5 +1,6 @@
 // Editable polygon meshes. IDs belong to faces, not generated render triangles.
 import { extrudeShape, revolveShape, sweepShape } from "./generators.js";
+import { roundedBox } from "./rounded.js";
 export class ModelError extends Error {
   constructor(message, code = "invalid", path = "") {
     super(message);
@@ -147,7 +148,20 @@ export function primitive(kind, options = {}, material = "yellow") {
       ],
       material,
     );
-    if (options.bevel) bevelMesh(result, options.bevel);
+    if (options.bevel) {
+      const rounding = options.bevelSegments ?? 1;
+      if (!Number.isInteger(rounding) || rounding < 1 || rounding > 16)
+        fail("Bevel segments must be an integer from 1 to 16");
+      // More than one segment rounds the edges (kernel hull of corner spheres).
+      if (rounding > 1)
+        return roundedBox(
+          [x, y, z].map((v) => v * 2),
+          number(options.bevel, 0.00001, 1000),
+          rounding,
+          material,
+        );
+      bevelMesh(result, options.bevel);
+    }
     return result;
   }
   if (["sphere", "cylinder", "cone", "lathe"].includes(kind)) {
