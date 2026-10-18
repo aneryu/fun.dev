@@ -200,8 +200,10 @@ skeleton lists; they need no marker.
   unlimited. The runtime owns a fixed set of real light slots per device tier, each with a
   fixed shadow setting, and assigns lamps to them by `importance` (0–1, a relative rank) and
   distance, moving and dimming slots rather than adding or removing lights, because Three.js
-  r186 keys shader programs on the set of lights and their shadow flags. No directional lights
-  in models.
+  r186 keys shader programs on the set of lights and their shadow flags. At a light factor of
+  0 (lamps off by day) the slots leave the light set and cost nothing; crossing between off
+  and lit recompiles lit materials once. Dark slots skip their shadow maps. No directional
+  lights in models.
 - Sockets are attachment frames games use (`model.socket(id)`); `tags` are free strings for
   games; the runtime never reads them.
 - A node with a dynamic body is detached to the world at load, children following it, and
@@ -624,7 +626,7 @@ before anything but hulls is promised:
 | `kit/models.js` | places loaded models and returns handles: batches rigid batchable meshes, instances placements, picks LOD levels, fills light slots, applies variants and tints; `model.node(id)`, `model.socket(id)`, `handle.tint`, `handle.remove()`, `roles.set` |
 | `kit/physics.js` | Jolt: bodies, constraints, vehicles, ragdolls, characters; asynchronous API, pooled temporaries, `dispose()`; the world can move to a worker |
 | `kit/animation.js` | clips through one mixer (proxies for material and light channels), masks, additive blending, events; retargeting by role (release 2) |
-| `kit/lights.js` | light slots: a fixed set of real lights per device tier (phones 4 with 1 shadow, desktops 8 with 2) lent each frame to the best candidates by importance and distance, faded rather than added or removed; `kit/models.js` feeds placed copies' light nodes to it, games feed their own lamps |
+| `kit/lights.js` | light slots: a fixed set of real lights per device tier (phones 4 with 1 shadow, desktops 8 with 2) lent each frame to the best candidates by importance and distance, faded rather than added or removed; out of the light set at factor 0, so free by day; `kit/models.js` feeds placed copies' light nodes to it, games feed their own lamps |
 
 The kit, not the file, decides whether a mesh is drawn alone, instanced or batched, which LOD
 level shows, how many lights are real and where physics steps. Physics steps at a fixed rate

@@ -40,3 +40,20 @@ test("a fade takes slots through intermediate levels", () => {
   assert.equal(slots.lit().length, 0, "released after fading out");
   assert.equal(slots.slots[0].intensity, 0);
 });
+
+test("by day the slots leave the light set, and dark slots stop drawing shadow maps", () => {
+  const scene = new THREE.Scene();
+  const slots = createLightSlots({ THREE, scene, kind: "spot", count: 2, shadows: 2, fade: 0 });
+  const lamps = [lamp("a", 0, 0)];
+  slots.factor = 0;
+  slots.update(1 / 60, { x: 0, y: 0, z: 0 }, lamps);
+  assert.ok(slots.slots.every((l) => !l.visible), "no lights in the set by day");
+  assert.equal(scene.children.filter((o) => o.isLight).length, 2, "the lights stay in the scene");
+  slots.factor = 1;
+  slots.update(1 / 60, { x: 0, y: 0, z: 0 }, lamps);
+  assert.ok(slots.slots.every((l) => l.visible), "back at night");
+  const lit = slots.slots.find((l) => l.intensity > 0), dark = slots.slots.find((l) => l.intensity === 0);
+  assert.ok(lit.shadow.autoUpdate, "a lit slot draws its shadow map");
+  assert.equal(dark.shadow.autoUpdate, false, "an unused slot does not");
+  slots.dispose();
+});

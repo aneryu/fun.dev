@@ -8,6 +8,11 @@
 //   slots.factor = night;                        // scales every slot (lamps off by day)
 //   context.onCleanup(() => slots.dispose());
 //
+// At factor 0 the slots leave the scene's light set, so lamps cost nothing by day. Crossing
+// between 0 and lit changes the set once (lit materials recompile), so set the factor on a
+// time-of-day change or let it ramp, rather than toggling it every frame. A slot that is dark
+// keeps its shadow map from the last time it was lit instead of rendering it every frame.
+//
 // kit/models.js feeds placed copies' light nodes to a manager given as `lights`.
 
 const DEFAULTS = { high: { count: 8, shadows: 2 }, low: { count: 4, shadows: 1 } };
@@ -27,9 +32,14 @@ export function createLightSlots({ THREE, scene, kind = "point", count, shadows,
     if (kind === "spot") { light.target.position.set(0, -1001, 0); scene.add(light.target); }
     slots.push({ light, id: null, candidate: null, level: 0 });
   }
-  const color = new THREE.Color();
   const scored = [];
-  let factor = 1;
+  let factor = 1, shown = true;
+  // Slots join the light set only while the factor is above zero.
+  function show(on) {
+    if (on === shown) return;
+    shown = on;
+    for (const s of slots) s.light.visible = on;
+  }
 
   function assign(candidate, slot) {
     slot.id = candidate.id;
@@ -47,7 +57,7 @@ export function createLightSlots({ THREE, scene, kind = "point", count, shadows,
   return {
     slots: slots.map((s) => s.light),
     get factor() { return factor; },
-    set factor(value) { factor = value; },
+    set factor(value) { factor = value; show(value > 0); },
     /**
      * Picks the best `count` candidates for the viewpoint (importance over squared distance,
      * within twice the range), keeps slots that still qualify, fades the rest.
@@ -78,7 +88,11 @@ export function createLightSlots({ THREE, scene, kind = "point", count, shadows,
         assign(c, slot);
         slot.level = fade > 0 ? Math.min(1, step) : 1;
       }
-      for (const s of slots) s.light.intensity = s.candidate ? (s.candidate.intensity ?? 1) * s.level * factor : 0;
+      for (const s of slots) {
+        s.light.intensity = s.candidate ? (s.candidate.intensity ?? 1) * s.level * factor : 0;
+        // A dark slot's shadow map is not drawn; it renders again as soon as the slot lights.
+        if (s.light.castShadow) s.light.shadow.autoUpdate = s.light.intensity > 0;
+      }
     },
     /** The candidates currently lit, with their slot levels. */
     lit: () => slots.filter((s) => s.candidate && s.level > 0).map((s) => ({ id: s.id, level: s.level })),
