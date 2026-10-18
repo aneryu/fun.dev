@@ -171,6 +171,13 @@ test("static parts, materials, placements, sockets and physics survive a round t
   }
   // Unnamed geometries take their node's id; shared ones are written once.
   assert.deepEqual(model.manifest.geometries.map((g) => g.id), ["static", "lid", "bulb", "studs"]);
+  // A node whose name is longer than the id rule keeps one id for itself and its unnamed geometry.
+  const long = crate();
+  long.getObjectByName("lid").name = "lid_with_a_very_long_descriptive_name_that_exceeds_fifty_four_characters";
+  const longManifest = (await fun3d.read(await fun3d.write(long))).manifest;
+  const longNode = longManifest.nodes.find((n) => n.name?.startsWith("lid_with"));
+  assert.match(longNode.id, /^lid_with_a_very_long_descriptive_name_that_exceeds_fif-[0-9a-f]{6}$/);
+  assert.equal(longNode.mesh.geometry, longNode.id);
   // Material slots collapse to the distinct materials; groups become contiguous runs.
   const body = model.node("static").userData.mesh;
   assert.deepEqual(model.manifest.nodes.find((n) => n.id === "static").mesh.materials, ["mat_wood", "mat_steel"]);

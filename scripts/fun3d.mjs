@@ -1,5 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises";
-import { basename, resolve } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { scanChunks } from "../site/runtime/kit/fun3d-container.js";
 import { createConverter, converterStamp } from "./fun3d-convert.mjs";
@@ -8,6 +8,9 @@ import { createConverter, converterStamp } from "./fun3d-convert.mjs";
 //   npm run fun3d -- inspect <file.fun3d> [--json]           what a file holds
 //   npm run fun3d -- validate <file.fun3d>...                 every problem, exit 1 when any
 //   npm run fun3d -- convert <model.glb> [--type prop|piece|vehicle|character] [--name <id>] [-o <out.fun3d>]
+//   npm run fun3d -- library [--out <dir>] [--only id,id] [--limit <n>] [--jobs <n>]
+//       converts every listed library model (public index and blobs, cached) into <dir> with a report.json:
+//       sizes, times, validation, what the profile derived and which conventions each model follows
 const kb = (n) => `${(n / 1024).toFixed(1)} KB`;
 const count = (n) => n.toLocaleString("en-US");
 
@@ -45,7 +48,7 @@ export async function inspect(bytes, { json = false } = {}) {
 
 async function main([command, ...args]) {
   const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-  const files = args.filter((a, i) => !a.startsWith("-") && !["--type", "--name", "-o", "--out"].includes(args[i - 1]));
+  const files = args.filter((a, i) => !a.startsWith("-") && !["--type", "--name", "-o", "--out", "--only", "--limit", "--jobs"].includes(args[i - 1]));
   if (command === "inspect" && files[0]) {
     console.log(await inspect(await readFile(resolve(files[0])), { json: args.includes("--json") }));
     return 0;
@@ -68,6 +71,55 @@ async function main([command, ...args]) {
     console.log(`${out}  ${kb(bytes.length)} from ${kb(glb.length)} GLB  (${report.type}, ${count(report.vertices)} vertices, ${count(report.triangles)} triangles, ${report.materials} materials${report.hull ? `, hull ${report.hull} points` : ""}${report.wheels.length ? `, ${report.wheels.length} wheels` : ""}${report.rig ? `, rig ${report.rig}` : ""})  converter ${(await converterStamp()).slice(7, 15)}`);
     for (const warning of report.warnings) console.log(`  ⚠ ${warning}`);
     return 0;
+  }
+  if (command === "library") {
+    const { fetchIndex, fetchSource } = await import("./library-models.mjs");
+    const out = resolve(flag("--out") ?? "test-results/fun3d-library"), limit = Number(flag("--limit") ?? Infinity), only = flag("--only")?.split(","), jobs = Number(flag("--jobs") ?? 4);
+    const index = await fetchIndex();
+    let models = index.models.map((row) => Object.fromEntries(index.fields.map((field, i) => [field, row[i]])));
+    if (only) models = models.filter((m) => only.includes(m.id));
+    models = models.slice(0, limit);
+    await mkdir(out, { recursive: true });
+    const converter = createConverter(), stamp = await converterStamp(), entries = [];
+    let next = 0;
+    async function worker() {
+      while (next < models.length) {
+        const m = models[next++], entry = { id: m.id, version: m.version, type: m.type };
+        try {
+          const source = await fetchSource(m.id, m.version);
+          const started = performance.now();
+          const { bytes, manifest, report } = await converter.convert(source.body, { type: source.type, name: m.id, hash: `sha256:${source.hash}` });
+          entry.ms = Math.round(performance.now() - started);
+          entry.hash = source.hash; entry.glb = source.body.length; entry.fun3d = bytes.length;
+          entry.problems = await converter.fun3d.validate(bytes);
+          await writeFile(join(out, `${m.id}@${m.version}.fun3d`), bytes);
+          const roles = new Set(manifest.materials.flatMap((x) => (x.features?.emitter ? [x.features.emitter.role] : [])));
+          Object.assign(entry, {
+            kind: report.kind, convertedAs: report.type, warnings: report.warnings, vertices: report.vertices, triangles: report.triangles, materials: report.materials, nodes: report.nodes,
+            hull: report.hull, mass: report.mass, wheels: report.wheels.length, rig: report.rig,
+            conventions: { static: manifest.nodes.some((n) => n.id === "static"), collider: manifest.nodes.some((n) => n.tags?.includes("collider")), textured: manifest.images.length > 0, roles: [...roles], tint: manifest.materials.some((x) => x.features?.tint), blend: manifest.materials.some((x) => x.alpha?.mode === "blend"), skinned: manifest.skeletons.length > 0, meshShape: manifest.physics?.shapes?.some((x) => x.type === "mesh") ?? false },
+          });
+        } catch (error) { entry.error = error.message; }
+        entries.push(entry);
+        if (entries.length % 50 === 0) console.log(`  ${entries.length}/${models.length}`);
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(jobs, models.length) }, worker));
+    entries.sort((a, b) => a.id.localeCompare(b.id));
+    const ok = entries.filter((e) => !e.error), failed = entries.filter((e) => e.error), invalid = ok.filter((e) => e.problems.length);
+    const sum = (list, key) => list.reduce((n, e) => n + (e[key] ?? 0), 0);
+    const counts = {};
+    for (const e of ok) for (const [key, value] of Object.entries(e.conventions)) { if (Array.isArray(value)) for (const v of value) counts[`role:${v}`] = (counts[`role:${v}`] ?? 0) + 1; else if (value) counts[key] = (counts[key] ?? 0) + 1; }
+    const summary = { converter: stamp, models: entries.length, converted: ok.length, failed: failed.length, invalid: invalid.length, glb: sum(ok, "glb"), fun3d: sum(ok, "fun3d"), ms: sum(ok, "ms"), conventions: counts, byType: Object.fromEntries(["prop", "piece", "vehicle", "character"].map((t) => [t, ok.filter((e) => e.convertedAs === t).length])), warnings: ok.filter((e) => e.warnings.length).length };
+    await writeFile(join(out, "report.json"), JSON.stringify({ summary, models: entries }, null, 1));
+    console.log(`${ok.length}/${entries.length} converted into ${out} (${failed.length} failed, ${invalid.length} invalid), ${kb(summary.glb)} GLB → ${kb(summary.fun3d)} .fun3d (${(summary.glb / Math.max(1, summary.fun3d)).toFixed(1)}×), ${(summary.ms / 1000).toFixed(1)} s of conversion, converter ${stamp.slice(7, 15)}`);
+    console.log(`  types ${JSON.stringify(summary.byType)}  conventions ${JSON.stringify(counts)}`);
+    for (const e of failed) console.log(`  ✗ ${e.id}@${e.version}: ${e.error}`);
+    for (const e of invalid) console.log(`  ! ${e.id}@${e.version}: ${e.problems[0]}`);
+    for (const e of ok.filter((x) => x.warnings.length).slice(0, 20)) console.log(`  ⚠ ${e.id}: ${e.warnings.join("; ")}`);
+    const slow = [...ok].sort((a, b) => b.ms - a.ms).slice(0, 3).map((e) => `${e.id} ${e.ms} ms`).join(", ");
+    console.log(`  slowest: ${slow}`);
+    return failed.length || invalid.length ? 1 : 0;
   }
   console.error("Usage: npm run fun3d -- inspect <file.fun3d> [--json] | validate <file.fun3d>... | convert <model.glb> [--type prop|piece|vehicle|character] [--name <id>] [-o <out.fun3d>]");
   return 1;

@@ -49,7 +49,24 @@ export function checkModels(models, format = undefined) {
   }
 }
 
-async function sourceOf(id, version) {
+/** The public index of listed models (library/index.zh.json), cached locally like page data. */
+export async function fetchIndex() {
+  const copy = join(cacheRoot, "library", "index.zh.json");
+  try {
+    const response = await fetch(`${libraryOrigin()}/library/index.zh.json`, { cache: "no-store", signal: AbortSignal.timeout(20000) });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const text = await response.text();
+    await mkdir(dirname(copy), { recursive: true });
+    await writeFile(copy, text);
+    return JSON.parse(text);
+  } catch (error) {
+    try { return JSON.parse(await readFile(copy, "utf8")); }
+    catch { throw new Error(`models: the library index is unavailable (${error.message}) and not cached yet.`); }
+  }
+}
+
+/** An approved version's model.glb: { hash, body, type, detail }, fetched into the blob cache once. */
+export async function fetchSource(id, version) {
   const detail = await loadDetail(id), entry = detail?.versions?.find((v) => v.version === version), file = entry?.files?.["model.glb"];
   if (!file) throw new Error(`models: ${id} ${version} is not an approved library model (see https://fun.dev/models/${id}).`);
   const hash = file.sha256;
@@ -58,7 +75,7 @@ async function sourceOf(id, version) {
     if (!response.ok) throw new Error(`models: ${id} ${version} could not be downloaded (HTTP ${response.status}).`);
     await storeBlob(hash, Buffer.from(await response.arrayBuffer()));
   }
-  return { hash, body: await readFile(blobPath(hash)), type: detail.type ?? "prop" };
+  return { hash, body: await readFile(blobPath(hash)), type: detail.type ?? "prop", detail };
 }
 
 // Derived files by (source hash, converter): a small index in the blob cache names the derived
@@ -84,7 +101,7 @@ export async function resolveModels(models, { format = "glb", lockPath = null } 
   if (!entries.length) return [];
   const files = [];
   for (const [id, version] of entries.sort(([a], [b]) => a.localeCompare(b))) {
-    const source = await sourceOf(id, version);
+    const source = await fetchSource(id, version);
     if (format === "fun3d") {
       const derived = await derive(id, version, source);
       files.push({ path: `models/${id}@${version}.fun3d`, body: derived.body, type: "application/octet-stream", hash: derived.hash, blob: `${derived.hash}.fun3d` });

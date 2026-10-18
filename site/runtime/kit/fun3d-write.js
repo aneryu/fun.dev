@@ -114,7 +114,7 @@ export function createWriter({ THREE, encoder = null }) {
     async function writeMaterial(material) {
       if (materialIds.has(material)) return materialIds.get(material);
       const custom = material.userData?.fun3d ?? {};
-      const id = unique(takenMaterials, await idOf(custom.id ?? (material.name || `mat_${manifest.materials.length}`)));
+      const id = unique(takenMaterials, custom.id ?? (material.name ? await idOf(material.name) : `mat_${manifest.materials.length}`));
       const model = custom.model ?? (material.isMeshBasicMaterial ? "unlit" : "pbr");
       const desc = { id, ...(material.name && material.name !== id ? { name: material.name } : {}), model, color: hex(material.color ?? new THREE.Color("#ffffff")) };
       if (material.alphaTest > 0) desc.alpha = { mode: "mask", cutoff: round(material.alphaTest, 4) };
@@ -154,7 +154,8 @@ export function createWriter({ THREE, encoder = null }) {
     }
     async function writeGeometry(geometry, nodeId, morphNames) {
       if (geometryIds.has(geometry)) return geometryIds.get(geometry);
-      const id = unique(takenGeometries, await idOf(geometry.userData.fun3d?.id ?? (geometry.name || nodeId)));
+      // Names go through the id rule; ids already given (userData, the node's id) are used as they are.
+      const id = unique(takenGeometries, geometry.userData.fun3d?.id ?? (geometry.name ? await idOf(geometry.name) : nodeId));
       const positions = metres(geometry), count = positions.length / 3;
       if (!count) throw new Error(`geometry "${id}" has no vertices`);
       const box = new THREE.Box3().setFromArray(positions);
@@ -320,7 +321,7 @@ export function createWriter({ THREE, encoder = null }) {
         if (mesh.isSkinnedMesh) {
           const skeleton = mesh.skeleton;
           if (!skeletonIds.has(skeleton)) {
-            const sid = unique(takenSkeletons, await idOf(mesh.userData.fun3d?.skeleton ?? (skeleton.userData?.id || "rig")));
+            const sid = unique(takenSkeletons, mesh.userData.fun3d?.skeleton ?? skeleton.userData?.id ?? "rig");
             const bones = skeleton.bones.map((bone) => { const bid = nodeIds.get(bone); if (!bid) throw new Error(`bone "${bone.name}" of node "${id}" is outside the written object`); return bid; });
             const binds = new Float32Array(bones.length * 16);
             skeleton.boneInverses.forEach((m, j) => binds.set(m.elements, j * 16));
