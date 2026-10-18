@@ -81,6 +81,16 @@ Optional fields:
 - `cover`: a 1200×630 `.jpg`, `.png` or `.webp` inside the bundle and listed in
   `files`. The lobby shows it as a square thumbnail; share cards use it whole.
 - `keepAwake`: hold a screen wake lock while running (idle or watch-style games).
+- `models`: library models pinned by version, `{ "desk_chair_01": "v002" }`, served at
+  `models/<id>.glb` — or, with `"modelFormat": "fun3d"`, at `models/<id>@<version>.fun3d` in
+  fun.dev's own format, batched and simulated by the runtime kit ([models](models.md),
+  [model format](model-format.md)); the build writes `models.lock`, commit it.
+- `convert`: patterns of bundled GLB files to derive to `.fun3d` at build, as strings
+  (`"assets/props/*.glb"`, converted as props) or `{ "files": "assets/tiles/**/*.glb",
+  "type": "piece" }` (`prop`, `piece`, `vehicle`, `character` decide the physics the profile
+  derives). Each matched file gets a `.fun3d` beside it (`assets/props/tree.fun3d`), served as
+  a blob with the release and loaded with `context.asset(path)`; derivation runs once per
+  source and converter and is cached locally.
 - `recording`: offer **Record video** in the player menu. The player records the game
   canvas (including the Three.js HUD, never platform controls) with the session's sound,
   even when muted, as a 720×1280 portrait clip for short-video apps, up to 60 seconds. The

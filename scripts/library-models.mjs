@@ -96,18 +96,40 @@ async function fetchDerived(id, version, derived) {
 // Derived files by (source hash, converter): a small index in the blob cache names the derived
 // blob, so later builds (and offline ones) skip the conversion.
 async function derive(id, version, source) {
+  return deriveBytes(id, source.type, source.body, source.hash);
+}
+
+/** A GLB's .fun3d through the library profile (`type` prop | piece | vehicle | character), cached by source and converter. */
+export async function deriveBytes(name, type, body, hash = createHash("sha256").update(body).digest("hex")) {
   const { converterStamp, createConverter } = await import("./fun3d-convert.mjs");
-  const stamp = await converterStamp(), index = join(cacheRoot, "derived", stamp.slice(7, 23), source.hash);
+  const stamp = await converterStamp(), index = join(cacheRoot, "derived", stamp.slice(7, 23), hash);
   try {
-    const { hash, size } = JSON.parse(await readFile(index, "utf8"));
-    if (await cached(hash)) return { hash, size, body: await readFile(blobPath(hash)) };
+    const { hash: derived, size } = JSON.parse(await readFile(index, "utf8"));
+    if (await cached(derived)) return { hash: derived, size, body: await readFile(blobPath(derived)) };
   } catch { /* not derived yet */ }
-  const { bytes, report } = await createConverter().convert(source.body, { type: source.type, name: id, hash: `sha256:${source.hash}` });
-  const hash = createHash("sha256").update(bytes).digest("hex");
-  await storeBlob(hash, Buffer.from(bytes));
+  const { bytes, report } = await createConverter().convert(body, { type, name, hash: `sha256:${hash}` });
+  const derived = createHash("sha256").update(bytes).digest("hex");
+  await storeBlob(derived, Buffer.from(bytes));
   await mkdir(dirname(index), { recursive: true });
-  await writeFile(index, JSON.stringify({ hash, size: bytes.length, report }));
-  return { hash, size: bytes.length, body: Buffer.from(bytes) };
+  await writeFile(index, JSON.stringify({ hash: derived, size: bytes.length, report }));
+  return { hash: derived, size: bytes.length, body: Buffer.from(bytes) };
+}
+
+const CONVERT_TYPES = ["prop", "piece", "vehicle", "character"];
+
+/** game.json `convert`: patterns of listed GLBs to derive at build, as strings or { files, type }. */
+export function checkConvert(convert, files) {
+  if (convert === undefined) return [];
+  if (!Array.isArray(convert) || convert.length > 64) throw new Error("convert must list up to 64 patterns of bundled GLB files.");
+  const rules = convert.map((entry) => {
+    const rule = typeof entry === "string" ? { files: entry, type: "prop" } : entry;
+    if (!rule || typeof rule.files !== "string" || !/^[a-zA-Z0-9_./*-]+\.glb$/.test(rule.files) || rule.files.includes("..") || !CONVERT_TYPES.includes(rule.type ?? "prop")) throw new Error(`convert: "${JSON.stringify(entry)}" must be a pattern of .glb files (assets/props/*.glb) with a type among ${CONVERT_TYPES.join(", ")}.`);
+    const pattern = new RegExp(`^${rule.files.split("**").map((part) => part.split("*").map((s) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]*")).join(".*")}$`);
+    const matched = (files ?? []).filter((path) => pattern.test(path));
+    if (!matched.length) throw new Error(`convert: "${rule.files}" matches no listed file.`);
+    return { ...rule, type: rule.type ?? "prop", matched };
+  });
+  return rules;
 }
 
 /** The runtime files for a game's declared models: [{ path, body, type, hash, blob }]. */

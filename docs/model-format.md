@@ -673,7 +673,8 @@ except references, which refuse the load.
   `game.json` — later with the closure of references (the build will inflate each pinned
   manifest to collect them and verify skeleton hashes); paths are
   `models/<id>@<version>.fun3d`, served as blobs like every asset. Game-local GLBs convert at
-  build on request (`"convert": ["assets/tiles/*.glb"]`, later), cached by hash.
+  build on request (`"convert": ["assets/props/*.glb", { "files": "assets/tiles/**/*.glb",
+  "type": "piece" }]`): a `.fun3d` beside each matched file, cached by source and converter.
 - **Workshop.** Keeps `.funmodel.glb` until its binary storage lands; then saves `.fun3d` with
   its editing section, exports plain GLB, gains physics commands with a Jolt preview.
 - **Library pages.** Keep GLB in the first release; switch when the viewer uses the runtime

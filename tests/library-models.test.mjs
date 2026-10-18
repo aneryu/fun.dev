@@ -2,7 +2,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { boxGLB } from "./helpers/models.mjs";
@@ -94,6 +94,31 @@ test("a derived file the library published with this converter is downloaded ins
   assert.deepEqual([...own.body.subarray(0, 8)], [0x89, 0x46, 0x55, 0x4e, 0x33, 0x44, 0x0d, 0x0a]);
   delete detail.versions[0].derived;
   forgetCatalog();
+});
+
+test("convert derives bundled GLBs to .fun3d beside them, cached by source and converter", async () => {
+  const directory = await mkdtemp(join(work, "game-"));
+  await mkdir(join(directory, "assets", "props"), { recursive: true });
+  await writeFile(join(directory, "assets", "props", "crate.glb"), Buffer.from(boxGLB({ size: [1, 1, 1] })));
+  await writeFile(join(directory, "assets", "props", "wall.glb"), Buffer.from(boxGLB({ size: [3, 2, 0.2] })));
+  await writeFile(join(directory, "game.js"), "export function createGame() {}\n");
+  const write = (convert) => writeFile(join(directory, "game.json"), JSON.stringify({ id: "demo", version: "1.0.0", apiVersion: 3, title: "Demo", description: "Demo", category: "Toy", platforms: ["mobile"], files: ["game.js", "assets/props/crate.glb", "assets/props/wall.glb"], convert }));
+  await write(["assets/props/crate.glb", { files: "assets/props/w*.glb", type: "piece" }]);
+  const release = await prepareRelease(join(directory, "game.json"));
+  const crate = release.assets.find((asset) => asset.path === "assets/props/crate.fun3d"), wall = release.assets.find((asset) => asset.path === "assets/props/wall.fun3d");
+  assert.ok(crate && wall, "a .fun3d beside each matched GLB");
+  assert.equal(crate.blob, `${crate.hash}.fun3d`);
+  assert.deepEqual([...crate.body.subarray(0, 8)], [0x89, 0x46, 0x55, 0x4e, 0x33, 0x44, 0x0d, 0x0a]);
+  assert.equal(release.game.convert, undefined, "the catalog entry stays as before");
+  assert.deepEqual(fileIndex(release.assets).blobs["assets/props/wall.fun3d"], `${wall.hash}.fun3d`);
+  const again = await prepareRelease(join(directory, "game.json"));
+  assert.equal(again.game.release, release.game.release, "derivation is deterministic and cached");
+  await write(["assets/props/*.obj"]);
+  await assert.rejects(prepareRelease(join(directory, "game.json")), /must be a pattern of .glb files/);
+  await write(["assets/props/missing_*.glb"]);
+  await assert.rejects(prepareRelease(join(directory, "game.json")), /matches no listed file/);
+  await write([{ files: "assets/props/*.glb", type: "spaceship" }]);
+  await assert.rejects(prepareRelease(join(directory, "game.json")), /with a type among/);
 });
 
 test("unknown models, bad versions and files under models/ are refused", async () => {

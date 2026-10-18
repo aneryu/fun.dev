@@ -240,7 +240,9 @@ maintenance script converts them (`npm run models -- convert`, through the libra
 stores the file by content (`blobs/<sha256>.fun3d`) and records it on the version with the
 converter that made it (`derived` in the page data; the console and `npm run models -- list`
 show `未转换` / `not converted` until then). A game built with `"modelFormat": "fun3d"`
-downloads that file when the converter matches, else converts locally to the same bytes. The
+downloads that file when the converter matches, else converts locally to the same bytes; a
+game's own GLBs convert the same way with `"convert"` in `game.json` ([game
+bundles](game-bundles.md)). The
 one-time `npm run models -- retype <id>[,<id>...] vehicle` fixes vehicles that were typed `prop`
 before the type existed, so their derived files get a wheeled vehicle.
 

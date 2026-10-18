@@ -2,20 +2,22 @@ import { readFile, lstat } from "node:fs/promises";
 import { dirname, resolve, extname, join } from "node:path";
 import { createHash } from "node:crypto";
 import { API_VERSION, validateCatalog } from "../site/catalog.js";
-import { checkModels, resolveModels } from "./library-models.mjs";
+import { checkConvert, checkModels, deriveBytes, resolveModels } from "./library-models.mjs";
 
 const types = { ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".avif": "image/avif", ".svg": "image/svg+xml", ".glb": "model/gltf-binary", ".gltf": "model/gltf+json", ".fun3d": "application/octet-stream", ".bin": "application/octet-stream", ".wasm": "application/wasm", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".wav": "audio/wav", ".txt": "text/plain; charset=utf-8" };
 const digest = (body) => createHash("sha256").update(body).digest("hex");
 
 export async function prepareRelease(manifestPath) {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-  // models (library models by version) and modelFormat are resolved into runtime files below, not published.
-  const { files, models, modelFormat, ...game } = manifest;
+  // models (library models by version), modelFormat and convert (bundled GLBs derived to .fun3d)
+  // are resolved into runtime files below, not published.
+  const { files, models, modelFormat, convert, ...game } = manifest;
   if (Object.keys(game).some((key) => !["id", "version", "apiVersion", "title", "description", "category", "platforms", "orientation", "howToPlay", "cover", "keepAwake", "recording"].includes(key))) throw new Error("Unexpected manifest field.");
   validateCatalog([game]);
   if (game.apiVersion !== API_VERSION) throw new Error(`apiVersion must be ${API_VERSION} for this platform.`);
   if (game.cover !== undefined && !files?.includes?.(game.cover)) throw new Error("cover must be listed in files.");
   checkModels(models, modelFormat);
+  const conversions = checkConvert(convert, Array.isArray(files) ? files : []);
   if (Array.isArray(files) && files.some((path) => typeof path === "string" && path.startsWith("models/"))) throw new Error("models/ is reserved for library models declared in models.");
   if (!Array.isArray(files) || !files.includes("game.js") || files.length > 4096 || new Set(files).size !== files.length) throw new Error("files must list game.js and unique runtime files (maximum 4096).");
   const root = dirname(resolve(manifestPath));
@@ -46,8 +48,19 @@ export async function prepareRelease(manifestPath) {
     total += model.body.length;
     assets.push(model);
   }
+  // Bundled GLBs the game asked to convert: a .fun3d beside each (docs/model-format.md §8),
+  // derived once per source and converter, served as a blob like the source.
+  for (const rule of conversions) {
+    for (const path of rule.matched) {
+      const source = assets.find((asset) => asset.path === path), target = path.replace(/\.glb$/, ".fun3d");
+      if (assets.some((asset) => asset.path === target)) throw new Error(`convert: ${target} is already a listed file.`);
+      const derived = await deriveBytes(path.split("/").pop().replace(/\.glb$/, ""), rule.type, source.body, source.hash);
+      total += derived.body.length;
+      assets.push({ path: target, body: derived.body, type: "application/octet-stream", hash: derived.hash, ...(target.startsWith("assets/") ? { blob: `${derived.hash}.fun3d` } : {}) });
+    }
+  }
   // The same order as the listed files (plain code-unit sort), so other games' releases keep their hashes.
-  if (models) assets.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  if (models || conversions.length) assets.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const release = digest(JSON.stringify(assets.map(({ path, hash }) => [path, hash])));
   const paths = new Set(files);
   for (const asset of assets.filter((file) => /\.m?js$/.test(file.path))) {
