@@ -383,7 +383,10 @@ export function createGameHost({
         if (game[hook] !== undefined && typeof game[hook] !== "function") throw new TypeError(`${hook} must be a function.`);
       }
       // Shaders compile in parallel before the first frame instead of stalling it one by one.
-      await renderer.compileAsync(scene, session.camera).catch(() => {});
+      // Time-boxed: with KHR_parallel_shader_compile some drivers (Chrome on Linux, ANGLE on
+      // NVIDIA) never report large programs as done, which hung the loading screen until the
+      // 30 s timeout. After 5 s the game starts and the rest compiles on first draw.
+      await Promise.race([renderer.compileAsync(scene, session.camera).catch(() => {}), new Promise((resolve) => window.setTimeout(resolve, 5000))]);
       if (scope.signal.aborted) return; // the scope already disposed the game
       session.game = game;
       session.loading = false;
