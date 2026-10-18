@@ -159,6 +159,30 @@ export const VIEWS = {
   right: [1, 0, 0],
   top: [0, 1, 0.0001],
 };
+// Screen right and up of each orthographic view, in world axes. A reference's center is
+// measured along these from the world origin.
+export const REFERENCE_AXES = {
+  front: [
+    [1, 0, 0],
+    [0, 1, 0],
+  ],
+  back: [
+    [-1, 0, 0],
+    [0, 1, 0],
+  ],
+  left: [
+    [0, 0, 1],
+    [0, 1, 0],
+  ],
+  right: [
+    [0, 0, -1],
+    [0, 1, 0],
+  ],
+  top: [
+    [1, 0, 0],
+    [0, 0, -1],
+  ],
+};
 
 export async function createViewport(
   canvas,
@@ -239,6 +263,59 @@ export async function createViewport(
   const highlights = new THREE.Group(),
     wires = new THREE.Group();
   scene.add(highlights, wires);
+  // Reference images (blueprints, photos, concept views) stand behind the model in one
+  // orthographic view. They are drawing aids: never picked, exported or saved in a project.
+  const referenceGroup = new THREE.Group();
+  scene.add(referenceGroup);
+  let references = [];
+  function placeReferences() {
+    const box = model
+      ? new THREE.Box3().setFromObject(model.root, true)
+      : new THREE.Box3();
+    const corners = box.isEmpty()
+      ? [new THREE.Vector3()]
+      : [0, 1, 2, 3, 4, 5, 6, 7].map(
+          (i) =>
+            new THREE.Vector3(
+              i & 1 ? box.max.x : box.min.x,
+              i & 2 ? box.max.y : box.min.y,
+              i & 4 ? box.max.z : box.min.z,
+            ),
+        );
+    const margin = box.isEmpty()
+      ? 0.01
+      : box.getSize(new THREE.Vector3()).length() * 0.02 + 0.001;
+    for (const { spec, mesh } of references) {
+      const [right, up] = REFERENCE_AXES[spec.view].map(
+          (v) => new THREE.Vector3(...v),
+        ),
+        normal = new THREE.Vector3().crossVectors(right, up),
+        depth = Math.min(...corners.map((c) => c.dot(normal))) - margin;
+      mesh.matrix
+        .makeBasis(right, up, normal)
+        .setPosition(
+          right
+            .clone()
+            .multiplyScalar(spec.center[0])
+            .add(up.clone().multiplyScalar(spec.center[1]))
+            .add(normal.clone().multiplyScalar(depth)),
+        );
+      mesh.matrixWorldNeedsUpdate = true;
+    }
+  }
+  function showReferences(name = null) {
+    const direction = camera.position.clone().sub(orbit.target).normalize();
+    for (const { spec, mesh } of references) {
+      const [right, up] = REFERENCE_AXES[spec.view].map(
+        (v) => new THREE.Vector3(...v),
+      );
+      mesh.visible =
+        name !== null
+          ? name === spec.view
+          : camera.isOrthographicCamera &&
+            direction.dot(new THREE.Vector3().crossVectors(right, up)) > 0.999;
+    }
+  }
   const raycaster = new THREE.Raycaster(),
     boxOverlay = document.createElement("div");
   boxOverlay.className = "selection-box";
@@ -264,6 +341,7 @@ export async function createViewport(
       frame = requestAnimationFrame(() => {
         frame = 0;
         updateGrid();
+        showReferences();
         renderer.render(scene, camera);
         updateAxes();
       });
@@ -1104,6 +1182,53 @@ export async function createViewport(
   observer.observe(canvas);
   resize();
   return {
+    async setReferences(list) {
+      const loaded = [];
+      try {
+        for (const spec of list) {
+          const image = new Image();
+          image.src = spec.image;
+          await image.decode();
+          const texture = new THREE.Texture(image);
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.needsUpdate = true;
+          const mesh = new THREE.Mesh(
+            new THREE.PlaneGeometry(
+              spec.width,
+              (spec.width * image.naturalHeight) / image.naturalWidth,
+            ),
+            new THREE.MeshBasicMaterial({
+              map: texture,
+              transparent: true,
+              opacity: spec.opacity,
+              depthWrite: false,
+              toneMapped: false,
+              side: THREE.DoubleSide,
+            }),
+          );
+          mesh.matrixAutoUpdate = false;
+          mesh.renderOrder = -1;
+          loaded.push({ spec, mesh });
+        }
+      } catch (error) {
+        for (const { mesh } of loaded) {
+          mesh.geometry.dispose();
+          mesh.material.map.dispose();
+          mesh.material.dispose();
+        }
+        throw new Error("Reference image cannot be decoded");
+      }
+      for (const { mesh } of references) {
+        mesh.removeFromParent();
+        mesh.geometry.dispose();
+        mesh.material.map.dispose();
+        mesh.material.dispose();
+      }
+      references = loaded;
+      for (const { mesh } of loaded) referenceGroup.add(mesh);
+      placeReferences();
+      render();
+    },
     rendererInfo() {
       return {
         backend,
@@ -1125,6 +1250,7 @@ export async function createViewport(
       transform.detach();
       project = next;
       install(next);
+      placeReferences();
       fitLighting();
       updateWires();
       refreshSelection();
@@ -1201,12 +1327,14 @@ export async function createViewport(
         project = next;
         if (options?.selection) selection = options.selection;
         install(next);
+        placeReferences();
         fitLighting();
         return this.renderViews(names, size, options);
       } finally {
         project = original;
         selection = originalSelection;
         install(original);
+        placeReferences();
         fitLighting();
         updateWires();
         refreshSelection();
@@ -1388,6 +1516,7 @@ export async function createViewport(
           if (shot.isPerspectiveCamera) shot.aspect = size / height;
           shot.updateProjectionMatrix();
           shot.updateMatrixWorld();
+          showReferences(options.references ? name : "");
           renderer.render(scene, shot);
           return {
             view: name,
@@ -1414,6 +1543,7 @@ export async function createViewport(
         highlights.visible = previous.highlights;
         wires.visible = previous.wires;
         transform.getHelper().visible = previous.helper;
+        showReferences();
         renderer.setPixelRatio(previous.ratio);
         renderer.setSize(previous.size.x, previous.size.y, false);
         render();

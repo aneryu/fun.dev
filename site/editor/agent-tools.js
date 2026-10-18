@@ -35,6 +35,7 @@ const render = {
   overlays: object({ wire: bool, selection: bool }),
   focus: bool,
   projection: { enum: ["perspective", "orthographic"] },
+  references: bool,
   camera: object(
     {
       position: vector,
@@ -245,6 +246,29 @@ const definitions = [
     false,
   ],
   ["activity", "Read recent changes and structured failures.", object(), true],
+  [
+    "setReference",
+    "Put a reference image (data URL; the CLI also accepts path) behind the model in one orthographic view. center is [horizontal, vertical] metres along that view's screen axes from the world origin; width in metres. Kept with the draft, never exported. observe({references:true}) renders it.",
+    object(
+      {
+        view: { enum: ["front", "back", "left", "right", "top"] },
+        image: str,
+        path: str,
+        width: num,
+        center: { type: "array", items: num, minItems: 2, maxItems: 2 },
+        opacity: num,
+      },
+      ["view", "width"],
+    ),
+    false,
+  ],
+  [
+    "clearReference",
+    "Remove the reference image of one view, or all without view.",
+    object({ view: { enum: ["front", "back", "left", "right", "top"] } }),
+    false,
+  ],
+  ["references", "List reference images (without image data).", object(), true],
 ];
 const validationTools = definitions.map(
   ([method, description, inputSchema, readOnlyHint]) => ({

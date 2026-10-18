@@ -33,6 +33,12 @@ import {
 } from "./viewport.js";
 import { openDraft } from "./draft.js";
 import { loadKernel } from "./kernel.js";
+import {
+  normalizeReference,
+  referenceSummary,
+  referenceDialog,
+  REFERENCE_VIEWS,
+} from "./references.js";
 import { meshEdges, edgeKey } from "./topology.js";
 import { profileEditor } from "./profile.js";
 import { stoolProject, planterProject } from "./examples.js";
@@ -283,6 +289,9 @@ async function start() {
     onBoxEnd: () => $("#box-select").setAttribute("aria-pressed", "false"),
   });
   viewport.setReadonly(!draft.writable);
+  await viewport
+    .setReferences(draft.record.references ?? [])
+    .catch((error) => status(t("edError") + error.message, true));
   $("#renderer-label").textContent =
     viewport.rendererInfo().backend === "webgpu" ? "WebGPU" : "WebGL2";
   const profile = profileEditor($("#profile-editor"), $("#outline"), {
@@ -613,6 +622,13 @@ async function start() {
     $("#linked-duplicate").parentElement.hidden = assetCopy;
     $("#group-selection").disabled =
       component || !selection.ids.length || selectionLocked || !draft.writable;
+    const booleanReady =
+      !component &&
+      selection.ids.length > 1 &&
+      !selectionLocked &&
+      draft.writable &&
+      selection.ids.every((id) => p.nodes.find((n) => n.id === id)?.mesh);
+    for (const button of all("[data-boolean]")) button.disabled = !booleanReady;
     $("#isolate").setAttribute("aria-pressed", String(!!viewState.isolated));
     renderParts(p);
     $("#view-label").textContent = t(
@@ -1222,6 +1238,25 @@ async function start() {
       updateSelection(true);
     }
   };
+  for (const button of all("[data-boolean]"))
+    button.onclick = () => {
+      const target = selection.id,
+        tools = selection.ids.filter((id) => id !== target);
+      if (
+        flushPending() &&
+        apply([
+          {
+            op: "boolean",
+            id: target,
+            operation: button.dataset.boolean,
+            with: tools,
+          },
+        ])
+      ) {
+        selection.ids = [target];
+        updateSelection(true);
+      }
+    };
   $("#group-selection").onclick = () => {
     const id = newId("group");
     if (
@@ -1905,6 +1940,14 @@ async function start() {
       status(t("edUpdated"));
     },
   });
+  $("#reference").onclick = () =>
+    referenceDialog({
+      info,
+      list: () => draft.record.references ?? [],
+      apply: (spec) => window.funEditor.setReference(spec),
+      clear: (options) => window.funEditor.clearReference(options),
+      unit: unitFactor,
+    });
   for (const id of ["material-library", "manage-materials"])
     $("#" + id).onclick = () => {
       if (flushPending()) openMaterials(materialId);
@@ -2061,6 +2104,7 @@ async function start() {
     "opacity",
     "transmission",
     "double-sided",
+    "reference",
     "project-name",
     "pivot",
   ])
@@ -2203,6 +2247,27 @@ async function start() {
       revision: store.revision,
       ...validateProject(store.snapshot(), budget),
     }),
+    async setReference(spec) {
+      const next = normalizeReference(spec),
+        list = [
+          ...(draft.record.references ?? []).filter((r) => r.view !== next.view),
+          next,
+        ];
+      await viewport.setReferences(list);
+      const persistence = draft.setMetadata({ references: list });
+      return { references: list.map(referenceSummary), persistence };
+    },
+    async clearReference({ view } = {}) {
+      if (view !== undefined && !REFERENCE_VIEWS.includes(view))
+        throw new ModelError("Choose front, back, left, right or top", "invalid", "view");
+      const list = (draft.record.references ?? []).filter(
+        (r) => view !== undefined && r.view !== view,
+      );
+      await viewport.setReferences(list);
+      const persistence = draft.setMetadata({ references: list });
+      return { references: list.map(referenceSummary), persistence };
+    },
+    references: () => (draft.record.references ?? []).map(referenceSummary),
     async exportGLB({ encoding = "buffer", ...options } = {}) {
       if (!["buffer", "base64"].includes(encoding))
         throw new Error("Use buffer or base64 encoding");

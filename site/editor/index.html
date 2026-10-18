@@ -102,6 +102,17 @@
             隔离</button
           ><button id="show-all" data-i18n="edShowAll">显示全部</button>
         </div>
+        <div class="part-actions" id="boolean-tools">
+          <button data-boolean="union" data-i18n="edUnion">并集</button
+          ><button data-boolean="difference" data-i18n="edDifference">
+            减去</button
+          ><button data-boolean="intersection" data-i18n="edIntersection">
+            交集
+          </button>
+        </div>
+        <p class="small muted" data-i18n="edBooleanHint">
+          最后选中的部件是目标，其余部件作为工具并被用掉
+        </p>
         <p class="small muted" data-i18n="edMultiHint">
           Shift 多选 · B 框选 · F 聚焦
         </p>
@@ -206,7 +217,8 @@
             <button data-view="perspective" data-i18n="edFrame">全貌</button
             ><button data-view="front" data-i18n="edFront">正面</button
             ><button data-view="left" data-i18n="edSide">侧面</button
-            ><button data-view="top" data-i18n="edTop">顶部</button>
+            ><button data-view="top" data-i18n="edTop">顶部</button
+            ><button id="reference" data-i18n="edReference">参考图</button>
           </div>
           <svg id="axes" viewBox="0 0 80 80" role="img" aria-label="XYZ">
             <line x1="40" y1="40" data-axis="x" />

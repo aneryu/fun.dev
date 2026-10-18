@@ -9,7 +9,7 @@ import {
   open,
   unlink,
 } from "node:fs/promises";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { execFileSync } from "node:child_process";
@@ -167,7 +167,24 @@ async function persist() {
   await rename(path + ".tmp", path);
   return { state: "saved" };
 }
+// Local tools pass files by path; the page receives data.
+async function localFiles(name, arguments_) {
+  if (name !== "fun_editor_setReference" || typeof arguments_?.path !== "string")
+    return arguments_;
+  const { path, ...rest } = arguments_,
+    type = {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".webp": "image/webp",
+      ".gif": "image/gif",
+    }[extname(path).toLowerCase()];
+  if (!type) throw new Error("Reference images are PNG, JPEG, WebP or GIF files");
+  const data = (await readFile(resolve(path))).toString("base64");
+  return { ...rest, image: `data:${type};base64,${data}` };
+}
 async function invoke(name, arguments_) {
+  arguments_ = await localFiles(name, arguments_);
   const call = toolInvocation(name, arguments_);
   await start();
   const result = await page.evaluate(async ({ method, args }) => {
