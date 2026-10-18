@@ -4,7 +4,8 @@ import { createHash } from "node:crypto";
 import { glbSkeleton, glbStats, readGLB } from "../server/glb.js";
 import { characterProblems, characterWarnings, cleanTags, inspectVersion, textWarnings } from "../server/model-rules.js";
 import { boxGLB, characterGLB, modelStack } from "./helpers/models.mjs";
-import { applyPlan, warningsOf } from "../scripts/models-admin.mjs";
+import { applyPlan, convertVersions, warningsOf } from "../scripts/models-admin.mjs";
+import { publish, putDerived, retypeModel } from "../server/models.js";
 
 const stack = await modelStack();
 after(() => stack.runtime.dispose());
@@ -258,4 +259,41 @@ test("a character is approved only when its GLB meets the character rules", asyn
   assert.deepEqual(status.stats.character, { joints: 22, problems: [], display: true });
   assert.deepEqual(warningsOf({ ...status, id: "commuter_01", version: "v003", type: "character", description: {}, files: { ...status.files, "thumbnail.png": {} } }), []);
   assert.equal((await stack.console("/api/models/commuter_01/v003/approve", { method: "POST", body: {} })).status, 200);
+});
+
+test("derived .fun3d files are recorded for approved versions and published; a maintainer may retype", async () => {
+  const env = { MODELS_DB: stack.db, MODELS_PUBLIC: await stack.publicBucket(), MODELS_SOURCES: await stack.privateBucket() };
+  await stack.upload("wagon_01/v001", metadata("小货车"), { type: "application/json" });
+  await stack.upload("wagon_01/v001/model.glb", boxGLB({ size: [1.8, 1.4, 4] }));
+  await stack.upload("wagon_01/v001/thumbnail.png", png);
+  const bytes = new Uint8Array([0x89, 0x46, 0x55, 0x4e, 0x33, 0x44, 0x0d, 0x0a, 1, 2, 3, 4]);
+  const record = { converter: `sha256:${"a".repeat(64)}`, profile: "fundev-library@1" };
+  // Only approved versions have derived files.
+  await assert.rejects(putDerived(env, "wagon_01", "v001", bytes, record), (error) => error.code === "not_approved");
+  assert.equal((await stack.console("/api/models/wagon_01/v001/approve", { method: "POST" })).status, 200);
+  const listed = (await (await stack.console("/api/versions?status=approved")).json()).versions.find((item) => item.id === "wagon_01");
+  assert.equal(listed.derived, null);
+  assert.ok(warningsOf(listed).includes("not converted"));
+  const derived = await putDerived(env, "wagon_01", "v001", bytes, { ...record, report: { triangles: 12 } });
+  assert.equal(derived.sha256, sha(bytes));
+  assert.ok(await env.MODELS_PUBLIC.head(`blobs/${sha(bytes)}.fun3d`), "stored by content in the public bucket");
+  await publish(env, ["wagon_01"]);
+  const detail = await detailOf(env.MODELS_PUBLIC, "wagon_01");
+  assert.deepEqual(detail.versions[0].derived, { sha256: sha(bytes), size: bytes.length, converter: record.converter, profile: record.profile }, "pages carry the address and the converter, not the report");
+  assert.deepEqual((await (await stack.console("/api/versions?status=approved")).json()).versions.find((item) => item.id === "wagon_01").derived.report, { triangles: 12 });
+  // The maintenance command converts through the real converter and publishes once; current files are kept.
+  const report = await convertVersions(env, [listed], { log: () => {} });
+  assert.deepEqual([report.converted, report.failed], [["wagon_01/v001"], []]);
+  const converted = (await detailOf(env.MODELS_PUBLIC, "wagon_01")).versions[0].derived;
+  assert.equal(converted.profile, "fundev-library@1");
+  assert.equal(converted.converter, report.converter);
+  assert.notEqual(converted.sha256, sha(bytes));
+  assert.ok(await env.MODELS_PUBLIC.head(`blobs/${converted.sha256}.fun3d`));
+  const again = (await (await stack.console("/api/versions?status=approved")).json()).versions.filter((item) => item.id === "wagon_01");
+  assert.deepEqual((await convertVersions(env, again, { log: () => {} })).skipped, ["wagon_01/v001"]);
+  // The console refuses to retype an approved model; the maintainer's one-time retype republishes.
+  assert.equal((await stack.console("/api/models/wagon_01", { method: "PATCH", body: { type: "vehicle" } })).status, 409);
+  await retypeModel(env, "wagon_01", "vehicle");
+  assert.equal((await detailOf(env.MODELS_PUBLIC, "wagon_01")).type, "vehicle");
+  await assert.rejects(retypeModel(env, "wagon_01", "spaceship"), (error) => error.code === "invalid_metadata");
 });

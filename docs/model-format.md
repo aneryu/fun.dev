@@ -587,10 +587,14 @@ before anything but hulls is promised:
   merge into their pivot; other mesh nodes merge their primitives; flat faces weld and lose
   their normals (`groups[].flat`); unused texture coordinates go; batchable geometries get the
   batch signature.
-- Material names map to `emitter` roles: `mat_light` → `headlight`, `mat_light_red` →
-  `taillight`, `mat_signal*` → `signal`, `mat_window*` → `window`, `mat_lamp*` → `lamp`,
-  `mat_screen*` → `screen`, `mat_beacon*` → `beacon`; `mat_body` gets `tint`; transmissive
-  materials `transmission`.
+- Material names map to `emitter` roles: `mat_signal*` → `signal`, `mat_window*` → `window`,
+  `mat_lamp*` → `lamp`, `mat_screen*` → `screen`, `mat_beacon*` → `beacon`; on vehicles
+  (typed `vehicle`, or with three or more `wheel_*` nodes) `mat_light` → `headlight`,
+  `mat_light_red` → `taillight`, `mat_light_amber|orange|yellow` → `indicator`, other
+  `mat_light*` → `lamp`; on anything else `mat_light*` → `lamp` (the library's lights are named,
+  never emissive, so names are all there is; a colour named like a light — `mat_light_amber`
+  on a flower — is an upload to fix, and the conversion report lists every model's roles for
+  review). `mat_body` gets `tint`; transmissive materials `transmission`.
 - Physics by library type (recorded in `asset.source.type`): props and pieces a convex hull
   (`collider*` nodes when present; convex decomposition later as `fun3d.decomposition`),
   vehicles (type `vehicle`, after the one-time `retype` of approved vehicles typed `prop`) a
@@ -640,15 +644,23 @@ except references, which refuse the load.
   or bone order is refused (the model needs a new version). Workshop sources (`kind: edit`)
   regenerate through the headless workshop; GLB sources through the importer; `runtime`
   sources never. Nothing is pinned until the converter is frozen (section 10).
-- **Parity gate.** `npm run models -- convert` renders GLB and `.fun3d` in the same viewer
-  with the same classic materials, pixel-diffs them against per-model thresholds on a masked
-  metric (emitter roles and tints excluded), writes a worst-50 sheet, and checks derived data
-  (hull points, mass class, wheel count, emitter roles) — the derived-data checks are the gate;
-  `verify fun3d` renders synthetic models and real files alone and in a batch and diffs the two.
+- **Parity gate.** `npm run fun3d -- library` converts every listed model into a directory with
+  a report (sizes, times, validation, what the profile derived — hull points, mass, wheels,
+  emitter roles — and which conventions each model follows); `node
+  scripts/browser/fun3d-parity.mjs <dir> --gpu` renders each GLB and its `.fun3d` with the same
+  classic materials, lights and three cameras, pixel-diffs them, and writes `parity.json` and a
+  worst-50 sheet. Run over the library on 2026-10-18 (1147 models, WebGPU): mean difference
+  0.05/255, median 0.02, two models above 2 (an aquarium and a skylight — blended glass draws
+  with depth writes off in the platform, as designed), none above 5, triangle counts identical;
+  the report's role table is what review reads. `npm run models -- convert` then derives the
+  files for the library; `verify fun3d` renders synthetic models and real files alone and in a
+  batch and diffs the two.
 - **Console.** Uploads stay as they are (GLB in, thumbnails from GLB); a version shows `未转换`
-  in the console and in `npm run models -- list` until the script derives its file. Browser
-  conversion is a preview at most, never what the library serves. Direct `.fun3d` uploads
-  (release 2) pass the validator before storage.
+  in the console and `not converted` in `npm run models -- list` until the script derives its
+  file (`npm run models -- convert`, which stores the file by content and records `derived`
+  `{ sha256, size, converter, profile }` on the version and in the page data; `--force` remakes
+  files from another converter). Browser conversion is a preview at most, never what the
+  library serves. Direct `.fun3d` uploads (release 2) pass the validator before storage.
 - **Games.** `game.json` pins versions and names the format for library models
   (`"models": { "<id>": "v003" }, "modelFormat": "fun3d"`, one format per game; game-local
   assets may stay GLB); the build derives each pinned version (cached by source and converter
@@ -744,7 +756,12 @@ derived-data warnings in review, and pins; then release 2; then the workshop.
 5. The converter runs in Node, not headless Chromium: files keep images encoded, so nothing
    needs a browser to decode; the same modules run in the workshop and the console later. The
    parity render (GLB and `.fun3d` side by side) is the `verify fun3d` suite's job; the
-   library-wide gate with per-model thresholds comes with the library conversion.
+   library-wide gate is `scripts/browser/fun3d-parity.mjs` over `npm run fun3d -- library`.
+6. Emitter roles depend on the model class (vehicles read `mat_light*` as their lights, anything
+   else as lamps), because the library's lights are named, never emissive.
+7. The converter is frozen after the gate of 2026-10-18 (stamp `19c2dc60…`): 帝都 runs on a
+   derived taxi, the gate passed over the library. A change to the kit's writer or importer makes
+   a new stamp; the library converts again with `--force` only when the change is wanted there.
 
 ## Appendix A. Planned, not in 1.0
 

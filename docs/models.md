@@ -235,6 +235,15 @@ of the page data, so builds also work offline) and adds it to the release's blob
 file, the player caches it with the game for offline play, and a model shared by games downloads
 once. `models/` cannot hold the game's own files. The game skill documents this for agents.
 
+Approved versions also get a derived `.fun3d` ([model format](model-format.md) §8): the
+maintenance script converts them (`npm run models -- convert`, through the library profile),
+stores the file by content (`blobs/<sha256>.fun3d`) and records it on the version with the
+converter that made it (`derived` in the page data; the console and `npm run models -- list`
+show `未转换` / `not converted` until then). A game built with `"modelFormat": "fun3d"`
+downloads that file when the converter matches, else converts locally to the same bytes. The
+one-time `npm run models -- retype <id> vehicle` fixes vehicles that were typed `prop` before
+the type existed, so their derived files get a wheeled vehicle.
+
 A model's public address (`games.fun.dev/blobs/<sha256>.glb`, copied from its page) also works
 anywhere and never changes, but is not cached with a game.
 
@@ -246,7 +255,8 @@ anywhere and never changes, but is not cached with a game.
 | Maintenance | `scripts/models-admin.mjs` (`npm run models`), `wrangler.models-admin.jsonc` |
 | Database | `migrations-models/`, binding `MODELS_DB` in `wrangler.console.jsonc` |
 | Pages | `site/models.html`, `site/model.html`, `site/models.js`, `site/model.js`, `site/models-catalog.js`, `site/model-viewer.js` |
-| Games | `scripts/library-models.mjs` (resolve `models` in `game.json`), `scripts/game-release.mjs` |
+| Games | `scripts/library-models.mjs` (resolve `models` in `game.json`, derived `.fun3d` files), `scripts/game-release.mjs` |
+| Derived files | `scripts/models-admin.mjs convert|retype`, `scripts/fun3d-convert.mjs`, `server/models.js` (`putDerived`, `retypeModel`) |
 | Tests | `tests/models.test.mjs` (upload, review, snapshots, maintenance plans and Access checks over local D1 and R2), `tests/console-zip.test.mjs`, `tests/library-models.test.mjs` |
 
 `npm run release` applies `migrations-models/` and deploys the console Worker when it changed.

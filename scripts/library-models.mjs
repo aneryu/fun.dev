@@ -8,8 +8,9 @@ import { blobPath, cached, cacheRoot, formatLock, parseLock, storeBlob } from ".
 // file, the service worker caches it with the game, and asset() finds it:
 // - `"modelFormat": "glb"` (default): the approved model.glb at models/<id>.glb;
 // - `"modelFormat": "fun3d"`: the model converted through the library profile at
-//   models/<id>@<version>.fun3d (docs/model-format.md §8). Conversion runs here, once per
-//   (source, converter), cached locally; games/<id>/models.lock records every derived file.
+//   models/<id>@<version>.fun3d (docs/model-format.md §8): the library's own derived file when
+//   this converter made it, else converted here, once per (source, converter), cached locally;
+//   games/<id>/models.lock records every derived file.
 // A model's page data (library/<id>.json) and its file are cached locally, so builds also work
 // offline once fetched.
 const ID = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
@@ -75,7 +76,21 @@ export async function fetchSource(id, version) {
     if (!response.ok) throw new Error(`models: ${id} ${version} could not be downloaded (HTTP ${response.status}).`);
     await storeBlob(hash, Buffer.from(await response.arrayBuffer()));
   }
-  return { hash, body: await readFile(blobPath(hash)), type: detail.type ?? "prop", detail };
+  return { hash, body: await readFile(blobPath(hash)), type: detail.type ?? "prop", detail, derived: entry.derived ?? null };
+}
+
+// The library's own derived file, when it was made by this converter: fetched once into the blob
+// cache, the same bytes a local conversion would give.
+async function fetchDerived(id, version, derived) {
+  const { converterStamp } = await import("./fun3d-convert.mjs");
+  if (!derived || derived.converter !== await converterStamp() || !/^[a-f0-9]{64}$/.test(derived.sha256 ?? "")) return null;
+  if (!await cached(derived.sha256)) {
+    const response = await fetch(`${libraryOrigin()}/blobs/${derived.sha256}.fun3d`, { signal: AbortSignal.timeout(60000) });
+    if (!response.ok) return null;
+    await storeBlob(derived.sha256, Buffer.from(await response.arrayBuffer()));
+  }
+  const body = await readFile(blobPath(derived.sha256));
+  return { hash: derived.sha256, size: body.length, body };
 }
 
 // Derived files by (source hash, converter): a small index in the blob cache names the derived
@@ -103,7 +118,7 @@ export async function resolveModels(models, { format = "glb", lockPath = null } 
   for (const [id, version] of entries.sort(([a], [b]) => a.localeCompare(b))) {
     const source = await fetchSource(id, version);
     if (format === "fun3d") {
-      const derived = await derive(id, version, source);
+      const derived = await fetchDerived(id, version, source.derived) ?? await derive(id, version, source);
       files.push({ path: `models/${id}@${version}.fun3d`, body: derived.body, type: "application/octet-stream", hash: derived.hash, blob: `${derived.hash}.fun3d` });
     } else files.push({ path: `models/${id}.glb`, body: source.body, type: "model/gltf-binary", hash: source.hash, blob: `${source.hash}.glb` });
   }

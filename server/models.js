@@ -9,7 +9,7 @@ import { characterProblems, cleanTags, DISPLAY_POSE, LIMITS, MAX_FILE, PUBLIC_FI
 // library/<id>.json. Used by the console Worker and by scripts/models-admin.mjs.
 export { FILE, ID, LIMITS, MAX_FILE, MODEL_TYPES, PUBLIC_FILES, SUPPORTED_TYPES, VERSION, validKit, validName, validTags } from "./model-rules.js";
 const MAX_METADATA = 64 * 1024;
-export const TYPES = { glb: "model/gltf-binary", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", blend: "application/x-blender", json: "application/json", md: "text/markdown; charset=utf-8", txt: "text/plain; charset=utf-8" };
+export const TYPES = { glb: "model/gltf-binary", fun3d: "application/octet-stream", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", blend: "application/x-blender", json: "application/json", md: "text/markdown; charset=utf-8", txt: "text/plain; charset=utf-8" };
 export const typeOf = (name) => TYPES[name.split(".").pop()] ?? "application/octet-stream";
 const IMMUTABLE = "public, max-age=31536000, immutable";
 const SNAPSHOT = "public, max-age=60";
@@ -80,7 +80,7 @@ async function ensureVersion(db, id, version, now, file) {
 }
 
 export function versionView(row) {
-  return { status: row.status, note: row.note ?? null, files: JSON.parse(row.files), stats: row.stats ? JSON.parse(row.stats) : null };
+  return { status: row.status, note: row.note ?? null, files: JSON.parse(row.files), stats: row.stats ? JSON.parse(row.stats) : null, derived: row.derived ? JSON.parse(row.derived) : null };
 }
 
 function checkAddress(id, version, file) {
@@ -257,6 +257,36 @@ export async function approveVersion(env, id, version, { defer = false } = {}) {
   if (!defer) await publish(env, [id]);
 }
 
+/**
+ * The derived .fun3d of an approved version (docs/model-format.md §8), written by the maintenance
+ * script: stored by content in the public bucket and recorded with the converter that made it,
+ * so games get the same file whether they convert or download. Old derived blobs stay (games
+ * may pin them).
+ */
+export async function putDerived(env, id, version, bytes, { converter, profile, report = null } = {}) {
+  checkAddress(id, version, "model.fun3d");
+  const db = env.MODELS_DB;
+  if (!/^sha256:[0-9a-f]{64}$/.test(converter ?? "") || typeof profile !== "string" || !profile) fail("invalid_request", 400, "a derived file names its converter and profile");
+  if (!bytes.length || bytes.length > MAX_FILE) fail("too_large", 413, `at most ${MAX_FILE} bytes`);
+  const row = await sql(db, "SELECT status FROM versions WHERE model=? AND version=?", id, version).first();
+  if (!row) fail("not_found", 404);
+  if (row.status !== "approved") fail("not_approved", 409, "only approved versions have derived files");
+  const sha256 = hex(await crypto.subtle.digest("SHA-256", bytes));
+  await env.MODELS_PUBLIC.put(blobKey("model.fun3d", sha256), bytes, { httpMetadata: { contentType: typeOf("model.fun3d"), cacheControl: IMMUTABLE }, sha256 });
+  const derived = { sha256, size: bytes.length, converter, profile, at: Date.now(), ...(report ? { report } : {}) };
+  const result = await sql(db, "UPDATE versions SET derived=json(?),updated_at=? WHERE model=? AND version=? AND status='approved'", JSON.stringify(derived), Date.now(), id, version).run();
+  if (!result.meta.changes) fail("changed_file", 409, "the version changed meanwhile");
+  return derived;
+}
+
+/** A maintainer's one-time type change of an approved model (the console refuses it), republished. */
+export async function retypeModel(env, id, type, { defer = false } = {}) {
+  checkType(type);
+  const result = await sql(env.MODELS_DB, "UPDATE models SET type=?,updated_at=? WHERE id=?", type, Date.now(), id).run();
+  if (!result.meta.changes) fail("not_found", 404);
+  if (!defer) await publish(env, [id]);
+}
+
 // At most this many versions per request, to stay within a Worker invocation's limits.
 export const APPROVE_BATCH = 10;
 
@@ -279,18 +309,20 @@ export async function approveVersions(env, versions, { limit = APPROVE_BATCH } =
 export const INDEX_FIELDS = ["id", "name", "description", "type", "kit", "tags", "size", "version", "thumbnail"];
 const round = (value) => Math.round(value * 100) / 100;
 const publicFiles = (files) => Object.fromEntries(Object.entries(files).filter(([name]) => PUBLIC_FILES.includes(name)));
+// What games need of a derived record: the blob's address and which converter made it.
+const publicDerived = (text) => { if (!text) return null; const { sha256, size, converter, profile } = JSON.parse(text); return { sha256, size, converter, profile }; };
 
 /** One model's page data: both languages, every approved version with its public files. */
 export async function writeDetail(env, id) {
   const db = env.MODELS_DB;
   const model = await sql(db, "SELECT m.*, k.description AS kit_description FROM models m LEFT JOIN kits k ON k.id=m.kit WHERE m.id=?", id).first();
-  const { results } = await sql(db, "SELECT version, files, stats, reviewed_at FROM versions WHERE model=? AND status='approved' ORDER BY version DESC", id).all();
+  const { results } = await sql(db, "SELECT version, files, stats, reviewed_at, derived FROM versions WHERE model=? AND status='approved' ORDER BY version DESC", id).all();
   if (!model || !results.length) { await env.MODELS_PUBLIC.delete(`library/${id}.json`); return; }
   const view = modelView(model);
   const detail = {
     licence: "CC0-1.0", id, name: view.name, description: view.description, type: view.type, kit: view.kit,
     kitDescription: model.kit_description ? JSON.parse(model.kit_description) : null, tags: view.tags, listed: view.listed,
-    versions: results.map((row) => ({ version: row.version, files: publicFiles(JSON.parse(row.files)), stats: JSON.parse(row.stats), approved: row.reviewed_at })),
+    versions: results.map((row) => ({ version: row.version, files: publicFiles(JSON.parse(row.files)), stats: JSON.parse(row.stats), approved: row.reviewed_at, derived: publicDerived(row.derived) })),
   };
   await env.MODELS_PUBLIC.put(`library/${id}.json`, JSON.stringify(detail), { httpMetadata: { contentType: "application/json", cacheControl: SNAPSHOT } });
 }

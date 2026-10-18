@@ -4,9 +4,10 @@
 // - `static__<material>` nodes merge into one node `static`; `<pivot>__<material>` children
 //   merge into their pivot; other mesh nodes merge their primitives;
 // - flat faces weld and lose their normals (`groups[].flat`); unused texture coordinates go;
-// - material names map to emitter roles (mat_light → headlight, mat_light_red → taillight,
-//   mat_signal* → signal, mat_window* → window, mat_lamp* → lamp, mat_screen* → screen,
-//   mat_beacon* → beacon); mat_body gets tint; transmissive materials transmission;
+// - material names map to emitter roles (mat_signal* → signal, mat_window* → window, mat_lamp* →
+//   lamp, mat_screen* → screen, mat_beacon* → beacon; on vehicles mat_light → headlight,
+//   mat_light_red → taillight, mat_light_amber → indicator, elsewhere mat_light* → lamp);
+//   mat_body gets tint; transmissive materials transmission;
 // - physics by library type: props a switchable convex hull (collider* nodes when present),
 //   pieces their mesh, vehicles a wheeled vehicle from wheel_* nodes, characters a capsule and a
 //   ragdoll from the rig's roles; mass from a density table.
@@ -17,7 +18,11 @@
 import { idFromName as idOf } from "./fun3d-schema.js";
 
 export const PROFILE = "fundev-library@1";
-const ROLES = [[/^mat_light_red/, "taillight"], [/^mat_light/, "headlight"], [/^mat_signal/, "signal"], [/^mat_window/, "window"], [/^mat_lamp/, "lamp"], [/^mat_screen/, "screen"], [/^mat_beacon/, "beacon"]];
+// Emitter roles by material name. Vehicles (typed so, or with three or more wheel_* nodes) read
+// mat_light* as their lights; on anything else those names are lamps.
+const ROLES = [[/^mat_signal/, "signal"], [/^mat_window/, "window"], [/^mat_lamp/, "lamp"], [/^mat_screen/, "screen"], [/^mat_beacon/, "beacon"]];
+const VEHICLE_ROLES = [[/^mat_light_red/, "taillight"], [/^mat_light_(?:amber|orange|yellow)/, "indicator"], [/^mat_light(?:$|_white|_front)/, "headlight"], [/^mat_light/, "lamp"]];
+const OTHER_ROLES = [[/^mat_light/, "lamp"]];
 const DENSITY = { prop: 300, vehicle: 100 };
 // Humanoid rigs the library carries: role → bone name, so animation packs bind by role.
 const RIGS = {
@@ -65,9 +70,9 @@ export function createImporter({ THREE, loader, fun3d, encoder = null }) {
   }
 
   // Library conventions → features.
-  function describeMaterial(material) {
+  function describeMaterial(material, vehicle) {
     const name = material.name ?? "", features = {};
-    const role = ROLES.find(([pattern]) => pattern.test(name))?.[1];
+    const role = [...ROLES, ...(vehicle ? VEHICLE_ROLES : OTHER_ROLES)].find(([pattern]) => pattern.test(name))?.[1];
     if (role) {
       const glow = material.emissive && material.emissive.getHex() !== 0 ? material.emissive : material.color;
       features.emitter = { role, color: `#${glow.getHexString()}`, intensity: round(material.emissiveIntensity || 1, 4) };
@@ -209,8 +214,11 @@ export function createImporter({ THREE, loader, fun3d, encoder = null }) {
     const boneNames = new Set(bones.map((b) => b.name));
     const rigName = Object.keys(RIGS).find((name) => RIGS[name].test(boneNames)) ?? null;
     const kind = !meshes.length && gltf.animations.length ? "animations" : "model";
+    let wheelPivots = 0;
+    root.traverse((o) => { if (/^wheel_/.test(o.name) && !/^wheel_.*__/.test(o.name)) wheelPivots++; });
+    const vehicleClass = type === "vehicle" || wheelPivots >= 3;
     const roles = new Map();
-    for (const mesh of meshes) for (const material of [mesh.material].flat()) { const role = describeMaterial(material); if (role) roles.set(material.name, role); }
+    for (const mesh of meshes) for (const material of [mesh.material].flat()) { const role = describeMaterial(material, vehicleClass); if (role) roles.set(material.name, role); }
 
     // GLTFLoader turns a glTF mesh with several primitives into a group of meshes; those are one
     // part, so their primitives merge back into one geometry.

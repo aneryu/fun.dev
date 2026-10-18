@@ -24,6 +24,7 @@ function warnings(stats, item = {}) {
   if (!stats) return ["还没有 model.glb"];
   const list = [];
   if (item.files && !item.files["thumbnail.png"]) list.push("没有缩略图");
+  if (item.status === "approved" && item.derived === null) list.push("未转换");
   if (item.id && !item.description) list.push("没有描述");
   for (const field of textIssues(item)) list.push(field === "name" ? "名字里有制作术语（低多边形、静态、视觉模型……）" : "描述里有制作术语，请写它是什么、长什么样、适合放在哪里");
   if (Math.abs(stats.min[1]) > 0.001) list.push(`底部在 y = ${stats.min[1]} m，不在地面上`);

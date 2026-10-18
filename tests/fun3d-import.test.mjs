@@ -18,16 +18,17 @@ function carGLB() {
   const gltf = JSON.parse(new TextDecoder().decode(base.subarray(20, 20 + length)));
   const mesh = (material) => ({ primitives: [{ attributes: { POSITION: 0 }, indices: 1, material }] });
   const extra = {
-    materials: [{ name: "mat_body", pbrMetallicRoughness: { baseColorFactor: [0.9, 0.7, 0.1, 1] } }, { name: "mat_light", pbrMetallicRoughness: { baseColorFactor: [1, 0.95, 0.8, 1] } }, { name: "mat_rubber", pbrMetallicRoughness: { baseColorFactor: [0.1, 0.1, 0.1, 1] } }, { name: "mat_glass", pbrMetallicRoughness: { baseColorFactor: [0.6, 0.8, 1, 0.3] }, alphaMode: "BLEND" }],
-    meshes: [mesh(0), mesh(1), mesh(2), mesh(3)],
+    materials: [{ name: "mat_body", pbrMetallicRoughness: { baseColorFactor: [0.9, 0.7, 0.1, 1] } }, { name: "mat_light", pbrMetallicRoughness: { baseColorFactor: [1, 0.95, 0.8, 1] } }, { name: "mat_rubber", pbrMetallicRoughness: { baseColorFactor: [0.1, 0.1, 0.1, 1] } }, { name: "mat_glass", pbrMetallicRoughness: { baseColorFactor: [0.6, 0.8, 1, 0.3] }, alphaMode: "BLEND" }, { name: "mat_light_amber", pbrMetallicRoughness: { baseColorFactor: [0.8, 0.4, 0.1, 1] } }],
+    meshes: [mesh(0), mesh(1), mesh(2), mesh(3), mesh(4)],
     nodes: [
-      { name: "city_taxi_01_ROOT", children: [1, 2, 3, 4, 6] },
+      { name: "city_taxi_01_ROOT", children: [1, 2, 3, 4, 5, 7] },
       { name: "static__mat_body", mesh: 0, scale: [1.8, 0.6, 4.2], translation: [0, 0.4, 0] },
       { name: "static__mat_light", mesh: 1, scale: [0.2, 0.1, 0.05], translation: [0.6, 0.6, 2.1] },
       { name: "static__mat_glass", mesh: 3, scale: [1.6, 0.4, 1.2], translation: [0, 1.0, 0] },
-      { name: "wheel_front_left", translation: [0.9, 0.33, 1.3], children: [5] },
+      { name: "static__mat_light_amber", mesh: 4, scale: [0.1, 0.05, 0.05], translation: [0.85, 0.6, 2.1] },
+      { name: "wheel_front_left", translation: [0.9, 0.33, 1.3], children: [6] },
       { name: "wheel_front_left__mat_rubber", mesh: 2, scale: [0.2, 0.66, 0.66], translation: [0, -0.33, 0] },
-      { name: "wheel_rear_right", translation: [-0.9, 0.33, -1.3], children: [7] },
+      { name: "wheel_rear_right", translation: [-0.9, 0.33, -1.3], children: [8] },
       { name: "wheel_rear_right__mat_rubber", mesh: 2, scale: [0.2, 0.66, 0.66], translation: [0, -0.33, 0] },
     ],
     scenes: [{ nodes: [0] }],
@@ -42,13 +43,14 @@ test("a library vehicle converts through the profile: merged parts, roles, tint 
   assert.equal(manifest.asset.source.type, "vehicle");
   assert.deepEqual(manifest.nodes.map((n) => n.id), ["city_taxi_01_ROOT", "static", "wheel_front_left", "wheel_rear_right"]);
   const statics = manifest.nodes.find((n) => n.id === "static");
-  assert.deepEqual(statics.mesh.materials, ["mat_body", "mat_light", "mat_glass"], "opaque slots first, blended last");
+  assert.deepEqual(statics.mesh.materials, ["mat_body", "mat_light", "mat_light_amber", "mat_glass"], "opaque slots first, blended last");
   const geometry = manifest.geometries.find((g) => g.id === statics.mesh.geometry);
   assert.ok(geometry.groups.every((g) => g.flat), "box faces are flat");
-  assert.equal(geometry.vertices, 24, "flat boxes weld to 8 vertices per material");
+  assert.equal(geometry.vertices, 32, "flat boxes weld to 8 vertices per material");
   assert.ok(geometry.buffers.some((b) => b.attributes.normal), "merged geometries keep a normal attribute for the batch layout");
   const materials = Object.fromEntries(manifest.materials.map((m) => [m.id, m]));
   assert.deepEqual(materials.mat_light.features.emitter, { role: "headlight", color: "#fff9e7", intensity: 1 }, "colours are sRGB hex");
+  assert.equal(materials.mat_light_amber.features.emitter.role, "indicator");
   assert.deepEqual(materials.mat_body.features, { tint: {} });
   assert.equal(materials.mat_glass.alpha.mode, "blend");
   const wheel = manifest.nodes.find((n) => n.id === "wheel_front_left");
@@ -59,7 +61,7 @@ test("a library vehicle converts through the profile: merged parts, roles, tint 
   assert.deepEqual(vehicle.wheels.map((w) => [w.id, w.steer ?? 0, w.handbrake ?? 0]), [["wheel_front_left", 0.6, 0], ["wheel_rear_right", 0, 4000]]);
   assert.ok(Math.abs(vehicle.wheels[0].radius - 0.33) < 0.01, `wheel radius ${vehicle.wheels[0].radius}`);
   assert.equal(report.type, "vehicle");
-  assert.deepEqual(report.roles, { mat_light: "headlight" });
+  assert.deepEqual(report.roles, { mat_light: "headlight", mat_light_amber: "indicator" });
   assert.ok(report.hull >= 8 && report.mass > 50, `hull ${report.hull}, mass ${report.mass}`);
   const model = await fun3d.load(bytes);
   assert.ok(model.node("wheel_front_left").userData.mesh.isMesh);
@@ -125,6 +127,9 @@ test("a character converts with its rig roles, capsule and ragdoll; a prop gets 
   assert.ok(model.node("body").isSkinnedMesh);
   assert.equal(model.node("body").skeleton.bones.length, 22);
   assert.ok(model.warnings.some((w) => /ragdolls|characters/.test(w)) === false, "the loader leaves physics warnings to kit/physics.js");
+  // Light names on things that are not vehicles are lamps, not headlights.
+  const shopfront = await importer.importGLB(boxGLB({ size: [1, 2, 1], extra: { materials: [{ name: "mat_light_red" }], meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1, material: 0 }] }] } }), { type: "prop", name: "shopfront" });
+  assert.equal(shopfront.manifest.materials[0].features.emitter.role, "lamp");
   const prop = await importer.importGLB(boxGLB({ size: [1, 2, 1] }), { type: "prop", name: "crate" });
   assert.deepEqual(await fun3d.validate(prop.bytes), []);
   assert.equal(prop.manifest.physics.bodies[0].switchable, true);

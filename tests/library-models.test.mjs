@@ -11,12 +11,16 @@ import { boxGLB } from "./helpers/models.mjs";
 const glb = Buffer.from(boxGLB({ size: [0.5, 0.9, 0.5] }));
 const sha = createHash("sha256").update(glb).digest("hex");
 const detail = { licence: "CC0-1.0", id: "desk_chair_01", name: { zh: "书椅", en: "Desk chair" }, type: "prop", kit: null, tags: [], listed: true, versions: [{ version: "v002", files: { "model.glb": { sha256: sha, size: glb.length } }, stats: {} }] };
-let requests = 0, online = true;
+// A derived file the library may publish for v002 (any bytes: builds trust the library's record).
+const published = Buffer.from("published derived bytes"), publishedSha = createHash("sha256").update(published).digest("hex");
+let requests = 0, online = true, blobRequests = [];
 const server = createServer((request, response) => {
   requests++;
   if (!online) { response.socket.destroy(); return; }
+  if (request.url.startsWith("/blobs/")) blobRequests.push(request.url);
   if (request.url === "/library/desk_chair_01.json") { response.writeHead(200, { "Content-Type": "application/json" }); response.end(JSON.stringify(detail)); }
   else if (request.url === `/blobs/${sha}.glb`) { response.writeHead(200); response.end(glb); }
+  else if (request.url === `/blobs/${publishedSha}.fun3d`) { response.writeHead(200); response.end(published); }
   else { response.writeHead(404); response.end(); }
 });
 await new Promise((done) => server.listen(0, "127.0.0.1", done));
@@ -71,6 +75,25 @@ test("modelFormat fun3d derives files through the converter, caches them and wri
   assert.equal(again.game.release, release.game.release);
   online = true;
   await assert.rejects(prepareRelease(await game({ desk_chair_01: "v002" }, ["game.js"], { modelFormat: "obj" })), /modelFormat must be one of/);
+});
+
+test("a derived file the library published with this converter is downloaded instead of converted", async () => {
+  const { converterStamp } = await import("../scripts/fun3d-convert.mjs");
+  detail.versions[0].derived = { sha256: publishedSha, size: published.length, converter: await converterStamp(), profile: "fundev-library@1" };
+  forgetCatalog();
+  blobRequests = [];
+  const release = await prepareRelease(await game({ desk_chair_01: "v002" }, ["game.js"], { modelFormat: "fun3d" }));
+  const model = release.assets.find((asset) => asset.path === "models/desk_chair_01@v002.fun3d");
+  assert.deepEqual(model.body, published);
+  assert.deepEqual(blobRequests, [`/blobs/${publishedSha}.fun3d`], "the published file is fetched once; the GLB is already cached");
+  // Another converter's file is not used: the build converts for itself.
+  detail.versions[0].derived.converter = `sha256:${"b".repeat(64)}`;
+  forgetCatalog();
+  const own = (await prepareRelease(await game({ desk_chair_01: "v002" }, ["game.js"], { modelFormat: "fun3d" }))).assets.find((asset) => asset.path.endsWith(".fun3d"));
+  assert.notDeepEqual(own.body, published);
+  assert.deepEqual([...own.body.subarray(0, 8)], [0x89, 0x46, 0x55, 0x4e, 0x33, 0x44, 0x0d, 0x0a]);
+  delete detail.versions[0].derived;
+  forgetCatalog();
 });
 
 test("unknown models, bad versions and files under models/ are refused", async () => {
