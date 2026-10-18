@@ -800,6 +800,20 @@ export async function editorAdapterChecks() {
         .recipe.steps.at(-1).material,
       replacement,
     );
+    // A project file lands in the artifacts directory and opens again from its path.
+    const projectFile = await tool("exportProject");
+    assert.match(projectFile.structuredContent.artifact.path, /\.funmodel\.glb$/);
+    const reopened = await tool("importGLB", {
+      path: projectFile.structuredContent.artifact.path,
+      ifRevision: replaced.structuredContent.revision,
+    });
+    assert.ok(!reopened.isError, JSON.stringify(reopened));
+    assert.equal(reopened.structuredContent.container, true);
+    assert.equal(
+      reopened.structuredContent.revision,
+      replaced.structuredContent.revision + 1,
+    );
+    assert.equal(reopened.structuredContent.persistence.state, "saved");
   } finally {
     const exit = once(child, "exit");
     child.stdin.end();

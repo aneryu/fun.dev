@@ -10,9 +10,10 @@ const TAG = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 export const MODEL_TYPES = ["prop", "piece", "character", "creature", "animation", "scene", "world"];
 export const SUPPORTED_TYPES = ["prop", "piece", "character"];
 // Stored at upload in the public content-addressed store (docs/models.md); listing a version is
-// what makes them part of the library. thumbnail.png is rendered by the upload page. Everything
-// else (preview.png, qa.json, readme.md) stays private, for review only.
-export const PUBLIC_FILES = ["model.glb", "thumbnail.png", "source.blend"];
+// what makes them part of the library. thumbnail.png is rendered by the upload page; the
+// sources are a Blender file or a workshop project (a GLB carrying the editable project).
+// Everything else (preview.png, qa.json, readme.md) stays private, for review only.
+export const PUBLIC_FILES = ["model.glb", "thumbnail.png", "source.blend", "source.funmodel.glb"];
 export const LIMITS = { "model.glb": 10 * 1024 * 1024 };
 export const MAX_FILE = 50 * 1024 * 1024;
 const PNG = [0x89, 0x50, 0x4e, 0x47];
@@ -146,6 +147,13 @@ export function inspectVersion({ id, version, meta, files }) {
         extra.push(...characterWarnings(json));
       }
     } catch (error) { if (error instanceof GLBError) problems.push(`model.glb: ${error.message}`); else throw error; }
+  }
+  // A workshop source opens editable in /editor/; without its project it is only another GLB.
+  const workshop = files.find((file) => file.name === "source.funmodel.glb");
+  if (workshop) {
+    try {
+      if (!readGLB(workshop.bytes).extensions?.FUNDEV_workshop) extra.push("source.funmodel.glb has no workshop project; it opens as a plain import");
+    } catch (error) { if (error instanceof GLBError) problems.push(`source.funmodel.glb: ${error.message}`); else throw error; }
   }
   for (const name of ["thumbnail.png", "preview.png"]) {
     const image = files.find((file) => file.name === name);

@@ -23,6 +23,9 @@ import { describeChanges } from "./changes.js";
 import { hollowBoxRecipe, recipeValue } from "./recipe.js";
 import { recipeScopeControls } from "./recipe-controls.js";
 import { exportReport } from "./viewport.js";
+import { importModel } from "./import-glb.js";
+import { fromBase64, toBase64 } from "./glb.js";
+import { projectFile, projectFilename } from "./project-file.js";
 import { t } from "../i18n.js";
 
 const el = (tag, value) => {
@@ -442,6 +445,47 @@ export function createWorkbench({
       return {
         revision: store.revision,
         ...exportReport(store.snapshot(), options),
+      };
+    },
+    // A GLB or project file: replace the project (one undoable change) or add its parts.
+    importGLB({ data, mode = "replace", parent, name } = {}, options = {}) {
+      flush();
+      check(options);
+      const bytes = fromBase64(data);
+      if (bytes.length > 64 * 1024 * 1024)
+        throw new ModelError("The file is larger than 64 MB", "budget", "data");
+      const imported = importModel(bytes, {
+        mode,
+        parent: parent ?? null,
+        current: store.snapshot(),
+        name,
+      });
+      action = imported.container ? t("edOpenedProject") : t("edImported");
+      try {
+        const result = store.replace(imported.project, options);
+        onRestore();
+        return {
+          ...result,
+          nodes: imported.nodes,
+          warnings: imported.warnings,
+          container: imported.container,
+          persistence: draft.persistence,
+        };
+      } finally {
+        action = null;
+      }
+    },
+    async exportProject() {
+      flush();
+      const project = store.snapshot(),
+        revision = store.revision,
+        bytes = await projectFile(project);
+      return {
+        revision,
+        filename: projectFilename(project.name),
+        mimeType: "model/gltf-binary",
+        bytes: bytes.length,
+        data: toBase64(bytes),
       };
     },
   };

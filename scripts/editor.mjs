@@ -27,6 +27,9 @@ async function build() {
     "404.html",
     "runtime/three.js",
     "runtime/kit/assets.js",
+    // "Open in workshop" reads the model library through the site's own catalog module.
+    "models-catalog.js",
+    "game-source.js",
   ]) {
     await mkdir(new URL("./", new URL(path, output)), { recursive: true });
     await cp(new URL(`site/${path}`, root), new URL(path, output), {
@@ -44,6 +47,7 @@ if (args.includes("--verify")) {
       "tests/editor.test.mjs",
       "tests/editor-agent.test.mjs",
       "tests/editor-draft.test.mjs",
+      "tests/editor-import.test.mjs",
     ],
     { cwd: root, stdio: "inherit" },
   );

@@ -2,7 +2,7 @@ import { GLBError, glbSkeleton, glbStats, readGLB } from "./glb.js";
 import { characterProblems, cleanTags, DISPLAY_POSE, LIMITS, MAX_FILE, PUBLIC_FILES, typeProblem, validDescription, validFile, validId, validKit, validName, validTags, VERSION } from "./model-rules.js";
 
 // The model library (docs/models.md). D1 (MODELS_DB) is the one source of truth. Uploads put the
-// public files (model.glb, thumbnail.png, source.blend) straight into the game bucket
+// public files (model.glb, thumbnail.png, source.blend, source.funmodel.glb) straight into the game bucket
 // (MODELS_PUBLIC) as content-addressed blobs, whose addresses cannot be guessed, and the rest into
 // the private bucket (MODELS_SOURCES). Approving a version lists it. Every change to what is
 // listed rewrites the public snapshots in the same request: library/index.<locale>.json and
@@ -69,7 +69,7 @@ const STATUS = `CASE WHEN status='approved' THEN 'approved'
    AND json_extract(files,'$."model.glb"') IS NOT NULL THEN 'pending'
   ELSE 'incomplete' END`;
 
-// Approved versions keep their model.glb and source.blend for good (games pin them); only the
+// Approved versions keep their model.glb and sources for good (games pin them); only the
 // thumbnail, a rendering, may be replaced.
 async function ensureVersion(db, id, version, now, file) {
   await sql(db, "INSERT INTO models(id,created_at,updated_at) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING", id, now, now).run();

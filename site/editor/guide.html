@@ -181,6 +181,30 @@ const file = await funEditor.exportGLB({ encoding: "base64" });</pre
             <td>Validate, replace, frame and autosave; undoable.</td>
           </tr>
           <tr>
+            <td><code>importGLB({data,mode?,parent?,name?}, {ifRevision})</code></td>
+            <td>
+              Open a GLB given as base64 data (the local adapter also accepts
+              path). A project file (.funmodel.glb) restores its editable
+              project exactly; any other GLB becomes editable parts: node
+              hierarchy, glTF names as IDs, flat PBR materials, polygons merged
+              from coplanar triangles, repeated meshes as linked copies. mode
+              "replace" (default) or "add" (parts under parent; clashing IDs get
+              suffixes). One undoable change. Returns revision, nodes (added
+              IDs), container and warnings: skins, morph targets, animations,
+              textures, cameras and lights are reported, not imported.
+              Compressed files are refused.
+            </td>
+          </tr>
+          <tr>
+            <td><code>exportProject()</code></td>
+            <td>
+              The project file: a GLB of the model (all parts, world origin)
+              whose FUNDEV_workshop extension holds the editable project.
+              Returns revision, filename (name.funmodel.glb), mimeType, bytes and
+              base64 data; the adapter writes it to --artifacts.
+            </td>
+          </tr>
+          <tr>
             <td><code>apply(commands, {ifRevision})</code></td>
             <td>
               1–256 commands in one atomic history entry. Returns revision,
@@ -654,7 +678,8 @@ node scripts/editor-agent.mjs --mcp --session /tmp/model-session.json --artifact
       >
       <p>
         Uses an isolated local Chromium and the same editor API; stdout is JSON,
-        progress is stderr. --project seeds a new session. For an already
+        progress is stderr. --project seeds a new session from a
+        .funmodel.glb project file or JSON. For an already
         debug-enabled Chrome tab: --cdp http://127.0.0.1:9222 --url
         EXACT_EDITOR_URL. The adapter does not enable debugging or replace an
         attached tab's project. No hosted endpoint or arbitrary evaluation tool.
@@ -710,6 +735,12 @@ node fundev-workshop.mjs --mcp --session model.json --artifacts out/</pre
         <code>code: "conflict"</code>. Non-planar faces are triangulated and
         reported. Validation does not judge appearance or measure device frame
         rate.
+      </p>
+      <p>
+        Model pages offer Open in workshop:
+        <code>/editor/?open=&lt;id&gt;&amp;version=vNNN</code> opens that
+        version in a new draft, from its source.funmodel.glb when it has one,
+        otherwise from its model.glb.
       </p>
       <p>
         Save editable JSON with the game's development files. Place the GLB in

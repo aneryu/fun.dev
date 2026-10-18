@@ -18,6 +18,7 @@ import { createPreviewServer, listen } from "./preview-server.mjs";
 import { agentTools, toolInvocation } from "../site/editor/agent-tools.js";
 import { errorInfo } from "../site/editor/agent-contract.js";
 import { normalizeProject } from "../site/editor/document.js";
+import { parseModelFile, workshopProject } from "../site/editor/glb.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url)),
   args = process.argv.slice(2),
@@ -39,7 +40,7 @@ for (let i = 0; i < args.length; i++) {
     config[key] = args[++i];
   } else if (args[i] === "--help") {
     console.log(
-      `node ${defaultUrl ? "fundev-workshop.mjs" : "scripts/editor-agent.mjs"} [--mcp] [--session state.json] [--project model.funmodel.json] [--artifacts directory] [--url ${defaultUrl ?? "https://fun.dev/editor/"}] [--gpu]\nExisting browser: --cdp http://127.0.0.1:9222 --url <exact editor tab URL>\nCLI stdin: one JSON {"method":"inspect","arguments":{}} per line; stdout: JSON results.\n${defaultUrl ? "Needs Playwright beside this file: npm i playwright && npx playwright install chromium" : "Build the editor first (npm run editor -- --build), or pass --url to drive a published workshop."}`,
+      `node ${defaultUrl ? "fundev-workshop.mjs" : "scripts/editor-agent.mjs"} [--mcp] [--session state.json] [--project model.funmodel.glb|.json] [--artifacts directory] [--url ${defaultUrl ?? "https://fun.dev/editor/"}] [--gpu]\nExisting browser: --cdp http://127.0.0.1:9222 --url <exact editor tab URL>\nCLI stdin: one JSON {"method":"inspect","arguments":{}} per line; stdout: JSON results.\n${defaultUrl ? "Needs Playwright beside this file: npm i playwright && npx playwright install chromium" : "Build the editor first (npm run editor -- --build), or pass --url to drive a published workshop."}`,
     );
     process.exit(0);
   } else throw new Error("Unknown option " + args[i]);
@@ -138,10 +139,16 @@ async function connect() {
         throw new Error(
           "Session already exists; use loadProject with ifRevision instead of --project",
         );
-      record = {
-        project: JSON.parse(await readFile(resolve(config.project), "utf8")),
-        revision: 0,
-      };
+      // A project file (.funmodel.glb) carries its editable project; JSON projects still work.
+      const bytes = await readFile(resolve(config.project)),
+        project = /\.glb$/i.test(config.project)
+          ? workshopProject(parseModelFile(new Uint8Array(bytes)).json)
+          : JSON.parse(bytes.toString("utf8"));
+      if (!project)
+        throw new Error(
+          "This GLB has no workshop project; start a session and use importGLB",
+        );
+      record = { project, revision: 0 };
     }
     if (record) {
       // Projects built by the geometry kernel are checked by the page instead.
@@ -201,6 +208,14 @@ async function localFiles(name, arguments_) {
 }
 async function invoke(name, arguments_) {
   arguments_ = await localFiles(name, arguments_);
+  // Agents hand over a local file by path; the page receives its bytes.
+  if (name === "fun_editor_importGLB" && typeof arguments_?.path === "string") {
+    const { path, ...rest } = arguments_;
+    arguments_ = {
+      ...rest,
+      data: (await readFile(resolve(path))).toString("base64"),
+    };
+  }
   const call = toolInvocation(name, arguments_);
   await start();
   const result = await page.evaluate(async ({ method, args }) => {
@@ -212,6 +227,7 @@ async function invoke(name, arguments_) {
         [
           "apply",
           "loadProject",
+          "importGLB",
           "undo",
           "redo",
           "checkpoint",
@@ -248,6 +264,7 @@ async function invoke(name, arguments_) {
     const mutating = [
       "apply",
       "loadProject",
+      "importGLB",
       "undo",
       "redo",
       "checkpoint",
@@ -338,11 +355,18 @@ async function invoke(name, arguments_) {
       ...value,
       observations: await observations(value.observations),
     };
-  else if (call.method === "exportGLB" && config.artifacts) {
+  else if (
+    ["exportGLB", "exportProject"].includes(call.method) &&
+    config.artifacts
+  ) {
     const { data, ...meta } = value;
     structured = {
       ...meta,
-      artifact: await asset(data, "glb", value.mimeType),
+      artifact: await asset(
+        data,
+        call.method === "exportProject" ? "funmodel.glb" : "glb",
+        value.mimeType,
+      ),
     };
   }
   content.unshift({ type: "text", text: JSON.stringify(structured) });

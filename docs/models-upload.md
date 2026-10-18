@@ -32,6 +32,7 @@ is fine; several zips are merged):
 <id>/<version>/meta.json
 <id>/<version>/model.glb
 <id>/<version>/source.blend   optional, published with the model
+<id>/<version>/source.funmodel.glb   optional workshop project (/editor/), published
 <id>/<version>/...            optional, kept for review only (qa.json, readme.md, preview.png)
 ```
 

@@ -34,7 +34,7 @@ tapered legs; Planter has an editable profile with a returning inner wall.
 - Shift-click selects multiple objects/components. B enables box selection; X
   toggles through-selection. G/R/S selects move/rotate/scale; F frames the selection.
   Numeric input commits on Enter or blur, Escape cancels. Ctrl/Cmd+Z and
-  Shift+Ctrl/Cmd+Z undo/redo; Ctrl/Cmd+S downloads the editable source.
+  Shift+Ctrl/Cmd+Z undo/redo; Ctrl/Cmd+S downloads the project file (`.funmodel.glb`).
 - Object, face, edge and vertex selections share a transform gizmo and numeric selection
   transforms. Choose world/local axes. Translation snap is selectable from 1mm to 1m, angle snap from 1° to 45°,
   and scale snap is 0.1. Length inputs switch between m/cm/mm; the document and
@@ -135,6 +135,41 @@ The add-shape dialog offers revolve and sweep (section in the profile editor, pa
 `x, y, z` lines) and a corner radius; holes are agent-only. The parts panel's **Array**
 control makes linked or independent copies of the selected part.
 
+## Project files and GLB import
+
+**Save project** (and Ctrl/Cmd+S) downloads a project file, `<name>.funmodel.glb`: the model
+exported like **Export GLB** (every part, world origin, nothing merged, never blocked by
+diagnostics) whose glTF JSON also carries the editable document in a root extension,
+`FUNDEV_workshop: { format, version, project }`, listed in `extensionsUsed` only. Any glTF
+viewer shows it as an ordinary model; **Open** in the workshop restores the exact project,
+recipes, links and assemblies included. JSON projects (`.funmodel.json`, `getProject()`) still
+open.
+
+**Open** also accepts any other GLB (or `.gltf` with embedded buffers) and turns it into
+editable parts:
+
+- The scene's node hierarchy, with glTF names as IDs (other characters become `_`; repeats
+  get `-2`, `-3`) and the original names as display names. TRS and matrices become position,
+  XYZ rotation and scale; a mirrored or sheared transform is baked into the part's mesh and
+  its children, so world geometry is unchanged.
+- Materials: base colour (linear factors to sRGB hex), roughness, metalness (glTF's default
+  is 1), emission with `KHR_materials_emissive_strength`, `BLEND` opacity (`MASK` becomes
+  opaque or invisible), `KHR_materials_transmission`/`ior` glass, double-sided. Materials
+  with the same name and look are one material.
+- Polygons: glTF has only triangles, so edge-connected triangles of one material on one
+  plane merge back into a polygon, or a few simple polygons where the region has holes or
+  more than 64 corners. Vertices split for normals or UVs are welded; vertices inside a flat
+  region disappear, which can lower the triangle count without changing the shape.
+- A mesh used by several nodes becomes linked copies of its first node.
+- Reported, not imported: skins and bones, morph targets, animations, textures, cameras,
+  lights, line and point primitives. Refused: compressed files (Draco, meshopt, KTX2, WebP,
+  AVIF), other unknown required extensions, and models beyond the limits.
+
+Imports replace the project as one undoable change, or `mode:"add"` adds the parts (under
+`parent`, if given); clashing node and material IDs get suffixes. Merged meshes whose parts
+overlap (the library's `static__mat_*` nodes, for example) validate as self-intersecting:
+the workshop then refuses topology edits on them and Export GLB asks for its override.
+
 ## Draft ownership
 
 A modern desktop browser with Web Locks (Chrome on localhost or HTTPS) grants one
@@ -146,8 +181,10 @@ about 8 MB in each direction. Storage failure is visible and downloads remain us
 The old v1 local draft is migrated on the first successful save; its original key
 is retained. Separate draft copies use their own URL key and writer lock.
 
-Keep a project's JSON alongside a game's development scripts, for example
-`games/<id>/dev/models/duck.funmodel.json`, so source edits are reviewable in Git.
+Keep the editable JSON (`getProject()`, saved as `.funmodel.json`) beside a game's development
+scripts, for example `games/<id>/dev/models/duck.funmodel.json`, so source edits are
+reviewable in Git; project files are binary and, like other source binaries, belong in
+`sources/` with their lock ([assets](assets.md)).
 The runtime export goes to `games/<id>/assets/duck.glb`; list it in `game.json`,
 bump the game version when shipping a change, then run `npm run assets` and keep
 the lock in sync. No new game or binary asset is added by the workshop itself.
@@ -162,6 +199,15 @@ const { scene } = await createAssets(context).gltf("assets/duck.glb");
 context.scene.add(scene);
 const beak = scene.getObjectByName("beak");
 ```
+
+## Model library
+
+Each model page (`/models/<id>`) has **Open in workshop**: `/editor/?open=<id>&version=vNNN`
+opens that version in a new draft of its own (the current draft is untouched; the address
+then names the new draft). A version with a workshop source, `source.funmodel.glb`, opens as
+that project; otherwise its `model.glb` is imported as parts. Uploads may include
+`source.funmodel.glb` beside `model.glb`: like `source.blend` it is public and fixed once the
+version is approved, and the page offers it for download ([models](models.md)).
 
 ## Agent contract
 
@@ -600,8 +646,10 @@ node scripts/editor-agent.mjs --mcp --session /tmp/toolbox-session.json \
 The adapter advertises typed `fun_editor_*` tools for capabilities, inspect/query,
 select/observe, preview/apply, undo/redo, presets, validation, project loading,
 export, checkpoints, flush and activity. Mutations require `ifRevision`. It starts an isolated local Chromium
-and serves the built static editor on loopback; `--project file.funmodel.json`
-seeds a new session. `--artifacts` writes observation PNGs / GLBs and returns paths;
+and serves the built static editor on loopback; `--project model.funmodel.glb` (or a
+JSON project) seeds a new session. `fun_editor_importGLB` takes `data` (base64) or, through
+the adapter, a local `path`; `fun_editor_exportProject` returns the project file.
+`--artifacts` writes observation PNGs, GLBs and project files and returns paths;
 without it CLI returns image/base64 data, while MCP observations use image content
 blocks. Session JSON is saved after each request using temporary-file replacement.
 A process lock prevents two adapters from overwriting one session file; stale locks

@@ -37,7 +37,9 @@ game's `assets/`.
 
 - Every GLB follows the pipeline's production spec: metres, glTF +Y up, front +Z, root at the
   centre of the bounding box's floor, real-world size.
-- Licence: CC0. The `.blend` source is published too when the pipeline uploaded one.
+- Licence: CC0. The source is published too when the pipeline uploaded one: a `.blend`, or a
+  workshop project file (`source.funmodel.glb`, the model plus its editable project; see
+  [model editor](model-editor.md#project-files-and-glb-import)).
 - The type is set at upload and can be corrected in review until a version is approved; after
   that it is fixed, because games may rely on it.
 
@@ -91,7 +93,7 @@ once, render as instances, and stay identifiable in games:
 - A model's id is `<name>_<NN>` as the pipeline names it, e.g. `desk_chair_01`. It is also the
   address `/models/desk_chair_01`. Ids use `[a-z0-9_]`.
 - A version is `v<NNN>`. Revisions get a new version; the newest approved one is shown.
-- Provisional rule, may change: an approved version's `model.glb` and `source.blend` never change
+- Provisional rule, may change: an approved version's `model.glb` and sources never change
   (games pin them); its thumbnail, a rendering, may be replaced; the model's name, description,
   kit, tags and listing may change at any time; its type is fixed once a version is approved.
 - Every model has a bilingual `description`: what it is, how it looks, where it fits. Agents
@@ -113,7 +115,8 @@ The D1 database `fundev-models` is the source of truth for the catalog:
 
 `name`, `description`, `kit` and `tags` belong to the model and can be edited any time.
 
-Files are stored at upload. The public ones (`model.glb`, `thumbnail.png`, `source.blend`) go
+Files are stored at upload. The public ones (`model.glb`, `thumbnail.png`, `source.blend`,
+`source.funmodel.glb`) go
 straight to the public bucket `fundev-games` as `blobs/<sha256>.<ext>`, the content-addressed
 store games use ([assets](assets.md)): an address cannot be guessed, so a file is effectively
 private until its version is listed, and approving needs no copying. The rest (`preview.png`,
@@ -201,8 +204,10 @@ larger (see Later).
 - `/models`: grid of thumbnails with search (names, descriptions, tags) and type, kit and tag
   filters (`/models?type=…&kit=…`), from the index in the reader's language.
 - `/models/<id>`: 3D view, name, description, kit and its fitting agreement, size, triangles,
-  file size; buttons to copy the GLB address, download the GLB, and download the `.blend` when
-  there is one; older versions. From `library/<id>.json`; unlisted models have no page.
+  file size; buttons to copy the GLB address, download the GLB, download the `.blend` or the
+  workshop project when there is one, and **Open in workshop** (`/editor/?open=<id>&version=…`,
+  the project file if there is one, otherwise the GLB as editable parts); older versions. From
+  `library/<id>.json`; unlisted models have no page.
 
 Both are static pages from the build (`site/models.html`, and `site/model.html`, which
 `_redirects` serves at every `/models/<id>`), so a listing is live within the cache time. The 3D view is `site/model-viewer.js`, shared with the

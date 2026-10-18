@@ -39,6 +39,9 @@ import {
   referenceDialog,
   REFERENCE_VIEWS,
 } from "./references.js";
+import { importModel } from "./import-glb.js";
+import { isGLB } from "./glb.js";
+import { projectFile, projectFilename } from "./project-file.js";
 import { meshEdges, edgeKey } from "./topology.js";
 import { profileEditor } from "./profile.js";
 import { stoolProject, planterProject } from "./examples.js";
@@ -217,7 +220,28 @@ async function start() {
   }
   // Drafts may hold kernel-built geometry, so the kernel is ready before they evaluate.
   await loadKernel();
-  draft = await openDraft(duckProject(), draftState);
+  // "Open in workshop" from a model page opens the library model in a draft of its own, so
+  // the current draft is untouched; once saved, the address names only that draft.
+  const address = new URL(location.href),
+    opening = address.searchParams.get("open");
+  let fallback = null,
+    libraryError = null;
+  if (opening) {
+    $("#boot-message").textContent = t("edLibraryLoading");
+    try {
+      const { libraryProject } = await import("./library.js");
+      fallback = await libraryProject(
+        opening,
+        address.searchParams.get("version"),
+      );
+      if (!address.searchParams.has("draft"))
+        address.searchParams.set("draft", crypto.randomUUID());
+      history.replaceState(null, "", address);
+    } catch (error) {
+      libraryError = error;
+    }
+  }
+  draft = await openDraft(fallback ?? duckProject(), draftState);
   let initial,
     restoreError = draft.restoreError;
   try {
@@ -262,6 +286,11 @@ async function start() {
     },
   });
   draft.activate();
+  if (opening) {
+    address.searchParams.delete("open");
+    address.searchParams.delete("version");
+    history.replaceState(null, "", address);
+  }
   selection = {
     id: initial.nodes.find((n) => n.mesh)?.id ?? null,
     ids: [],
@@ -1048,27 +1077,46 @@ async function start() {
     e.target.value = "";
     if (!file) return;
     try {
-      if (file.size > LIMITS.bytes) throw new Error(t("edFileLarge"));
-      const p = normalizeProject(JSON.parse(await file.text()));
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let p,
+        opened = "edLoaded",
+        warnings = [];
+      // Project files restore everything; other GLBs become editable parts.
+      if (isGLB(bytes)) {
+        if (bytes.length > 64 * 1024 * 1024) throw new Error(t("edFileLarge"));
+        const imported = importModel(bytes, {
+          name: file.name.replace(/(\.funmodel)?\.glb$/i, ""),
+        });
+        p = imported.project;
+        warnings = imported.warnings.map((w) => w.message);
+        opened = imported.container ? "edOpenedProject" : "edImported";
+      } else {
+        if (bytes.length > LIMITS.bytes) throw new Error(t("edFileLarge"));
+        p = normalizeProject(JSON.parse(new TextDecoder().decode(bytes)));
+      }
       if (!flushPending() || !confirm(t("edConfirm"))) return;
       store.replace(p, { ifRevision: revision });
       resetViewState();
       updateSelection(true);
       viewport.view();
-      status(t("edLoaded"));
+      status([t(opened), ...warnings].join(" · "));
     } catch (error) {
       status(t("edError") + error.message, true);
     }
   };
-  $("#save").onclick = () => {
+  $("#save").onclick = async () => {
     if (!flushPending()) return;
     const p = store.snapshot();
-    download(
-      `${filename(p.name)}.funmodel.json`,
-      JSON.stringify(p, null, 2),
-      "application/json",
-    );
-    status(t("edDownloaded"));
+    try {
+      download(
+        projectFilename(p.name),
+        await projectFile(p),
+        "model/gltf-binary",
+      );
+      status(t("edDownloaded"));
+    } catch (error) {
+      status(t("edError") + error.message, true);
+    }
   };
   async function downloadExport(force = false, options = {}) {
     if (!flushPending()) return;
@@ -2215,8 +2263,10 @@ async function start() {
       ? t("edRecoveryDraft")
       : restoreError
         ? t("edRestoreError")
-        : `${t("edTitle")} · ${initial.name}`,
-    restoreError,
+        : libraryError
+          ? t("edLibraryError") + libraryError.message
+          : `${t("edTitle")} · ${initial.name}`,
+    restoreError || !!libraryError,
   );
   draftState();
   for (const id of [

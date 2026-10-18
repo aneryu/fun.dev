@@ -562,8 +562,11 @@ Object.assign(messages.zh, {
   edWarningHelp:
     "点击问题定位部件。开口、非平面或预算提醒不会阻止导出；请结合实际画面检查。",
   edFailure: "编辑器加载失败，请刷新页面。",
-  edFileLarge: "工程文件不能超过 4 MB。",
-  edImported: "打开的工程可继续编辑；GLB 是交付格式。",
+  edFileLarge: "JSON 工程不能超过 8 MB，GLB 文件不能超过 64 MB。",
+  edImported: "已导入 GLB：部件和材质都能编辑。",
+  edOpenedProject: "已打开工程文件，配方和联动都在。",
+  edLibraryLoading: "正在从模型库打开…",
+  edLibraryError: "无法从模型库打开：",
   edBusy: "正在导出…",
   edMeshSelect: "先选择一个网格部件。",
 });
@@ -668,8 +671,11 @@ Object.assign(messages.en, {
   edWarningHelp:
     "Open edges, non-planar faces, and budget warnings do not block export. Inspect the rendered model too.",
   edFailure: "Couldn't load the editor. Reload to retry.",
-  edFileLarge: "Project files must be at most 4 MB.",
-  edImported: "Open a project to keep editing. GLB is the delivery format.",
+  edFileLarge: "JSON projects must be at most 8 MB, GLB files at most 64 MB.",
+  edImported: "GLB imported: its parts and materials are editable.",
+  edOpenedProject: "Project file opened with its recipes and links.",
+  edLibraryLoading: "Opening from the model library…",
+  edLibraryError: "Couldn't open from the model library: ",
   edBusy: "Exporting…",
   edMeshSelect: "Choose a mesh part first.",
 });

@@ -5,6 +5,7 @@ import {
   recipeStageQuerySchema,
   validateSchema,
 } from "./agent-contract.js";
+import { ModelError } from "./mesh.js";
 const str = { type: "string" },
   num = { type: "number" },
   bool = { type: "boolean" },
@@ -263,12 +264,34 @@ const definitions = [
     false,
   ],
   [
+    "importGLB",
+    "Open a GLB. A workshop project file (.funmodel.glb) restores its editable project; any other GLB becomes editable parts (hierarchy, names, flat PBR materials, polygons; skins, animations and textures are reported, not imported). mode replace (default, undoable) or add under parent. data is base64; the local CLI/MCP adapter also accepts path.",
+    object(
+      {
+        data: str,
+        path: str,
+        mode: { enum: ["replace", "add"] },
+        parent: str,
+        name: str,
+        ifRevision: revision,
+      },
+      ["ifRevision"],
+    ),
+    false,
+  ],
+  [
     "clearReference",
     "Remove the reference image of one view, or all without view.",
     object({ view: { enum: ["front", "back", "left", "right", "top"] } }),
     false,
   ],
   ["references", "List reference images (without image data).", object(), true],
+  [
+    "exportProject",
+    "Return the project file: a GLB of the model carrying the editable project in its FUNDEV_workshop extension (.funmodel.glb). The adapter writes it to --artifacts when set.",
+    object(),
+    true,
+  ],
 ];
 const validationTools = definitions.map(
   ([method, description, inputSchema, readOnlyHint]) => ({
@@ -360,5 +383,15 @@ export function toolInvocation(name, args = {}) {
     return { method, args: [id, { ifRevision }] };
   if (method === "exportGLB")
     return { method, args: [{ ...args, encoding: "base64" }] };
+  if (method === "importGLB") {
+    const { ifRevision: expected, path, ...options } = args;
+    if (path !== undefined || options.data === undefined)
+      throw new ModelError(
+        "importGLB needs data (base64); only the local adapter reads path",
+        "schema",
+        "data",
+      );
+    return { method, args: [options, { ifRevision: expected }] };
+  }
   return { method, args: [args] };
 }

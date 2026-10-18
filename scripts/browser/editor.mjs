@@ -10,8 +10,10 @@ import { editorDeliveryChecks } from "./editor-delivery.mjs";
 import { editorMaterialChecks } from "./editor-materials.mjs";
 import { editorSolidChecks } from "./editor-solids.mjs";
 import { editorGeneratorChecks } from "./editor-generators.mjs";
+import { editorImportChecks } from "./editor-import.mjs";
 import { results, watch } from "./harness.mjs";
 import { headersFor, parseHeaders } from "../headers.mjs";
+import { parseModelFile, workshopProject } from "../../site/editor/glb.js";
 
 export async function editorChecks({ browser, base }) {
   const errors = [],
@@ -87,15 +89,17 @@ export async function editorChecks({ browser, base }) {
     await page.locator("#redo").click();
     const saved = page.waitForEvent("download");
     await page.locator("#save").click();
+    // Save project downloads a project file: a GLB carrying the editable project.
     const projectFile = await saved,
-      projectPath = await projectFile.path(),
-      project = JSON.parse(await readFile(projectPath, "utf8"));
+      projectBytes = await readFile(await projectFile.path()),
+      project = workshopProject(parseModelFile(new Uint8Array(projectBytes)).json);
+    assert.match(projectFile.suggestedFilename(), /\.funmodel\.glb$/);
     await page.locator("#new").click();
     assert.equal(await page.evaluate(() => funEditor.inspect().stats.nodes), 0);
     await page.locator("#project-file").setInputFiles({
-      name: "duck.funmodel.json",
-      mimeType: "application/json",
-      buffer: Buffer.from(JSON.stringify(project)),
+      name: "duck.funmodel.glb",
+      mimeType: "model/gltf-binary",
+      buffer: projectBytes,
     });
     await page.waitForFunction(
       () => window.funEditor?.inspect().stats.nodes === 11,
@@ -511,4 +515,5 @@ export async function editorChecks({ browser, base }) {
   await editorMaterialChecks({ browser, base });
   await editorSolidChecks({ browser, base });
   await editorGeneratorChecks({ browser, base });
+  await editorImportChecks({ browser, base });
 }

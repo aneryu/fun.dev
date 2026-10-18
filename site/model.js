@@ -29,6 +29,9 @@ function render() {
   $("#stat-bytes").textContent = formatBytes(version.files["model.glb"].size);
   $("#address").textContent = new URL(blobURL("model.glb", version.files["model.glb"].sha256), location.href).href;
   $("#download-blend").hidden = !version.files["source.blend"];
+  $("#download-workshop").hidden = !version.files["source.funmodel.glb"];
+  // The workshop opens this version as its own draft: its project file, or the GLB as parts.
+  $("#open-workshop").href = `/editor/?open=${model.id}&version=${version.version}`;
 }
 
 async function show(name) {
@@ -45,7 +48,8 @@ async function download(name) {
   const file = version.files[name];
   const response = await fetch(blobURL(name, file.sha256), { credentials: "omit" });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const link = Object.assign(document.createElement("a"), { href: URL.createObjectURL(await response.blob()), download: `${model.id}_${version.version}.${name.split(".").pop()}` });
+  const extension = name === "source.funmodel.glb" ? "funmodel.glb" : name.split(".").pop();
+  const link = Object.assign(document.createElement("a"), { href: URL.createObjectURL(await response.blob()), download: `${model.id}_${version.version}.${extension}` });
   link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 10000);
 }
@@ -56,6 +60,7 @@ $("#copy").addEventListener("click", async () => {
 });
 $("#download-glb").addEventListener("click", () => download("model.glb").catch(() => { $("#status").textContent = t("loadError"); }));
 $("#download-blend").addEventListener("click", () => download("source.blend").catch(() => { $("#status").textContent = t("loadError"); }));
+$("#download-workshop").addEventListener("click", () => download("source.funmodel.glb").catch(() => { $("#status").textContent = t("loadError"); }));
 $("#version").addEventListener("change", (event) => show(event.target.value));
 
 initLocale();
