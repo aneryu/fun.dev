@@ -1,199 +1,231 @@
-// GLB → .fun3d: what the console does to every upload and the workshop to every import.
-// GLTFLoader reads the file; this module normalizes the result the way .fun3d expects it and
-// derives roles and physics from the library's naming conventions (docs/models.md):
-// - static parts (`static__<material>` under the root) merge into one part, `static`;
-// - every other mesh node merges its primitives into one geometry with one group per material;
-// - flat faces are welded and lose their normals (the renderer derives them);
-// - texture coordinates go when no material uses a texture;
-// - materials named mat_light*, mat_signal*, mat_window*, mat_lamp* become light materials
-//   with that role; transmissive ones glass;
-// - physics: props get a convex hull, pieces their mesh, vehicles (wheel_* nodes) a Jolt
-//   wheeled vehicle, characters a capsule and a ragdoll.
+// GLB → .fun3d through the library profile fundev-library@1 (docs/model-format.md §6): what the
+// maintenance script does to every approved version. GLTFLoader reads the file; this module
+// turns the library's conventions into explicit data and writes through kit/fun3d.js:
+// - `static__<material>` nodes merge into one node `static`; `<pivot>__<material>` children
+//   merge into their pivot; other mesh nodes merge their primitives;
+// - flat faces weld and lose their normals (`groups[].flat`); unused texture coordinates go;
+// - material names map to emitter roles (mat_light → headlight, mat_light_red → taillight,
+//   mat_signal* → signal, mat_window* → window, mat_lamp* → lamp, mat_screen* → screen,
+//   mat_beacon* → beacon); mat_body gets tint; transmissive materials transmission;
+// - physics by library type: props a switchable convex hull (collider* nodes when present),
+//   pieces their mesh, vehicles a wheeled vehicle from wheel_* nodes, characters a capsule and a
+//   ragdoll from the rig's roles; mass from a density table.
 //
-//   const importer = createImporter({ THREE, loader, encoder });
-//   const { root, animations, physics, rig, kind } = await importer.importGLB(bytes, { type });
-//   const file = await fun3d.write(root, { kind, animations, physics, rig });
+//   const importer = createImporter({ THREE, loader, fun3d });
+//   const { bytes, manifest, report } = await importer.importGLB(glb, { type: "vehicle", name: "city_taxi_01", hash });
 
-const LIGHT = /^mat_(light|signal|window|lamp|screen|beacon)/;
+import { idFromName as idOf } from "./fun3d-schema.js";
 
-// Ragdoll parts: logical part → bone per rig, its parent part, the bone its capsule reaches
-// and joint limits (radians: swing cone, twist range).
+export const PROFILE = "fundev-library@1";
+const ROLES = [[/^mat_light_red/, "taillight"], [/^mat_light/, "headlight"], [/^mat_signal/, "signal"], [/^mat_window/, "window"], [/^mat_lamp/, "lamp"], [/^mat_screen/, "screen"], [/^mat_beacon/, "beacon"]];
+const DENSITY = { prop: 300, vehicle: 100 };
+// Humanoid rigs the library carries: role → bone name, so animation packs bind by role.
 const RIGS = {
-  ue: {
-    test: (names) => names.has("pelvis") && names.has("spine_01") && names.has("thigh_l"),
-    bones: { pelvis: "pelvis", spine: "spine_01", chest: "spine_03", head: "head", upperarm_l: "upperarm_l", lowerarm_l: "lowerarm_l", upperarm_r: "upperarm_r", lowerarm_r: "lowerarm_r", thigh_l: "thigh_l", calf_l: "calf_l", thigh_r: "thigh_r", calf_r: "calf_r", hand_l: "hand_l", hand_r: "hand_r", foot_l: "foot_l", foot_r: "foot_r", neck: "neck_01" },
-  },
-  mixamo: {
-    test: (names) => names.has("mixamorigHips"),
-    bones: { pelvis: "mixamorigHips", spine: "mixamorigSpine", chest: "mixamorigSpine2", head: "mixamorigHead", upperarm_l: "mixamorigLeftArm", lowerarm_l: "mixamorigLeftForeArm", upperarm_r: "mixamorigRightArm", lowerarm_r: "mixamorigRightForeArm", thigh_l: "mixamorigLeftUpLeg", calf_l: "mixamorigLeftLeg", thigh_r: "mixamorigRightUpLeg", calf_r: "mixamorigRightLeg", hand_l: "mixamorigLeftHand", hand_r: "mixamorigRightHand", foot_l: "mixamorigLeftFoot", foot_r: "mixamorigRightFoot", neck: "mixamorigNeck" },
-  },
+  mixamo: { test: (names) => names.has("mixamorig:Hips") || names.has("mixamorigHips"), prefix: (names) => (names.has("mixamorig:Hips") ? "mixamorig:" : "mixamorig"), roles: {
+    hips: "Hips", spine: "Spine", chest: "Spine1", upperChest: "Spine2", neck: "Neck", head: "Head",
+    leftShoulder: "LeftShoulder", leftUpperArm: "LeftArm", leftLowerArm: "LeftForeArm", leftHand: "LeftHand", leftUpperLeg: "LeftUpLeg", leftLowerLeg: "LeftLeg", leftFoot: "LeftFoot", leftToes: "LeftToeBase",
+    rightShoulder: "RightShoulder", rightUpperArm: "RightArm", rightLowerArm: "RightForeArm", rightHand: "RightHand", rightUpperLeg: "RightUpLeg", rightLowerLeg: "RightLeg", rightFoot: "RightFoot", rightToes: "RightToeBase" } },
+  ue: { test: (names) => names.has("pelvis") && names.has("spine_01") && names.has("thigh_l"), prefix: () => "", roles: {
+    hips: "pelvis", spine: "spine_01", chest: "spine_02", upperChest: "spine_03", neck: "neck_01", head: "head",
+    leftShoulder: "clavicle_l", leftUpperArm: "upperarm_l", leftLowerArm: "lowerarm_l", leftHand: "hand_l", leftUpperLeg: "thigh_l", leftLowerLeg: "calf_l", leftFoot: "foot_l", leftToes: "ball_l",
+    rightShoulder: "clavicle_r", rightUpperArm: "upperarm_r", rightLowerArm: "lowerarm_r", rightHand: "hand_r", rightUpperLeg: "thigh_r", rightLowerLeg: "calf_r", rightFoot: "foot_r", rightToes: "ball_r" } },
 };
+// Ragdoll parts by role: part, parent part, the role its capsule reaches, radius, mass share, limits.
 const RAGDOLL = [
-  // part, parent, capsule end, radius (m), mass share, swing cone, twist min, twist max
-  ["pelvis", null, "spine", 0.13, 0.16, 0, 0, 0],
-  ["spine", "pelvis", "chest", 0.13, 0.14, 0.35, -0.25, 0.25],
-  ["chest", "spine", "neck", 0.15, 0.2, 0.35, -0.25, 0.25],
-  ["head", "chest", null, 0.1, 0.08, 0.6, -0.6, 0.6],
-  ["upperarm_l", "chest", "lowerarm_l", 0.05, 0.03, 1.4, -0.8, 0.8],
-  ["lowerarm_l", "upperarm_l", "hand_l", 0.04, 0.025, 1.2, -0.3, 0.3],
-  ["upperarm_r", "chest", "lowerarm_r", 0.05, 0.03, 1.4, -0.8, 0.8],
-  ["lowerarm_r", "upperarm_r", "hand_r", 0.04, 0.025, 1.2, -0.3, 0.3],
-  ["thigh_l", "pelvis", "calf_l", 0.075, 0.1, 1.0, -0.4, 0.4],
-  ["calf_l", "thigh_l", "foot_l", 0.06, 0.05, 1.1, -0.1, 0.1],
-  ["thigh_r", "pelvis", "calf_r", 0.075, 0.1, 1.0, -0.4, 0.4],
-  ["calf_r", "thigh_r", "foot_r", 0.06, 0.05, 1.1, -0.1, 0.1],
+  ["pelvis", null, "hips", "spine", 0.13, 0.16, null],
+  ["spine", "pelvis", "spine", "chest", 0.13, 0.14, { normalCone: 0.35, planeCone: 0.35, twist: [-0.25, 0.25] }],
+  ["chest", "spine", "chest", "neck", 0.15, 0.2, { normalCone: 0.35, planeCone: 0.35, twist: [-0.25, 0.25] }],
+  ["head", "chest", "head", null, 0.1, 0.08, { normalCone: 0.6, planeCone: 0.6, twist: [-0.6, 0.6] }],
+  ["upperarm_l", "chest", "leftUpperArm", "leftLowerArm", 0.05, 0.03, { normalCone: 1.4, planeCone: 1.4, twist: [-0.8, 0.8] }],
+  ["lowerarm_l", "upperarm_l", "leftLowerArm", "leftHand", 0.04, 0.025, { normalCone: 1.2, planeCone: 1.2, twist: [-0.3, 0.3] }],
+  ["upperarm_r", "chest", "rightUpperArm", "rightLowerArm", 0.05, 0.03, { normalCone: 1.4, planeCone: 1.4, twist: [-0.8, 0.8] }],
+  ["lowerarm_r", "upperarm_r", "rightLowerArm", "rightHand", 0.04, 0.025, { normalCone: 1.2, planeCone: 1.2, twist: [-0.3, 0.3] }],
+  ["thigh_l", "pelvis", "leftUpperLeg", "leftLowerLeg", 0.075, 0.1, { normalCone: 1.0, planeCone: 1.0, twist: [-0.4, 0.4] }],
+  ["calf_l", "thigh_l", "leftLowerLeg", "leftFoot", 0.06, 0.05, { normalCone: 1.1, planeCone: 1.1, twist: [-0.1, 0.1] }],
+  ["thigh_r", "pelvis", "rightUpperLeg", "rightLowerLeg", 0.075, 0.1, { normalCone: 1.0, planeCone: 1.0, twist: [-0.4, 0.4] }],
+  ["calf_r", "thigh_r", "rightLowerLeg", "rightFoot", 0.06, 0.05, { normalCone: 1.1, planeCone: 1.1, twist: [-0.1, 0.1] }],
 ];
+const round = (n, digits = 5) => Number(n.toFixed(digits));
 
-export function createImporter({ THREE, loader, encoder }) {
-  // The encoded bytes of every texture, so a .fun3d keeps the original WebP/PNG/KTX2.
+export function createImporter({ THREE, loader, fun3d, encoder = null }) {
+  const textured = (material) => ["map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap", "alphaMap"].some((k) => material[k]);
+
+  // The encoded bytes of every texture, so files keep the original WebP/PNG/KTX2.
   async function captureTextureSources(gltf) {
-    const { parser } = gltf, json = parser.json;
+    const { parser } = gltf, json = parser.json, sources = new Map();
     for (const [object, association] of parser.associations) {
       if (!object?.isTexture || association?.textures === undefined) continue;
       const def = json.textures[association.textures];
       const source = def.extensions?.EXT_texture_webp?.source ?? def.extensions?.KHR_texture_basisu?.source ?? def.extensions?.EXT_texture_avif?.source ?? def.source;
       const image = json.images[source];
       if (image?.bufferView === undefined) continue;
-      const view = await parser.getDependency("bufferView", image.bufferView);
-      object.userData.fun3dSource = { mime: image.mimeType, bytes: new Uint8Array(view.slice(0)) };
+      if (!sources.has(object.source.uuid)) sources.set(object.source.uuid, { mime: image.mimeType, bytes: new Uint8Array((await parser.getDependency("bufferView", image.bufferView)).slice(0)) });
     }
+    gltf.scene.traverse((o) => { if (!o.isMesh) return; for (const m of [o.material].flat()) for (const key of ["map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap", "alphaMap"]) { const t = m[key]; if (t && sources.has(t.source.uuid)) t.userData.fun3dSource = sources.get(t.source.uuid); } });
   }
 
-  const textured = (material) => ["map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap", "alphaMap"].some((k) => material[k]);
-
-  // Library conventions → material types.
-  function typeMaterial(material) {
-    const name = material.name ?? "";
-    if (LIGHT.test(name)) material.userData.fun3d = { type: "light", role: name.replace(/^mat_/, "") };
-    else if (material.transmission > 0) material.userData.fun3d = { type: "glass" };
-    return material;
+  // Library conventions → features.
+  function describeMaterial(material) {
+    const name = material.name ?? "", features = {};
+    const role = ROLES.find(([pattern]) => pattern.test(name))?.[1];
+    if (role) {
+      const glow = material.emissive && material.emissive.getHex() !== 0 ? material.emissive : material.color;
+      features.emitter = { role, color: `#${glow.getHexString()}`, intensity: round(material.emissiveIntensity || 1, 4) };
+    }
+    if (/^mat_body\b/.test(name)) features.tint = {};
+    material.userData.fun3d = { features };
+    return role ?? null;
   }
 
-  // One welded geometry from several meshes (each with one material), in `space`.
+  // One welded geometry from several meshes (each with its materials), in `space`: triangles
+  // sorted by material slot (opaque first, blended last) and flatness, vertices shared where
+  // position, slot, normal and texture coordinate agree. Flat triangles keep no normal.
   function mergeMeshes(meshes, space) {
-    const slots = [], triangles = [];
     const inverse = new THREE.Matrix4().copy(space).invert();
+    const slots = [], inputs = [];
+    let triangles = 0;
     for (const mesh of meshes) {
-      const matrix = new THREE.Matrix4().multiplyMatrices(inverse, mesh.matrixWorld);
-      const normalMatrix = new THREE.Matrix3().getNormalMatrix(matrix);
-      const g = mesh.geometry, position = g.getAttribute("position"), normal = g.getAttribute("normal"), uv = g.getAttribute("uv");
-      const materials = [mesh.material].flat();
-      const groups = g.groups.length ? g.groups : [{ start: 0, count: g.index ? g.index.count : position.count, materialIndex: 0 }];
+      const g = mesh.geometry, materials = [mesh.material].flat();
+      const groups = g.groups.length ? g.groups : [{ start: 0, count: g.index ? g.index.count : g.getAttribute("position").count, materialIndex: 0 }];
       for (const group of groups) {
-        const material = materials[group.materialIndex ?? 0];
+        const material = materials[group.materialIndex ?? 0] ?? materials[0];
         let slot = slots.indexOf(material);
         if (slot < 0) { slot = slots.length; slots.push(material); }
-        for (let t = group.start; t < group.start + group.count; t += 3) {
-          const ids = [0, 1, 2].map((k) => (g.index ? g.index.getX(t + k) : t + k));
-          triangles.push({
-            slot,
-            p: ids.map((i) => new THREE.Vector3().fromBufferAttribute(position, i).applyMatrix4(matrix)),
-            n: normal ? ids.map((i) => new THREE.Vector3().fromBufferAttribute(normal, i).applyMatrix3(normalMatrix).normalize()) : null,
-            uv: uv ? ids.map((i) => [uv.getX(i), uv.getY(i)]) : null,
-          });
-        }
+        const count = Math.min(group.count, (g.index ? g.index.count : g.getAttribute("position").count) - group.start);
+        inputs.push({ mesh, group: { start: group.start, count }, slot });
+        triangles += count / 3;
       }
     }
-    // A face is flat when its vertex normals equal its face normal.
-    for (const t of triangles) {
-      const face = new THREE.Vector3().subVectors(t.p[1], t.p[0]).cross(new THREE.Vector3().subVectors(t.p[2], t.p[0]));
-      t.flat = face.lengthSq() < 1e-20 || !t.n || (face.normalize(), t.n.every((n) => n.dot(face) > 0.999));
+    const keepUV = slots.some(textured) && meshes.every((m) => m.geometry.getAttribute("uv"));
+    const p = new Float32Array(triangles * 9), nrm = new Float32Array(triangles * 9), uv = keepUV ? new Float32Array(triangles * 6) : null;
+    const slot = new Uint16Array(triangles), flat = new Uint8Array(triangles);
+    const v = new THREE.Vector3(), n = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), face = new THREE.Vector3();
+    let t = 0;
+    for (const input of inputs) {
+      const g = input.mesh.geometry, matrix = new THREE.Matrix4().multiplyMatrices(inverse, input.mesh.matrixWorld), normalMatrix = new THREE.Matrix3().getNormalMatrix(matrix);
+      const position = g.getAttribute("position"), normal = g.getAttribute("normal"), texcoord = g.getAttribute("uv"), index = g.index;
+      for (let i = input.group.start; i < input.group.start + input.group.count; i += 3, t++) {
+        for (let k = 0; k < 3; k++) {
+          const vi = index ? index.getX(i + k) : i + k;
+          v.fromBufferAttribute(position, vi).applyMatrix4(matrix);
+          p[t * 9 + k * 3] = v.x; p[t * 9 + k * 3 + 1] = v.y; p[t * 9 + k * 3 + 2] = v.z;
+          if (normal) { n.fromBufferAttribute(normal, vi).applyMatrix3(normalMatrix).normalize(); nrm[t * 9 + k * 3] = n.x; nrm[t * 9 + k * 3 + 1] = n.y; nrm[t * 9 + k * 3 + 2] = n.z; }
+          if (uv) { uv[t * 6 + k * 2] = texcoord.getX(vi); uv[t * 6 + k * 2 + 1] = texcoord.getY(vi); }
+        }
+        slot[t] = input.slot;
+        // A face is flat when its vertex normals equal its face normal.
+        e1.set(p[t * 9 + 3] - p[t * 9], p[t * 9 + 4] - p[t * 9 + 1], p[t * 9 + 5] - p[t * 9 + 2]);
+        e2.set(p[t * 9 + 6] - p[t * 9], p[t * 9 + 7] - p[t * 9 + 1], p[t * 9 + 8] - p[t * 9 + 2]);
+        face.crossVectors(e1, e2);
+        if (face.lengthSq() < 1e-20 || !normal) flat[t] = 1;
+        else { face.normalize(); flat[t] = [0, 1, 2].every((k) => face.x * nrm[t * 9 + k * 3] + face.y * nrm[t * 9 + k * 3 + 1] + face.z * nrm[t * 9 + k * 3 + 2] > 0.999) ? 1 : 0; }
+      }
     }
-    const smooth = triangles.some((t) => !t.flat), keepUV = slots.some(textured) && triangles.every((t) => t.uv);
-    // Opaque materials first, then blended and glass, so a batch can draw them in two passes.
-    const blended = (m) => m.transparent || m.transmission > 0;
-    const order = slots.map((_, i) => i).sort((a, b) => blended(slots[a]) - blended(slots[b]) || a - b);
-    const rank = new Map(order.map((slot, i) => [slot, i]));
-    triangles.sort((a, b) => rank.get(a.slot) - rank.get(b.slot));
-    const key = new Map(), positions = [], normals = [], uvs = [], materialIndex = [], indices = [];
-    for (const t of triangles) {
-      const slot = rank.get(t.slot);
+    const smooth = flat.some((f) => !f);
+    const blended = (m) => (m.transparent && m.opacity < 1) || m.transmission > 0;
+    const order = slots.map((_, i) => i).sort((a, b) => blended(slots[a]) - blended(slots[b]) || a - b), rank = new Map(order.map((s, i) => [s, i]));
+    const sorted = Array.from({ length: triangles }, (_, i) => i).sort((a, b) => rank.get(slot[a]) - rank.get(slot[b]) || flat[a] - flat[b] || a - b);
+    const keys = new Map(), positions = [], normals = [], uvs = [], indices = new Uint32Array(triangles * 3);
+    const groups = [];
+    let last = null;
+    for (const [j, tri] of sorted.entries()) {
+      const groupKey = `${rank.get(slot[tri])}|${flat[tri]}`;
+      if (groupKey !== last) { groups.push({ start: j * 3, count: 0, materialIndex: rank.get(slot[tri]), flat: !!flat[tri] }); last = groupKey; }
+      groups.at(-1).count += 3;
       for (let k = 0; k < 3; k++) {
-        const p = t.p[k], n = smooth && !t.flat ? t.n[k] : null, uv = keepUV ? t.uv[k] : null;
-        const id = `${p.x.toFixed(6)},${p.y.toFixed(6)},${p.z.toFixed(6)}|${slot}|${n ? `${n.x.toFixed(4)},${n.y.toFixed(4)},${n.z.toFixed(4)}` : "f"}|${uv ? uv.map((v) => v.toFixed(5)).join(",") : ""}`;
-        let index = key.get(id);
+        const o = tri * 9 + k * 3;
+        const key = `${Math.round(p[o] * 1e5)},${Math.round(p[o + 1] * 1e5)},${Math.round(p[o + 2] * 1e5)}|${rank.get(slot[tri])}|${flat[tri] ? "f" : `${Math.round(nrm[o] * 1e3)},${Math.round(nrm[o + 1] * 1e3)},${Math.round(nrm[o + 2] * 1e3)}`}|${uv ? `${Math.round(uv[tri * 6 + k * 2] * 1e5)},${Math.round(uv[tri * 6 + k * 2 + 1] * 1e5)}` : ""}`;
+        let index = keys.get(key);
         if (index === undefined) {
           index = positions.length / 3;
-          key.set(id, index);
-          positions.push(p.x, p.y, p.z);
-          if (smooth) {
-            // Flat faces in a smooth mesh carry their face normal.
-            const face = n ?? new THREE.Vector3().subVectors(t.p[1], t.p[0]).cross(new THREE.Vector3().subVectors(t.p[2], t.p[0])).normalize();
-            normals.push(face.x, face.y, face.z);
-          }
-          if (keepUV) uvs.push(...uv);
-          materialIndex.push(slot);
+          keys.set(key, index);
+          positions.push(p[o], p[o + 1], p[o + 2]);
+          if (smooth) { if (flat[tri]) normals.push(0, 0, 0); else normals.push(nrm[o], nrm[o + 1], nrm[o + 2]); }
+          if (uv) uvs.push(uv[tri * 6 + k * 2], uv[tri * 6 + k * 2 + 1]);
         }
-        indices.push(index);
+        indices[j * 3 + k] = index;
       }
     }
-    // Vertex cache and fetch order (meshopt) also makes the file compress better.
-    let index = Uint32Array.from(indices), count = positions.length / 3, remap = null;
-    if (encoder?.reorderMesh && index.length) {
-      [remap, count] = encoder.reorderMesh(index, true, false);
-    }
+    // Vertex cache and fetch order (meshopt), which also compresses better.
+    let count = positions.length / 3, remap = null;
+    if (encoder?.reorderMesh && indices.length) [remap, count] = encoder.reorderMesh(indices, true, true);
     const reorder = (source, size) => {
-      if (!remap) return Float32Array.from(source);
       const out = new Float32Array(count * size);
-      for (let i = 0; i < source.length / size; i++) if (remap[i] !== 0xffffffff) for (let k = 0; k < size; k++) out[remap[i] * size + k] = source[i * size + k];
+      for (let i = 0; i < source.length / size; i++) { const target = remap ? remap[i] : i; if (target !== 0xffffffff) for (let k = 0; k < size; k++) out[target * size + k] = source[i * size + k]; }
       return out;
     };
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(reorder(positions, 3), 3));
-    if (smooth) geometry.setAttribute("normal", new THREE.BufferAttribute(reorder(normals, 3), 3));
-    if (keepUV) geometry.setAttribute("uv", new THREE.BufferAttribute(reorder(uvs, 2), 2));
-    if (slots.length > 1) geometry.setAttribute("materialIndex", new THREE.BufferAttribute(Uint8Array.from(reorder(materialIndex, 1)), 1));
-    geometry.setIndex(new THREE.BufferAttribute(count > 65535 ? index : Uint16Array.from(index), 1));
-    let start = 0;
-    order.forEach((slot, i) => {
-      const n = triangles.filter((t) => t.slot === slot).length * 3;
-      geometry.addGroup(start, n, i);
-      start += n;
-    });
-    return { geometry, materials: order.map((slot) => slots[slot]) };
+    // Every merged geometry carries a normal attribute (zero where flat) so batches share one layout.
+    geometry.setAttribute("normal", new THREE.BufferAttribute(smooth ? reorder(normals, 3) : new Float32Array(count * 3), 3));
+    if (uv) geometry.setAttribute("uv", new THREE.BufferAttribute(reorder(uvs, 2), 2));
+    geometry.setIndex(new THREE.BufferAttribute(count > 65535 ? indices : Uint16Array.from(indices), 1));
+    for (const group of groups) { geometry.addGroup(group.start, group.count, group.materialIndex); geometry.groups.at(-1).flat = group.flat; }
+    return { geometry, materials: order.map((s) => slots[s]) };
   }
 
-  async function importGLB(bytes, { type = null } = {}) {
+  function bounds(object, filter = () => true) {
+    const box = new THREE.Box3(), inverse = new THREE.Matrix4().copy(object.matrixWorld).invert(), v = new THREE.Vector3();
+    object.traverse((o) => {
+      if (!o.isMesh || !filter(o)) return;
+      const p = o.geometry.getAttribute("position"), m = new THREE.Matrix4().multiplyMatrices(inverse, o.matrixWorld);
+      for (let i = 0; i < p.count; i++) box.expandByPoint(v.fromBufferAttribute(p, i).applyMatrix4(m));
+    });
+    return box;
+  }
+  // Hull points in the object's space: the extremes along many directions (a hull needs few).
+  function hullPoints(object, filter = () => true, limit = 128) {
+    const inverse = new THREE.Matrix4().copy(object.matrixWorld).invert(), v = new THREE.Vector3(), points = [];
+    object.traverse((o) => {
+      if (!o.isMesh || !filter(o)) return;
+      const p = o.geometry.getAttribute("position"), m = new THREE.Matrix4().multiplyMatrices(inverse, o.matrixWorld);
+      for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i).applyMatrix4(m); points.push([v.x, v.y, v.z]); }
+    });
+    if (!points.length) return [];
+    const keep = new Set();
+    for (let k = 0; k < limit; k++) {
+      const phi = Math.acos(1 - (2 * (k + 0.5)) / limit), theta = Math.PI * (1 + Math.sqrt(5)) * k;
+      const d = [Math.sin(phi) * Math.cos(theta), Math.cos(phi), Math.sin(phi) * Math.sin(theta)];
+      let best = 0, score = -Infinity;
+      for (let i = 0; i < points.length; i++) { const s = points[i][0] * d[0] + points[i][1] * d[1] + points[i][2] * d[2]; if (s > score) { score = s; best = i; } }
+      keep.add(best);
+    }
+    return [...keep].flatMap((i) => points[i].map((n) => round(n)));
+  }
+
+  /** The object tree a GLB becomes, normalized by the profile; `write` turns it into a file. */
+  async function normalizeGLB(bytes, { type }) {
+    if (encoder) await encoder.ready;
     const buffer = bytes instanceof ArrayBuffer ? bytes : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
     const gltf = await loader.parseAsync(buffer, "");
     await captureTextureSources(gltf);
-    const scene = gltf.scene, associations = gltf.parser.associations;
-    // The model's root: the glTF scene's only child (the library's <id>_ROOT), else the scene.
+    const scene = gltf.scene, associations = gltf.parser.associations, warnings = [];
     const root = scene.children.length === 1 && !scene.children[0].isMesh ? scene.children[0] : scene;
     if (root !== scene) { scene.remove(root); root.position.set(0, 0, 0); root.quaternion.identity(); root.scale.set(1, 1, 1); }
+    if (!root.name) root.name = "root";
     root.updateMatrixWorld(true);
-
-    const skinned = [], bones = [], meshes = [], wheels = [];
-    root.traverse((o) => {
-      if (o.isSkinnedMesh) skinned.push(o);
-      if (o.isBone) bones.push(o);
-      if (o.isMesh) meshes.push(o);
-      if (/^wheel_/.test(o.name)) wheels.push(o);
-    });
+    const skinned = [], bones = [], meshes = [];
+    root.traverse((o) => { if (o.isSkinnedMesh) skinned.push(o); if (o.isBone) bones.push(o); if (o.isMesh) meshes.push(o); });
     const boneNames = new Set(bones.map((b) => b.name));
-    const rigName = Object.entries(RIGS).find(([, rig]) => rig.test(boneNames))?.[0] ?? (bones.length ? "custom" : null);
+    const rigName = Object.keys(RIGS).find((name) => RIGS[name].test(boneNames)) ?? null;
     const kind = !meshes.length && gltf.animations.length ? "animations" : "model";
-    const role = kind === "animations" ? "animations" : skinned.length ? "character" : wheels.length ? "vehicle" : type === "piece" ? "piece" : "prop";
-    for (const mesh of meshes) for (const material of [mesh.material].flat()) typeMaterial(material);
+    const roles = new Map();
+    for (const mesh of meshes) for (const material of [mesh.material].flat()) { const role = describeMaterial(material); if (role) roles.set(material.name, role); }
 
-    // GLTFLoader turns a glTF mesh with several primitives into a group of meshes; those
-    // groups are one part, so their primitives merge back into one geometry.
+    // GLTFLoader turns a glTF mesh with several primitives into a group of meshes; those are one
+    // part, so their primitives merge back into one geometry.
     const primitives = (node) => node.isMesh ? [node]
-      : node.isGroup && node.children.length && node.children.every((c) => c.isMesh && !c.children.length && associations.get(c)?.primitives !== undefined
-        && associations.get(c).meshes === associations.get(node.children[0]).meshes) ? node.children : null;
+      : node.isGroup && node.children.length && node.children.every((c) => c.isMesh && !c.children.length && associations.get(c)?.primitives !== undefined && associations.get(c).meshes === associations.get(node.children[0]).meshes) ? node.children : null;
     if (!skinned.length) {
-      // Static parts merge into one part in the root's space.
       const statics = root.children.filter((c) => /^static__/.test(c.name) && primitives(c));
       if (statics.length) {
         const { geometry, materials } = mergeMeshes(statics.flatMap(primitives), root.matrixWorld);
         for (const s of statics) root.remove(s);
         const part = new THREE.Mesh(geometry, materials.length === 1 ? materials[0] : materials);
         part.name = "static";
-        part.userData.fun3d = { role: "static" };
         root.add(part);
       }
-      // A moving part split by material (`wheel_front_left__mat_rubber` under
-      // `wheel_front_left`, the library's convention) becomes one mesh: the pivot itself.
+      // A part split by material (`wheel_front_left__mat_rubber` under `wheel_front_left`) becomes one mesh: the pivot itself.
       const pivots = [];
       root.traverse((o) => { if (o !== root && !o.isMesh && o.children.some((c) => c.name.startsWith(`${o.name}__`) && primitives(c))) pivots.push(o); });
       for (const pivot of pivots) {
@@ -206,11 +238,11 @@ export function createImporter({ THREE, loader, encoder }) {
         pivot.parent.add(part);
         pivot.parent.remove(pivot);
         part.updateMatrixWorld(true);
-        part.userData.fun3dMerged = true;
+        part.userData.merged = true;
       }
       // Every other mesh node: its primitives welded into one geometry, its children kept.
       const parts = [];
-      root.traverse((o) => { if (o !== root && o.name !== "static" && !o.userData.fun3dMerged && primitives(o) && !(o.isMesh && o.parent !== root && primitives(o.parent))) parts.push(o); });
+      root.traverse((o) => { if (o !== root && o.name !== "static" && !o.userData.merged && primitives(o) && !(o.isMesh && o.parent !== root && primitives(o.parent))) parts.push(o); });
       for (const node of parts) {
         const { geometry, materials } = mergeMeshes(primitives(node), node.matrixWorld);
         const material = materials.length === 1 ? materials[0] : materials;
@@ -218,103 +250,104 @@ export function createImporter({ THREE, loader, encoder }) {
         const part = new THREE.Mesh(geometry, material);
         part.name = node.name;
         part.position.copy(node.position); part.quaternion.copy(node.quaternion); part.scale.copy(node.scale);
+        for (const child of [...node.children].filter((c) => !primitives(node).includes(c))) part.add(child);
         node.parent.add(part);
         node.parent.remove(node);
       }
-      root.traverse((o) => {
-        delete o.userData.fun3dMerged;
-        if (/^collider/.test(o.name)) { o.visible = false; o.userData.fun3d = { role: "collider" }; }
-        else if (o !== root && o.name && o.name !== "static" && !o.userData.fun3d) o.userData.fun3d = { role: "part" };
-      });
+      root.traverse((o) => { delete o.userData.merged; if (/^collider/.test(o.name)) { o.visible = false; o.userData.tags = ["collider"]; } });
     } else {
-      // Characters: drop texture coordinates nobody samples; geometry stays as rigged.
       for (const mesh of skinned) if (![mesh.material].flat().some(textured)) mesh.geometry.deleteAttribute("uv");
+      for (const mesh of skinned) { mesh.geometry.deleteAttribute("uv1"); mesh.geometry.deleteAttribute("uv2"); }
     }
     root.updateMatrixWorld(true);
-    // Wheels after merging (merged parts are new objects): the outermost wheel_* nodes.
-    const wheelNodes = [];
-    root.traverse((o) => { if (/^wheel_/.test(o.name) && !wheelNodes.some((w) => w.getObjectById(o.id))) wheelNodes.push(o); });
-    const physics = derivePhysics(root, role, { wheels: wheelNodes, rigName });
-    return { root, animations: gltf.animations, physics, rig: rigName, kind, role };
+    // Names without a stable id (empty) get one from their place.
+    let unnamed = 0;
+    root.traverse((o) => { if (!o.name && o.parent?.userData.mesh !== o) o.name = `node_${unnamed++}`; });
+    const wheels = [];
+    root.traverse((o) => { if (/^wheel_/.test(o.name) && !wheels.some((w) => w === o || w.getObjectById(o.id))) wheels.push(o); });
+    const effectiveType = kind === "animations" ? "animations" : type === "vehicle" && !wheels.length ? "prop" : skinned.length && type !== "character" ? "character" : type;
+    if (effectiveType !== type) warnings.push(`typed ${type}, converted as ${effectiveType}`);
+    const rig = rigName && (skinned.length || kind === "animations") ? await rigOf(rigName, bones, root) : null;
+    if (rig) for (const mesh of skinned) mesh.userData.fun3d = { ...mesh.userData.fun3d, rig, skeleton: "rig" };
+    const physics = kind === "animations" ? null : await derivePhysics(root, effectiveType, { wheels, rig });
+    return { root, animations: gltf.animations, physics, kind, type: effectiveType, rig, roles, warnings, wheels: wheels.map((w) => w.name) };
   }
 
-  function bounds(object, filter = () => true) {
-    const box = new THREE.Box3(), inverse = new THREE.Matrix4().copy(object.matrixWorld).invert(), v = new THREE.Vector3();
-    object.traverse((o) => {
-      if (!o.isMesh || !filter(o) || !o.visible && o.userData.fun3d?.role !== "collider") return;
-      const p = o.geometry.getAttribute("position"), m = new THREE.Matrix4().multiplyMatrices(inverse, o.matrixWorld);
-      for (let i = 0; i < p.count; i++) box.expandByPoint(v.fromBufferAttribute(p, i).applyMatrix4(m));
-    });
-    return box;
-  }
-  function hullPoints(object, filter = () => true, limit = 256) {
-    const inverse = new THREE.Matrix4().copy(object.matrixWorld).invert(), v = new THREE.Vector3(), points = [];
-    object.traverse((o) => {
-      if (!o.isMesh || !filter(o)) return;
-      const p = o.geometry.getAttribute("position"), m = new THREE.Matrix4().multiplyMatrices(inverse, o.matrixWorld);
-      for (let i = 0; i < p.count; i++) points.push(v.fromBufferAttribute(p, i).applyMatrix4(m).toArray());
-    });
-    // Keep the extremes along many directions: a hull needs few points.
-    if (points.length <= limit) return points.flat();
-    const keep = new Set();
-    for (let k = 0; k < limit; k++) {
-      const phi = Math.acos(1 - (2 * (k + 0.5)) / limit), theta = Math.PI * (1 + Math.sqrt(5)) * k;
-      const d = [Math.sin(phi) * Math.cos(theta), Math.cos(phi), Math.sin(phi) * Math.sin(theta)];
-      let best = 0, score = -Infinity;
-      points.forEach((p, i) => { const s = p[0] * d[0] + p[1] * d[1] + p[2] * d[2]; if (s > score) { score = s; best = i; } });
-      keep.add(best);
-    }
-    return [...keep].flatMap((i) => points[i].map((n) => +n.toFixed(5)));
+  async function rigOf(name, bones, root) {
+    const spec = RIGS[name], names = new Set(bones.map((b) => b.name)), prefix = spec.prefix(names);
+    const roles = {};
+    for (const [role, bone] of Object.entries(spec.roles)) if (names.has(prefix + bone)) roles[role] = await idOf(prefix + bone);
+    const box = bounds(root);
+    return { name, version: 1, rest: "T", height: round(Math.max(0.01, box.max.y - box.min.y), 3), roles };
   }
 
-  function derivePhysics(root, role, { wheels, rigName }) {
-    if (role === "animations") return null;
+  async function derivePhysics(root, type, { wheels, rig }) {
     const colliders = [];
-    root.traverse((o) => { if (o.userData.fun3d?.role === "collider" && o.isMesh) colliders.push(o); });
-    const shapeOf = (filter) => ({ type: "convex", points: hullPoints(root, filter) });
-    if (role === "vehicle") {
-      const body = bounds(root, (o) => !wheels.some((w) => w === o || w.getObjectById(o.id)));
-      const size = body.getSize(new THREE.Vector3());
-      const mass = Math.round(Math.max(50, size.x * size.y * size.z * 100));
-      const wheelDefs = wheels.map((wheel) => {
-        const box = bounds(wheel), wsize = box.getSize(new THREE.Vector3());
-        const center = new THREE.Vector3(); wheel.getWorldPosition(center); root.worldToLocal(center);
-        const front = center.z > 0;
-        return { node: wheel.name, position: center.toArray().map((n) => +n.toFixed(4)), radius: +(Math.max(wsize.y, wsize.z) / 2).toFixed(4), width: +Math.max(0.05, wsize.x).toFixed(4),
-          suspension: { min: 0.05, max: 0.25, frequency: 1.6, damping: 0.5 }, ...(front ? { steer: 0.6 } : {}), brake: 1500, ...(front ? {} : { handbrake: 4000 }) };
-      });
-      const index = (side, front) => wheelDefs.findIndex((w) => (w.position[0] > 0) === side && (w.position[2] > 0) === front);
-      const differentials = [[index(true, true), index(false, true)]].filter(([l, r]) => l >= 0 && r >= 0)
-        .map(([left, right]) => ({ left, right, ratio: 3.42, share: 1 }));
+    root.traverse((o) => { if (o.isMesh && o.userData.tags?.includes("collider")) colliders.push(o); });
+    const rootId = await idOf(root.name);
+    const box = bounds(root, (o) => o.visible || colliders.includes(o)), size = box.getSize(new THREE.Vector3());
+    const volume = Math.max(1e-6, size.x * size.y * size.z);
+    if (type === "vehicle") {
+      const inWheel = (o) => wheels.some((w) => w === o || w.getObjectById(o.id));
+      const body = bounds(root, (o) => !inWheel(o) && o.visible), bodySize = body.getSize(new THREE.Vector3());
+      const mass = Math.round(Math.max(50, bodySize.x * bodySize.y * bodySize.z * DENSITY.vehicle));
+      const wheelDefs = [];
+      for (const wheel of wheels) {
+        const wbox = bounds(wheel), wsize = wbox.getSize(new THREE.Vector3());
+        const centre = wheel.getWorldPosition(new THREE.Vector3());
+        root.worldToLocal(centre);
+        const front = centre.z > 0;
+        wheelDefs.push({ id: await idOf(wheel.name), node: await idOf(wheel.name), radius: round(Math.max(0.05, Math.max(wsize.y, wsize.z) / 2), 4), width: round(Math.max(0.05, wsize.x), 4),
+          suspension: { min: 0.05, max: 0.25, rest: 0.15, frequency: 1.6, damping: 0.5 }, ...(front ? { steer: 0.6, brake: 1500 } : { brake: 1500, handbrake: 4000 }), _x: centre.x, _z: centre.z });
+      }
+      const pair = (front) => { const row = wheelDefs.filter((w) => (w._z > 0) === front); const left = row.find((w) => w._x > 0), right = row.find((w) => w._x <= 0); return left && right && left !== right ? [left.id, right.id] : null; };
+      const differentials = [pair(true) ?? pair(false)].filter(Boolean).map((pairIds) => ({ wheels: pairIds, ratio: 3.42, split: 0.5, engineShare: 1, limitedSlip: 1.4 }));
+      for (const w of wheelDefs) { delete w._x; delete w._z; }
       return {
-        shapes: [shapeOf((o) => !wheels.some((w) => w === o || w.getObjectById(o.id)))],
-        bodies: [{ node: 0, shape: 0, motion: "dynamic", mass, friction: 0.5, restitution: 0.1 }],
-        vehicles: [{ type: "wheeled", body: 0, wheels: wheelDefs, engine: { maxTorque: Math.round(mass * 0.25), minRPM: 1000, maxRPM: 6000 },
-          transmission: { mode: "auto", gears: [2.66, 1.78, 1.3, 1.0, 0.74], reverse: [-2.9] }, differentials, antiRoll: [] }],
+        shapes: [{ id: "hull", type: "convex", points: hullPoints(root, (o) => !inWheel(o) && o.visible) }],
+        bodies: [{ id: "chassis", node: rootId, shape: "hull", motion: "dynamic", layer: "moving", mass, centerOfMass: [0, round(-0.15 * bodySize.y, 3), 0], friction: 0.5, restitution: 0.1, damping: { linear: 0.05, angular: 0.05 } }],
+        vehicles: [{ id: "car", type: "wheeled", body: "chassis", wheels: wheelDefs, engine: { maxTorque: Math.round(mass * 0.25), minRPM: 1000, maxRPM: 6000 }, transmission: { gears: [2.66, 1.78, 1.3, 1.0, 0.74], reverse: [-2.9] }, differentials, antiRoll: [] }],
       };
     }
-    if (role === "character") {
-      const rig = RIGS[rigName];
-      const box = bounds(root);
-      const height = box.max.y - box.min.y, radius = Math.min(0.35, Math.max(0.15, (box.max.x - box.min.x) / 4));
+    if (type === "character") {
+      const height = Math.max(0.5, size.y), radius = round(Math.min(0.35, Math.max(0.15, size.x / 4)), 3);
       const out = {
-        shapes: [{ type: "capsule", radius: +radius.toFixed(3), halfHeight: +Math.max(0.05, height / 2 - radius).toFixed(3) }],
-        character: { shape: 0, offset: [0, +(height / 2).toFixed(3), 0], maxSlope: 0.8 },
+        shapes: [{ id: "pill", type: "capsule", radius, halfHeight: round(Math.max(0.05, height / 2 - radius), 3) }],
+        characters: [{ id: "walker", node: rootId, shape: "pill", offset: [0, round(height / 2, 3), 0], mass: 70, maxSlope: 0.8, stepHeight: 0.3 }],
       };
       if (rig) {
-        const mass = 70;
-        out.ragdolls = [{ parts: RAGDOLL.filter(([part]) => rig.bones[part]).map(([part, parent, end, r, share, cone, twistMin, twistMax]) => ({
-          name: part, joint: rig.bones[part], ...(parent ? { parent } : {}), ...(end && rig.bones[end] ? { to: rig.bones[end] } : { length: 0.22 }),
-          radius: r, mass: +(mass * share).toFixed(2), ...(parent ? { limits: { cone, twist: [twistMin, twistMax] } } : {}),
-        })) }];
+        const parts = RAGDOLL.filter(([, , role]) => rig.roles[role]).map(([id, parent, role, to, radius, share, limits]) => ({
+          id, bone: `role:${role}`, ...(parent && rig.roles[RAGDOLL.find(([p]) => p === parent)[2]] ? { parent } : {}), ...(to && rig.roles[to] ? { to: `role:${to}` } : { length: 0.22 }), radius, mass: round(70 * share, 2), ...(limits ? { limits } : {}),
+        }));
+        if (parts.length) out.ragdolls = [{ id: "doll", skeleton: "rig", parts }];
       }
       return out;
     }
-    if (colliders.length) return { shapes: [shapeOf((o) => colliders.includes(o))], bodies: [{ node: 0, shape: 0, motion: "static" }] };
-    // Pieces (walls, floors, stairs) collide as their visible mesh; props as a convex hull.
-    if (role === "piece") return { shapes: [{ type: "mesh" }], bodies: [{ node: 0, shape: 0, motion: "static" }] };
-    return { shapes: [shapeOf((o) => o.visible)], bodies: [{ node: 0, shape: 0, motion: "static" }] };
+    if (type === "piece") {
+      const staticNode = root.getObjectByName("static") ?? root.children.find((c) => c.isMesh);
+      if (staticNode) return { shapes: [{ id: "walls", type: "mesh", geometry: await idOf(staticNode.geometry.name || staticNode.name) }], bodies: [{ id: "piece", node: await idOf(staticNode.name), shape: "walls", motion: "static" }] };
+    }
+    const points = hullPoints(root, colliders.length ? (o) => colliders.includes(o) : (o) => o.visible);
+    if (points.length < 12) return null;
+    return { shapes: [{ id: "hull", type: "convex", points }], bodies: [{ id: "body", node: rootId, shape: "hull", motion: "static", switchable: true, mass: Math.round(Math.max(1, volume * DENSITY.prop)) }] };
   }
 
-  return { importGLB };
+  /** The .fun3d bytes of a GLB, with its manifest and a report of what the profile derived. */
+  async function importGLB(bytes, { type = "prop", name = null, hash = null, converter = null, edit = null } = {}) {
+    const normalized = await normalizeGLB(bytes, { type });
+    const { root, animations, physics, kind, rig, roles, warnings } = normalized;
+    const asset = { name: name ?? root.name, source: { kind: "glb", ...(hash ? { hash } : {}), ...(converter ? { converter } : {}), profile: PROFILE, type: normalized.type, tool: null } };
+    const file = await fun3d.write(root, { kind, asset, animations, physics, rig, edit });
+    const { manifest } = await fun3d.read(file);
+    const report = {
+      type: normalized.type, kind, rig: rig?.name ?? null, warnings,
+      nodes: manifest.nodes.length, geometries: manifest.geometries.length, materials: manifest.materials.length, vertices: manifest.geometries.reduce((n, g) => n + g.vertices, 0),
+      triangles: manifest.geometries.reduce((n, g) => n + manifest.streams.find((s) => s.id === g.index.stream).count / 3, 0),
+      roles: Object.fromEntries(roles), wheels: normalized.wheels, hull: physics?.shapes?.find((s) => s.type === "convex")?.points.length / 3 || 0,
+      mass: physics?.bodies?.[0]?.mass ?? null, bytes: file.length,
+    };
+    return { bytes: file, manifest, report };
+  }
+
+  return { importGLB, normalizeGLB, mergeMeshes };
 }

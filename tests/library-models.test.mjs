@@ -2,9 +2,9 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { boxGLB } from "./helpers/models.mjs";
 
 // A stand-in for games.fun.dev: one model's page data and its blob. The blob cache is a fresh folder.
@@ -27,9 +27,9 @@ const { prepareRelease, fileIndex } = await import("../scripts/game-release.mjs"
 const { forgetCatalog } = await import("../scripts/library-models.mjs");
 after(async () => { server.close(); await rm(work, { recursive: true, force: true }); });
 
-async function game(models, files = ["game.js"]) {
+async function game(models, files = ["game.js"], extra = {}) {
   const directory = await mkdtemp(join(work, "game-"));
-  await writeFile(join(directory, "game.json"), JSON.stringify({ id: "demo", version: "1.0.0", apiVersion: 3, title: "Demo", description: "Demo", category: "Toy", platforms: ["mobile"], files, ...(models ? { models } : {}) }));
+  await writeFile(join(directory, "game.json"), JSON.stringify({ id: "demo", version: "1.0.0", apiVersion: 3, title: "Demo", description: "Demo", category: "Toy", platforms: ["mobile"], files, ...(models ? { models } : {}), ...extra }));
   await writeFile(join(directory, "game.js"), "export function createGame() {}\n");
   return join(directory, "game.json");
 }
@@ -51,6 +51,26 @@ test("declared library models become pinned blobs at models/<id>.glb", async () 
   assert.equal((await prepareRelease(await game({ desk_chair_01: "v002" }))).game.release, release.game.release);
   assert.ok(requests > before, "it did try the network first");
   online = true;
+});
+
+test("modelFormat fun3d derives files through the converter, caches them and writes models.lock", async () => {
+  const manifest = await game({ desk_chair_01: "v002" }, ["game.js"], { modelFormat: "fun3d" });
+  const release = await prepareRelease(manifest);
+  const model = release.assets.find((asset) => asset.path === "models/desk_chair_01@v002.fun3d");
+  assert.ok(model, "the derived file is a runtime file");
+  assert.equal(model.blob, `${model.hash}.fun3d`);
+  assert.deepEqual([...model.body.subarray(0, 8)], [0x89, 0x46, 0x55, 0x4e, 0x33, 0x44, 0x0d, 0x0a], "a .fun3d file");
+  assert.equal(release.game.modelFormat, undefined, "the catalog entry stays as before");
+  const lock = await readFile(join(dirname(manifest), "models.lock"), "utf8");
+  assert.match(lock, /^# library models derived by fundev-library@1, converter sha256:[0-9a-f]{64}\n/);
+  assert.match(lock, new RegExp(`${model.hash} ${model.body.length} models/desk_chair_01@v002.fun3d\n`));
+  // The second build converts nothing: the derived blob comes from the cache, even offline.
+  online = false;
+  forgetCatalog();
+  const again = await prepareRelease(await game({ desk_chair_01: "v002" }, ["game.js"], { modelFormat: "fun3d" }));
+  assert.equal(again.game.release, release.game.release);
+  online = true;
+  await assert.rejects(prepareRelease(await game({ desk_chair_01: "v002" }, ["game.js"], { modelFormat: "obj" })), /modelFormat must be one of/);
 });
 
 test("unknown models, bad versions and files under models/ are refused", async () => {

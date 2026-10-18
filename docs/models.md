@@ -21,14 +21,15 @@ through the same server functions, whether from the console or the maintenance s
 
 ## Contents
 
-Every model has a `type`. `prop`, `piece` and `character` are accepted; the others are decided
-below and implemented when the first one is uploaded. Models made for one game stay in that
+Every model has a `type`. `prop`, `piece`, `vehicle` and `character` are accepted; the others
+are decided below and implemented when the first one is uploaded. Models made for one game stay in that
 game's `assets/`.
 
 | Type | What | Main file |
 | --- | --- | --- |
 | `prop` | a single object | `model.glb` |
 | `piece` | a modular building piece (wall, road, stair) | `model.glb` |
+| `vehicle` | a wheeled vehicle: `wheel_*` nodes become its wheels, the rest its chassis ([.fun3d](model-format.md#6-profiles)) | `model.glb` |
 | `character` | a humanoid on the shared skeleton (人物库: `/models?type=character`) | `model.glb` |
 | `creature` | a non-humanoid with its own skeleton | `model.glb` (planned) |
 | `animation` | CC0 clips for the shared skeleton, no mesh | `model.glb` (planned) |
@@ -224,7 +225,10 @@ A game declares its library models in `game.json`, pinned by version:
 "models": { "desk_chair_01": "v002" }
 ```
 
-and loads them like its own files: `context.asset("models/desk_chair_01.glb")`. Preparing a
+and loads them like its own files: `context.asset("models/desk_chair_01.glb")`. With
+`"modelFormat": "fun3d"` beside `models`, the build converts each pinned version to
+[.fun3d](model-format.md) (`models/<id>@<version>.fun3d`, the runtime kit loads it batched with
+physics) and writes `games/<id>/models.lock`, committed with `game.json`. Preparing a
 release (`scripts/library-models.mjs`, used by every build and the publisher) looks each one up in
 `library/<id>.json`, fetches the blob into the shared cache (`~/.cache/fundev-blobs`, with copies
 of the page data, so builds also work offline) and adds it to the release's blob map. The release pins the

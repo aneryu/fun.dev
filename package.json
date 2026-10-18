@@ -18,6 +18,7 @@
     "transfer:types": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types server/env.d.ts --env-file /dev/null --env-interface TransferEnv --include-runtime false --strict-vars false",
     "console:build": "node scripts/build-console.mjs",
     "models": "node scripts/models-admin.mjs",
+    "fun3d": "node scripts/fun3d.mjs",
     "editor:agent": "node scripts/editor-agent.mjs"
   },
   "engines": {

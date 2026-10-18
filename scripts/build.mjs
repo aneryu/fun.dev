@@ -5,6 +5,7 @@ import { assetHTML, assetManifest } from "./asset-origin.mjs";
 import { loadLocalGames, localCatalog } from "./local-games.mjs";
 import { fileIndex } from "./game-release.mjs";
 import { buildVision } from "./vision.mjs";
+import { buildPhysics } from "./physics.mjs";
 import { compatible, validateCatalog } from "../site/catalog.js";
 import { addOriginToHeaders, apiDirectives, assetDirectives } from "./csp.mjs";
 import { gamePages, sitemap } from "./game-pages.mjs";
@@ -26,6 +27,7 @@ await rm(output, { recursive: true, force: true });
 await cp(new URL("site/", root), output, { recursive: true });
 await buildThree(root, output);
 await buildVision(root, output);
+await buildPhysics(root, output);
 const skillFiles = ["SKILL.md", "agents/openai.yaml", "assets/game.js", "references/runtime.md", "references/release.md", "references/security.md"];
 const skillOutput = new URL("skills/fun-dev-games/", output);
 for (const file of skillFiles) {
@@ -132,7 +134,7 @@ async function files(directory) {
 const outputPath = fileURLToPath(output);
 const shell = (await files(output))
   .map((file) => `/${relative(outputPath, fileURLToPath(file)).split("\\").join("/")}`)
-  .filter((path) => !/^\/(?:editor\/|tools\/|games\/[^/]+\/|blobs\/|skills\/|runtime\/vision\/|runtime\/addons\/(?:draco|basis)\/|vendor\/three\/LICENSE|_headers|_redirects|robots\.txt|sitemap\.xml|games\.json|library\/|model\.html|sw\.js)/.test(path))
+  .filter((path) => !/^\/(?:editor\/|tools\/|games\/[^/]+\/|blobs\/|skills\/|runtime\/(?:vision|physics)\/|runtime\/addons\/(?:draco|basis)\/|vendor\/three\/LICENSE|_headers|_redirects|robots\.txt|sitemap\.xml|games\.json|library\/|model\.html|sw\.js)/.test(path))
   .map((path) => path.replace(/(?:^|\/)index\.html$/, "/").replace(/^\/\//, "/").replace(/^(\/games(?:\/[^/]+)?|\/models?)\.html$/, "$1"))
   .sort();
 // Cached under the addresses pages are visited at: "/x/" for x/index.html, "/games" and

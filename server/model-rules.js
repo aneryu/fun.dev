@@ -6,9 +6,9 @@ export const ID = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
 export const VERSION = /^v\d{3}$/;
 export const FILE = /^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9_-]+)*$/;
 const TAG = /^[a-z0-9][a-z0-9_-]{0,31}$/;
-// Categories (docs/models.md). Props, pieces and characters are accepted; the others are planned.
-export const MODEL_TYPES = ["prop", "piece", "character", "creature", "animation", "scene", "world"];
-export const SUPPORTED_TYPES = ["prop", "piece", "character"];
+// Categories (docs/models.md). Props, pieces, vehicles and characters are accepted; the others are planned.
+export const MODEL_TYPES = ["prop", "piece", "vehicle", "character", "creature", "animation", "scene", "world"];
+export const SUPPORTED_TYPES = ["prop", "piece", "vehicle", "character"];
 // Stored at upload in the public content-addressed store (docs/models.md); listing a version is
 // what makes them part of the library. thumbnail.png is rendered by the upload page; the
 // sources are a Blender file or a workshop project (a GLB carrying the editable project).

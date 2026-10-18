@@ -6,6 +6,7 @@ import { kitChecks } from "./browser/kit.mjs";
 import { playerChecks } from "./browser/player.mjs";
 import { siteChecks } from "./browser/site.mjs";
 import { editorChecks } from "./browser/editor.mjs";
+import { fun3dChecks } from "./browser/fun3d.mjs";
 import { smoke } from "./browser/smoke.mjs";
 import { sync } from "./blobs.mjs";
 import { loadLocalGames } from "./local-games.mjs";
@@ -18,7 +19,7 @@ import { loadLocalGames } from "./local-games.mjs";
 //   npm run verify -- --webgpu          browser suites on this machine's GPU, games forced to WebGPU
 const args = process.argv.slice(2);
 const only = args.find((arg) => arg.startsWith("--game="))?.slice("--game=".length);
-const suites = { smoke: null, kit: kitChecks, player: playerChecks, site: siteChecks, editor: editorChecks };
+const suites = { smoke: null, kit: kitChecks, fun3d: fun3dChecks, player: playerChecks, site: siteChecks, editor: editorChecks };
 const selected = args.filter((arg) => !arg.startsWith("--"));
 const webgpu = args.includes("--webgpu");
 const unknown = [...selected.filter((name) => !(name in suites)), ...args.filter((arg) => arg.startsWith("--") && !["--transfer", "--webgpu"].includes(arg) && !arg.startsWith("--game="))];

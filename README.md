@@ -36,7 +36,9 @@ reference commands and operations. Requires Node.js 22+ and `tar`.
   the workshop uses `/editor/`.
 - `site/runtime/`: Three.js host (API v2: lifecycle, shared audio, options,
   safe area, announcements, haptics), the runtime kit (`kit/`: text, input,
-  fixed-step loop, assets, seeded random, MediaPipe vision) and built loaders (`addons/`: glTF,
+  fixed-step loop, assets, seeded random, MediaPipe vision, and `.fun3d` models: loader and
+  writer, TSL materials, batched placement, Jolt physics, clips; see
+  [docs/model-format.md](docs/model-format.md)) and built loaders (`addons/`: glTF,
   Draco, KTX2 with self-hosted decoders).
 - `site/sw.js`, `site/manifest.webmanifest`, `site/icons/`: installable app and
   offline play for games opened before. The build writes the precache list.
@@ -59,7 +61,10 @@ framework. `@mediapipe/tasks-vision` is pinned the same way, as the platform's
 vision runtime, so games share one copy instead of each bundling 17 MB.
 `manifold-3d` is pinned as the workshop's geometry kernel (booleans and other solid
 operations, WebAssembly, loaded only by `/editor/`); the build copies its module and
-`.wasm` to `editor/vendor/` and bundles the agent tool to `tools/fundev-workshop.mjs`. The
+`.wasm` to `editor/vendor/` and bundles the agent tool to `tools/fundev-workshop.mjs`.
+`jolt-physics` is pinned as the physics runtime (`/runtime/physics/<hash>/`, loaded by
+games on first use, cached forever) and `meshoptimizer` encodes `.fun3d` geometry (the
+encoder serves the workshop and the converter; games only decode). The
 default build works as a static site. Optional account transfer
 uses Pages Functions and D1 as a temporary relay.
 

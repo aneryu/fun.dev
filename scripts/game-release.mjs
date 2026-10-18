@@ -4,18 +4,18 @@ import { createHash } from "node:crypto";
 import { API_VERSION, validateCatalog } from "../site/catalog.js";
 import { checkModels, resolveModels } from "./library-models.mjs";
 
-const types = { ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".avif": "image/avif", ".svg": "image/svg+xml", ".glb": "model/gltf-binary", ".gltf": "model/gltf+json", ".bin": "application/octet-stream", ".wasm": "application/wasm", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".wav": "audio/wav", ".txt": "text/plain; charset=utf-8" };
+const types = { ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".avif": "image/avif", ".svg": "image/svg+xml", ".glb": "model/gltf-binary", ".gltf": "model/gltf+json", ".fun3d": "application/octet-stream", ".bin": "application/octet-stream", ".wasm": "application/wasm", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".wav": "audio/wav", ".txt": "text/plain; charset=utf-8" };
 const digest = (body) => createHash("sha256").update(body).digest("hex");
 
 export async function prepareRelease(manifestPath) {
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-  // models (library models by version) is resolved into runtime files below, not published.
-  const { files, models, ...game } = manifest;
+  // models (library models by version) and modelFormat are resolved into runtime files below, not published.
+  const { files, models, modelFormat, ...game } = manifest;
   if (Object.keys(game).some((key) => !["id", "version", "apiVersion", "title", "description", "category", "platforms", "orientation", "howToPlay", "cover", "keepAwake", "recording"].includes(key))) throw new Error("Unexpected manifest field.");
   validateCatalog([game]);
   if (game.apiVersion !== API_VERSION) throw new Error(`apiVersion must be ${API_VERSION} for this platform.`);
   if (game.cover !== undefined && !files?.includes?.(game.cover)) throw new Error("cover must be listed in files.");
-  checkModels(models);
+  checkModels(models, modelFormat);
   if (Array.isArray(files) && files.some((path) => typeof path === "string" && path.startsWith("models/"))) throw new Error("models/ is reserved for library models declared in models.");
   if (!Array.isArray(files) || !files.includes("game.js") || files.length > 4096 || new Set(files).size !== files.length) throw new Error("files must list game.js and unique runtime files (maximum 4096).");
   const root = dirname(resolve(manifestPath));
@@ -42,7 +42,7 @@ export async function prepareRelease(manifestPath) {
     assets.push({ path, body, type: types[extname(path)], hash, ...(path.startsWith("assets/") ? { blob: `${hash}${extname(path)}` } : {}) });
   }
   // Library models: content-addressed blobs like assets/ files, pinned by version.
-  for (const model of await resolveModels(models)) {
+  for (const model of await resolveModels(models, { format: modelFormat ?? "glb", lockPath: join(root, "models.lock") })) {
     total += model.body.length;
     assets.push(model);
   }

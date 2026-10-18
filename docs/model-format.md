@@ -1,6 +1,6 @@
 # .fun3d — fun.dev's model format (design v6, 2026-10-18)
 
-Status: **final design for the owner's review.** Three adversarial review rounds (round 1:
+Status: **release 1 implemented (2026-10-18; §10 says what it covers).** Three adversarial review rounds (round 1:
 engine realism, format design, pipeline and operations; round 2: a resolution check and
 fresh eyes; round 3: a final consistency check) and self-reviews produced the findings and
 decisions in `dev/fun3d/review.md`; this document applies all of them. The v1 prototype on
@@ -606,7 +606,7 @@ before anything but hulls is promised:
 
 | Module | Role |
 | --- | --- |
-| `kit/fun3d.js` | read, validate, load into Three.js, write from Three.js, strip editing sections, dispose |
+| `kit/fun3d.js` | read, validate, load into Three.js, write from Three.js (`kit/fun3d-write.js`), strip editing sections, dispose; `kit/fun3d-container.js` and `kit/fun3d-schema.js` hold the container and the schema with its validator, caps and id rule |
 | `kit/fun3d-import.js` | GLB → `.fun3d` through a profile (typed-array welding, bounded memory; 200 k triangles in a browser, unbounded in the script) |
 | `kit/materials.js` | models and features in TSL; one builder serves single meshes and batches; registry |
 | `kit/models.js` | places loaded models and returns handles: batches rigid batchable meshes, instances placements, picks LOD levels, fills light slots, applies variants and tints; `model.node(id)`, `model.socket(id)`, `handle.tint`, `handle.remove()`, `roles.set` |
@@ -620,8 +620,9 @@ the world can live in a worker (transferred state; shared memory only where the 
 cross-origin isolated). Shapes are cooked off the main thread. On WebGL 2 without
 `WEBGL_multi_draw`, a batch still issues one draw per copy; the pipeline and material savings
 remain. Jolt and the decoders are served like the vision runtime (`/runtime/physics/<hash>/`,
-cache-first, outside the shell precache, found through `import.meta.url`) and listed in each
-release's `files.json` closure so offline play has them; the meshopt encoder is not shipped to
+cache-first, outside the shell precache, found through `import.meta.url`), cached by the
+service worker on first use (listing them in each release's `files.json` closure, so a game
+installs them with its first load, is later work); the meshopt encoder is not shipped to
 games. Everything loaded registers with the game context's `track` and is released at
 teardown. Data a release's loader does not implement (section 10) is ignored with a warning,
 except references, which refuse the load.
@@ -629,7 +630,9 @@ except references, which refuse the load.
 ## 8. Pipeline
 
 - **Derived files.** `model.fun3d` is derived from the source by the maintenance script
-  (headless Chromium, one converter whose stamp is the hash of its modules and profile) and
+  (Node, `scripts/fun3d-convert.mjs`: the kit's importer and writer, with GLTFLoader's texture
+  decoding replaced by placeholders because files keep the encoded bytes; one converter whose
+  stamp is the hash of its modules, profile and pinned dependencies) and
   stored under a `derived` record `{ sha256, size, converter, profile }` separate from
   `files`, with one catalogue publish per run; every approved version of every model
   converts. A new converter or profile makes a new derived file; the old one stays as long
@@ -641,25 +644,27 @@ except references, which refuse the load.
   with the same classic materials, pixel-diffs them against per-model thresholds on a masked
   metric (emitter roles and tints excluded), writes a worst-50 sheet, and checks derived data
   (hull points, mass class, wheel count, emitter roles) — the derived-data checks are the gate;
-  `verify kit` renders library models alone and in a batch and diffs the two.
+  `verify fun3d` renders synthetic models and real files alone and in a batch and diffs the two.
 - **Console.** Uploads stay as they are (GLB in, thumbnails from GLB); a version shows `未转换`
   in the console and in `npm run models -- list` until the script derives its file. Browser
   conversion is a preview at most, never what the library serves. Direct `.fun3d` uploads
   (release 2) pass the validator before storage.
 - **Games.** `game.json` pins versions and names the format for library models
-  (`"models": { "format": "fun3d" }`, one format per library model; game-local assets may stay
-  GLB); `games/<id>/models.lock` records hash, size and path of every pinned file and of the
-  closure of references (the build inflates each pinned manifest to collect them and verifies
-  skeleton hashes; paths are `models/<id>@<version>.fun3d`; the loader's resolver is
-  `(id, version) → asset(path)`); `npm run models -- update <game>` advances it. Game-local
-  GLBs convert at build on request (`"convert": ["assets/tiles/*.glb"]`), cached by hash.
+  (`"models": { "<id>": "v003" }, "modelFormat": "fun3d"`, one format per game; game-local
+  assets may stay GLB); the build derives each pinned version (cached by source and converter
+  in the blob cache, so later and offline builds convert nothing) and writes
+  `games/<id>/models.lock` with hash, size and path of every derived file — commit it with
+  `game.json` — later with the closure of references (the build will inflate each pinned
+  manifest to collect them and verify skeleton hashes); paths are
+  `models/<id>@<version>.fun3d`, served as blobs like every asset. Game-local GLBs convert at
+  build on request (`"convert": ["assets/tiles/*.glb"]`, later), cached by hash.
 - **Workshop.** Keeps `.funmodel.glb` until its binary storage lands; then saves `.fun3d` with
   its editing section, exports plain GLB, gains physics commands with a Jolt preview.
 - **Library pages.** Keep GLB in the first release; switch when the viewer uses the runtime
   materials and the page CSP allows the decoders.
 - **Platform.** Jolt and the decoders in the runtime; validator and inspector as
   `npm run fun3d -- inspect|validate`; `docs/fun3d-agents.md` with the three ways to produce a
-  file (GLB through a profile, Three.js in Node, the workshop); `verify kit` loads real library
+  file (GLB through a profile, Three.js in Node, the workshop); `verify fun3d` loads real library
   files and the synthetic scenarios.
 
 ## 9. Evaluation
@@ -717,24 +722,29 @@ only with the stated restriction).
 
 | Release | Runtime implements | Loader behaviour with the rest |
 | --- | --- | --- |
-| 1 | container, schema, validator; nodes with meshes, sockets, tags, placements with tint; geometries with groups, flat groups, geometry LOD; `pbr` and `unlit` with `emitter` and `tint`; images and textures (webp, png, jpeg, ktx2); skeletons and skinned meshes; clips with node channels on the same bone ids; batching; physics static and dynamic bodies, wheeled vehicles; `models.lock`; parity gate; agent one-pager; `verify kit` with synthetic scenarios | morphs, variants, group LOD, lights, constraints, kinematic bodies, ragdolls, characters, material and light channels, events, additive and masks: ignored with a warning; refs: refused; `transmission`, extension features: dropped to the base |
+| 1 | container, schema, validator; nodes with meshes, sockets, tags, placements with tint; geometries with groups, flat groups, geometry LOD, morph targets; `pbr` and `unlit` with `emitter` and `tint`; images and textures (webp, png, jpeg, ktx2); skeletons and skinned meshes; clips with node channels on the same bone ids; batching; physics static and dynamic bodies, wheeled vehicles; `models.lock`; agent one-pager (`docs/fun3d-agents.md`); `verify fun3d` with synthetic scenarios, batched/single parity and real files | variants, group LOD, lights, constraints, kinematic bodies, ragdolls, characters, material and light channels, events, additive and masks: ignored with a warning; refs: refused; `transmission`, extension features: dropped to the base |
 | 2 | references, retargeting, ragdolls, characters, constraints and kinematic bodies, morphs, variants, group LOD, lights with slots, material and light channels through proxies, events, additive clips and masks, `transmission`; direct `.fun3d` uploads; 准点下班 adopts | extension features: dropped to the base |
 | 3 | workshop: `.fun3d` save and open with editing sections, GLB export, physics commands; library pages on `.fun3d` | — |
 | later | extensions as needed, each with its producer and consumer: `fun3d.wind`, `fun3d.clearcoat`, `fun3d.decals`, `fun3d.hair`, `fun3d.skin`, `fun3d.softbody`, `fun3d.vat`, `fun3d.nodes`, `fun3d.clusters`, `fun3d.heightfield`, `fun3d.motorcycle`, `fun3d.tracked`, `fun3d.buoyancy`, `fun3d.decomposition`, texture arrays; appendix A items as they find producers | — |
 
-Order: release 1 core with `verify kit`; 帝都 on trial derived files (not pinned); the
+Order: release 1 core with `verify fun3d`; 帝都 on trial derived files (not pinned); the
 converter frozen only when 帝都 runs on them and the parity gate passes over the library;
 then the library's derived files for every approved version with the `未转换` state and
 derived-data warnings in review, and pins; then release 2; then the workshop.
 
-## 11. Open decisions
+## 11. Decisions taken (2026-10-18, by the maintainer at the owner's request)
 
-1. Light slots per device tier (release 2).
-2. Library type `vehicle` added to the catalogue, so the one-time `retype` of approved
-   vehicles typed `prop` can run.
-3. A scheduled conversion job (GitHub Actions with a Wrangler secret) or `未转换` as a normal
-   state cleared by hand.
-4. KTX2 transcoding at conversion: off for the first release.
+1. Light slots per device tier (release 2): phones 4 slots, one with shadows; desktops 8
+   slots, two with shadows.
+2. The library gets a `vehicle` type; the one-time `retype` of approved vehicles typed `prop`
+   runs with the library conversion (rollout step after release 1).
+3. No scheduled job: `未转换` is a normal state, cleared by the maintenance script during
+   review; a scheduled job only if volume demands it.
+4. KTX2 transcoding at conversion: off in release 1.
+5. The converter runs in Node, not headless Chromium: files keep images encoded, so nothing
+   needs a browser to decode; the same modules run in the workshop and the console later. The
+   parity render (GLB and `.fun3d` side by side) is the `verify fun3d` suite's job; the
+   library-wide gate with per-model thresholds comes with the library conversion.
 
 ## Appendix A. Planned, not in 1.0
 

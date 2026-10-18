@@ -3,7 +3,7 @@ const BUILD = { version: "source", shell: [], gameOrigin: "", assetOrigin: "" };
 
 // Pages, host and catalog: network first, falling back to the cache after 3 s or offline,
 // so online visitors always get the current platform. Game releases, their content-addressed
-// blobs and the vision runtime are immutable and cache first. Opening a game caches its whole
+// blobs and the vision and physics runtimes are immutable and cache first. Opening a game caches its whole
 // release from files.json except files in a lazy/ directory, which are cached once the game
 // asks for them. The cache is bounded by size: the least recently played games go first, and a
 // blob shared by several games stays until none of them is cached.
@@ -14,7 +14,7 @@ const MAX_BYTES = 300 * 1024 * 1024;
 const INDEX_KEY = "/__sw/cache-index";
 const releasePath = /^\/games\/([a-z0-9]+(?:-[a-z0-9]+)*)\/(\d+\.\d+\.\d+)\/(?:([a-f0-9]{64})\/)?/;
 const blobPath = /^\/blobs\/[a-f0-9]{64}\.[a-z0-9]+$/;
-const visionPath = /^\/runtime\/vision\/([a-f0-9]{16})\//;
+const runtimePath = /^\/runtime\/(vision|physics)\/([a-f0-9]{16})\//;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL).then((cache) => cache.addAll(BUILD.shell)));
@@ -36,10 +36,10 @@ self.addEventListener("fetch", (event) => {
   if (!local && url.origin !== BUILD.gameOrigin) return;
   if (local && /^\/(?:api|__dev)\//.test(url.pathname)) return;
   const release = url.pathname.match(releasePath);
-  const vision = local && url.pathname.match(visionPath);
+  const runtime = local && url.pathname.match(runtimePath);
   if (release) event.respondWith(cacheFirst(event, url, `${release[1]}/${release[2]}/${release[3] ?? ""}`, release[0]));
   else if (blobPath.test(url.pathname)) event.respondWith(cacheFirst(event, url, null));
-  else if (vision) event.respondWith(cacheFirst(event, url, `runtime/vision/${vision[1]}`));
+  else if (runtime) event.respondWith(cacheFirst(event, url, `runtime/${runtime[1]}/${runtime[2]}`));
   else if (local || url.pathname === "/games.json" || url.pathname.startsWith("/library/")) event.respondWith(networkFirst(request));
 });
 
@@ -64,7 +64,7 @@ async function networkFirst(request) {
   }
 }
 
-// key names the cache entry a file belongs to (a release or the vision runtime); blobs belong to
+// key names the cache entry a file belongs to (a release, or the vision or physics runtime); blobs belong to
 // the releases whose files.json lists them.
 async function cacheFirst(event, url, key, releasePrefix) {
   const cache = await caches.open(RELEASES);

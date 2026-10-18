@@ -58,7 +58,7 @@ test("uploads need valid addresses, metadata and GLBs", async () => {
   const noDescription = await (await stack.upload("desk_chair_01/v001", metadata("书椅", { description: undefined }), { type: "application/json" })).json();
   assert.equal(noDescription.error, "invalid_metadata");
   const noType = await (await stack.upload("desk_chair_01/v001", metadata("书椅", { type: undefined }), { type: "application/json" })).json();
-  assert.deepEqual([noType.error, noType.detail], ["invalid_metadata", "type must be one of prop, piece, character"]);
+  assert.deepEqual([noType.error, noType.detail], ["invalid_metadata", "type must be one of prop, piece, vehicle, character"]);
   const planned = await (await stack.upload("desk_chair_01/v001", metadata("书椅", { type: "creature" }), { type: "application/json" })).json();
   assert.equal(planned.detail, "type creature is planned but not accepted yet");
   assert.equal((await (await stack.upload("desk_chair_01/v001", undefined, { method: "GET" })).json()).status, "new");

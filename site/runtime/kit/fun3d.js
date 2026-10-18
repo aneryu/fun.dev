@@ -1,587 +1,506 @@
-// .fun3d, fun.dev's native model format (docs/model-format.md): Three.js objects in and out.
-// A file is a signature and chunks. The JSON chunk describes nodes, geometries, materials,
-// textures, skins, animations and physics; BIN chunks hold their data in WebGPU vertex formats
-// (meshopt-coded, then deflated); EDIT chunks carry the workshop's editable document and are
-// dropped from the copies games download.
-//
+// .fun3d, fun.dev's model format (docs/model-format.md): files in, Three.js objects out, and back.
 // The module takes its dependencies so the same code runs in browsers, workers and Node:
-//   const fun3d = createFun3d({ THREE, encoder: MeshoptEncoder, decoder: MeshoptDecoder });
-//   const bytes = await fun3d.write(object, { animations, physics, edit });
-//   const { scene, animations, physics } = await fun3d.load(bytes);
+//
+//   const fun3d = createFun3d({ THREE, decoder: MeshoptDecoder, materials });   // materials: kit/materials.js builder (optional)
+//   const model = await fun3d.load(bytes);          // { root, nodes, geometries, animations, manifest, warnings, dispose }
+//   scene.add(model.root);
+//   const problems = await fun3d.validate(bytes);   // [] when the file is valid
+//   const bytes = await fun3d.write(root, { animations, physics, asset });   // from Three.js objects (needs the encoder)
+//
+// Release 1 (§10) loads meshes, placements, skins, morph targets and node-channel clips and
+// keeps the rest of the manifest for later releases, warning about what it ignores; files with
+// references are refused.
 
-const SIGNATURE = Uint8Array.of(0x89, 0x46, 0x55, 0x4e, 0x33, 0x44, 0x0d, 0x0a); // \x89FUN3D\r\n
-const DEFLATE = 1, EDITING = 2;
-export const VERSION = 1;
+import { ContainerError, packChunks, parseJSON, scanChunks, stripEditing, unpackChunks } from "./fun3d-container.js";
+import { CAPS, FORMATS, VERSION, skeletonHash, validateManifest } from "./fun3d-schema.js";
+import { createWriter } from "./fun3d-write.js";
 
-// WebGPU vertex formats: typed array, components, normalized. mat4 holds matrices.
-export const FORMATS = {
-  float32: [Float32Array, 1, false], float32x2: [Float32Array, 2, false], float32x3: [Float32Array, 3, false],
-  float32x4: [Float32Array, 4, false], mat4: [Float32Array, 16, false],
-  snorm16x2: [Int16Array, 2, true], snorm16x4: [Int16Array, 4, true],
-  unorm16x2: [Uint16Array, 2, true], unorm16x4: [Uint16Array, 4, true],
-  snorm8x4: [Int8Array, 4, true], unorm8x4: [Uint8Array, 4, true],
-  uint8x4: [Uint8Array, 4, false], uint16x2: [Uint16Array, 2, false], uint16x4: [Uint16Array, 4, false],
-  uint16: [Uint16Array, 1, false], uint32: [Uint32Array, 1, false],
-};
+export { CAPS, VERSION, packChunks, stripEditing, unpackChunks };
 
-// ---- container ----
+const FILTERS = { octahedral: "OCTAHEDRAL", quaternion: "QUATERNION" };
+const WRAP = { repeat: "RepeatWrapping", clamp: "ClampToEdgeWrapping", mirror: "MirroredRepeatWrapping" };
+const FILTER = { nearest: "NearestFilter", linear: "LinearFilter", "nearest-mipmap-nearest": "NearestMipmapNearestFilter", "linear-mipmap-nearest": "LinearMipmapNearestFilter", "nearest-mipmap-linear": "NearestMipmapLinearFilter", "linear-mipmap-linear": "LinearMipmapLinearFilter" };
+const IGNORED = { light: "lights", lod: "lod groups", variants: "variants" };
 
-async function transform(bytes, stream) {
-  return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
-}
-const typeCode = (type) => [...type].reduce((n, c, i) => n | (c.charCodeAt(0) << (8 * i)), 0) >>> 0;
-const typeName = (code) => String.fromCharCode(code & 255, (code >> 8) & 255, (code >> 16) & 255, code >>> 24);
-
-/** chunks: [{ type: "JSON" | "BIN " | "EDIT" | "EBIN", bytes, deflate?, editing? }] → file bytes. */
-export async function packChunks(chunks) {
-  const parts = [SIGNATURE];
-  for (const chunk of chunks) {
-    const data = chunk.deflate ? await transform(chunk.bytes, new CompressionStream("deflate-raw")) : chunk.bytes;
-    const head = new DataView(new ArrayBuffer(12));
-    head.setUint32(0, typeCode(chunk.type), true);
-    head.setUint32(4, (chunk.deflate ? DEFLATE : 0) | (chunk.editing ? EDITING : 0), true);
-    head.setUint32(8, data.length, true);
-    parts.push(new Uint8Array(head.buffer), data, new Uint8Array((4 - (data.length % 4)) % 4));
+/** Width and height from an encoded image's header, or null when the header is not one we read. */
+export function imageSize(bytes, mime) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const ascii = (offset, length) => String.fromCharCode(...bytes.subarray(offset, offset + length));
+  if (mime === "image/png" && bytes.length >= 24 && ascii(1, 3) === "PNG") return [view.getUint32(16), view.getUint32(20)];
+  if (mime === "image/jpeg" && bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    for (let offset = 2; offset + 9 < bytes.length;) {
+      if (bytes[offset] !== 0xff) return null;
+      const marker = bytes[offset + 1];
+      if (marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd7) || marker === 0x01) { offset += 2; continue; }
+      const length = view.getUint16(offset + 2);
+      if ((marker >= 0xc0 && marker <= 0xcf) && ![0xc4, 0xc8, 0xcc].includes(marker)) return [view.getUint16(offset + 7), view.getUint16(offset + 5)];
+      offset += 2 + length;
+    }
+    return null;
   }
-  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
-  let offset = 0;
-  for (const p of parts) { out.set(p, offset); offset += p.length; }
-  return out;
-}
-
-function scanChunks(bytes) {
-  bytes = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  if (bytes.length < 8 || SIGNATURE.some((b, i) => bytes[i] !== b)) throw new Error("Not a .fun3d file");
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), chunks = [];
-  for (let offset = 8; offset < bytes.length;) {
-    const length = view.getUint32(offset + 8, true);
-    chunks.push({ type: typeName(view.getUint32(offset, true)), flags: view.getUint32(offset + 4, true), start: offset, data: bytes.subarray(offset + 12, offset + 12 + length) });
-    offset += 12 + length + ((4 - (length % 4)) % 4);
+  if (mime === "image/webp" && bytes.length >= 30 && ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") {
+    const chunk = ascii(12, 4);
+    if (chunk === "VP8 ") return [view.getUint16(26, true) & 0x3fff, view.getUint16(28, true) & 0x3fff];
+    if (chunk === "VP8L") { const b = view.getUint32(21, true); return [(b & 0x3fff) + 1, ((b >> 14) & 0x3fff) + 1]; }
+    if (chunk === "VP8X") return [(view.getUint32(24, true) & 0xffffff) + 1, (view.getUint32(27, true) & 0xffffff) + 1];
+    return null;
   }
-  return { bytes, chunks };
+  if (mime === "image/ktx2" && bytes.length >= 28 && bytes[0] === 0xab && ascii(1, 6) === "KTX 20") return [view.getUint32(20, true), view.getUint32(24, true)];
+  return null;
 }
 
-/** Chunks with their data inflated; editing chunks only when asked for. */
-export async function unpackChunks(bytes, { editing = false } = {}) {
-  const { chunks } = scanChunks(bytes);
-  return Promise.all(chunks.filter((c) => editing || !(c.flags & EDITING)).map(async (c) => ({
-    type: c.type, editing: !!(c.flags & EDITING),
-    bytes: c.flags & DEFLATE ? await transform(c.data, new DecompressionStream("deflate-raw")) : c.data,
-  })));
-}
-
-/** The runtime copy games download: the same file without its editing chunks. */
-export function stripEditing(bytes) {
-  const { bytes: all, chunks } = scanChunks(bytes);
-  const keep = [all.subarray(0, 8)];
-  chunks.forEach((c, i) => {
-    if (c.flags & EDITING) return;
-    const end = i + 1 < chunks.length ? chunks[i + 1].start : all.length;
-    keep.push(all.subarray(c.start, end));
-  });
-  const out = new Uint8Array(keep.reduce((n, p) => n + p.length, 0));
-  let offset = 0;
-  for (const p of keep) { out.set(p, offset); offset += p.length; }
-  return out;
-}
-
-class Bytes {
-  constructor() { this.parts = []; this.length = 0; }
-  append(bytes) {
-    const pad = (4 - (this.length % 4)) % 4;
-    if (pad) { this.parts.push(new Uint8Array(pad)); this.length += pad; }
-    const offset = this.length;
-    this.parts.push(bytes);
-    this.length += bytes.length;
-    return offset;
-  }
-  bytes() {
-    const out = new Uint8Array(this.length);
-    let offset = 0;
-    for (const p of this.parts) { out.set(p, offset); offset += p.length; }
-    return out;
-  }
-}
-
-const round = (n, digits = 6) => +n.toFixed(digits);
-const bytesOf = (typed) => new Uint8Array(typed.buffer, typed.byteOffset, typed.byteLength);
-
-export function createFun3d({ THREE, encoder, decoder }) {
-  const sanitize = (name) => THREE.PropertyBinding.sanitizeNodeName(name ?? "");
-
-  // ---- writing ----
-
-  async function write(root, { kind = "model", name = root.name, animations = [], physics = null, rig = null, edit = null, quantize = true, compress = true } = {}) {
-    if (encoder) await encoder.ready;
-    const main = new Bytes(), stored = new Bytes();
-    const manifest = { format: "fun3d", version: VERSION, kind, name: name || undefined, generator: "fun.dev fun3d 1",
-      buffers: [], streams: [], nodes: [], geometries: [], materials: [], textures: [], skins: [], animations: [] };
-
-    function stream(typed, { count, stride, mode = "attributes", store = false }) {
-      let data = bytesOf(typed), codec;
-      if (!store && encoder && count > 0 && mode === "triangles" && count % 3 === 0) {
-        data = encoder.encodeIndexBuffer(data, count, stride);
-        codec = "meshopt-triangles";
-      } else if (!store && encoder && count > 0 && mode === "attributes" && stride % 4 === 0 && stride <= 256) {
-        data = encoder.encodeVertexBuffer(data, count, stride);
-        codec = "meshopt-attributes";
-      }
-      const target = store ? stored : main;
-      manifest.streams.push({ buffer: store ? 1 : 0, offset: target.append(data), length: data.length, count, stride, ...(codec ? { codec } : {}) });
-      return manifest.streams.length - 1;
-    }
-
-    // Nodes, depth first; the root is node 0.
-    const nodeIndex = new Map(), objects = [];
-    root.traverse((object) => { nodeIndex.set(object, objects.length); objects.push(object); });
-
-    const geometryIndex = new Map(), materialIndex = new Map(), textureIndex = new Map(), images = [];
-    function writeGeometry(geometry, { skinned }) {
-      const key = `${geometry.uuid}:${skinned}`;
-      if (geometryIndex.has(key)) return geometryIndex.get(key);
-      const position = geometry.getAttribute("position");
-      const count = position.count, out = { vertices: count, attributes: {} };
-      const box = new THREE.Box3().setFromBufferAttribute(position);
-      out.bounds = { min: box.min.toArray().map((n) => round(n)), max: box.max.toArray().map((n) => round(n)) };
-      const morphed = !!geometry.morphAttributes.position?.length;
-      // 16-bit positions in the bounds, one scale for all axes (normals stay valid). Rigid
-      // meshes keep them on the GPU; skinned and morphed ones are expanded when loaded.
-      const quantized = quantize;
-      for (const [attributeName, attribute] of Object.entries(geometry.attributes)) {
-        const n = attribute.count;
-        if (attributeName === "position") {
-          if (quantized) {
-            const center = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
-            const scale = Math.max(size.x, size.y, size.z, 1e-9) / 2;
-            const q = new Int16Array(n * 4);
-            for (let i = 0; i < n; i++)
-              for (let k = 0; k < 3; k++)
-                q[i * 4 + k] = Math.max(-8191, Math.min(8191, Math.round(((attribute.getComponent(i, k) - center.getComponent(k)) / scale) * 8191))) * 4;
-            out.attributes.position = { stream: stream(q, { count: n, stride: 8 }), format: "snorm16x4" };
-            // snorm16 decodes q / 32767; positions keep 14 bits (q is a multiple of 4).
-            out.quantization = { offset: center.toArray().map((v) => round(v)), scale: round((scale * 32767) / 32764, 9) };
-          } else {
-            const f = new Float32Array(n * 3);
-            for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) f[i * 3 + k] = attribute.getComponent(i, k);
-            out.attributes.position = { stream: stream(f, { count: n, stride: 12 }), format: "float32x3" };
-          }
-        } else if (attributeName === "normal") {
-          const wide = morphed, q = wide ? new Int16Array(n * 4) : new Int8Array(n * 4), max = wide ? 32767 : 127;
-          for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) q[i * 4 + k] = Math.round(Math.max(-1, Math.min(1, attribute.getComponent(i, k))) * max);
-          out.attributes.normal = { stream: stream(q, { count: n, stride: wide ? 8 : 4 }), format: wide ? "snorm16x4" : "snorm8x4" };
-        } else if (attributeName === "skinIndex") {
-          const joints = new Uint16Array(n * 4);
-          for (let i = 0; i < n; i++) for (let k = 0; k < 4; k++) joints[i * 4 + k] = attribute.getComponent(i, k);
-          const wide = joints.some((j) => j > 255), q = wide ? joints : Uint8Array.from(joints);
-          out.attributes.skinIndex = { stream: stream(q, { count: n, stride: wide ? 8 : 4 }), format: wide ? "uint16x4" : "uint8x4" };
-        } else if (attributeName === "skinWeight") {
-          // 8-bit weights that still sum to exactly 255.
-          const q = new Uint8Array(n * 4);
-          for (let i = 0; i < n; i++) {
-            const w = [0, 1, 2, 3].map((k) => attribute.getComponent(i, k)), sum = w.reduce((a, b) => a + b, 0) || 1;
-            const r = w.map((v) => Math.round((v / sum) * 255));
-            r[r.indexOf(Math.max(...r))] += 255 - r.reduce((a, b) => a + b, 0);
-            q.set(r, i * 4);
-          }
-          out.attributes.skinWeight = { stream: stream(q, { count: n, stride: 4 }), format: "unorm8x4" };
-        } else if (attributeName === "color") {
-          const q = new Uint8Array(n * 4);
-          for (let i = 0; i < n; i++) for (let k = 0; k < 4; k++) q[i * 4 + k] = k < attribute.itemSize ? Math.round(Math.max(0, Math.min(1, attribute.getComponent(i, k))) * 255) : 255;
-          out.attributes.color = { stream: stream(q, { count: n, stride: 4 }), format: "unorm8x4" };
-        } else if (attributeName === "materialIndex") {
-          const q = new Uint8Array(n * 4);
-          for (let i = 0; i < n; i++) q[i * 4] = attribute.getX(i);
-          out.attributes.material = { stream: stream(q, { count: n, stride: 4 }), format: "uint8x4" };
-        } else if (/^uv\d?$/.test(attributeName) && attribute.itemSize === 2 && [...Array(n).keys()].every((i) => { const u = attribute.getX(i), v = attribute.getY(i); return u >= 0 && u <= 1 && v >= 0 && v <= 1; })) {
-          const q = new Uint16Array(n * 2);
-          // 12 bits of precision (1/4096 of the texture), low bits zero.
-          for (let i = 0; i < n; i++) { q[i * 2] = Math.min(65535, Math.round(attribute.getX(i) * 4095) * 16); q[i * 2 + 1] = Math.min(65535, Math.round(attribute.getY(i) * 4095) * 16); }
-          out.attributes[attributeName] = { stream: stream(q, { count: n, stride: 4 }), format: "unorm16x2" };
-        } else {
-          // Other texture coordinates and anything else: 32-bit floats.
-          const size = attribute.itemSize, f = new Float32Array(n * size);
-          for (let i = 0; i < n; i++) for (let k = 0; k < size; k++) f[i * size + k] = attribute.getComponent(i, k);
-          out.attributes[attributeName] = { stream: stream(f, { count: n, stride: size * 4 }), format: size === 1 ? "float32" : `float32x${size}` };
-        }
-      }
-      if (geometry.index) {
-        const wide = count > 65535, ix = wide ? new Uint32Array(geometry.index.count) : new Uint16Array(geometry.index.count);
-        for (let i = 0; i < ix.length; i++) ix[i] = geometry.index.getX(i);
-        out.index = { stream: stream(ix, { count: ix.length, stride: wide ? 4 : 2, mode: "triangles" }), format: wide ? "uint32" : "uint16" };
-      }
-      if (geometry.groups.length) out.groups = geometry.groups.map(({ start, count, materialIndex }) => ({ start, count, material: materialIndex ?? 0 }));
-      if (morphed) {
-        const names = geometry.userData.targetNames ?? [];
-        out.morphTargets = geometry.morphAttributes.position.map((attribute, t) => {
-          const f = new Float32Array(attribute.count * 3);
-          for (let i = 0; i < attribute.count; i++) for (let k = 0; k < 3; k++) f[i * 3 + k] = attribute.getComponent(i, k);
-          const target = { name: attribute.name || names[t] || `target_${t}`, position: { stream: stream(f, { count: attribute.count, stride: 12 }), format: "float32x3" } };
-          const normal = geometry.morphAttributes.normal?.[t];
-          if (normal) {
-            const g = new Float32Array(normal.count * 3);
-            for (let i = 0; i < normal.count; i++) for (let k = 0; k < 3; k++) g[i * 3 + k] = normal.getComponent(i, k);
-            target.normal = { stream: stream(g, { count: normal.count, stride: 12 }), format: "float32x3" };
-          }
-          return target;
-        });
-        if (geometry.morphTargetsRelative === false) out.morphAbsolute = true;
-      }
-      manifest.geometries.push(out);
-      geometryIndex.set(key, manifest.geometries.length - 1);
-      return manifest.geometries.length - 1;
-    }
-
-    async function writeTexture(texture) {
-      if (textureIndex.has(texture)) return textureIndex.get(texture);
-      let { mime, bytes } = texture.userData?.fun3dSource ?? {};
-      if (!bytes) {
-        // Encode what the browser decoded (lossy but complete): WebP from the image.
-        const image = texture.image;
-        if (typeof OffscreenCanvas === "undefined" || !image?.width) throw new Error(`Texture "${texture.name}" has no encoded source`);
-        const canvas = new OffscreenCanvas(image.width, image.height);
-        canvas.getContext("2d").drawImage(image, 0, 0);
-        mime = "image/webp";
-        bytes = new Uint8Array(await (await canvas.convertToBlob({ type: mime, quality: 0.92 })).arrayBuffer());
-      }
-      const wrap = (w) => ({ [THREE.RepeatWrapping]: "repeat", [THREE.ClampToEdgeWrapping]: "clamp", [THREE.MirroredRepeatWrapping]: "mirror" })[w];
-      // Several textures (other samplers or colour spaces) may share one image.
-      let image = images.find((e) => e.bytes.length === bytes.length && e.bytes.every((b, i) => b === bytes[i]));
-      if (!image) images.push(image = { bytes, stream: stream(bytes, { count: bytes.length, stride: 1, store: true }) });
-      manifest.textures.push({
-        stream: image.stream, mime,
-        colorSpace: texture.colorSpace === THREE.SRGBColorSpace ? "srgb" : "linear",
-        wrap: [wrap(texture.wrapS), wrap(texture.wrapT)], ...(texture.flipY ? { flipY: true } : {}),
-        ...(texture.name ? { name: texture.name } : {}),
-      });
-      textureIndex.set(texture, manifest.textures.length - 1);
-      return manifest.textures.length - 1;
-    }
-
-    async function writeMaterial(material) {
-      if (materialIndex.has(material)) return materialIndex.get(material);
-      const custom = material.userData?.fun3d ?? {};
-      const type = custom.type ?? (material.isMeshPhysicalMaterial && material.transmission > 0 ? "glass" : material.isMeshToonMaterial ? "toon" : material.isMeshBasicMaterial ? "unlit" : "standard");
-      const out = { type, ...(material.name ? { name: material.name } : {}), color: `#${material.color.getHexString()}` };
-      if ("roughness" in material) out.roughness = round(material.roughness, 4);
-      if (material.metalness) out.metalness = round(material.metalness, 4);
-      if (material.emissive && material.emissive.getHex() !== 0) { out.emissive = `#${material.emissive.getHexString()}`; out.emissiveIntensity = round(material.emissiveIntensity, 4); }
-      if (material.transparent && material.opacity < 1) out.opacity = round(material.opacity, 4);
-      if (material.alphaTest) out.alphaTest = round(material.alphaTest, 4);
-      if (material.side === THREE.DoubleSide) out.side = "double";
-      if (type === "glass") Object.assign(out, { transmission: round(material.transmission, 4), ior: round(material.ior, 4), thickness: round(material.thickness, 4) });
-      const maps = {};
-      for (const [key, slot] of [["map", "color"], ["normalMap", "normal"], ["roughnessMap", "metallicRoughness"], ["aoMap", "occlusion"], ["emissiveMap", "emissive"], ["alphaMap", "alpha"]])
-        if (material[key]) maps[slot] = await writeTexture(material[key]);
-      if (Object.keys(maps).length) out.maps = maps;
-      Object.assign(out, Object.fromEntries(Object.entries(custom).filter(([k]) => k !== "type")));
-      manifest.materials.push(out);
-      materialIndex.set(material, manifest.materials.length - 1);
-      return manifest.materials.length - 1;
-    }
-
-    const skinIndex = new Map();
-    for (const [i, object] of objects.entries()) {
-      const node = {};
-      if (object.name) node.name = object.name;
-      if (i > 0) node.parent = nodeIndex.get(object.parent);
-      if (object.position.lengthSq() > 0) node.position = object.position.toArray().map((n) => round(n));
-      if (object.quaternion.w !== 1) node.quaternion = object.quaternion.toArray().map((n) => round(n, 7));
-      if (object.scale.x !== 1 || object.scale.y !== 1 || object.scale.z !== 1) node.scale = object.scale.toArray().map((n) => round(n));
-      if (object.isBone) node.bone = true;
-      if (!object.visible) node.hidden = true;
-      if (object.userData?.fun3d?.role) node.role = object.userData.fun3d.role;
-      if (object.isMesh) {
-        const materials = await Promise.all([object.material].flat().map(writeMaterial));
-        node.mesh = { geometry: writeGeometry(object.geometry, { skinned: !!object.isSkinnedMesh }), material: materials.length === 1 ? materials[0] : materials };
-        if (object.castShadow) node.mesh.castShadow = true;
-        if (object.receiveShadow) node.mesh.receiveShadow = true;
-        if (object.isInstancedMesh) node.mesh.instances = { stream: stream(object.instanceMatrix.array.slice(0, object.count * 16), { count: object.count, stride: 64 }), format: "mat4" };
-        if (object.isSkinnedMesh) {
-          const skeleton = object.skeleton;
-          if (!skinIndex.has(skeleton)) {
-            const joints = skeleton.bones.map((bone) => {
-              if (!nodeIndex.has(bone)) throw new Error(`Bone "${bone.name}" is outside the exported object`);
-              return nodeIndex.get(bone);
-            });
-            const matrices = new Float32Array(joints.length * 16);
-            skeleton.boneInverses.forEach((m, j) => matrices.set(m.elements, j * 16));
-            manifest.skins.push({ joints, inverseBindMatrices: { stream: stream(matrices, { count: joints.length, stride: 64 }), format: "mat4" }, ...(rig ? { rig } : {}) });
-            skinIndex.set(skeleton, manifest.skins.length - 1);
-          }
-          node.skin = skinIndex.get(skeleton);
-        }
-        if (object.morphTargetDictionary) node.mesh.morph = Object.keys(object.morphTargetDictionary);
-      }
-      manifest.nodes.push(node);
-    }
-
-    // Animation tracks address nodes by index; the loader names them as Three.js expects.
-    const byName = new Map(objects.map((o, i) => [sanitize(o.name), i]).filter(([n]) => n).reverse());
-    for (const clip of animations) {
-      const tracks = [];
-      for (const track of clip.tracks) {
-        const parsed = THREE.PropertyBinding.parseTrackName(track.name);
-        const node = byName.get(parsed.nodeName);
-        if (node === undefined) continue;
-        const path = parsed.propertyName === "morphTargetInfluences" ? `morph${parsed.propertyIndex !== undefined ? `:${parsed.propertyIndex}` : ""}` : parsed.propertyName;
-        const times = track.times, size = track.getValueSize();
-        const step = times.length > 1 ? times[1] - times[0] : 0;
-        const uniform = times.length > 2 && times.every((t, i) => Math.abs(t - (times[0] + i * step)) < 1e-4);
-        tracks.push({
-          node, path, ...(track.getInterpolation() === THREE.InterpolateDiscrete ? { interpolation: "step" } : {}),
-          times: uniform ? { start: round(times[0]), fps: round(1 / step, 4), count: times.length } : { stream: stream(Float32Array.from(times), { count: times.length, stride: 4 }), format: "float32" },
-          // Rotations as 16-bit unit quaternions; everything else as 32-bit floats.
-          values: path === "quaternion"
-            ? { stream: stream(Int16Array.from(track.values, (v) => Math.round(Math.max(-1, Math.min(1, v)) * 32767)), { count: times.length, stride: 8 }), format: "snorm16x4" }
-            : { stream: stream(Float32Array.from(track.values), { count: times.length, stride: size * 4 }), format: size === 1 ? "float32" : `float32x${size}` },
-        });
-      }
-      manifest.animations.push({ name: clip.name, duration: round(clip.duration), tracks });
-    }
-
-    if (physics) manifest.physics = resolvePhysics(physics, (name) => {
-      const index = objects.findIndex((o) => o.name === name || sanitize(o.name) === sanitize(name));
-      if (index < 0) throw new Error(`Physics refers to unknown node "${name}"`);
-      return index;
-    });
-
-    for (const key of ["geometries", "materials", "textures", "skins", "animations"]) if (!manifest[key].length) delete manifest[key];
-    manifest.buffers.push({ byteLength: main.length });
-    if (stored.length) manifest.buffers.push({ byteLength: stored.length });
-    const chunks = [
-      { type: "JSON", bytes: new TextEncoder().encode(JSON.stringify(manifest)), deflate: compress },
-      { type: "BIN ", bytes: main.bytes(), deflate: compress },
-    ];
-    if (stored.length) chunks.push({ type: "BIN ", bytes: stored.bytes(), deflate: false });
-    if (edit) chunks.push({ type: "EDIT", bytes: new TextEncoder().encode(JSON.stringify(edit)), deflate: true, editing: true });
-    return packChunks(chunks);
-  }
-
-  // Physics descriptors name nodes; the file stores node indices.
-  function resolvePhysics(physics, nodeOf) {
-    const out = structuredClone(physics);
-    const fix = (value) => {
-      if (Array.isArray(value)) return value.forEach(fix);
-      if (!value || typeof value !== "object") return;
-      for (const [key, v] of Object.entries(value)) {
-        if (["node", "joint", "to"].includes(key) && typeof v === "string") value[key] = nodeOf(v);
-        else fix(v);
-      }
-    };
-    fix(out);
-    return out;
-  }
+export function createFun3d({ THREE, decoder = null, encoder = null, materials = null, ktx2 = null } = {}) {
+  if (!THREE) throw new TypeError("createFun3d needs THREE");
+  const writer = createWriter({ THREE, encoder });
 
   // ---- reading ----
 
+  /** The manifest and BIN chunks of a file, validated against the schema; `problems` is non-empty for invalid files. */
   async function read(bytes, { editing = false } = {}) {
-    const chunks = await unpackChunks(bytes, { editing });
-    const json = chunks.find((c) => c.type === "JSON");
-    if (!json) throw new Error("A .fun3d file starts with its JSON chunk");
-    const manifest = JSON.parse(new TextDecoder().decode(json.bytes));
-    if (manifest.format !== "fun3d") throw new Error("Not a .fun3d manifest");
-    if (manifest.version > VERSION) throw new Error(`.fun3d version ${manifest.version} needs a newer runtime (this one reads ${VERSION})`);
-    const buffers = chunks.filter((c) => c.type === "BIN ").map((c) => c.bytes);
-    const edit = chunks.find((c) => c.type === "EDIT");
-    return { manifest, buffers, edit: edit ? JSON.parse(new TextDecoder().decode(edit.bytes)) : null };
+    const chunks = await unpackChunks(bytes, { editing, maxRaw: CAPS.fileRaw, maxChunks: CAPS.chunks, maxJSON: CAPS.json });
+    const manifest = parseJSON(new TextDecoder().decode(chunks[0].bytes));
+    const bins = chunks.filter((c) => c.type === "BIN ").map((c) => (c.bytes.byteOffset % 4 ? c.bytes.slice() : c.bytes));
+    const problems = validateManifest(manifest, { chunks: bins.length });
+    for (const s of manifest.streams ?? []) {
+      if (typeof s.chunk === "number" && bins[s.chunk] && s.offset + s.length > bins[s.chunk].length) problems.push(`stream "${s.id}" runs past its chunk`);
+    }
+    let edit = null;
+    const section = chunks.find((c) => c.type === "EDIT");
+    if (section) {
+      if (section.bytes.length > CAPS.editing) problems.push("the editing section is larger than the cap");
+      else edit = parseJSON(new TextDecoder().decode(section.bytes));
+    }
+    return { manifest, bins, edit, problems };
   }
 
-  async function load(bytes, { editing = false } = {}) {
-    if (decoder) await decoder.ready;
-    const { manifest, buffers, edit } = await read(bytes, { editing });
-    const decoded = new Map();
-    function data(index) {
-      if (decoded.has(index)) return decoded.get(index);
-      const s = manifest.streams[index], source = buffers[s.buffer].subarray(s.offset, s.offset + s.length);
+  // Streams decode on first use; the sum of their decoded sizes was checked by the schema.
+  function openStreams(manifest, bins) {
+    const byId = new Map((manifest.streams ?? []).map((s) => [s.id, s])), cache = new Map();
+    const bytes = (id) => {
+      if (cache.has(id)) return cache.get(id);
+      const s = byId.get(id);
+      if (!s) throw new Error(`unknown stream "${id}"`);
+      const source = bins[s.chunk].subarray(s.offset, s.offset + s.length);
       let out = source;
-      if (s.codec === "meshopt-attributes") { out = new Uint8Array(s.count * s.stride); decoder.decodeVertexBuffer(out, s.count, s.stride, source); }
-      else if (s.codec === "meshopt-triangles") { out = new Uint8Array(s.count * s.stride); decoder.decodeIndexBuffer(out, s.count, s.stride, source); }
-      else if (s.offset % 4) out = source.slice();
-      decoded.set(index, out);
+      if (s.codec === "meshopt") {
+        if (!decoder) throw new Error("this file needs the meshopt decoder");
+        out = new Uint8Array(s.count * s.stride);
+        if (s.mode === "triangles") decoder.decodeIndexBuffer(out, s.count, s.stride, source);
+        else decoder.decodeVertexBuffer(out, s.count, s.stride, source, s.filter ? FILTERS[s.filter] : undefined);
+      }
+      cache.set(id, out);
       return out;
-    }
-    function typed({ stream, format }) {
-      const [Type] = FORMATS[format], bytes = data(stream);
-      return new Type(bytes.buffer, bytes.byteOffset, bytes.byteLength / Type.BYTES_PER_ELEMENT);
-    }
-    const attributeOf = (desc) => {
-      const [, size, normalized] = FORMATS[desc.format];
-      return new THREE.BufferAttribute(typed(desc), size, normalized);
     };
+    return {
+      desc: (id) => byId.get(id),
+      bytes,
+      typed(id, Type) { const b = bytes(id); return new Type(b.buffer, b.byteOffset, b.byteLength / Type.BYTES_PER_ELEMENT); },
+      of(ref) { return this.typed(ref.stream, FORMATS[ref.format][0]); },
+    };
+  }
 
-    const geometries = (manifest.geometries ?? []).map((g) => {
-      const geometry = new THREE.BufferGeometry();
-      for (const [name, desc] of Object.entries(g.attributes)) geometry.setAttribute(name === "material" ? "materialIndex" : name, attributeOf(desc));
-      if (g.index) geometry.setIndex(new THREE.BufferAttribute(typed(g.index), 1));
-      for (const group of g.groups ?? []) geometry.addGroup(group.start, group.count, group.material);
-      if (g.morphTargets) {
-        geometry.morphAttributes.position = g.morphTargets.map((t) => Object.assign(attributeOf(t.position), { name: t.name }));
-        if (g.morphTargets.every((t) => t.normal)) geometry.morphAttributes.normal = g.morphTargets.map((t) => attributeOf(t.normal));
-        geometry.morphTargetsRelative = !g.morphAbsolute;
+  /** Every problem with a file: the schema, then the data every stream decodes to. */
+  async function validate(bytes) {
+    let read_;
+    try { read_ = await read(bytes, { editing: true }); }
+    catch (error) { return [error instanceof ContainerError || error instanceof SyntaxError ? error.message : `cannot read: ${error.message}`]; }
+    const { manifest, bins, problems } = read_;
+    if (problems.length) return problems;
+    if (decoder) await decoder.ready;
+    const out = [], streams = openStreams(manifest, bins);
+    const finite = (array, what) => { for (let i = 0; i < array.length; i++) if (!Number.isFinite(array[i])) { out.push(`${what} has a non-finite value at ${i}`); return false; } return true; };
+    try {
+      const geometries = new Map((manifest.geometries ?? []).map((g) => [g.id, g]));
+      for (const g of geometries.values()) {
+        const index = streams.of(g.index);
+        for (let i = 0; i < index.length; i++) if (index[i] >= g.vertices) { out.push(`geometry "${g.id}" index ${i} is out of range`); break; }
+        for (const lod of g.lods ?? []) { const li = streams.of(lod.index); for (let i = 0; i < li.length; i++) if (li[i] >= g.vertices) { out.push(`geometry "${g.id}" lod index is out of range`); break; } }
+        for (const buffer of g.buffers) {
+          for (const [name, a] of Object.entries(buffer.attributes)) {
+            if (FORMATS[a.format][0] === Float32Array) finite(streams.typed(buffer.stream, Float32Array), `geometry "${g.id}" ${name}`);
+            if (name === "skinWeight") {
+              const s = streams.desc(buffer.stream), data = streams.typed(buffer.stream, Uint8Array);
+              for (let v = 0; v < g.vertices; v++) { const o = v * s.stride + a.offset; if (data[o] + data[o + 1] + data[o + 2] + data[o + 3] !== 255) { out.push(`geometry "${g.id}" skin weights do not sum to 255 at vertex ${v}`); break; } }
+            }
+          }
+        }
+        for (const target of g.morph?.targets ?? []) { const si = streams.of(target.sparse.indices); for (let i = 0; i < si.length; i++) if (si[i] >= g.vertices) { out.push(`geometry "${g.id}" morph ${target.id} index is out of range`); break; } }
       }
-      geometry.userData.fun3d = { quantization: g.quantization, bounds: g.bounds };
-      if (!g.quantization) {
-        geometry.boundingBox = new THREE.Box3(new THREE.Vector3(...g.bounds.min), new THREE.Vector3(...g.bounds.max));
-        geometry.boundingSphere = geometry.boundingBox.getBoundingSphere(new THREE.Sphere());
-      } else geometry.computeBoundingSphere();
-      return geometry;
-    });
+      const bones = new Map((manifest.skeletons ?? []).map((s) => [s.id, s.bones.length]));
+      for (const n of manifest.nodes ?? []) {
+        if (n.placements) {
+          const m = streams.of(n.placements.transforms);
+          if (finite(m, `node "${n.id}" placements`)) {
+            const matrix = new THREE.Matrix4();
+            for (let i = 0; i < n.placements.count; i++) { matrix.fromArray(m, i * 16); if (matrix.determinant() <= 0) { out.push(`node "${n.id}" placement ${i} is mirrored or degenerate`); break; } }
+          }
+        }
+        if (n.skin && n.mesh) {
+          const g = geometries.get(n.mesh.geometry), count = bones.get(n.skin);
+          for (const buffer of g?.buffers ?? []) if (buffer.attributes.skinIndex) { const data = streams.typed(buffer.stream, Uint8Array); for (let i = 0; i < data.length; i++) if (data[i] >= count) { out.push(`node "${n.id}" skin index ${data[i]} exceeds the skeleton`); break; } }
+        }
+      }
+      for (const s of manifest.skeletons ?? []) {
+        finite(streams.of(s.inverseBinds), `skeleton "${s.id}" inverse binds`);
+        if (s.hash) { const hash = await hashSkeleton(s, streams, manifest); if (hash !== s.hash) out.push(`skeleton "${s.id}" hash does not recompute`); }
+      }
+      for (const a of manifest.animations ?? []) for (const [k, t] of a.tracks.entries()) {
+        if (t.times.stream !== undefined) {
+          const times = streams.typed(t.times.stream, Float32Array);
+          if (finite(times, `animation "${a.id}" track ${k} times`)) {
+            for (let i = 0; i < times.length; i++) if (times[i] > a.duration + 1e-6 || (i && times[i] < times[i - 1])) { out.push(`animation "${a.id}" track ${k} times are not ascending within the duration`); break; }
+          }
+        }
+        const values = streams.of(t.values);
+        if (values instanceof Float32Array) finite(values, `animation "${a.id}" track ${k} values`);
+        else for (let i = 0; i < values.length; i += 4) { const l = Math.hypot(values[i], values[i + 1], values[i + 2], values[i + 3]) / 32767; if (Math.abs(l - 1) > 0.01) { out.push(`animation "${a.id}" track ${k} has a non-unit quaternion`); break; } }
+      }
+      let texels = 0;
+      for (const i of manifest.images ?? []) {
+        if (i.ref) continue;
+        const size = imageSize(streams.bytes(i.stream), i.mime);
+        if (!size) { out.push(`image "${i.id}" is not a readable ${i.mime}`); continue; }
+        if (size[0] * size[1] > CAPS.texelsPerImage) out.push(`image "${i.id}" has more than ${CAPS.texelsPerImage} texels`);
+        texels += size[0] * size[1];
+      }
+      if (texels > CAPS.texels) out.push(`images have more than ${CAPS.texels} texels in all`);
+      for (const s of manifest.physics?.shapes ?? []) {
+        if (s.type !== "convex") continue;
+        const p = streams.of(s.points);
+        if (!finite(p, `shape "${s.id}" points`)) continue;
+        if (!spans3D(p)) out.push(`shape "${s.id}" points are coplanar`);
+      }
+    } catch (error) { out.push(`data: ${error.message}`); }
+    return out;
+  }
 
-    const textures = await Promise.all((manifest.textures ?? []).map(async (t) => {
-      const bytes = data(t.stream);
-      let texture;
-      if (typeof createImageBitmap === "function" && t.mime !== "image/ktx2") {
-        const bitmap = await createImageBitmap(new Blob([bytes], { type: t.mime }), { imageOrientation: t.flipY ? "flipY" : "none", colorSpaceConversion: "none", premultiplyAlpha: "none" });
-        texture = new THREE.Texture(bitmap);
-        texture.needsUpdate = true;
-      } else {
-        texture = new THREE.Texture();
-        texture.userData.fun3dSource = { mime: t.mime, bytes };
-      }
+  // Four points not on one plane: the volume of some tetrahedron is above a tolerance.
+  function spans3D(p) {
+    const n = p.length / 3;
+    if (n < 4) return false;
+    const a = new THREE.Vector3(p[0], p[1], p[2]), ab = new THREE.Vector3(), ac = new THREE.Vector3(), ad = new THREE.Vector3(), cross = new THREE.Vector3();
+    let b = -1;
+    for (let i = 1; i < n; i++) { ab.set(p[i * 3] - a.x, p[i * 3 + 1] - a.y, p[i * 3 + 2] - a.z); if (ab.lengthSq() > 1e-12) { b = i; break; } }
+    if (b < 0) return false;
+    let c = -1;
+    for (let i = b + 1; i < n; i++) { ac.set(p[i * 3] - a.x, p[i * 3 + 1] - a.y, p[i * 3 + 2] - a.z); cross.crossVectors(ab, ac); if (cross.lengthSq() > 1e-12) { c = i; break; } }
+    if (c < 0) return false;
+    for (let i = 1; i < n; i++) { ad.set(p[i * 3] - a.x, p[i * 3 + 1] - a.y, p[i * 3 + 2] - a.z); if (Math.abs(cross.dot(ad)) > 1e-9) return true; }
+    return false;
+  }
+
+  // The skeleton's identity for references, from the bone ids, rest transforms and inverse binds.
+  function hashSkeleton(skeleton, streams, manifest) {
+    const nodes = new Map((manifest.nodes ?? []).map((n) => [n.id, n]));
+    const transforms = skeleton.bones.map((id) => { const t = nodes.get(id)?.transform ?? {}; return [t.position ?? [0, 0, 0], t.rotation ?? [0, 0, 0, 1], t.scale ?? [1, 1, 1]]; });
+    return skeletonHash(skeleton.bones, transforms, streams.of(skeleton.inverseBinds));
+  }
+
+  // ---- loading ----
+
+  const normalizeMaterial = (m) => ({
+    id: m.id, name: m.name ?? m.id, model: m.model ?? "pbr", color: m.color ?? "#ffffff",
+    alpha: { mode: "opaque", cutoff: 0.5, opacity: 1, ...m.alpha }, side: m.side ?? "front",
+    pbr: { roughness: 1, metalness: 0, ...m.pbr }, maps: m.maps ?? {}, features: m.features ?? {},
+  });
+
+  // Three.js's own material classes, for Node, the parity viewer and games without the TSL
+  // builder: roles and tints do not apply here.
+  function classicMaterial(desc, { flat, vertexColors, texture, warn }) {
+    const options = { name: desc.name, color: new THREE.Color(desc.color), side: desc.side === "double" ? THREE.DoubleSide : THREE.FrontSide, vertexColors };
+    const material = desc.model === "unlit" ? new THREE.MeshBasicMaterial(options) : new THREE.MeshStandardMaterial({ ...options, roughness: desc.pbr.roughness, metalness: desc.pbr.metalness, flatShading: flat });
+    const maps = desc.maps;
+    if (maps.color) material.map = texture(maps.color, "srgb");
+    if (desc.model === "pbr") {
+      if (maps.normal) { material.normalMap = texture(maps.normal); material.normalScale.setScalar(maps.normal.scale ?? 1); }
+      if (maps.metalRough) material.metalnessMap = material.roughnessMap = texture(maps.metalRough);
+      if (maps.occlusion) material.aoMap = texture(maps.occlusion);
+    }
+    if (maps.alpha) material.alphaMap = texture(maps.alpha);
+    const emitter = desc.features.emitter;
+    if (emitter && material.emissive) {
+      material.emissive.set(emitter.color ?? "#ffffff");
+      material.emissiveIntensity = emitter.intensity ?? 1;
+      if (emitter.map) material.emissiveMap = texture(emitter.map, "srgb");
+    }
+    for (const name of Object.keys(desc.features)) if (!["emitter", "tint"].includes(name)) warn(`material "${desc.id}": feature ${name} is not in this release; rendered without it`);
+    if (desc.alpha.mode === "mask") material.alphaTest = desc.alpha.cutoff;
+    if (desc.alpha.mode === "blend") { material.transparent = true; material.opacity = desc.alpha.opacity; material.depthWrite = false; }
+    material.userData.fun3d = { id: desc.id, flat };
+    return material;
+  }
+
+  async function decodeTexture(image, desc, warn) {
+    if (image.mime === "image/ktx2") {
+      if (!ktx2) { warn(`texture "${desc.id}": KTX2 needs the KTX2 loader; a white texture stands in`); return new THREE.Texture(); }
+      const buffer = image.bytes.buffer.slice(image.bytes.byteOffset, image.bytes.byteOffset + image.bytes.byteLength);
+      return new Promise((resolve, reject) => ktx2.parse(buffer, resolve, reject));
+    }
+    if (typeof createImageBitmap !== "function") { const t = new THREE.Texture(); t.userData.fun3dSource = { mime: image.mime, bytes: image.bytes }; return t; }
+    const bitmap = await createImageBitmap(new Blob([image.bytes], { type: image.mime }), { imageOrientation: "none", colorSpaceConversion: "none", premultiplyAlpha: "none" });
+    const texture = new THREE.Texture(bitmap);
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  /**
+   * Three.js objects for a file. Every node is an Object3D named by its id (`nodes`); rigid
+   * meshes are unnamed children carrying the dequantizing transform; skinned meshes are the
+   * nodes themselves. `materials` builds from kit/materials.js when given to createFun3d.
+   */
+  async function load(bytes, { warn = (message) => console.warn(`fun3d: ${message}`), keepSources = false, materials: builder = materials } = {}) {
+    if (decoder) await decoder.ready;
+    const { manifest, bins, problems } = await read(bytes);
+    if (problems.length) throw new Error(`invalid .fun3d: ${problems[0]}${problems.length > 1 ? ` (+${problems.length - 1} more)` : ""}`);
+    if (manifest.refs?.length) throw new Error("files with references are not in this release");
+    for (const name of manifest.requires ?? []) throw new Error(`this file requires the extension ${name}, which this runtime does not have`);
+    const streams = openStreams(manifest, bins), warnings = [];
+    const note = (message) => { warnings.push(message); warn(message); };
+    const disposables = [];
+
+    // Images and textures.
+    const images = new Map();
+    for (const i of manifest.images ?? []) images.set(i.id, { id: i.id, mime: i.mime, bytes: streams.bytes(i.stream) });
+    const textures = new Map();
+    for (const t of manifest.textures ?? []) {
+      const image = images.get(t.image), texture = await decodeTexture(image, t, note);
+      texture.name = t.id;
       texture.flipY = false;
       texture.colorSpace = t.colorSpace === "srgb" ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-      const wrap = { repeat: THREE.RepeatWrapping, clamp: THREE.ClampToEdgeWrapping, mirror: THREE.MirroredRepeatWrapping };
-      [texture.wrapS, texture.wrapT] = (t.wrap ?? ["repeat", "repeat"]).map((w) => wrap[w]);
-      if (t.name) texture.name = t.name;
-      if (texture.userData.fun3dSource === undefined) texture.userData.fun3dSource = { mime: t.mime, bytes };
-      return texture;
-    }));
-
-    // Materials: Three.js classes for every type; types Three.js lacks (lights with roles,
-    // wind) carry their parameters in userData.fun3d for the runtime's TSL materials.
-    const materialCache = new Map();
-    function material(index, { flat, skinned, morphed, colors }) {
-      const key = `${index}:${flat}:${skinned}:${morphed}:${colors}`;
-      if (materialCache.has(key)) return materialCache.get(key);
-      const m = manifest.materials[index];
-      const options = { name: m.name ?? "", color: new THREE.Color(m.color ?? "#ffffff") };
-      let material;
-      if (m.type === "glass") material = new THREE.MeshPhysicalMaterial({ ...options, roughness: m.roughness ?? 0.05, metalness: m.metalness ?? 0, transmission: m.transmission ?? 1, ior: m.ior ?? 1.5, thickness: m.thickness ?? 0 });
-      else if (m.type === "unlit") material = new THREE.MeshBasicMaterial(options);
-      else if (m.type === "toon") material = new THREE.MeshToonMaterial(options);
-      else material = new THREE.MeshStandardMaterial({ ...options, roughness: m.roughness ?? 1, metalness: m.metalness ?? 0 });
-      if (m.emissive) { material.emissive?.set(m.emissive); if ("emissiveIntensity" in material) material.emissiveIntensity = m.emissiveIntensity ?? 1; }
-      if (m.opacity !== undefined && m.opacity < 1) Object.assign(material, { transparent: true, opacity: m.opacity, depthWrite: false });
-      if (m.alphaTest) material.alphaTest = m.alphaTest;
-      if (m.side === "double") material.side = THREE.DoubleSide;
-      const maps = m.maps ?? {};
-      if (maps.color !== undefined) material.map = textures[maps.color];
-      if (maps.normal !== undefined) material.normalMap = textures[maps.normal];
-      if (maps.metallicRoughness !== undefined) material.roughnessMap = material.metalnessMap = textures[maps.metallicRoughness];
-      if (maps.occlusion !== undefined) material.aoMap = textures[maps.occlusion];
-      if (maps.emissive !== undefined) material.emissiveMap = textures[maps.emissive];
-      if (maps.alpha !== undefined) material.alphaMap = textures[maps.alpha];
-      if (flat) material.flatShading = true;
-      if (colors) material.vertexColors = true;
-      const extra = Object.fromEntries(Object.entries(m).filter(([k]) => !["name", "color", "roughness", "metalness", "emissive", "emissiveIntensity", "opacity", "alphaTest", "side", "maps", "transmission", "ior", "thickness"].includes(k)));
-      material.userData.fun3d = extra;
-      materialCache.set(key, material);
-      return material;
+      const sampler = t.sampler ?? {};
+      [texture.wrapS, texture.wrapT] = (sampler.wrap ?? ["repeat", "repeat"]).map((w) => THREE[WRAP[w]]);
+      texture.minFilter = THREE[FILTER[sampler.minFilter ?? "linear-mipmap-linear"]];
+      texture.magFilter = THREE[FILTER[sampler.magFilter ?? "linear"]];
+      texture.generateMipmaps = (sampler.minFilter ?? "linear-mipmap-linear").includes("mipmap");
+      texture.anisotropy = sampler.anisotropy ?? 1;
+      if (keepSources) texture.userData.fun3dSource = { mime: image.mime, bytes: image.bytes };
+      textures.set(t.id, texture);
+      disposables.push(texture);
     }
-
-    // Skinned and morphed meshes take float positions (skinning and morphing work in model space).
-    const expand = new Set(manifest.nodes.filter((n) => n.mesh && (n.skin !== undefined || manifest.geometries[n.mesh.geometry].morphTargets)).map((n) => n.mesh.geometry));
-    for (const index of expand) {
-      const g = manifest.geometries[index], q = g.quantization;
-      if (!q) continue;
-      const geometry = geometries[index], source = geometry.getAttribute("position"), f = new Float32Array(source.count * 3);
-      for (let i = 0; i < source.count; i++) for (let k = 0; k < 3; k++) f[i * 3 + k] = q.offset[k] + source.getComponent(i, k) * q.scale;
-      geometry.setAttribute("position", new THREE.BufferAttribute(f, 3));
-      geometry.boundingBox = new THREE.Box3(new THREE.Vector3(...g.bounds.min), new THREE.Vector3(...g.bounds.max));
-      geometry.boundingSphere = geometry.boundingBox.getBoundingSphere(new THREE.Sphere());
-      g.quantization = undefined;
-    }
-    const objects = manifest.nodes.map((node) => {
-      let object;
-      if (node.bone) object = new THREE.Bone();
-      else if (node.mesh) {
-        const g = manifest.geometries[node.mesh.geometry], geometry = geometries[node.mesh.geometry];
-        const flags = { flat: !g.attributes.normal, skinned: node.skin !== undefined, morphed: !!g.morphTargets, colors: !!g.attributes.color };
-        const materials = [node.mesh.material].flat().map((i) => material(i, flags));
-        const mat = Array.isArray(node.mesh.material) ? materials : materials[0];
-        let mesh;
-        if (node.skin !== undefined) mesh = new THREE.SkinnedMesh(geometry, mat);
-        else if (node.mesh.instances) {
-          const matrices = typed(node.mesh.instances);
-          mesh = new THREE.InstancedMesh(geometry, mat, node.mesh.instances.count ?? matrices.length / 16);
-          mesh.instanceMatrix.array.set(matrices);
-        } else mesh = new THREE.Mesh(geometry, mat);
-        if (node.mesh.castShadow) mesh.castShadow = true;
-        if (node.mesh.receiveShadow) mesh.receiveShadow = true;
-        if (g.morphTargets) {
-          mesh.morphTargetDictionary = Object.fromEntries(g.morphTargets.map((t, i) => [t.name, i]));
-          mesh.morphTargetInfluences = g.morphTargets.map(() => 0);
-        }
-        const q = g.quantization;
-        if (q && mesh.isInstancedMesh) {
-          // Instances dequantize through their own matrices.
-          const d = new THREE.Matrix4().compose(new THREE.Vector3(...q.offset), new THREE.Quaternion(), new THREE.Vector3(q.scale, q.scale, q.scale)), m = new THREE.Matrix4();
-          for (let i = 0; i < mesh.count; i++) { mesh.getMatrixAt(i, m); mesh.setMatrixAt(i, m.multiply(d)); }
-          object = mesh;
-        } else if (q) {
-          // The node keeps its own transform (a pivot); a child mesh dequantizes.
-          object = new THREE.Object3D();
-          mesh.position.fromArray(q.offset);
-          mesh.scale.setScalar(q.scale);
-          object.add(mesh);
-          object.userData.fun3dMesh = mesh;
-        } else object = mesh;
-      } else object = new THREE.Object3D();
-      object.name = sanitize(node.name ?? "");
-      if (node.position) object.position.fromArray(node.position);
-      if (node.quaternion) object.quaternion.fromArray(node.quaternion);
-      if (node.scale) object.scale.fromArray(node.scale);
-      if (node.hidden) object.visible = false;
-      if (node.role) object.userData.fun3d = { role: node.role };
-      return object;
-    });
-    manifest.nodes.forEach((node, i) => { if (node.parent !== undefined) objects[node.parent].add(objects[i]); });
-    const scene = objects[0];
-    scene.updateMatrixWorld(true);
-
-    const skeletons = (manifest.skins ?? []).map((skin) => {
-      const matrices = typed(skin.inverseBindMatrices);
-      const inverses = skin.joints.map((_, j) => new THREE.Matrix4().fromArray(matrices, j * 16));
-      return new THREE.Skeleton(skin.joints.map((j) => objects[j]), inverses);
-    });
-    manifest.nodes.forEach((node, i) => {
-      if (node.skin !== undefined) objects[i].bind(skeletons[node.skin], objects[i].matrixWorld);
-    });
-
-    const InterpolantFor = { linear: THREE.InterpolateLinear, step: THREE.InterpolateDiscrete };
-    const animations = (manifest.animations ?? []).map((clip) => new THREE.AnimationClip(clip.name, clip.duration, clip.tracks.map((t) => {
-      const target = objects[t.node].name;
-      const times = t.times.stream !== undefined ? Float32Array.from(typed(t.times)) : Float32Array.from({ length: t.times.count }, (_, i) => t.times.start + i / t.times.fps);
-      const raw = typed(t.values), [, , normalized] = FORMATS[t.values.format];
-      const values = normalized ? Float32Array.from(raw, (v) => Math.max(v / 32767, -1)) : Float32Array.from(raw);
-      const interpolation = InterpolantFor[t.interpolation ?? "linear"];
-      if (t.path === "quaternion") return new THREE.QuaternionKeyframeTrack(`${target}.quaternion`, times, values, interpolation);
-      if (t.path === "position" || t.path === "scale") return new THREE.VectorKeyframeTrack(`${target}.${t.path}`, times, values, interpolation);
-      if (t.path.startsWith("morph")) {
-        const index = t.path.split(":")[1];
-        return new THREE.NumberKeyframeTrack(`${target}.morphTargetInfluences${index !== undefined ? `[${index}]` : ""}`, times, values, interpolation);
+    // A map's uv set and transform live on the texture in Three.js, so a texture used with
+    // several settings is cloned (clones share the image).
+    const variants = new Map();
+    const textureFor = (map, colorSpace = null) => {
+      const base = textures.get(map.texture);
+      const key = `${map.texture}|${map.uv ?? 0}|${JSON.stringify(map.transform ?? null)}|${colorSpace}`;
+      if (variants.has(key)) return variants.get(key);
+      let texture = base;
+      if (map.uv || map.transform) {
+        texture = base.clone();
+        texture.channel = map.uv ?? 0;
+        if (map.transform) { texture.offset.fromArray(map.transform.offset ?? [0, 0]); texture.repeat.fromArray(map.transform.scale ?? [1, 1]); texture.rotation = map.transform.rotation ?? 0; }
+        disposables.push(texture);
       }
-      return new THREE.NumberKeyframeTrack(`${target}.${t.path}`, times, values, interpolation);
-    })));
+      variants.set(key, texture);
+      return texture;
+    };
 
-    // Physics descriptors with node indices resolved to the loaded objects.
-    let physics = null;
-    if (manifest.physics) {
-      physics = structuredClone(manifest.physics);
-      const fix = (value) => {
-        if (Array.isArray(value)) return value.forEach(fix);
-        if (!value || typeof value !== "object") return;
-        for (const [key, v] of Object.entries(value)) {
-          if (["node", "joint", "to"].includes(key) && Number.isInteger(v)) value[key] = objects[v];
-          else if (key === "points" && v?.stream !== undefined) value[key] = typed(v);
-          else fix(v);
+    // Materials: one descriptor per id, Three.js materials per (id, flat, vertex colours) on demand.
+    const materialDescs = new Map((manifest.materials ?? []).map((m) => [m.id, normalizeMaterial(m)]));
+    const materialObjects = new Map();
+    const materialFor = (id, { flat, vertexColors }) => {
+      const key = `${id}|${flat}|${vertexColors}`;
+      if (materialObjects.has(key)) return materialObjects.get(key);
+      const desc = materialDescs.get(id);
+      const material = builder ? builder.build(desc, { flat, vertexColors, texture: textureFor, warn: note }) : classicMaterial(desc, { flat, vertexColors, texture: textureFor, warn: note });
+      materialObjects.set(key, material);
+      disposables.push(material);
+      return material;
+    };
+
+    // Geometries.
+    const skinnedGeometries = new Set((manifest.nodes ?? []).filter((n) => n.skin && n.mesh).map((n) => n.mesh.geometry));
+    const geometries = new Map();
+    for (const g of manifest.geometries ?? []) {
+      const geometry = new THREE.BufferGeometry();
+      geometry.name = g.id;
+      let hasColor = false;
+      for (const buffer of g.buffers) {
+        const s = streams.desc(buffer.stream), entries = Object.entries(buffer.attributes);
+        const [Type] = FORMATS[entries[0][1].format], typed = streams.typed(buffer.stream, Type);
+        const single = entries.length === 1 && entries[0][1].offset === 0 && FORMATS[entries[0][1].format][3] === s.stride;
+        const interleaved = single ? null : new THREE.InterleavedBuffer(typed, s.stride / Type.BYTES_PER_ELEMENT);
+        for (const [name, a] of entries) {
+          const [, size, normalized] = FORMATS[a.format];
+          const attribute = single ? new THREE.BufferAttribute(typed, size, normalized) : new THREE.InterleavedBufferAttribute(interleaved, size, a.offset / Type.BYTES_PER_ELEMENT, normalized);
+          if (name === "skinIndex") attribute.gpuType = THREE.IntType;
+          if (name === "color") hasColor = true;
+          geometry.setAttribute(name, attribute);
         }
+      }
+      const index = streams.of(g.index);
+      geometry.setIndex(new THREE.BufferAttribute(index, 1));
+      g.groups.forEach((group, i) => geometry.addGroup(group.start, group.count, i));
+      // Quantized positions stay on the GPU under a dequantizing transform, except for skinned
+      // and morphed meshes, which deform in metres.
+      const decode = g.decode?.position ?? null, expand = decode && (skinnedGeometries.has(g.id) || g.morph);
+      let dequantize = decode && !expand ? { offset: decode.offset, scale: decode.scale } : null;
+      let positions = null;
+      const positionsOf = () => {
+        if (positions) return positions;
+        const source = geometry.getAttribute("position"), out = new Float32Array(g.vertices * 3);
+        for (let i = 0; i < g.vertices; i++) for (let k = 0; k < 3; k++) out[i * 3 + k] = decode ? decode.offset[k] + source.getComponent(i, k) * decode.scale : source.getComponent(i, k);
+        return (positions = out);
       };
-      fix(physics);
+      if (expand) {
+        geometry.setAttribute("position", new THREE.BufferAttribute(positionsOf(), 3));
+        dequantize = null;
+      }
+      if (g.morph) {
+        const scale = g.morph.decode?.scale ?? 1;
+        // Sparse deltas become dense arrays: position = stored × scale / 32767 (or floats),
+        // normal deltas = stored × 2 / 127.
+        const dense = (target, ref, components, factor) => {
+          const indices = streams.of(target.sparse.indices), values = streams.of(ref), out = new Float32Array(g.vertices * 3);
+          for (let i = 0; i < indices.length; i++) for (let k = 0; k < 3; k++) out[indices[i] * 3 + k] = values[i * components + k] * factor;
+          return out;
+        };
+        geometry.morphAttributes.position = g.morph.targets.map((t) => Object.assign(new THREE.BufferAttribute(dense(t, t.position, t.position.format === "snorm16x4" ? 4 : 3, t.position.format === "snorm16x4" ? scale / 32767 : 1), 3), { name: t.id }));
+        if (g.morph.targets.every((t) => t.normal)) geometry.morphAttributes.normal = g.morph.targets.map((t) => new THREE.BufferAttribute(dense(t, t.normal, 4, 2 / 127), 3));
+        geometry.morphTargetsRelative = true;
+      }
+      const box = new THREE.Box3(new THREE.Vector3(...g.bounds.min), new THREE.Vector3(...g.bounds.max));
+      if (dequantize) { box.min.sub(new THREE.Vector3(...dequantize.offset)).divideScalar(dequantize.scale); box.max.sub(new THREE.Vector3(...dequantize.offset)).divideScalar(dequantize.scale); }
+      const setBounds = (target) => { target.boundingBox = box.clone(); target.boundingSphere = box.getBoundingSphere(new THREE.Sphere()); };
+      setBounds(geometry);
+      const lods = (g.lods ?? []).map((lod) => {
+        const level = new THREE.BufferGeometry();
+        level.name = `${g.id}#${lod.error}`;
+        for (const [name, attribute] of Object.entries(geometry.attributes)) level.setAttribute(name, attribute);
+        level.setIndex(new THREE.BufferAttribute(streams.of(lod.index), 1));
+        lod.groups.forEach((group, i) => level.addGroup(group.start, group.count, i));
+        setBounds(level);
+        return { error: lod.error, geometry: level, groups: lod.groups };
+      });
+      geometry.userData.fun3d = { id: g.id, groups: g.groups, dequantize };
+      const slots = 1 + Math.max(...g.groups.map((group) => group.material));
+      geometries.set(g.id, { id: g.id, desc: g, geometry, lods, groups: g.groups, index, slots, hasColor, dequantize, positions: positionsOf, dispose() { geometry.dispose(); for (const l of lods) l.geometry.dispose(); } });
     }
 
-    return { scene, animations, physics, skeletons, manifest, edit, objects };
+    // Nodes.
+    const boneIds = new Set((manifest.skeletons ?? []).flatMap((s) => s.bones));
+    const nodes = new Map(), placements = new Map();
+    const ignored = new Set();
+    for (const n of manifest.nodes) {
+      let object;
+      const mesh = n.mesh ? geometries.get(n.mesh.geometry) : null;
+      const materialsOf = (groups) => {
+        const list = groups.map((group) => materialFor(n.mesh.materials[group.material], { flat: !!group.flat, vertexColors: mesh.hasColor }));
+        return list.length === 1 ? list[0] : list;
+      };
+      if (n.mesh && n.skin) {
+        object = new THREE.SkinnedMesh(mesh.geometry, materialsOf(mesh.groups));
+      } else if (n.mesh && n.placements) {
+        object = new THREE.Object3D();
+        const transforms = streams.of(n.placements.transforms), count = n.placements.count;
+        const instanced = new THREE.InstancedMesh(mesh.geometry, materialsOf(mesh.groups), count);
+        const m = new THREE.Matrix4(), d = mesh.dequantize ? new THREE.Matrix4().compose(new THREE.Vector3(...mesh.dequantize.offset), new THREE.Quaternion(), new THREE.Vector3().setScalar(mesh.dequantize.scale)) : null;
+        for (let i = 0; i < count; i++) { m.fromArray(transforms, i * 16); if (d) m.multiply(d); instanced.setMatrixAt(i, m); }
+        let tint = null;
+        if (n.placements.tint) {
+          tint = streams.of(n.placements.tint);
+          const color = new THREE.Color();
+          for (let i = 0; i < count; i++) instanced.setColorAt(i, color.setRGB(tint[i * 4] / 255, tint[i * 4 + 1] / 255, tint[i * 4 + 2] / 255));
+        }
+        placements.set(n.id, { count, transforms, tint });
+        object.userData.placements = placements.get(n.id);
+        object.add(instanced);
+        object.userData.mesh = instanced;
+      } else if (n.mesh) {
+        object = boneIds.has(n.id) ? new THREE.Bone() : new THREE.Object3D();
+        const child = new THREE.Mesh(mesh.geometry, materialsOf(mesh.groups));
+        if (mesh.dequantize) { child.position.fromArray(mesh.dequantize.offset); child.scale.setScalar(mesh.dequantize.scale); }
+        object.add(child);
+        object.userData.mesh = child;
+      } else object = boneIds.has(n.id) ? new THREE.Bone() : new THREE.Object3D();
+      if (n.mesh) {
+        const target = object.userData.mesh ?? object, shadow = n.mesh.shadow ?? "both";
+        target.castShadow = shadow === "both" || shadow === "cast";
+        target.receiveShadow = shadow === "both" || shadow === "receive";
+        if (mesh.desc.morph) { target.morphTargetDictionary = Object.fromEntries(mesh.desc.morph.targets.map((t, i) => [t.id, i])); target.morphTargetInfluences = n.mesh.morphWeights ? [...n.mesh.morphWeights] : mesh.desc.morph.targets.map(() => 0); }
+        target.userData.fun3d = { node: n.id, geometry: n.mesh.geometry, lods: mesh.lods };
+      }
+      object.name = n.id;
+      object.userData.name = n.name ?? n.id;
+      if (n.transform && !n.placements) {
+        if (n.transform.position) object.position.fromArray(n.transform.position);
+        if (n.transform.rotation) object.quaternion.fromArray(n.transform.rotation);
+        if (n.transform.scale) object.scale.fromArray(n.transform.scale);
+      }
+      if (n.visible === false) object.visible = false;
+      if (n.tags) object.userData.tags = [...n.tags];
+      if (n.sockets) object.userData.sockets = structuredClone(n.sockets);
+      for (const key of Object.keys(IGNORED)) if (n[key] !== undefined) ignored.add(IGNORED[key]);
+      nodes.set(n.id, object);
+      if (n.parent !== undefined) nodes.get(n.parent).add(object);
+    }
+    if (manifest.variants?.length) ignored.add("variants");
+    for (const what of ignored) note(`${what} are not in this release; ignored`);
+    const root = nodes.get(manifest.nodes[0].id);
+    root.updateMatrixWorld(true);
+
+    // Skeletons and skins: bound with the identity in attached mode, as GLTFLoader does.
+    const skeletons = new Map();
+    for (const s of manifest.skeletons ?? []) {
+      const binds = streams.of(s.inverseBinds);
+      const skeleton = new THREE.Skeleton(s.bones.map((id) => nodes.get(id)), s.bones.map((_, j) => new THREE.Matrix4().fromArray(binds, j * 16)));
+      skeleton.userData = { id: s.id, rig: s.rig ?? null, hash: s.hash ?? null };
+      skeletons.set(s.id, skeleton);
+      disposables.push(skeleton);
+    }
+    const identity = new THREE.Matrix4();
+    for (const n of manifest.nodes) if (n.skin && n.mesh) nodes.get(n.id).bind(skeletons.get(n.skin), identity);
+
+    // Clips: node channels only in this release.
+    const animations = [];
+    for (const a of manifest.animations ?? []) {
+      const tracks = [], skipped = new Set();
+      for (const t of a.tracks) {
+        if (t.material !== undefined || t.channel.startsWith("light.")) { skipped.add(t.material !== undefined ? "material channels" : "light channels"); continue; }
+        const times = t.times.stream !== undefined ? Float32Array.from(streams.typed(t.times.stream, Float32Array)) : Float32Array.from({ length: t.times.count }, (_, i) => (t.times.start ?? 0) + i / t.times.fps);
+        const raw = streams.of(t.values);
+        const values = raw instanceof Int16Array ? Float32Array.from(raw, (v) => Math.max(-1, v / 32767)) : Float32Array.from(raw);
+        const interpolation = t.interpolation === "step" ? THREE.InterpolateDiscrete : THREE.InterpolateLinear;
+        const path = `${t.node}.`;
+        if (t.channel === "rotation") tracks.push(new THREE.QuaternionKeyframeTrack(`${path}quaternion`, times, values, interpolation));
+        else if (t.channel === "position" || t.channel === "scale") tracks.push(new THREE.VectorKeyframeTrack(path + t.channel, times, values, interpolation));
+        else if (t.channel === "visible") tracks.push(new THREE.BooleanKeyframeTrack(`${path}visible`, times, Array.from(values, (v) => v > 0.5)));
+        else if (t.channel.startsWith("morph:")) {
+          const target = t.channel.slice(6), object = nodes.get(t.node), mesh = object?.userData.mesh ?? object;
+          const index = mesh?.morphTargetDictionary?.[target];
+          if (index === undefined) { skipped.add(`morph target ${target}`); continue; }
+          tracks.push(new THREE.NumberKeyframeTrack(`${path}morphTargetInfluences[${index}]`, times, values, interpolation));
+        } else skipped.add(`channel ${t.channel}`);
+      }
+      for (const what of skipped) note(`animation "${a.id}": ${what} are not in this release; skipped`);
+      const clip = new THREE.AnimationClip(a.id, a.duration, tracks);
+      clip.userData = { name: a.name ?? a.id, loop: a.loop ?? "repeat", blend: a.blend ?? "normal", mask: a.mask ?? null, root: a.root ?? null, events: a.events ?? [] };
+      animations.push(clip);
+    }
+
+    // Physics data the kit needs beyond the manifest: hull points.
+    const physicsData = { points: new Map() };
+    for (const s of manifest.physics?.shapes ?? []) if (s.type === "convex") physicsData.points.set(s.id, streams.of(s.points));
+
+    const model = {
+      manifest, kind: manifest.kind, asset: manifest.asset, root, nodes, geometries, materials: materialDescs, textures, images, skeletons, animations, placements, physicsData, warnings,
+      node: (id) => nodes.get(id) ?? null,
+      clip: (id) => animations.find((c) => c.name === id) ?? null,
+      textureFor,
+      dispose() {
+        for (const g of geometries.values()) g.dispose();
+        for (const d of disposables) d.dispose?.();
+        root.removeFromParent();
+      },
+    };
+    model.file = model;
+    return model;
   }
 
-  return { write, read, load };
+  return {
+    read, validate, load,
+    /** A .fun3d from Three.js objects; see fun3d-write.js. */
+    write: (root, options) => writer.write(root, options),
+    stripEditing,
+  };
 }

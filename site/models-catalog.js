@@ -5,7 +5,7 @@ import { gameOrigin } from "./game-source.js";
 // model's page data). Files are content-addressed blobs on the game origin.
 const ID = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
 const SHA = /^[a-f0-9]{64}$/;
-export const MODEL_TYPES = ["prop", "piece", "character", "creature", "animation", "scene", "world"];
+export const MODEL_TYPES = ["prop", "piece", "vehicle", "character", "creature", "animation", "scene", "world"];
 
 export function blobURL(name, sha256, origin = gameOrigin) {
   return `${origin}/blobs/${sha256}.${name.split(".").pop()}`;

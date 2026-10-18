@@ -27,7 +27,7 @@ export const messages = {
     modelsEmpty: "模型即将上线。", noModels: "没有找到模型。", modelsCount: (count) => `${count} 个模型`,
     backModels: "← 模型", modelMissing: "模型不存在。", viewerError: "模型加载失败。", modelView: "3D 模型，拖动旋转，双指或滚轮缩放",
     copyAddress: "复制地址", copied: "地址已复制。", copyError: "无法复制，请手动复制。", downloadGLB: "下载 GLB", downloadBlend: "下载 .blend", openWorkshop: "在工坊打开", downloadWorkshop: "下载工坊工程",
-    modelType: "类别", allTypes: "全部类别", type_prop: "道具", type_piece: "构件", type_character: "人物", type_creature: "生物", type_animation: "动画", type_scene: "场景", type_world: "世界",
+    modelType: "类别", allTypes: "全部类别", type_prop: "道具", type_piece: "构件", type_vehicle: "载具", type_character: "人物", type_creature: "生物", type_animation: "动画", type_scene: "场景", type_world: "世界",
     modelSize: "尺寸", triangles: "三角形", fileSize: "文件", versions: "版本", licence: "CC0：随便用，不用署名。",
   },
   en: {
@@ -58,7 +58,7 @@ export const messages = {
     modelsEmpty: "Models coming soon.", noModels: "No models found.", modelsCount: (count) => `${count} model${count === 1 ? "" : "s"}`,
     backModels: "← Models", modelMissing: "Model not found.", viewerError: "Couldn't load the model.", modelView: "3D model. Drag to turn, pinch or scroll to zoom",
     copyAddress: "Copy address", copied: "Address copied.", copyError: "Couldn't copy. Copy it by hand.", downloadGLB: "Download GLB", downloadBlend: "Download .blend", openWorkshop: "Open in workshop", downloadWorkshop: "Download workshop project",
-    modelType: "Type", allTypes: "All types", type_prop: "Prop", type_piece: "Piece", type_character: "Character", type_creature: "Creature", type_animation: "Animation", type_scene: "Scene", type_world: "World",
+    modelType: "Type", allTypes: "All types", type_prop: "Prop", type_piece: "Piece", type_vehicle: "Vehicle", type_character: "Character", type_creature: "Creature", type_animation: "Animation", type_scene: "Scene", type_world: "World",
     modelSize: "Size", triangles: "Triangles", fileSize: "File", versions: "Versions", licence: "CC0: use it for anything, no credit needed.",
   },
 };
