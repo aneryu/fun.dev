@@ -252,13 +252,15 @@ const file = await funEditor.exportGLB({ encoding: "base64" });</pre
             </td>
           </tr>
           <tr>
-            <td><code>exportGLB({encoding,ids?,origin?})</code></td>
+            <td><code>exportGLB({encoding,ids?,origin?,rootName?})</code></td>
             <td>
               buffer (default) or base64. Base64 result: revision, filename,
               mimeType, data, report (including bytes). Indexed geometry retains
               flat normals and identical geometry shares buffers. Optional ids
               selects subtrees; mergeStatic explicitly combines static leaf
-              meshes by parent and material. Takes a snapshot before
+              meshes by parent and material into static__&lt;material&gt; (under
+              the root) or &lt;parent&gt;__&lt;material&gt; nodes; rootName
+              names the exported root (e.g. crate_01_ROOT). Takes a snapshot before
               asynchronous export. origin is "world" (default), "asset-root"
               (one ids root required) or "ground-center". The chosen
               project-space anchor moves to zero in the exported scene;
@@ -431,20 +433,23 @@ const file = await funEditor.exportGLB({ encoding: "base64" });</pre
             <td>
               <code
                 >id, newId, axis:"x"|"y"|"z", offset:0, space:"world"|"parent",
-                linked:true</code
+                linked:true, name?, idMap?, replace?</code
               >. Reflects the subtree across the specified center plane with
               corrected winding. Linked geometry, transforms and materials
               follow the source. linked:false creates an independent mirrored
-              copy.
+              copy. Descendant IDs: <code>idMap</code> entries, else
+              <code>replace:["_l","_r"]</code> (last occurrence), else
+              newId-1, newId-2… The result lists <code>idMap</code>.
             </td>
           </tr>
           <tr>
             <td>duplicate / unlink</td>
             <td>
-              <code>id,newId,name?,offset?,linked?</code>. Clone subtree,
-              default parent-space offset [.2,0,0]. linked:true shares source
-              geometry/materials but keeps independent placement. Descendant
-              IDs: newId-1, newId-2, etc. unlink takes id and releases subtree
+              <code>id,newId,name?,offset?,linked?,idMap?,replace?</code>.
+              Clone subtree, default parent-space offset [.2,0,0]. linked:true
+              shares source geometry/materials but keeps independent placement.
+              Descendant IDs follow idMap / replace as for symmetry, else
+              newId-1, newId-2, etc. unlink takes id and releases subtree
               links.
             </td>
           </tr>
@@ -460,9 +465,14 @@ const file = await funEditor.exportGLB({ encoding: "base64" });</pre
             <td>paint / material</td>
             <td>
               paint: <code>id,material,faces?</code>. material:
-              <code>id,name?,color?,roughness?</code>, update shared material or
-              create with #rrggbb color. UI Make unique clones and assigns a
-              material in one transaction. Metallic is 0.
+              <code
+                >id,name?,color?,roughness?,metalness?,emissive?,emissiveIntensity?,opacity?,transmission?,ior?,doubleSided?</code
+              >, update shared material or create with #rrggbb color. Glass:
+              transmission (KHR_materials_transmission) with ior; emission:
+              emissive colour and strength (KHR_materials_emissive_strength);
+              opacity below 1 blends. <code>null</code> removes an optional
+              property. UI Make unique clones and assigns a material in one
+              transaction.
             </td>
           </tr>
           <tr>
@@ -470,6 +480,29 @@ const file = await funEditor.exportGLB({ encoding: "base64" });</pre
             <td>
               delete takes id, removes subtree and linked mirrors; surviving
               geometry copies become independent. renameProject takes name.
+            </td>
+          </tr>
+          <tr>
+            <td>rename</td>
+            <td>
+              <code>id,newId</code>. A node ID is its glTF name, so games find
+              parts by it (wheel_front_l, door_hinge…). Parents, mirrors,
+              linked copies, asset bindings and anchors follow.
+            </td>
+          </tr>
+          <tr>
+            <td>boolean</td>
+            <td>
+              <code
+                >id, operation:"union"|"difference"|"intersection", with?:[ids],
+                shape?:{kind,options,position?,rotation?,scale?,material?},
+                keep?</code
+              >. Closed solids only. <code>with</code> parts are placed in
+              the world and used up unless keep; <code>shape</code> is an
+              inline primitive in this part's local coordinates and is the
+              form a recipe step takes, so a parametric hole follows its
+              parameters. Cut faces keep the tool's material; faces split by
+              a hole become a few simple polygons.
             </td>
           </tr>
         </tbody>
@@ -516,6 +549,34 @@ node scripts/editor-agent.mjs --mcp --session /tmp/model-session.json --artifact
         EXACT_EDITOR_URL. The adapter does not enable debugging or replace an
         attached tab's project. No hosted endpoint or arbitrary evaluation tool.
       </p>
+      <h2>Reference images · 参考图</h2>
+      <pre>
+await funEditor.setReference({ view: "left", image: dataUrl, width: 4.4,
+  center: [0, 0.75], opacity: 0.5 });   // a side blueprint, 4.4 m wide
+funEditor.renderViews(["left"], { references: true });   // compare model and drawing
+await funEditor.clearReference({ view: "left" });</pre
+      >
+      <p>
+        One image per orthographic view (front, back, left, right, top), behind
+        the model. center is [horizontal, vertical] metres along the view's screen
+        axes from the world origin (left: +Z is right; top: -Z is up). Images stay
+        with the draft and are never exported. MCP: fun_editor_setReference (the
+        CLI also accepts <code>path</code>), fun_editor_clearReference,
+        fun_editor_references; observe takes <code>references:true</code>.
+      </p>
+      <h2>Agents without the repository</h2>
+      <pre>
+npm i playwright &amp;&amp; npx playwright install chromium
+curl -O https://cdn.fun.dev/tools/fundev-workshop.mjs
+node fundev-workshop.mjs --mcp --session model.json --artifacts out/</pre
+      >
+      <p>
+        The same CLI / MCP adapter in one file. It drives the published workshop
+        (<code>--url</code> to choose another), saves the session file after each
+        request and writes observations and GLBs to the artifacts directory.
+        <code>--gpu</code> renders on the machine's GPU; the default software
+        renderer works everywhere.
+      </p>
       <h2>Project · 工程</h2>
       <pre>
 {
@@ -530,8 +591,8 @@ node scripts/editor-agent.mjs --mcp --session /tmp/model-session.json --artifact
 }</pre
       >
       <p>
-        Limits: 128 nodes, 32 materials, 12,000 editable vertices, 20,000
-        triangles, 64 vertices per polygon, 4 MB project JSON. Nodes may
+        Limits: 512 nodes, 32 materials, 30,000 editable vertices, 50,000
+        triangles, 64 vertices per polygon, 8 MB project JSON. Nodes may
         additionally retain generator {kind,options,material,basis?}, symmetry
         {source,axis,offset,reference,basis?}, or instanceOf with optional
         instanceBasis. Link cycles are rejected. Errors throw; a non-writer

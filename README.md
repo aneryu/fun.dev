@@ -27,7 +27,7 @@ reference commands and operations. Requires Node.js 22+ and `tar`.
 - `site/index.html`: original personal homepage, with a Games entry.
 - `site/games.html`: game lobby at `/games`, with search and category filtering.
 - `site/editor/`: low-poly model workshop at `/editor/`, with a shared command API
-  for people and agents, editable JSON projects and GLB export. See [model editor](docs/model-editor.md).
+  for people and agents, editable projects, booleans and GLB export. See [model editor](docs/model-editor.md).
 - `site/player/`: shared player. Its `index.html` is a template: the build writes one page per
   game to `/games/<id>` with that game's title, description, canonical URL and Chinese Open
   Graph tags, so a game's address is also its share link. The build also writes
@@ -56,7 +56,10 @@ The frontend remains plain HTML/CSS/JavaScript. The small build exists to pin an
 serve one local copy of Three.js, without a CDN, remote import map, or duplicated
 engine in every game. `esbuild` minifies the engine files without bundling a UI
 framework. `@mediapipe/tasks-vision` is pinned the same way, as the platform's
-vision runtime, so games share one copy instead of each bundling 17 MB. The
+vision runtime, so games share one copy instead of each bundling 17 MB.
+`manifold-3d` is pinned as the workshop's geometry kernel (booleans and other solid
+operations, WebAssembly, loaded only by `/editor/`); the build copies its module and
+`.wasm` to `editor/vendor/` and bundles the agent tool to `tools/fundev-workshop.mjs`. The
 default build works as a static site. Optional account transfer
 uses Pages Functions and D1 as a temporary relay.
 

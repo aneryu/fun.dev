@@ -176,11 +176,13 @@ Preview leaves the live project, revision and undo history unchanged.
 
 ## Limits and verification
 
-Static untextured models only. GLB import, holes in extruded 2D outlines, arbitrary
-booleans, arbitrary nonmanifold bevels, UV/textures, rigs and animation remain outside the
-current scope. Limits: 128 nodes, 32 materials, 12,000 editable vertices, 20,000
-triangles, 64 vertices per polygon, 4 MB JSON. Generated topology may change face
-identity when its segment counts change; inspect again after parameter updates.
+Untextured static models. UV/textures, rigs and animation are later stages of the
+[roadmap](platform-roadmap.md#workshop-replacing-blender-decided-2026-10-18). Limits: 512
+nodes, 32 materials, 30,000 editable vertices, 50,000 triangles, 64 vertices per polygon,
+8 MB project JSON. Every command still re-checks the whole project: at 45,000 triangles a
+small edit takes about 0.15 s and a geometry edit of the large mesh about 1.4 s (binary
+storage and incremental history are stage 2). Generated topology may change face identity
+when its segment counts change; inspect again after parameter updates.
 
 The validator checks IDs, indices, hierarchy/link cycles, degenerate polygons and
 material references. It reports non-planar polygons, open/nonmanifold/inconsistent
@@ -202,6 +204,44 @@ commit/cancel, project downloads/reopen/reload, material uniqueness, hollow prof
 view metadata, writer locks, desktop layouts, bilingual UI and GLB loading through
 the existing runtime kit. The same suite participates in `npm run verify` as
 `editor`; artifacts go to `test-results/`.
+
+## Materials and names
+
+Materials are glTF metallic-roughness PBR: `color`, `roughness`, and optionally
+`metalness`, `emissive` + `emissiveIntensity` (KHR_materials_emissive_strength above 1),
+`opacity` (blended below 1), `transmission` + `ior` (glass, KHR_materials_transmission /
+KHR_materials_ior) and `doubleSided`. Defaults are left out of the document; `null`
+removes a property. The material panel shows them under "Metal, emission and glass".
+
+A node ID is its glTF name, which games use to find parts. `{op:'rename',id,newId}`
+updates parents, mirrors, linked copies, asset bindings and anchors; the object panel's
+"Export name (ID)" field does the same. `symmetry` and `duplicate` name copied descendants
+by `idMap` (explicit), `replace:["_l","_r"]` (last occurrence) or `newId-1…`, and report the
+map. Exports take `rootName` (e.g. `crate_01_ROOT`), and `mergeStatic` groups are named
+`static__<material>` under the root and `<parent>__<material>` under a moving part, as in
+the model library.
+
+## Geometry kernel and booleans
+
+manifold-3d (Apache-2.0, a WebAssembly build of Manifold) loads before `window.funEditor`
+opens (about 200 KB compressed, workshop only; the `/editor/*` policy allows WebAssembly).
+`{op:'boolean', id, operation:'union'|'difference'|'intersection', with:[ids] | shape, keep?}`
+works on closed solids: `with` parts are placed in the world and used up unless `keep`;
+`shape` is an inline primitive `{kind, options, position, rotation, scale, material}` in the
+part's local coordinates and is also a recipe step, so a window keeps its parameters. Cut
+faces keep the tool's material. Results come back as editable polygons: triangles from
+one source face merge into one polygon, or a few simple (possibly concave) pieces where the
+face has holes. The page's buttons Union / Subtract / Intersect use the last selected part
+as the target.
+
+## Reference images
+
+One image per orthographic view (front, back, left, right, top) stands behind the model:
+`setReference({view, image, width, center, opacity})`, `clearReference({view?})`,
+`references()`; `renderViews(names, {references:true})` includes them. `center` is
+[horizontal, vertical] metres along the view's screen axes from the world origin. Images
+stay with the draft (up to 8 MB each) and never enter a project or export. The page's
+"Reference image" button opens the same settings.
 
 ## Agent API v3: references, previews and recovery
 
@@ -454,6 +494,20 @@ only the exported scene, retaining orientation, scale, ancestors and hinge motio
 Reports include `origin:{mode,point,up,front}` (point is in project coordinates),
 and bounds reflect the exported coordinates. The Export GLB dialog previews scope,
 origin, dimensions and bounds before downloading; the editable draft is unchanged.
+
+## Agents without the repository
+
+`tools/fundev-workshop.mjs` (published at `https://cdn.fun.dev/tools/fundev-workshop.mjs`)
+is the CLI / MCP adapter below as one file. It drives the published workshop, or `--url`,
+in its own headless Chromium; `--gpu` uses the machine's GPU instead of software WebGL 2.
+
+```sh
+npm i playwright && npx playwright install chromium
+curl -O https://cdn.fun.dev/tools/fundev-workshop.mjs
+node fundev-workshop.mjs --mcp --session model.json --artifacts out/
+```
+
+`npm run verify:editor` drives the built file against the local preview.
 
 ## Local CLI and MCP
 
