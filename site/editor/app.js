@@ -325,8 +325,9 @@ async function start() {
   await viewport
     .setReferences(draft.record.references ?? [])
     .catch((error) => status(t("edError") + error.message, true));
+  const backend = viewport.rendererInfo().backend;
   $("#renderer-label").textContent =
-    viewport.rendererInfo().backend === "webgpu" ? "WebGPU" : "WebGL2";
+    backend === "webgpu" ? "WebGPU" : backend === "webgl2" ? "WebGL2" : t("edSoftwareRenderer");
   const profile = profileEditor($("#profile-editor"), $("#outline"), {
     onChange: scheduleShapePreview,
     step: () => Number($("#snap-step").value) / unitFactor(),
@@ -2475,4 +2476,6 @@ async function start() {
     },
     ...workbench.api,
   });
+  // Last, so the restore and first updates do not hide it.
+  if (viewport.rendererInfo().backend === "software") status(t("edSoftwareNotice"));
 }

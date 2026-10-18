@@ -5,7 +5,7 @@ import { editorAgentChecks } from "./editor-agent.mjs";
 import { editorWorkflowChecks } from "./editor-workflows.mjs";
 import { editorRecoveryChecks } from "./editor-recovery.mjs";
 import { editorRefinementChecks } from "./editor-refinement.mjs";
-import { editorRendererChecks } from "./editor-renderer.mjs";
+import { editorRendererChecks, softwareParityChecks } from "./editor-renderer.mjs";
 import { editorDeliveryChecks } from "./editor-delivery.mjs";
 import { editorMaterialChecks } from "./editor-materials.mjs";
 import { editorSolidChecks } from "./editor-solids.mjs";
@@ -511,6 +511,7 @@ export async function editorChecks({ browser, base }) {
   await editorRecoveryChecks({ browser, base });
   await editorRefinementChecks({ browser, base });
   await editorRendererChecks({ browser, base });
+  await softwareParityChecks({ browser, base });
   await editorDeliveryChecks({ browser, base });
   await editorMaterialChecks({ browser, base });
   await editorSolidChecks({ browser, base });

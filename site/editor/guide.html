@@ -42,9 +42,12 @@
       </p>
       <h2>Agent API · v3</h2>
       <p>
-        视图优先使用 WebGPU，不可用时自动回退 WebGL2。底栏显示实际后端；
+        视图优先使用 WebGPU，不可用时自动回退 WebGL2；两者都没有的浏览器（没有 GPU 的云端浏览器、关闭了
+        WebGL）改用软件绘制，底栏显示“软件渲染”，功能不变，只是慢一些。底栏显示实际后端；
         <code>funEditor.inspect().renderer</code> 提供相同信息。 在地址中加入
-        <code>?renderer=webgl</code> 可强制使用 WebGL2。 Wait for
+        <code>?renderer=webgl</code> 可强制使用 WebGL2，<code>?renderer=software</code>
+        强制软件绘制。 Without WebGPU and WebGL the workshop draws in software:
+        <code>inspect().renderer.backend</code> is <code>"software"</code>. Wait for
         <code>window.funEditor</code>: renderer initialization is asynchronous,
         but <code>renderViews</code> still returns images synchronously.
       </p>

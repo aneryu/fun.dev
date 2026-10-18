@@ -566,6 +566,9 @@ Object.assign(messages.zh, {
   edWarningHelp:
     "点击问题定位部件。开口、非平面或预算提醒不会阻止导出；请结合实际画面检查。",
   edFailure: "编辑器加载失败，请刷新页面。",
+  edSoftwareRenderer: "软件渲染",
+  edSoftwareNotice:
+    "此浏览器没有 WebGPU 和 WebGL，3D 视图改用软件绘制，会慢一些；编辑、观察和导出照常可用。",
   edFileLarge: "JSON 工程不能超过 8 MB，GLB 文件不能超过 64 MB。",
   edImported: "已导入 GLB：部件和材质都能编辑。",
   edOpenedProject: "已打开工程文件，配方和联动都在。",
@@ -675,6 +678,9 @@ Object.assign(messages.en, {
   edWarningHelp:
     "Open edges, non-planar faces, and budget warnings do not block export. Inspect the rendered model too.",
   edFailure: "Couldn't load the editor. Reload to retry.",
+  edSoftwareRenderer: "Software",
+  edSoftwareNotice:
+    "This browser has neither WebGPU nor WebGL: the 3D view draws in software, more slowly. Editing, observing and exporting all work.",
   edFileLarge: "JSON projects must be at most 8 MB, GLB files at most 64 MB.",
   edImported: "GLB imported: its parts and materials are editable.",
   edOpenedProject: "Project file opened with its recipes and links.",

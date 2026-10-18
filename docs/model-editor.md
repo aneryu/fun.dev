@@ -22,7 +22,20 @@ The editor uses the pinned Three.js `WebGPURenderer`, preferring WebGPU and
 falling back to its WebGL2 backend when the API or an adapter is unavailable.
 The viewport footer and `funEditor.inspect().renderer` report the actual backend,
 including whether fallback occurred. Add `?renderer=webgl` to force WebGL2 for
-compatibility checks. Initialization finishes before `window.funEditor` becomes
+compatibility checks.
+
+Without WebGPU and WebGL (cloud browsers and servers without a GPU, WebGL switched off)
+the workshop draws in software (`site/editor/soft-renderer.js`) instead of failing to
+load. The software renderer stands in for the renderer only: the viewport, picking,
+orbiting, gizmos, shape previews, `renderViews` observations and exports are the same
+code. It draws what the viewport puts in a scene the way the GPU path does (metallic-roughness
+and glass under the shadowed key light, the sky-over-ground ambient as two colours, the
+shadow floor, grid, wires, points and reference images), adds colours in linear light and
+tone maps the finished frame (ACES Filmic, sRGB), so observations match the GPU path to
+about 1/255 on average. The footer shows 软件渲染 / Software and `inspect().renderer` reports
+`backend: "software"`. Observations at 384–768 px take well under a second; moving views
+draw a quarter-megapixel frame and refine it when the view rests. `?renderer=software`
+forces it. Initialization finishes before `window.funEditor` becomes
 available; `renderViews` remains synchronous. Shape previews also wait for their
 renderer and can be cancelled safely during initialization. The player keeps its
 engine entry point.
@@ -641,7 +654,8 @@ directly under the export root, the library's static parts.
 `tools/fundev-workshop.mjs` (published at `https://cdn.fun.dev/tools/fundev-workshop.mjs`)
 is the CLI / MCP adapter below as one file, including `--run` and `--guide`. It drives the
 published workshop, or `--url`, in its own headless Chromium; `--gpu` uses the machine's GPU
-instead of software WebGL 2.
+instead of software WebGL 2. No GPU or WebGL is needed: where Chromium has no WebGL the
+workshop draws in software, and `--software` skips trying (no GPU process at all).
 
 ```sh
 npm i playwright && npx playwright install chromium

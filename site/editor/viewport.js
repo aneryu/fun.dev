@@ -16,6 +16,7 @@ import { bindingFor } from "./assembly.js";
 import { meshEdges } from "./topology.js";
 import { normal, triangulate } from "./mesh.js";
 import { nameMeshes } from "./glb.js";
+import { createSoftRenderer } from "./soft-renderer.js";
 
 function indexAttributes(positions, normals) {
   const uniquePositions = [],
@@ -231,24 +232,40 @@ export async function createViewport(
   },
 ) {
   const requested =
-    new URLSearchParams(location.search).get("renderer") === "webgl"
-      ? "webgl2"
-      : "auto";
-  const renderer = new WebGPURenderer({
-    canvas,
-    antialias: true,
-    alpha: false,
-    forceWebGL: requested === "webgl2" || !navigator.gpu,
-  });
-  renderer.onDeviceLost = () =>
-    onError(new Error("Graphics device lost; save the project and reload."));
-  renderer.onError = (error) => onError(new Error(error.message));
-  await renderer.init();
+    { webgl: "webgl2", software: "software" }[
+      new URLSearchParams(location.search).get("renderer")
+    ] ?? "auto";
+  // WebGPU, else WebGL 2; a browser with neither (no GPU, WebGL switched off) draws in
+  // software: slower, but the workshop, its observations and exports all still work.
+  let renderer = null;
+  if (requested !== "software")
+    try {
+      renderer = new WebGPURenderer({
+        canvas,
+        antialias: true,
+        alpha: false,
+        forceWebGL: requested === "webgl2" || !navigator.gpu,
+      });
+      renderer.onDeviceLost = () =>
+        onError(new Error("Graphics device lost; save the project and reload."));
+      renderer.onError = (error) => onError(new Error(error.message));
+      await renderer.init();
+    } catch (error) {
+      // A renderer whose init failed holds nothing; dispose() would retry init and reject.
+      console.warn("No WebGPU or WebGL; drawing the workshop in software.", error);
+      renderer = null;
+    }
+  renderer ??= createSoftRenderer(canvas, THREE);
   if (signal?.aborted) {
     await renderer.dispose();
     throw new DOMException("Preview closed", "AbortError");
   }
-  const backend = renderer.backend.isWebGPUBackend ? "webgpu" : "webgl2";
+  const software = !!renderer.isSoftRenderer;
+  const backend = software
+    ? "software"
+    : renderer.backend.isWebGPUBackend
+      ? "webgpu"
+      : "webgl2";
   canvas.dataset.renderer = backend;
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -272,8 +289,11 @@ export async function createViewport(
   key.shadow.mapSize.set(1024, 1024);
   key.shadow.bias = -0.0003;
   scene.add(key, key.target);
-  const environment = sky(renderer, 0xffffff, 0x657180, 1.8);
-  scene.environment = environment.texture;
+  // The software renderer takes the same sky as two colours instead of a PMREM texture.
+  const environment = software ? null : sky(renderer, 0xffffff, 0x657180, 1.8);
+  scene.environment = environment?.texture ?? null;
+  if (software)
+    renderer.environment = { top: 0xffffff, bottom: 0x657180, intensity: 1.8 };
   const grid = new THREE.GridHelper(20, 40, 0x77818a, 0xaab0b6);
   grid.material.transparent = true;
   grid.material.opacity = 0.4;
@@ -374,7 +394,8 @@ export async function createViewport(
         frame = 0;
         updateGrid();
         showReferences();
-        renderer.render(scene, camera);
+        if (software) renderer.renderInteractive(scene, camera);
+        else renderer.render(scene, camera);
         updateAxes();
       });
   };
@@ -1266,6 +1287,7 @@ export async function createViewport(
         backend,
         requested,
         fallback: requested === "auto" && backend !== "webgpu",
+        ...(software ? { software: true } : {}),
       };
     },
     setViewState(value) {
@@ -1599,7 +1621,7 @@ export async function createViewport(
       floor.material.dispose();
       clay.dispose();
       silhouette.dispose();
-      environment.dispose();
+      environment?.dispose();
       renderer.dispose().catch(onError);
       boxOverlay.remove();
     },

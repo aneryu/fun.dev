@@ -30,6 +30,7 @@ const defaultUrl = process.env.FUNDEV_WORKSHOP_URL || undefined;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--mcp") config.mcp = true;
   else if (args[i] === "--gpu") config.gpu = true;
+  else if (args[i] === "--software") config.software = true;
   else if (args[i] === "--guide") config.guide = true;
   else if (
     ["--session", "--project", "--artifacts", "--cdp", "--url", "--run"].includes(
@@ -42,7 +43,7 @@ for (let i = 0; i < args.length; i++) {
     config[key] = args[++i];
   } else if (args[i] === "--help") {
     console.log(
-      `node ${defaultUrl ? "fundev-workshop.mjs" : "scripts/editor-agent.mjs"} --run model.mjs   (build a model from a script: --guide prints the quick reference)\nnode ${defaultUrl ? "fundev-workshop.mjs" : "scripts/editor-agent.mjs"} [--mcp] [--session state.json] [--project model.funmodel.glb|.json] [--artifacts directory] [--url ${defaultUrl ?? "https://fun.dev/editor/"}] [--gpu]\nExisting browser: --cdp http://127.0.0.1:9222 --url <exact editor tab URL>\nCLI stdin: one JSON {"method":"inspect","arguments":{}} per line; stdout: JSON results.\n${defaultUrl ? "Needs Playwright beside this file: npm i playwright && npx playwright install chromium" : "Build the editor first (npm run editor -- --build), or pass --url to drive a published workshop."}`,
+      `node ${defaultUrl ? "fundev-workshop.mjs" : "scripts/editor-agent.mjs"} --run model.mjs   (build a model from a script: --guide prints the quick reference)\nnode ${defaultUrl ? "fundev-workshop.mjs" : "scripts/editor-agent.mjs"} [--mcp] [--session state.json] [--project model.funmodel.glb|.json] [--artifacts directory] [--url ${defaultUrl ?? "https://fun.dev/editor/"}] [--gpu | --software]\nNo GPU or WebGL needed: without them the workshop draws in software (--software skips trying).\nExisting browser: --cdp http://127.0.0.1:9222 --url <exact editor tab URL>\nCLI stdin: one JSON {"method":"inspect","arguments":{}} per line; stdout: JSON results.\n${defaultUrl ? "Needs Playwright beside this file: npm i playwright && npx playwright install chromium" : "Build the editor first (npm run editor -- --build), or pass --url to drive a published workshop."}`,
     );
     process.exit(0);
   } else throw new Error("Unknown option " + args[i]);
@@ -122,12 +123,21 @@ async function connect() {
       const { port } = await listen(server, 0, "127.0.0.1");
       url = `http://127.0.0.1:${port}/editor/?lang=en`;
     }
+    // --software: the workshop's own software renderer, no GPU process at all.
+    if (config.software) {
+      const target = new URL(url);
+      target.searchParams.set("renderer", "software");
+      url = target.href;
+    }
     browser = await chromium.launch({
       headless: true,
-      // Software WebGL 2 works everywhere; --gpu uses the machine's GPU through Vulkan.
+      // Software WebGL 2 where Chromium has it (the page falls back to its own software
+      // renderer where it does not); --gpu uses the machine's GPU through Vulkan.
       args: config.gpu
         ? ["--enable-unsafe-webgpu", "--enable-features=Vulkan,VulkanFromANGLE", "--use-angle=vulkan", "--ignore-gpu-blocklist"]
-        : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
+        : config.software
+          ? ["--disable-gpu"]
+          : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
     });
     context = await browser.newContext({
       serviceWorkers: "block",
@@ -184,7 +194,12 @@ async function connect() {
     { timeout: 15000 },
   );
   ready = true;
-  process.stderr.write("Editor agent connected (local draft).\n");
+  const backend = await page
+    .evaluate(() => funEditor.inspect().renderer?.backend)
+    .catch(() => null);
+  process.stderr.write(
+    `Editor agent connected (local draft${backend ? `, ${backend === "software" ? "software renderer: no GPU or WebGL here, slower" : backend}` : ""}).\n`,
+  );
 }
 async function persist() {
   if (!config.session || !page || !ready) return;

@@ -16,6 +16,9 @@ curl -O https://cdn.fun.dev/tools/fundev-workshop.mjs
 node fundev-workshop.mjs --run model.mjs        # --gpu: render on the GPU
 ```
 
+No GPU or WebGL needed: without them the workshop draws in software (same results, slower
+previews); `--software` skips trying the GPU. The connect line on stderr names the renderer.
+
 The run prints one JSON line: the validation summary, statistics and files written. On an
 error it prints `{ ok: false, error }` (code, message, commandIndex, path, suggestion) and
 exits with 1.
