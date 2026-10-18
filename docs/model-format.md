@@ -1,319 +1,580 @@
-# .fun3d — fun.dev's model format (draft 1, 2026-10-18)
+# .fun3d — fun.dev's model format (design v3, 2026-10-18)
 
-Status: **draft for review.** A working prototype is on branch `platform/model-format` (runtime
-modules in `site/runtime/kit/`, harness in `dev/fun3d/`). Nothing is released and no library
-data has changed.
+Status: **design for review.** v2 was reviewed by three adversarial reviewers (engine
+realism, format design, pipeline and operations) and a self-review; the findings and
+decisions are in `dev/fun3d/review.md`. The v1 prototype on this branch validated the data
+path (container, GPU vertex formats, quantization and compression, palette batching, Jolt
+vehicles and ragdolls); its schema is replaced by this one.
 
-## Decisions
+## 1. Decisions this design serves
 
-Agreed with the owner on 2026-10-18 before any design:
+Agreed with the owner on 2026-10-18:
 
-1. **Goal**: fit Three.js and WebGPU completely, and carry animation, skeletons and
-   physics-engine bindings.
-2. **Kinds**: models and animation packs. Scenes stay placement lists that reference models
-   ([models](models.md)); behaviour stays in game code.
-3. **Own format**, `.fun3d`. The workshop saves it, the library stores it, games load it. GLB is
-   only imported and exported.
-4. **One file, two sections**: the runtime section (meshes, materials, skins, animations,
-   physics) and an optional editing section (the workshop's document). Games get the file
-   without the editing section; the library keeps it whole.
-5. **Physics engine: Jolt** (single-threaded WebAssembly, MIT), provided by the platform and
-   loaded on first use. Physics data follows Jolt's concepts.
-6. **Materials are platform types** implemented in TSL; a file names the type and its
-   parameters.
-7. **Migration**: every library model is converted; the console converts GLB uploads in the
-   browser; the original GLB stays as the download.
-8. **Three.js both ways**: one module reads files into Three.js objects and writes Three.js
-   objects into files, in browsers and Node.
-9. **Order**: this draft and a prototype first; implementation after review.
+1. Fit Three.js and WebGPU completely; carry animation, skeletons and physics bindings.
+2. Kinds: models and animation packs. Scenes stay placement lists; behaviour stays in game code.
+3. Own format, `.fun3d`; GLB only imported and exported.
+4. One file with a runtime section and an optional editing section.
+5. Physics engine: Jolt, provided by the platform.
+6. Materials are platform types implemented in TSL; files carry parameters.
+7. Every library model converts; original GLBs stay.
+8. Three.js both ways: load into objects, write from objects, in browsers and Node.
+9. Design and prototype first, implementation after review.
+10. Extension `.fun3d`.
 
-## Overview
+## 2. Principles
 
-A `.fun3d` file is a signature and chunks. The JSON chunk describes the model; BIN chunks hold
-its data, laid out in WebGPU vertex formats so arrays go to the GPU as they are; EDIT chunks
-hold the workshop's editable document.
+1. **Intent, not rendering.** A file says what a thing is: a mesh and its copies, its levels of
+   detail, a light with a physical intensity, a body with a shape. The runtime decides how
+   it is drawn and simulated: batched or instanced, which level, how many lights are real,
+   where physics steps.
+2. **Data shaped for Three.js and WebGPU.** Vertex data in WebGPU vertex formats, grouped into
+   buffers Three.js can bind as they are; animation as keyframe tracks; skins as Three.js binds
+   them. Loading is decoding and wiring.
+3. **Stable identity.** Everything referenced has a string `id` that survives edits and
+   regeneration; references name ids. Positions in arrays mean nothing.
+4. **Explicit semantics.** Whatever the runtime acts on is structured data with a defined
+   meaning. Names carry no meaning; producers' conventions live in import profiles.
+5. **Materials compose.** A shading model plus independent features, each with a defined
+   fallback, instead of one type per combination.
+6. **Extensible on purpose.** Namespaced, versioned extensions declared as used or required;
+   runtime registries; optional ones drop to a defined fallback, required ones refuse the file
+   by name.
+7. **Sources are immutable; runtime data is derived and immutable too.** A derived file is
+   fixed for its (source, converter, profile); a new converter makes a new derived file, and
+   whoever pins the old one keeps it.
+8. **Data only, validated, bounded.** No code; a schema, caps and a validator stand between
+   uploads and the loader, and the loader bounds every allocation regardless.
+9. **Many files, not one big file.** Parts reference their base skeleton; worlds list tiles. The
+   unit of scale is the file.
 
-| In the file | In Three.js |
-| --- | --- |
-| node | `Object3D`, `Bone`, `Mesh`, `SkinnedMesh` or `InstancedMesh`, with its name, transform and children |
-| node with a quantized mesh | the node as an `Object3D` (it stays the pivot), its `Mesh` a child that dequantizes |
-| geometry | `BufferGeometry`; attributes are typed arrays straight from the file |
-| material (type + parameters) | `MeshStandardMaterial`, `MeshPhysicalMaterial`, `MeshBasicMaterial` or `MeshToonMaterial`; types Three.js lacks keep their parameters in `userData.fun3d`; batches use one palette `NodeMaterial` |
-| texture | `Texture` from the encoded image (WebP, PNG, JPEG or KTX2) |
-| skin | `Skeleton`, bound like GLTFLoader binds it |
-| animation | `AnimationClip` with keyframe tracks named as Three.js expects |
-| physics | descriptors pointing at the loaded objects, turned into Jolt bodies by `kit/physics.js` |
-
-Names are sanitized like GLTFLoader does (`mixamorig:Hips` becomes `mixamorigHips`), so games
-find parts and clips address bones the same way as with glTF.
-
-## Container
+## 3. Container
 
 ```
-signature   89 46 55 4E 33 44 0D 0A          "\x89FUN3D\r\n" (catches text-mode transfers)
-chunk*      type     4 ASCII bytes            JSON, BIN␠, EDIT, EBIN
-            flags    u32 little endian        bit 0 deflate (raw DEFLATE), bit 1 editing
-            length   u32                      stored length
-            data     length bytes, zero-padded to a multiple of 4
+signature   89 46 55 4E 33 44 0D 0A     "\x89FUN3D\r\n" — also the container version: a new layout gets a new signature
+chunk*      type          4 ASCII bytes  "JSON" | "BIN " | "EDIT"
+            flags         u32            bit 0 deflate (raw DEFLATE); bit 1 editing; bits 2–31 reserved, must be 0 (else refused)
+            storedLength  u32            bytes of data as stored, padding excluded
+            rawLength     u32            bytes after inflating (equal to storedLength when not compressed)
+            data          storedLength bytes, then zero padding to the next multiple of 4
 ```
 
-- The JSON chunk comes first. BIN chunks follow in the order `buffers` lists them; EDIT and
-  EBIN chunks last.
-- Deflate is decoded with the platform's `DecompressionStream("deflate-raw")`: native in every
-  current browser and in Node, no library. The CDN does not compress model files
-  (`games.fun.dev` serves them as they are), so the file compresses itself.
-- Removing the chunks with the editing flag gives the runtime copy without decoding anything
-  (`stripEditing`).
-- Unknown chunk types are skipped.
+- Little endian. Exactly one `JSON` chunk, first. Chunks with the editing flag come after
+  every runtime chunk; the runtime copy of a file is the file with editing chunks removed,
+  made without decoding.
+- The manifest names `BIN` chunks by ordinal among all `BIN` chunks in file order (editing
+  `BIN` chunks are last, so stripping changes no ordinal).
+- Inflation stops at `rawLength`; a chunk that inflates to any other size is refused. The
+  JSON chunk is capped (section 5) and parsed only after its size is known.
+- Images are stored without deflate (their encodings already compress); geometry, animation
+  and the manifest deflate.
+- No per-chunk checksum: the library addresses files by their hash and games pin hashes.
 
-## Manifest (JSON chunk)
+## 4. Manifest
 
 ```jsonc
 {
-  "format": "fun3d", "version": 1, "kind": "model",        // or "animations"
-  "name": "city_taxi_01", "generator": "fun.dev fun3d 1",
-  "buffers": [{ "byteLength": 5304 }, { "byteLength": 812004 }],  // BIN chunks in order
-  "streams": [{ "buffer": 0, "offset": 0, "length": 812, "count": 412, "stride": 8, "codec": "meshopt-attributes" }],
-  "nodes": [], "geometries": [], "materials": [], "textures": [], "skins": [], "animations": [],
-  "physics": {}
+  "fun3d": "1.0",                                              // format version, major.minor
+  "kind": "model",                                             // model | animations
+  "asset": { "name": "city_taxi_01", "generator": "fun.dev workshop 3.1",
+             "source": { "kind": "glb", "hash": "sha256:…", "converter": "sha256:…", "profile": "fundev-library@1", "tool": null },
+             "content": "sha256:…",                           // hash over inflated chunk payloads: the same data gives the same value on every zlib
+             "licence": "CC0-1.0", "attribution": "" },
+  "uses": ["fun3d.wind"], "requires": [],                      // extension names; requires ⊆ uses
+  "buffers":  [{ "chunk": 0 }, { "chunk": 1 }],                // BIN ordinals
+  "streams":  [{ "id": "s0", "buffer": 0, "offset": 0, "length": 812, "count": 412, "stride": 12,
+                 "codec": "meshopt", "mode": "attributes" }],  // mode: attributes | triangles | indices; filter: octahedral | quaternion | exponential; filterBits
+  "nodes": [], "geometries": [], "materials": [], "images": [], "textures": [],
+  "skeletons": [], "animations": [], "physics": {}, "variants": [], "refs": [],
+  "extensions": {}
 }
 ```
 
-Units are metres, kilograms, seconds and radians; +Y is up and the front faces +Z (the
-library's conventions).
+**Conventions.** Metres, kilograms, seconds, radians, candela; right-handed, +Y up, the front
+faces +Z. Quaternions are `[x, y, z, w]`, unit length within 1e-3. A transform is
+`position`, `rotation` (quaternion) and `scale`, composed translation × rotation × scale;
+`mat4` is column-major. Scale components are positive (writers bake mirroring). Colours are
+sRGB hex strings `#rrggbb`; vertex colours and `_tint` are linear; emission is colour ×
+intensity, intensity at most 64. Three.js renders unitless radiance, so physical intensities
+only mean something against an exposure: the platform renders every scene with ACES tone
+mapping at exposure 1, where a 100 cd point light at 1 m and an emitter of intensity 1 both
+read as white; files are authored against that. UVs follow glTF: origin at the top-left, images never flipped. Every
+optional field has the default given beside it; an absent `transform` is identity.
 
-**Streams.** A stream is a typed array after decoding: `count` elements of `stride` bytes.
-`codec` is `meshopt-attributes` (meshopt's vertex codec), `meshopt-triangles` (its index
-codec) or absent (raw bytes). The meshopt decoder is already part of the runtime; the
-encoder is needed only to write.
+**Ids.** Every entry in every table has an `id`: 1–64 characters of `[A-Za-z0-9_.-]`, unique
+within its table (tables are separate id spaces; morph targets, wheels, ragdoll parts and
+socket keys use the same charset). The loader sets `object.name = id` and keeps the display
+name in `object.userData.name`, so Three.js name lookups and animation bindings are unique by
+construction. Ids are derived deterministically by the writer (section 8); a regeneration
+that would change an id or a bone order is a new version.
 
-**Nodes** in depth-first order; node 0 is the root.
+**Streams** are typed arrays after decoding: `count` × `stride` bytes; without a codec,
+`length = count × stride`. `codec` is `meshopt` with `mode` `attributes` (vertex codec; stride
+a multiple of 4, at most 256), `triangles` or `indices` (index codecs), and an optional
+`filter` with `filterBits` applied after decoding (`octahedral` into `snorm8x4`/`snorm16x4`,
+`quaternion` into `snorm16x4`, `exponential` into `float32xN`). Codecs are a registry; a file
+that needs one the runtime lacks names it in `requires` as `fun3d.codec.<name>`.
+
+**Kinds.**
+
+| Kind | Must have | May have | Must not have |
+| --- | --- | --- | --- |
+| `model` | nodes | everything | — |
+| `animations` | nodes (bones only), one skeleton, animations | refs (skeletons) | geometries, materials, images, textures, physics, variants, placements, lights |
+
+### 4.1 Nodes
+
+Depth-first; the first entry is the root; `parent` names a node id. A node is a transform with
+any of the following:
 
 ```jsonc
-{ "name": "wheel_front_left", "parent": 0, "position": [0.82, 0.33, 1.31], "quaternion": [0, 0, 0, 1], "scale": [1, 1, 1],
-  "role": "part",                 // static | part | collider | socket
-  "bone": true,                   // a skeleton joint
-  "hidden": true,
-  "mesh": { "geometry": 2, "material": [0, 1], "castShadow": true, "receiveShadow": true,
-            "instances": { "stream": 9, "format": "mat4", "count": 20 }, "morph": ["smile"] },
-  "skin": 0 }
+{ "id": "wheel_fl", "name": "wheel_front_left", "parent": "root",
+  "transform": { "position": [0.82, 0.33, 1.31], "rotation": [0, 0, 0, 1], "scale": [1, 1, 1] },   // in the parent's space
+  "mesh": { "geometry": "wheel", "materials": ["rubber", "steel"],              // one material per group
+            "shadow": "both", "morphWeights": [0, 0] },                        // shadow: both (default) | cast | receive | none
+  "skin": "rig",                                                               // mesh is skinned to this skeleton (needs skinIndex/skinWeight)
+  "placements": { "count": 120, "transforms": { "stream": "s8", "format": "mat4" },   // copies, each in the node's parent space, replacing the node's own transform
+                  "tint": { "stream": "s9", "format": "unorm8x4" } },         // linear; feeds the materials' tint feature
+  "bone": true,
+  "light": { "type": "point", "color": "#ffd9a0", "intensity": 120, "range": 12,    // point | spot (candela); spot: "cone": [inner, outer]
+             "shadow": false, "importance": 0.5 },                               // importance 0–1 (default 0.5): rank within the scene when the runtime budgets lights
+  "lod": { "levels": [{ "screenSize": 1, "children": ["near_a", "near_b"] }, { "screenSize": 0.05, "children": ["far"] }] },
+  "sockets": { "seat_driver": { "position": [0.4, 0.5, 0.2], "rotation": [0, 0, 0, 1] } },   // in node space
+  "visible": true, "tags": ["door"] }
 ```
 
-**Geometries.** Attributes reference streams with a WebGPU vertex format.
+- `placements` describes repetition; the runtime may instance, batch or merge. A placed node
+  has no children, light, bone or `lod`; it may carry one body of motion `static`, one per
+  copy. Variant overrides apply to every copy.
+- `lod` on a group: levels in descending `screenSize` (fraction of the viewport height the
+  group's bounds cover); each level names the children shown at it, every other child is
+  hidden; children named at level 0 are the group's normal content. The group's bounds are
+  the union of its level-0 children. Nodes with `placements` or `skin` have no `lod`.
+- `light` is intent with a physical unit; spots shine down the node's −Z (`cone` maps to
+  Three.js `angle` = outer and `penumbra` = 1 − inner/outer). The runtime owns a fixed set of
+  real light slots per device tier and assigns lamps to them by `importance` and distance,
+  moving and dimming slots rather than adding or removing lights, because Three.js r186 keys
+  shader programs on the set of lights. No directional lights in models.
+- Bones are nodes a skeleton lists. Sockets are attachment frames games use (`model.socket(id)`).
+- `tags` are free strings for games; the runtime never reads them.
+- A node with a physics body is detached to the world at load, children following it; a
+  kinematic body follows the node's animation tracks, a dynamic body ignores them.
+- Loaded object model: every node is an `Object3D` named by its id; a rigid quantized mesh is
+  a child `Mesh` carrying the dequantizing transform, so the node stays the pivot that
+  sockets, tracks and physics target; skinned and morphed meshes load with float positions
+  and are the node's mesh themselves. Games use `kit/models.js` handles, not the tree.
 
-| Attribute | Format | Notes |
+### 4.2 Geometries
+
+```jsonc
+{ "id": "wheel", "mode": "triangles",                                         // triangles | lines | points
+  "vertices": 412,
+  "buffers": [                                                                 // at most 6; one element type per buffer; at most 11 attributes in all
+    { "stream": "s0", "attributes": { "position": { "format": "snorm16x4", "offset": 0 } } },          // Int16 buffer
+    { "stream": "s1", "attributes": { "normal": { "format": "snorm8x4", "offset": 0 }, "tangent": { "format": "snorm8x4", "offset": 4 } } },  // Int8 buffer, stride 8
+    { "stream": "s2", "attributes": { "uv": { "format": "unorm16x2", "offset": 0 } } } ],
+  "decode": { "position": { "offset": [0, 0.33, 0], "scale": 0.3401 }, "uv": { "offset": [0, 0], "scale": [1, 1] } },   // value = offset + stored × scale
+  "index": { "stream": "s3", "format": "uint16" },                            // required for triangles; indices
+  "groups": [{ "start": 0, "count": 1200, "material": 0, "flat": false }],    // start and count in indices; material = slot in the node's materials; flat: normals from derivatives
+  "lods": [{ "error": 0.01, "index": { "stream": "s4", "format": "uint16" }, "groups": [{ "start": 0, "count": 600, "material": 0 }] }],   // ascending error, relative to the bounds radius; levels reuse the vertices in the file (a batch copies them per level)
+  "morph": { "relative": true, "decode": { "scale": 0.02 },                    // deltas: value = stored × scale
+    "targets": [{ "id": "jawOpen", "sparse": { "indices": { "stream": "s5", "format": "uint16" } },
+                  "position": { "stream": "s6", "format": "snorm16x4" }, "normal": { "stream": "s7", "format": "snorm8x4" } }] },
+  "bounds": { "min": [-0.34, 0, -0.34], "max": [0.34, 0.68, 0.34] } }           // in geometry space, after decode; skinned meshes: bind pose
+```
+
+| Attribute | Format | Rule |
 | --- | --- | --- |
-| `position` | `snorm16x4` | quantized to the bounds with one scale for all axes (14 significant bits): `position = offset + value × scale`; rigid meshes keep it on the GPU, skinned and morphed ones are expanded when loaded |
-| `normal` | `snorm8x4` (`snorm16x4` when morphed) | absent for flat geometry: welded vertices, normals from screen-space derivatives |
-| `uv`, `uv1` | `unorm16x2` (12 bits) when inside 0–1, else `float32x2` | only when a material samples a texture |
-| `skinIndex` | `uint8x4` or `uint16x4` | |
-| `skinWeight` | `unorm8x4` | sums to exactly 255 |
-| `color` | `unorm8x4` | |
-| `material` | `uint8x4` (x) | slot of the triangle's material, for drawing all slots at once |
-| others | `float32xN` | |
+| `position` | `snorm16x4` (14 significant bits, `w` = 0) or `float32x3` | `decode` gives offset and one scale; writers use floats above 20 m extents |
+| `normal` | `snorm8x4` | absent or ignored for groups with `flat: true` (screen-space derivatives) |
+| `tangent` | `snorm8x4` | `w` is handedness; without it normal maps use derivative tangents |
+| `uv`, `uv1`, `uv2`, `uv3` | `unorm16x2` (12 bits, `decode` range) or `float32x2` | |
+| `color` | `unorm8x4` | linear |
+| `skinIndex`, `skinWeight` | `uint8x4` / `uint16x4`, `unorm8x4` | weights sum to 255; four influences (Three.js's limit); `skinIndex` is its own buffer and loads as an integer attribute (`gpuType` Int; WebGPU widens it to 32 bits) |
+| `_<name>` | any | custom; its meaning belongs to the extension that reads it |
+
+Buffers are grouped by element type because Three.js binds one typed array per interleaved
+buffer; the runtime adds its own buffers and attributes (instance matrices take one buffer and
+four locations, tint one more), hence the caps of 6 and 11 against WebGPU's 8 and 16.
+Vertices at material-slot boundaries and at flat/smooth boundaries are duplicated. Morph
+targets are sparse (vertex indices plus values) with their own scale, and expand to dense
+textures on the GPU (32 bytes per vertex per target), which the caps bound. Batchable
+geometries follow the profile's batch signature (the same attribute set and formats, padded
+by the importer), because a batch holds one layout; `lines` and `points` take `unlit`
+materials and never batch.
+
+### 4.3 Materials
+
+A material is a shading model, parameters, maps and features.
 
 ```jsonc
-{ "vertices": 412, "attributes": { "position": { "stream": 0, "format": "snorm16x4" } },
-  "index": { "stream": 3, "format": "uint16" },
-  "quantization": { "offset": [0, 0.73, -0.02], "scale": 2.2504 },
-  "groups": [{ "start": 0, "count": 1800, "material": 0 }],   // opaque slots first, then glass
-  "morphTargets": [{ "name": "smile", "position": { "stream": 5, "format": "float32x3" } }],
-  "bounds": { "min": [-0.9, 0, -2.2], "max": [0.9, 1.46, 2.2] } }
+{ "id": "mat_body", "name": "mat_body", "model": "pbr",                   // pbr | unlit | toon
+  "color": "#f2c94c", "alpha": { "mode": "opaque", "cutoff": 0.5, "opacity": 1 },   // opaque (default) | mask | blend
+  "side": "front",                                                         // front (default) | double
+  "pbr": { "roughness": 0.6, "metalness": 0 },                             // model parameters, see the table
+  "maps": { "color": { "texture": "paint", "uv": 0, "transform": { "offset": [0, 0], "scale": [1, 1], "rotation": 0 } } },
+  "features": {
+    "emitter": { "role": "headlight", "color": "#fff0c8", "intensity": 3 },  // core: emission with a role the runtime scales (factor 1 by default)
+    "tint": {},                                                             // core: base colour and colour map multiply by the copy's tint
+    "transmission": { "amount": 1, "ior": 1.5, "thickness": 0.01, "attenuation": "#ffffff" },   // core
+    "fun3d.wind": { "strength": 0.2, "frequency": 1.1 } } }                  // extension features by full name
 ```
 
-**Materials** are platform types. Colours are sRGB hex like the workshop's.
+| Model | Parameters |
+| --- | --- |
+| `pbr` | `roughness` 1, `metalness` 0; maps `color`, `normal` (`scale` 1), `orm` (R occlusion, G roughness, B metalness), `occlusion` (own UV set), `emissive`, `alpha` |
+| `unlit` | maps `color`, `alpha` |
+| `toon` | `shade` colour, `bands` 2, `rim` 0; maps `color`, `alpha` |
 
-| Type | Parameters | Three.js today |
-| --- | --- | --- |
-| `standard` | `color`, `roughness`, `metalness`, `emissive`, `emissiveIntensity`, `opacity`, `alphaTest`, `side`, `maps` (`color`, `normal`, `metallicRoughness`, `occlusion`, `emissive`, `alpha`), `tint` | `MeshStandardMaterial` |
-| `glass` | `color`, `roughness`, `transmission`, `ior`, `thickness` | `MeshPhysicalMaterial` |
-| `light` | standard + `role` (`light`, `light_red`, `signal_red`, `window`, `lamp`, …) | standard; a batch scales its emission by the role's intensity (headlights on at night with one call) |
-| `unlit` | `color`, `maps.color` | `MeshBasicMaterial` |
-| `toon` | `color`, `maps` | `MeshToonMaterial` |
+- `emitter` replaces any other emission: a material has `emitter` or nothing emissive. Roles:
+  `headlight`, `taillight`, `brake`, `indicator`, `signal`, `window`, `lamp`, `screen`, or any
+  string; `kit/models.js` sets a factor per role (`roles.set("window", 0)` at day).
+- `tint`: the copy's `_tint` (placements) or `handle.tint` multiplies the base colour and the
+  colour map; one tint per model.
+- `transmission` never batches.
+- Every other feature is an extension (`fun3d.wind`, `fun3d.clearcoat`, `fun3d.decals`,
+  `fun3d.hair`, `fun3d.skin`, later `fun3d.nodes` for TSL graphs). Each extension states the
+  models it combines with and what the material looks like without it (its fallback). Dropped
+  optional features leave the model and base parameters.
+- Batchable: `pbr` or `unlit`, no maps, no `transmission`. In a batch, animated material
+  parameters write to the copy's palette slot.
+- The runtime materials own normal mapping and flat shading (they set the normal node), so
+  every model and feature renders the same way alone and in a batch.
 
-Later types (each a TSL material in the kit, files only name them): foliage with wind, water,
-toon hair, skin with decals, screens.
-
-**Textures**: `{ "stream", "mime", "colorSpace": "srgb" | "linear", "wrap": ["repeat", "clamp"], "name" }`.
-Images are stored in a BIN chunk without deflate, as their source encoded them; several
-textures may share one image.
-
-**Skins**: `{ "joints": [node indices], "inverseBindMatrices": { "stream", "format": "mat4" }, "rig": "mixamo" }`.
-`rig` names the skeleton family (`mixamo`, `ue` for the Unreal-style rig the workshop's people
-use, or `custom`); animation packs declare the same field.
-
-**Animations**: tracks address nodes by index; the loader names them for Three.js.
+### 4.4 Images and textures
 
 ```jsonc
-{ "name": "walk", "duration": 1.03,
-  "tracks": [{ "node": 4, "path": "quaternion",                // position | quaternion | scale | morph:<index>
-               "times": { "start": 0, "fps": 30, "count": 32 }, // or { "stream" } when not uniform
-               "values": { "stream": 41, "format": "snorm16x4" }, "interpolation": "step" }] }
+"images":   [{ "id": "paint_png", "stream": "s12", "mime": "image/webp" },            // image/webp | image/png | image/jpeg | image/ktx2
+             { "id": "lut", "data": { "width": 16, "height": 16, "format": "rgba8unorm", "stream": "s13" } }],
+"textures": [{ "id": "paint", "image": "paint_png", "colorSpace": "srgb",            // srgb | linear
+               "sampler": { "wrap": ["repeat", "repeat"], "minFilter": "linear-mipmap-linear", "magFilter": "linear", "anisotropy": 4 } }]
 ```
 
-Rotations are 16-bit unit quaternions; other values 32-bit floats.
+Images keep their source encoding; KTX2 (Basis Universal) is the GPU-compressed option. Several
+textures may share an image. The loader keeps the encoded bytes and mime on each texture so
+writing back is byte-identical. Texture arrays and cube maps are later extensions.
 
-**Animation packs** (`"kind": "animations"`) hold a skeleton's nodes (bones only, for the rest
-pose) and clips. Any model with the same `rig` and bone names plays them.
+### 4.5 Skeletons and rigs
 
-## Physics
+```jsonc
+{ "id": "rig", "bones": ["hips", "spine", …], "inverseBinds": { "stream": "s20", "format": "mat4" },   // bone order = joint index; inverse binds relative to the mesh node, as glTF
+  "rig": { "name": "fundev-humanoid", "version": 1, "rest": "T", "height": 1.78,
+           "roles": { "hips": "hips", "spine": "spine", "chest": "spine1", "upperChest": "spine2", "neck": "neck", "head": "head",
+                      "leftShoulder": "…", "leftUpperArm": "…", "leftLowerArm": "…", "leftHand": "…",
+                      "leftUpperLeg": "…", "leftLowerLeg": "…", "leftFoot": "…", "leftToes": "…", "right…": "…" } } }
+```
 
-Descriptors map onto Jolt's settings classes; node references are node indices (names before
-writing, objects after loading).
+- `roles` maps standard roles (the VRM humanoid set; creatures use their own role names) to
+  bone ids. Skinned meshes bind at load with the mesh node's world matrix, as GLTFLoader does.
+- `fundev-humanoid@1` is the platform's canonical rig: the bone set, rest pose and axes every
+  public animation pack is authored on. Retargeting is rest-pose compensated: for each role, the
+  clip's rotation is taken relative to the source rig's rest world rotation and applied relative
+  to the target's (what `SkeletonUtils.retargetClip` does with name maps), and root translation
+  scales by `height`. Local rest frames may differ between rigs; copying local rotations does not work.
+
+### 4.6 Animations
+
+```jsonc
+{ "id": "walk", "name": "walk", "duration": 1.03, "loop": "repeat",                  // repeat (default) | once | pingpong
+  "blend": "normal",                                                                // normal | additive (relative to the clip's first frame)
+  "mask": ["spine"],                                                                // bones and their descendants the clip may drive
+  "root": { "node": "hips", "motion": "inplace" },                                  // inplace (default) | extract: horizontal translation and yaw go to the model's handle
+  "tracks": [
+    { "node": "spine", "channel": "rotation", "interpolation": "linear",             // translation | rotation | scale | visible | morph:<target id>
+      "times": { "start": 0, "fps": 30, "count": 32 }, "values": { "stream": "s30", "format": "snorm16x4" } },   // times: uniform, or { "stream" }
+    { "material": "mat_lamp", "channel": "emitter.intensity", "times": { "stream": "s31" }, "values": { "stream": "s32", "format": "float32" } },
+    { "node": "bulb", "channel": "light.intensity", "times": { "stream": "s33" }, "values": { "stream": "s34", "format": "float32" } } ],
+  "events": [{ "time": 0.42, "name": "footstep", "data": { "foot": "left" } }] }   // data at most 1 KB
+```
+
+- Node channels: `translation`, `rotation`, `scale`, `visible` (0 or 1, step), `morph:<id>`,
+  `light.intensity`, `light.color`. Material channels name a material, not a node: `color`,
+  `alpha.opacity`, the model's parameters, `emitter.intensity`, `emitter.color`,
+  `<feature>.<parameter>`; the runtime clones a material per loaded model when a clip
+  animates it. Interpolation: `linear` (default), `step`, `cubic` (tangents in values, glTF
+  layout).
+- The loader makes Three.js keyframe tracks for node channels, bound by node id, dequantizing
+  values and expanding uniform times (`cubic` uses the glTF cubic-spline interpolant).
+  Material and light channels are sampled by `kit/animation.js` itself and written to the
+  model's material handles and light slots, since `PropertyBinding` cannot reach a material
+  by id.
+- Animation packs (`kind: animations`) carry a skeleton with its rig and clips with node
+  channels only; `mask` and `root.node` name roles. A model plays a pack whose rig has the same
+  name and version directly; other rigs through retargeting by role.
+
+### 4.7 Physics
+
+Engine-neutral shapes, bodies and constraints; vehicles, ragdolls and characters map to Jolt's
+controllers. Every reference is an id; every vector is in the space of the body's node.
 
 ```jsonc
 "physics": {
   "shapes": [
-    { "type": "box", "halfExtents": [0.4, 0.4, 0.4] },
-    { "type": "sphere", "radius": 0.3 }, { "type": "capsule", "halfHeight": 0.6, "radius": 0.25 },
-    { "type": "cylinder", "halfHeight": 0.5, "radius": 0.2 },
-    { "type": "convex", "points": [/* x, y, z… in the root's space */] },
-    { "type": "mesh" }                                   // the visible meshes (static bodies only)
-  ],
-  "bodies": [{ "node": 0, "shape": 0, "motion": "static" | "kinematic" | "dynamic", "mass": 1200,
-               "friction": 0.5, "restitution": 0.1, "linearDamping": 0.05, "angularDamping": 0.05 }],
-  "constraints": [{ "type": "hinge" | "fixed" | "point" | "slider" | "cone" | "swingTwist" | "sixDOF" | "distance",
-                    "bodies": [1, 0], "point": [], "axis": [], "limits": {}, "motor": {} }],
-  "vehicles": [{ "type": "wheeled", "body": 0,
-                 "wheels": [{ "node": 2, "position": [0.82, 0.33, 1.31], "radius": 0.33, "width": 0.22,
+    { "id": "box", "type": "box", "halfExtents": [0.4, 0.4, 0.4] },
+    { "id": "ball", "type": "sphere", "radius": 0.3 },
+    { "id": "pill", "type": "capsule", "halfHeight": 0.6, "radius": 0.25 },             // axis Y
+    { "id": "drum", "type": "cylinder", "halfHeight": 0.5, "radius": 0.2 },
+    { "id": "hull", "type": "convex", "points": { "stream": "s40", "format": "float32x3" } },   // 4–1024 points, not coplanar
+    { "id": "walls", "type": "mesh", "geometry": "static" },                             // static bodies only
+    { "id": "all", "type": "compound", "children": [{ "shape": "box", "position": [0, 0.4, 0], "rotation": [0, 0, 0, 1] }] } ],   // children are not compounds
+  "bodies": [{ "id": "chassis", "node": "root", "shape": "hull",
+               "motion": "dynamic",                                                      // static (default) | kinematic | dynamic
+               "mass": 1200, "centerOfMass": [0, -0.2, 0], "friction": 0.5, "restitution": 0.1,
+               "damping": { "linear": 0.05, "angular": 0.05 }, "gravity": 1, "ccd": false, "sensor": false, "sleep": true }],
+  "constraints": [{ "id": "door", "type": "hinge", "bodies": ["frame", "door"],
+                    "frame": { "position": [0, 1, 0], "axis": [0, 1, 0], "normal": [1, 0, 0] },  // in the first body's node space
+                    "limits": [0, 1.6], "motor": { "mode": "position", "target": 0, "maxForce": 50 },
+                    "spring": { "frequency": 2, "damping": 0.5 }, "break": { "force": 5000, "torque": 1000 } }],
+  "vehicles": [{ "id": "car", "type": "wheeled", "body": "chassis",
+                 "wheels": [{ "id": "fl", "node": "wheel_fl", "radius": 0.33, "width": 0.22,          // the wheel centre is the node's position
                               "suspension": { "min": 0.05, "max": 0.25, "frequency": 1.6, "damping": 0.5 },
-                              "steer": 0.6, "brake": 1500, "handbrake": 4000 }],
+                              "steer": 0.6, "brake": 1500, "handbrake": 0 }],
                  "engine": { "maxTorque": 300, "minRPM": 1000, "maxRPM": 6000 },
                  "transmission": { "mode": "auto", "gears": [2.66, 1.78, 1.3, 1.0, 0.74], "reverse": [-2.9] },
-                 "differentials": [{ "left": 0, "right": 1, "ratio": 3.42, "share": 1 }], "antiRoll": [] }],
-  "ragdolls": [{ "parts": [{ "name": "thigh_l", "joint": 45, "parent": "pelvis", "to": 46, "radius": 0.075, "mass": 7,
-                             "limits": { "cone": 1.0, "twist": [-0.4, 0.4] } }] }],
-  "character": { "shape": 2, "offset": [0, 0.9, 0], "maxSlope": 0.8 }
+                 "differentials": [{ "wheels": ["fl", "fr"], "ratio": 3.42, "share": 1 }],
+                 "antiRoll": [{ "wheels": ["fl", "fr"], "stiffness": 1000 }] }],
+  "ragdolls": [{ "id": "doll", "skeleton": "rig",
+                 "parts": [{ "id": "thigh_l", "bone": "role:leftUpperLeg", "parent": "pelvis", "to": "role:leftLowerLeg",   // bone: id or role:<role>; parent: part id
+                             "radius": 0.075, "mass": 7, "limits": { "cone": 1.0, "twist": [-0.4, 0.4] } },
+                           { "id": "head", "bone": "role:head", "parent": "chest", "length": 0.22, "radius": 0.1, "mass": 5, "limits": { "cone": 0.6, "twist": [-0.6, 0.6] } }] }],
+  "characters": [{ "id": "walker", "node": "root", "shape": "pill", "mass": 70, "maxSlope": 0.8, "stepHeight": 0.3 }]
 }
 ```
 
-- Vehicles are Jolt `WheeledVehicleController`s; wheels follow suspension, steering and spin,
-  composed with the wheel node's authored rotation.
-- Ragdoll parts are capsules from a joint to the next part's joint, built from whatever pose
-  the skeleton has when the ragdoll starts (an animation frame, for example); bones between
-  parts keep their local pose. Jolt can also drive a ragdoll towards an animated pose with
-  motors (`DriveToPoseUsingMotors`), which is how hits blend into animation.
-- `character` describes a capsule for Jolt's `CharacterVirtual` controller.
+| Constraint | `limits` | `motor` |
+| --- | --- | --- |
+| `fixed`, `point` | — | — |
+| `hinge` | `[min, max]` radians | position or velocity, `maxForce` as torque |
+| `slider` | `[min, max]` metres | position or velocity, `maxForce` |
+| `cone` | `halfAngle` | — |
+| `swingTwist` | `cone`, `twist: [min, max]` | position (target quaternion) |
+| `sixDOF` | per axis `translation: [[min,max]×3]`, `rotation: [[min,max]×3]` | per axis |
+| `distance` | `[min, max]` | — |
 
-## Roles and conventions
+Rules: nodes with bodies have uniform world scale; mesh shapes belong to static bodies and
+stay under 100 k triangles (Jolt's JS bindings take them one element at a time); a ragdoll's
+bones belong to its skeleton; `break` is watched by the runtime (Jolt reports constraint
+impulses per step; the runtime removes the constraint; at most 64 watched per scene).
+Collision layers are the platform's four (static, moving, debris, sensor; static–moving,
+moving–moving, debris–static, sensor–moving collide); a body picks one with `layer` (default
+by motion).
+Motorcycles, tracked vehicles, height fields and soft bodies are extensions (`fun3d.motorcycle`,
+`fun3d.tracked`, `fun3d.heightfield`, `fun3d.softbody`).
 
-The library's names stay the contract; `role` records what they mean:
+### 4.8 Variants
 
-- `static`: every static mesh merged into one part (from `static__<material>` nodes);
-- `part`: any other named node a game may move (`wheel_*`, `steer_*`, `*_hinge`, doors);
-- `collider`: hidden geometry the physics uses (`collider*` nodes);
-- `socket`: an attachment point (`socket_*`).
-
-Materials named `mat_light*`, `mat_signal*`, `mat_window*`, `mat_lamp*`, `mat_screen*` and
-`mat_beacon*` are `light` with that role; `mat_body` may be `tint` (a per-copy colour).
-
-## Editing section
-
-The EDIT chunk holds the workshop's project (`fun.dev/model` document: polygons with face IDs,
-recipes, links, assemblies). The runtime section is always written from it, so opening a
-library model in the workshop restores its recipes. Large geometry moves to EBIN chunks with the
-workshop's binary storage (roadmap stage 2).
-
-## Versioning
-
-`version` is 1. Additions that old readers can ignore keep the version; anything else raises
-it. Runtimes read every version up to their own and refuse newer ones with a clear message.
-Approved library versions are never rewritten, so the runtime keeps reading old versions.
-
-## Runtime
-
-| Module | Does |
-| --- | --- |
-| `kit/fun3d.js` | `createFun3d({ THREE, encoder, decoder })` → `write(object, { kind, animations, physics, rig, edit })`, `read(bytes)`, `load(bytes)`; `stripEditing(bytes)` |
-| `kit/fun3d-import.js` | GLB → normalized Three.js objects, roles and physics (below) |
-| `kit/models.js` | `createBatch({ THREE, TSL })`: every rigid part of every model in one `BatchedMesh` (plus one for glass), one palette material, role intensities |
-| `kit/physics.js` | `createPhysics({ THREE })`: a Jolt world; `add(model)` makes its bodies, vehicle and ragdoll; `step(dt)` moves the Three.js objects |
-
-```js
-const fun3d = createFun3d({ THREE, encoder: MeshoptEncoder, decoder: MeshoptDecoder });
-const taxi = await fun3d.load(await (await fetch("models/city_taxi_01.fun3d")).arrayBuffer());
-scene.add(taxi.scene);
-const physics = await createPhysics({ THREE });
-const car = physics.add(taxi);
-car.vehicle.drive({ throttle: 1, steer: 0.2 });
-const walk = (await fun3d.load(packBytes)).animations.find((clip) => clip.name === "walk");
+```jsonc
+"variants": [{ "id": "police", "axis": "livery", "overrides": [{ "node": "body", "materials": ["white", "blue"] }, { "node": "lightbar", "visible": true }] },
+             { "id": "wrecked", "axis": "damage", "overrides": [{ "node": "roof", "geometry": "roof_dented" }] }]
 ```
 
-Jolt is vendored under `/vendor/jolt/` (0.6 MB compressed) and loaded by the first
-`createPhysics`; the meshopt encoder (24 KB) is needed only where files are written.
+One variant active per axis; overrides may set `materials`, `geometry`, `visible` and
+`morphWeights`; animation tracks apply after variants; bodies keep their shapes.
 
-## Importing GLB
+### 4.9 References
 
-What the console does to every upload and the workshop to every import:
+```jsonc
+"refs": [{ "id": "base", "model": "commuter_body_01@v003", "hash": "sha256:…" }]
+"skeletons": [{ "id": "rig", "ref": "base", "entry": "rig", "bones": ["hips", …] }]   // the bone ids this file uses, in its own joint order
+```
 
-- static parts merge into `static`; a moving part split by material (`wheel_front_left__mat_rubber`
-  under `wheel_front_left`) merges into its pivot; every other mesh node merges its primitives;
-- flat faces are welded without normals; texture coordinates go when nothing samples them;
-- vertices are ordered for the GPU's vertex cache (meshopt), which also compresses better;
-- materials get types from their names and properties;
-- physics: props get a convex hull (of `collider*` nodes when present), pieces their mesh,
-  models with `wheel_*` nodes a wheeled vehicle, characters a capsule and a ragdoll for their
-  rig;
-- skins, morph targets and clips carry over; a file with clips and no meshes becomes an
-  animation pack;
-- textures keep their encoded bytes.
+A skeleton may come from another file: the part's `skinIndex` values index the part's own
+`bones` list, which the loader maps to the base skeleton's bones by id. Only pinned library
+versions may be referenced; `hash` names the referenced runtime file and a mismatch refuses
+the load. One hop of depth. The resolver is the platform's: in games, the release closure (section 8);
+in the workshop, the library. Validation of a part fetches its base to check bone ids.
 
-## Measurements (prototype)
+### 4.10 Extensions
 
-The 220-model library sample used for the workshop's import tests, converted in a browser in
-14 seconds with no failures:
+`extensions` may appear on the top level and on any table entry; feature extensions appear
+in `materials[].features`. Names are `fun3d.<name>` for the platform and `x.<game>.<name>` for
+games; versions are declared once per file in `uses` (`"fun3d.wind"` means the version the
+runtime's registry knows; a breaking change is a new name). `requires ⊆ uses`. An unknown
+optional extension drops to the fallback its specification defines; an unknown required one
+refuses the file with its name. Every extension specification states its fallback and the
+features it combines with. Node graphs (`fun3d.nodes`, later) are data interpreted by a
+whitelisted node registry.
 
-| | GLB today | gltfpack (best standard glTF) | .fun3d |
+### 4.11 Editing sections
+
+An `EDIT` chunk is `{ "tool": "fun.dev/workshop", "version": 3, "document": {} }`; editing-flagged
+`BIN` chunks hold its binary data. `asset.source.kind` is `glb` or `edit`, exactly one;
+`asset.source.tool` names the authoritative section when it is `edit`. Other tools' sections
+are kept and shown read-only with a diff; reimporting from the runtime section happens only
+by command. The library never edits runtime data. The validator checks editing sections for
+size and absolute paths only.
+
+### 4.12 Versioning
+
+`fun3d` is `major.minor`. A minor change adds fields old readers can ignore without loading
+anything wrong (writers must show this); a major change refuses old readers. Extensions
+version by name. `asset.source.converter` and `profile` name what produced the runtime
+section; a derived file never changes in place (section 8).
+
+## 5. Validation and limits
+
+The validator runs in the maintenance script (before anything is served), in the console (on
+upload, as a check), and in the loader (counts, ranges, non-finite values; cheap). It checks
+the JSON Schema, that every reference resolves, that streams lie inside buffers and
+attributes inside strides, that parents form a tree, that quaternions are unit, that every
+decoded float stream is finite and every index in range, that hulls have four non-coplanar
+points, and the caps below (the library profile's).
+
+| | Cap |
+| --- | --- |
+| file | 64 MB stored, 256 MB raw; JSON chunk 16 MB |
+| nodes / geometries / materials / images | 4096 / 1024 / 256 / 64 |
+| vertices / triangles per geometry, total | 4 M / 8 M, 16 M / 32 M including LOD levels |
+| vertex buffers / attributes per geometry | 6 / 11 (WebGPU allows 8 / 16; instancing and tint take the rest) |
+| texels per image / per file | 16 M (4096²) / 64 M |
+| bones per skeleton, influences | 128 (a uniform block within WebGL 2's minimum), 4 |
+| morph targets per geometry, targets × vertices per file | 64, 1 M (32 MB of GPU memory) |
+| clips, tracks per clip, keyframes per file | 256, 1024, 4 M |
+| placements per node, per file | 65 536, 262 144 |
+| convex points, mesh-shape triangles, bodies, constraints | 1024, 100 k, 256, 256 |
+
+## 6. Profiles
+
+A profile is a kit module `{ name, version, rules, limits }` that turns a producer's
+conventions into explicit data when importing. The console and the maintenance script run the
+platform's profiles only; a game may register its own in `game.json` for its own assets, run by
+its own build. `fundev-library@1` reads the conventions documented in [models](models.md):
+
+- `static__<material>` nodes merge into one node `static`; `<pivot>__<material>` children
+  merge into their pivot; other mesh nodes merge their primitives; flat faces weld and lose
+  their normals (`groups[].flat`); unused texture coordinates go.
+- `mat_light*`, `mat_signal*`, `mat_window*`, `mat_lamp*`, `mat_screen*`, `mat_beacon*` get
+  `emitter` with the matching role; `mat_body` gets `tint`; transmissive materials
+  `transmission`.
+- Physics by library type: props and pieces a convex hull (`collider*` nodes when present;
+  convex decomposition later as `fun3d.decomposition`), vehicles (type `vehicle`) a wheeled
+  vehicle from `wheel_*` nodes with defaults by mass class, characters a capsule and a ragdoll
+  from the rig's roles. Mass from a density table by type.
+- Ids: node ids are the glTF node names (unique by suffix at import, recorded in the editing
+  section), material ids the material names, bone order the glTF skin order. The same source
+  gives the same ids on every run.
+
+## 7. Runtime
+
+| Module | Role |
+| --- | --- |
+| `kit/fun3d.js` | read, validate, load into Three.js, write from Three.js, strip editing sections, dispose |
+| `kit/fun3d-import.js` | GLB → `.fun3d` through a profile (typed-array welding, bounded memory) |
+| `kit/materials.js` | models and features in TSL; one builder serves single meshes and batches; registry |
+| `kit/models.js` | places loaded models and returns handles: batches rigid batchable meshes, instances placements, picks LOD levels, budgets lights, applies variants and tints; `model.part(id)`, `model.socket(id)`, `roles.set` |
+| `kit/physics.js` | Jolt: bodies, constraints, vehicles, ragdolls, characters; asynchronous API, pooled temporaries, `dispose()`; the world can move to a worker |
+| `kit/animation.js` | clips, masks, additive blending, events, retargeting by role |
+
+The kit, not the file, decides whether a mesh is drawn alone, instanced or batched, which LOD
+level shows, how many lights are real and where physics steps. Physics steps at a fixed rate
+with interpolation; its API takes the inputs for step N and returns the state of step N−1, so
+the world can live in a worker (transferred state; shared memory only where the page is
+cross-origin isolated). Shapes are cooked off the main thread. On WebGL 2 without
+`WEBGL_multi_draw`, a batch still issues one draw per copy; the pipeline and material savings
+remain. Jolt is served like the vision
+runtime (`/runtime/physics/<hash>/`, cache-first, outside the shell precache, found through
+`import.meta.url`); the meshopt encoder is not shipped to games. Everything loaded registers
+with the game context's `track` and is released at teardown.
+
+## 8. Pipeline
+
+- **Derived files.** `model.fun3d` is derived from the source by the maintenance script
+  (headless Chromium, one converter) and stored under a `derived` record `{ sha256, size,
+  converter, profile }` separate from `files`; every approved version of every model converts.
+  A new converter or profile makes a new derived file; the old one stays as long as any lock
+  or reference pins it. Regeneration that would change ids or bone order is refused (the
+  model needs a new version). Workshop sources (`kind: edit`) regenerate through the headless
+  workshop; GLB sources through the importer.
+- **Parity gate.** `npm run models -- convert` renders GLB and `.fun3d` in the same viewer,
+  pixel-diffs them (worst-50 sheet), and checks derived data (hull points, mass class, wheel
+  count, emitter roles) before a derived file is recorded.
+- **Console.** Uploads stay as they are (GLB in, thumbnails from GLB); a version shows `未转换`
+  until the script derives its file; the validator runs on upload as a check. Browser
+  conversion is a preview at most, never what the library serves.
+- **Games.** `game.json` pins versions and names the format (`"models": { "format": "fun3d" }`,
+  one format per game); `games/<id>/models.lock` records the derived hash and path of every
+  pinned file and of the closure of references (`models/<id>@<version>.fun3d`);
+  `npm run models -- update <game>` advances it. Game-local GLBs convert at build on request
+  (`"convert": ["assets/tiles/*.glb"]`), cached by hash.
+- **Workshop.** Keeps `.funmodel.glb` until its binary storage lands; then saves `.fun3d` with
+  its editing section, exports plain GLB, gains physics commands with a Jolt preview.
+- **Library pages.** Keep GLB in the first release; switch when the viewer uses the runtime
+  materials and the page CSP allows the decoders.
+- **Platform.** Jolt and the decoders in the runtime; validator and inspector as
+  `npm run fun3d -- inspect|validate`; `docs/fun3d-agents.md` with the three ways to produce a
+  file (GLB through a profile, Three.js in Node, the workshop); `verify kit` loads real library
+  files and the synthetic scenarios.
+
+## 9. Evaluation
+
+Levels: **core** (defined and in the first release), **extension** (mechanism in core, feature
+later with the producer and consumer named), **change** (needs a core change), **conflict**
+(works only with the stated restriction).
+
+| Scenario | Level | Schema | Producer / consumer |
 | --- | --- | --- | --- |
-| total | 82.0 MB | 14.8 MB | 9.7 MB |
-| median model | 79.7 KB | 17.9 KB | 4.9 KB |
-| vertices | 2.53 M | | 1.27 M |
+| Textured PBR props (normal, ORM, occlusion on uv1, transforms) | core | 4.3 maps | workshop stage 3 / every game |
+| Characters: base body + hair and clothes on one skeleton | core (release 2) | 4.9 refs, bone-id remap | character creator / games |
+| 50–100 expressions, sliders | core, conflict | 4.2 sparse morphs; dense on the GPU, 1 M target-vertices per file | creator / games |
+| Decals, toon hair, skin | extension | `fun3d.decals`, `fun3d.hair`, `fun3d.skin` | creator / games |
+| Creatures with custom rigs; retargeting | core (release 2) | 4.5 roles, rest, height | workshop stage 4 / `kit/animation.js` |
+| Animated materials and lights, visibility | core | 4.6 channels | workshop, games / runtime |
+| Events, additive clips, masks, root motion | core | 4.6 | animation packs / `kit/animation.js` |
+| Doors, drawers, levers | core | 4.7 constraints | workshop physics commands / `kit/physics.js` |
+| Destructibles | core data + game code | bodies per fragment, `break` | workshop / physics; the swap is the game's |
+| Cars | core | 4.7 wheeled | profile, workshop / physics |
+| Motorcycles, tracked vehicles, boats | extension | `fun3d.motorcycle`, `fun3d.tracked`, `fun3d.buoyancy` | nobody yet |
+| Cloth, soft bodies | extension | `fun3d.softbody` | workshop later / Jolt |
+| Character controller | core (release 2) | 4.7 characters | profile / physics |
+| Lamps that light, headlight cones | core, conflict | 4.1 lights with importance; fixed light slots per tier, authored against the platform exposure | profile / `kit/models.js` |
+| City tiles, terrain | conflict + extension | tiles are models in a world list; `fun3d.heightfield` | 帝都's build / runtime |
+| Vegetation at scale, per-copy colour, wind | core + extension | 4.1 placements with tint; `fun3d.wind` | profile, workshop / runtime |
+| Crowds | extension | `fun3d.vat` baked animation textures | creator / games |
+| Colour schemes and damage states together | core | 4.8 variant axes | workshop / runtime |
+| Custom shaders | extension | `fun3d.nodes` | workshop later |
+| GPU-driven rendering | extension | `fun3d.clusters` | runtime |
+| Other tools' editing data | core | 4.11 | tools |
+| New codecs and image formats | core | registries, `requires` | — |
+| Instanced skinning | extension | `fun3d.vat` or a TSL skinning node over instances (runtime work, not a format change) | creator / games |
 
-Single files: `city_taxi_01` 332 KB → 7.0 KB (with its vehicle physics); a restaurant sink
-297 KB → 6.1 KB; a character with 10 WebP textures 1028 KB → 1028 KB (as small as its Draco
-original; textures are 77% of it); the library's Mixamo character 5.3 MB → 2.1 MB; an
-animation pack with 19 clips 1117 KB → 107 KB. Import, write and load take 4, 2 and 1 ms for
-a median model.
+**Conflicts** (what the runtime enforces):
 
-Rendering 600 copies of 60 library models (3.3 M triangles) on this machine's GPU, earlier
-the same day: today's GLBs draw in 31.5 ms per frame with shadows on WebGPU (12.8 ms on
-WebGL 2) and 4671 draw calls; one batch with a palette material draws in 3.3 ms (1.3 ms) with
-two draw calls on WebGL 2, and the first frame comes 3–4× sooner.
+| | Batching | Skinning | Morphs | Geometry LOD | Variants | Placements | Blend alpha | Physics |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Batching | — | no (drawn alone) | no | per copy | palette slots | yes | second batch, sorted | — |
+| Skinning | no | — | yes | yes | yes | no (see crowds) | yes | ragdoll, character |
+| Morphs | no | yes | — | yes | `morphWeights` | Three.js supports instanced morphs; the runtime may | yes | — |
+| Group LOD | per level | levels share the skeleton | yes | yes | yes | no | yes | one body for the group |
+| Variants | yes | yes | yes | yes | one per axis | every copy | yes | shapes unchanged |
+| Placements | yes | no | yes | yes | every copy | — | yes | static body per copy |
+| Animation | yes | yes | yes | yes | after variants | per node, not per copy | yes | kinematic follows, dynamic ignores |
+| Transmission | no | yes | yes | yes | yes | drawn alone | yes | — |
+| Refs | yes | base skeleton | own | own | local entries only | yes | yes | own |
+| Lights | real lights budgeted; emitters always glow | | | | | not on placed nodes | | |
+| Masks | — | after retargeting | — | — | — | — | — | a mask without the root drops root motion |
+| Animated materials | per-copy palette slot | yes | yes | yes | after variants | per node | yes | — |
+| Lines, points | never | — | — | — | — | instanced only | — | — |
+| Integer attributes | — | `skinIndex` loads as an integer attribute on both backends | — | — | — | — | — | — |
 
-The prototype implements the container, both directions of the Three.js mapping (tested in
-`tests/fun3d.test.mjs`), the importer, batches with light roles, and Jolt shapes, bodies,
-wheeled vehicles and ragdolls. Constraints, the character controller, per-copy tints and the
-editing section's binary geometry are specified here but not built yet.
+## 10. Rollout
 
-The prototype scene (`node dev/fun3d/demo.mjs <site> <shots>`) puts 62 batched props with
-convex colliders on a street, drives the converted taxi as a Jolt vehicle through a stack of
-dynamic crates, and plays the walk clip of a converted animation pack on a converted
-character before it falls as a ragdoll. It runs identically on WebGPU and WebGL 2.
+1. **Core**: schema and validator, container, loader and writer, importer with the library
+   profile, `pbr`/`unlit` with `emitter` and `tint`, batching, static bodies and wheeled
+   vehicles, `models.lock`, parity gate, the agent one-pager, `verify kit` with synthetic
+   scenarios for every core row above.
+2. **Library**: derived files for every approved version; `未转换` state; derived-data warnings
+   in review.
+3. **Games**: 帝都 (taxi, street furniture, lights budget).
+4. **Release 2**: references, retargeting, ragdolls, characters, character controller,
+   material and light channels, events, variants, group LOD; 准点下班 adopts.
+5. **Workshop**: `.fun3d` save and open with editing sections, GLB export, physics commands.
+6. **Extensions as needed**, each with its producer and consumer: wind, decals, hair, skin,
+   soft bodies, crowds, atlases, nodes, clusters, heightfields, motorcycles.
 
-## After approval
+## 11. Open decisions
 
-- **Library**: store `model.fun3d` beside the original `model.glb`; the console converts
-  uploads in the browser (the same importer); convert the 1147 listed models once with the
-  maintenance script; model pages, thumbnails and "Open in workshop" read `.fun3d`.
-- **Games**: `game.json` pins resolve to `.fun3d` files; the kit modules above; each game
-  adopts them on its own schedule (帝都's taxi and street furniture first).
-- **Workshop**: saves and opens `.fun3d` (the editing section replaces `.funmodel.glb`),
-  exports GLB for other tools, and gains physics commands with a Jolt preview.
-- **Platform**: Jolt and the meshopt encoder in the runtime, the CSP allowing their
-  WebAssembly where games run, tests in `npm run verify`.
-
-## Open questions
-
-1. Vehicles: 13 of the 220 sample models have `wheel_*` nodes. Should only models typed as
-   vehicles get vehicle physics (a wheelbarrow would rather be a body with free wheels)?
-2. Character controller (`CharacterVirtual`) in version 1, or later?
-3. Textures: keep each source encoding (WebP, JPEG, PNG) or transcode to KTX2 when converting
-   (GPU-compressed, smaller in memory, larger on disk)?
-4. Morph targets: 32-bit deltas today; quantize like positions?
-
-## Later
-
-Custom TSL node graphs, prefabs with behaviour, scenes inside the format, level-of-detail
-chains (meshopt simplifier), GPU culling with compute and indirect draws, streaming large
-models in pieces, KTX2 transcoding, soft bodies and cloth, and per-copy light roles in
-batches.
+1. Light budget: how many real lights per device tier.
+2. Library type `vehicle` added to the catalogue, with a one-time `retype` action for the
+   approved vehicles typed `prop`.
+3. A scheduled conversion job (GitHub Actions with a Wrangler secret) or `未转换` as a normal
+   state cleared by hand.
+4. KTX2 transcoding at conversion: off for the first release.
