@@ -55,6 +55,8 @@ if (args.includes("--verify")) {
   try {
     await editorChecks({ browser, base: server.base });
     await editorAdapterChecks();
+    const { editorToolChecks } = await import("./browser/editor-tool.mjs");
+    await editorToolChecks({ base: server.base, output: resolve(fileURLToPath(output)) });
     console.log(
       "Editor: project round trip, GLB runtime load, desktop editing and draft-lock checks passed.",
     );

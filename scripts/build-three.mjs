@@ -24,6 +24,14 @@ export async function buildThree(root, output) {
     entryPoints: [fileURLToPath(new URL("scripts/editor-tools.js", root))], outfile: fileURLToPath(new URL("editor/tools.js", output)),
     bundle: true, format: "esm", minify: true, target: "es2022", legalComments: "eof", logLevel: "warning", plugins: [platform],
   });
+  // The agent tool for machines without this repository: the CLI/MCP adapter in one file,
+  // driving the published workshop. It needs only Playwright beside it. Imports of
+  // /editor/... run inside the page, so they stay as they are.
+  await build({
+    entryPoints: [fileURLToPath(new URL("scripts/editor-agent.mjs", root))], outfile: fileURLToPath(new URL("tools/fundev-workshop.mjs", output)),
+    bundle: true, platform: "node", format: "esm", target: "node22", external: ["playwright", "/editor/*"], legalComments: "eof", logLevel: "error",
+    define: { "process.env.FUNDEV_WORKSHOP_URL": JSON.stringify("https://fun.dev/editor/") },
+  });
   // The workshop's geometry kernel (manifold-3d): its ES module finds the .wasm beside it.
   const kernel = new URL("editor/vendor/", output);
   await mkdir(kernel, { recursive: true });

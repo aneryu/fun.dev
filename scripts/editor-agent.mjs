@@ -22,8 +22,12 @@ import { normalizeProject } from "../site/editor/document.js";
 const root = fileURLToPath(new URL("../", import.meta.url)),
   args = process.argv.slice(2),
   config = {};
+// The published single-file tool (cdn.fun.dev/tools/fundev-workshop.mjs) is built with a
+// default URL: it drives the live workshop and needs no repository, only Playwright.
+const defaultUrl = process.env.FUNDEV_WORKSHOP_URL || undefined;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--mcp") config.mcp = true;
+  else if (args[i] === "--gpu") config.gpu = true;
   else if (
     ["--session", "--project", "--artifacts", "--cdp", "--url"].includes(
       args[i],
@@ -35,11 +39,12 @@ for (let i = 0; i < args.length; i++) {
     config[key] = args[++i];
   } else if (args[i] === "--help") {
     console.log(
-      'node scripts/editor-agent.mjs [--mcp] [--session state.json] [--project model.funmodel.json] [--artifacts directory]\nExisting browser: --cdp http://127.0.0.1:9222 --url http://127.0.0.1:8001/editor/\nCLI stdin: one JSON {"method":"inspect","arguments":{}} per line; stdout: JSON results.\nBuild the editor first: npm run editor -- --build',
+      `node ${defaultUrl ? "fundev-workshop.mjs" : "scripts/editor-agent.mjs"} [--mcp] [--session state.json] [--project model.funmodel.json] [--artifacts directory] [--url ${defaultUrl ?? "https://fun.dev/editor/"}] [--gpu]\nExisting browser: --cdp http://127.0.0.1:9222 --url <exact editor tab URL>\nCLI stdin: one JSON {"method":"inspect","arguments":{}} per line; stdout: JSON results.\n${defaultUrl ? "Needs Playwright beside this file: npm i playwright && npx playwright install chromium" : "Build the editor first (npm run editor -- --build), or pass --url to drive a published workshop."}`,
     );
     process.exit(0);
   } else throw new Error("Unknown option " + args[i]);
 }
+config.url ??= config.cdp ? undefined : defaultUrl;
 if (config.cdp && (!config.url || config.project || config.session))
   throw new Error(
     "Existing-tab mode requires --url and does not load a project or session",
@@ -98,18 +103,25 @@ async function connect() {
       );
     page = matches[0];
   } else {
-    const output = resolve(root, ".editor-preview");
-    await access(resolve(output, "editor/index.html")).catch(() =>
-      execFileSync(process.execPath, ["scripts/editor.mjs", "--build"], {
-        cwd: root,
-        stdio: ["ignore", "ignore", "inherit"],
-      }),
-    );
-    server = createPreviewServer({ root: output });
-    const { port } = await listen(server, 0, "127.0.0.1");
+    let url = config.url;
+    if (!url) {
+      const output = resolve(root, ".editor-preview");
+      await access(resolve(output, "editor/index.html")).catch(() =>
+        execFileSync(process.execPath, ["scripts/editor.mjs", "--build"], {
+          cwd: root,
+          stdio: ["ignore", "ignore", "inherit"],
+        }),
+      );
+      server = createPreviewServer({ root: output });
+      const { port } = await listen(server, 0, "127.0.0.1");
+      url = `http://127.0.0.1:${port}/editor/?lang=en`;
+    }
     browser = await chromium.launch({
       headless: true,
-      args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
+      // Software WebGL 2 works everywhere; --gpu uses the machine's GPU through Vulkan.
+      args: config.gpu
+        ? ["--enable-unsafe-webgpu", "--enable-features=Vulkan,VulkanFromANGLE", "--use-angle=vulkan", "--ignore-gpu-blocklist"]
+        : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
     });
     context = await browser.newContext({
       serviceWorkers: "block",
@@ -133,7 +145,12 @@ async function connect() {
       };
     }
     if (record) {
-      normalizeProject(record.project);
+      // Projects built by the geometry kernel are checked by the page instead.
+      try {
+        normalizeProject(record.project);
+      } catch (error) {
+        if (error.code !== "kernel_loading") throw error;
+      }
       if (!Number.isSafeInteger(record.revision) || record.revision < 0)
         throw new Error("Invalid session revision");
     }
@@ -147,7 +164,7 @@ async function connect() {
         record,
       );
     page = await context.newPage();
-    await page.goto(`http://127.0.0.1:${port}/editor/?lang=en`);
+    await page.goto(url);
   }
   await page.waitForFunction(
     () => window.funEditor?.version >= 3,
