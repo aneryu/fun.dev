@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { watch } from "node:fs";
+import { readdirSync, watch } from "node:fs";
 import { access } from "node:fs/promises";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPreviewServer, listen } from "./preview-server.mjs";
 import { sync } from "./blobs.mjs";
@@ -59,14 +59,36 @@ async function rebuild() {
   building = false;
 }
 
+// One non-recursive watcher per directory. Node's recursive watch on Linux follows files by
+// inode, so a file replaced by rename (sed -i, many editors' atomic save) was never seen again;
+// a directory watcher reports changes, creations and renames of its children. New directories
+// are picked up as they appear; removed ones close their watcher.
 let timer;
-for (const directory of ["site", "games", "scripts", "skills"]) {
-  watch(new URL(`${directory}/`, root), { recursive: true }, (event, file) => {
-    if (file && /(?:^|[/\\])(?:\.|node_modules[/\\])|~$/.test(file)) return;
-    clearTimeout(timer);
-    timer = setTimeout(rebuild, 150);
-  });
+const watchers = new Map();
+const ignored = (name) => /^\.|^node_modules$|~$/.test(name);
+function watchTree(directory) {
+  if (watchers.has(directory)) return;
+  let entries;
+  try { entries = readdirSync(directory, { withFileTypes: true }); } catch { return; }
+  try {
+    const watcher = watch(directory, (event, file) => {
+      if (file && ignored(file)) return;
+      if (event === "rename" && file) watchTree(join(directory, file));
+      clearTimeout(timer);
+      timer = setTimeout(rebuild, 150);
+    });
+    watcher.on("error", () => { watcher.close(); watchers.delete(directory); });
+    watchers.set(directory, watcher);
+  } catch { return; }
+  for (const entry of entries) if (entry.isDirectory() && !ignored(entry.name)) watchTree(join(directory, entry.name));
 }
+// Rebuilds and directory moves can remove watched directories: drop the dead ones now and then.
+setInterval(() => {
+  for (const [directory, watcher] of watchers) {
+    try { readdirSync(directory); } catch { watcher.close(); watchers.delete(directory); }
+  }
+}, 5000).unref();
+for (const directory of ["site", "games", "scripts", "skills"]) watchTree(fileURLToPath(new URL(`${directory}/`, root)));
 
 await rebuild();
 const server = createPreviewServer({
