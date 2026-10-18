@@ -60,5 +60,14 @@ export async function liveCheck({ browser, site, assetOrigin, apiOrigin, games, 
     if (assetOrigin) assert.ok(["*", site].includes(response.headers.get("access-control-allow-origin")), `the ${kit} runtime allows the site`);
   }
   log("  ok   vision and physics runtimes");
-  await smoke({ browser, base: site, games, log });
+  try {
+    await smoke({ browser, base: site, games, log });
+  } catch (error) {
+    // The first page after a deploy pays for a cold edge cache (the shared runtime, three.js):
+    // games that only timed out get one more try; any other failure fails the release.
+    if (!error.failures?.every((f) => /Timeout \d+(\.\d+)?ms exceeded/.test(f.message))) throw error;
+    log("  retry: timed out right after the deploy, trying those games once more");
+    await new Promise((done) => setTimeout(done, 10000));
+    await smoke({ browser, base: site, games: games.filter((g) => error.failures.some((f) => f.id === g.id)), log });
+  }
 }

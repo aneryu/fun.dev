@@ -20,12 +20,16 @@ export async function smoke({ browser, base, games, gameOrigin = "", assetOrigin
         await check(browser, base, game, name, gameOrigin, assetOrigin, renderer);
         log(`  ok   ${game.id}@${game.version} ${name}`);
       } catch (error) {
-        failures.push(`${game.id} ${name}: ${error.message}`);
+        failures.push({ id: game.id, name, message: error.message });
         log(`  FAIL ${game.id}@${game.version} ${name}: ${error.message}`);
       }
     }
   }
-  if (failures.length) throw new Error(`${failures.length} smoke checks failed.`);
+  if (failures.length) {
+    const error = new Error(`${failures.length} smoke checks failed.`);
+    error.failures = failures;
+    throw error;
+  }
 }
 
 async function check(browser, base, game, name, gameOrigin, assetOrigin, renderer) {
