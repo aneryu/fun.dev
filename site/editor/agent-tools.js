@@ -20,6 +20,14 @@ const object = (properties = {}, required = []) => ({
 const ids = { type: "array", items: str, minItems: 1 };
 const origin = { enum: ["world", "asset-root", "ground-center"] };
 const render = {
+  views: {
+    type: "array",
+    items: {
+      enum: ["current", "front", "back", "left", "right", "top", "perspective"],
+    },
+    minItems: 1,
+    maxItems: 6,
+  },
   names: {
     type: "array",
     items: {
@@ -168,13 +176,13 @@ const definitions = [
   [
     "exportGLB",
     "Export all or selected roots; reuse geometry and optionally merge static leaves by parent and material, preserving asset motion. Returns the asset and merge-group report.",
-    object({ ids, mergeStatic: ids, origin, rootName: str, force: bool }),
+    object({ ids, mergeStatic: { oneOf: [ids, { const: "auto" }] }, origin, rootName: str, force: bool }),
     true,
   ],
   [
     "exportReport",
     "Report render vertices, shared buffers, mesh/material groups and bounds.",
-    object({ ids, mergeStatic: ids, origin, rootName: str }),
+    object({ ids, mergeStatic: { oneOf: [ids, { const: "auto" }] }, origin, rootName: str }),
     true,
   ],
   [
@@ -373,8 +381,9 @@ export function toolInvocation(name, args = {}) {
       args: [commands, { ifRevision, views, size, detail: rest.detail }],
     };
   if (method === "observe") {
-    const { names, ...options } = args;
-    return { method: "renderViews", args: [names, options] };
+    // preview calls them views; both names are accepted here.
+    const { names, views, ...options } = args;
+    return { method: "renderViews", args: [names ?? views, options] };
   }
   if (method === "loadProject")
     return { method, args: [project, { ifRevision }] };

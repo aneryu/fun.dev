@@ -76,6 +76,10 @@ export async function editorSolidChecks({ browser, base }) {
     assert.ok(names.includes("static__mat_steel") && names.includes("static__mat_glass"), names.join(","));
     assert.ok(!names.includes("crate"), "no extra wrapper around the root");
 
+    // "auto" merges the static parts directly under the root; observe also takes views.
+    const auto = await page.evaluate(() => funEditor.exportReport({ rootName: "crate_01_ROOT", mergeStatic: "auto" }));
+    assert.ok(auto.mergeGroups.some((g) => g.id === "static__mat_steel"), JSON.stringify(auto.mergeGroups));
+
     // Renaming through the object panel keeps the part selected.
     await page.evaluate(() => funEditor.select("lamp"));
     await page.locator("#node-id").fill("lamp_light");

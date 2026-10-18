@@ -624,15 +624,29 @@ Reports include `origin:{mode,point,up,front}` (point is in project coordinates)
 and bounds reflect the exported coordinates. The Export GLB dialog previews scope,
 origin, dimensions and bounds before downloading; the editable draft is unchanged.
 
+## Model scripts (start here as an agent)
+
+[Workshop for agents](workshop-agents.md) is a one-page quick reference (also printed by
+`--guide`). An agent writes one script that builds the model from scratch, like a Blender
+script, and runs it in one call: `node scripts/editor-agent.mjs --run model.mjs` (or the
+one-file tool below). The script receives `ws` (`load`, `apply`, `validate`, `observe`,
+`exportGLB`, `exportProject`, `importGLB`, `setReference`, `call`); revisions are handled for
+it, files are written beside the script, and the run prints one JSON line (validation
+summary, statistics, files) or a compact error. `mergeStatic: "auto"` merges every mesh
+directly under the export root, the library's static parts.
+
 ## Agents without the repository
 
 `tools/fundev-workshop.mjs` (published at `https://cdn.fun.dev/tools/fundev-workshop.mjs`)
-is the CLI / MCP adapter below as one file. It drives the published workshop, or `--url`,
-in its own headless Chromium; `--gpu` uses the machine's GPU instead of software WebGL 2.
+is the CLI / MCP adapter below as one file, including `--run` and `--guide`. It drives the
+published workshop, or `--url`, in its own headless Chromium; `--gpu` uses the machine's GPU
+instead of software WebGL 2.
 
 ```sh
 npm i playwright && npx playwright install chromium
 curl -O https://cdn.fun.dev/tools/fundev-workshop.mjs
+node fundev-workshop.mjs --guide            # the quick reference
+node fundev-workshop.mjs --run model.mjs     # build a model from a script
 node fundev-workshop.mjs --mcp --session model.json --artifacts out/
 ```
 

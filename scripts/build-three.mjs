@@ -30,7 +30,11 @@ export async function buildThree(root, output) {
   await build({
     entryPoints: [fileURLToPath(new URL("scripts/editor-agent.mjs", root))], outfile: fileURLToPath(new URL("tools/fundev-workshop.mjs", output)),
     bundle: true, platform: "node", format: "esm", target: "node22", external: ["playwright", "/editor/*"], legalComments: "eof", logLevel: "error",
-    define: { "process.env.FUNDEV_WORKSHOP_URL": JSON.stringify("https://fun.dev/editor/") },
+    define: {
+      "process.env.FUNDEV_WORKSHOP_URL": JSON.stringify("https://fun.dev/editor/"),
+      // --guide prints the quick reference without the repository.
+      "process.env.FUNDEV_WORKSHOP_GUIDE": JSON.stringify(await readFile(new URL("docs/workshop-agents.md", root), "utf8")),
+    },
   });
   // The workshop's geometry kernel (manifold-3d): its ES module finds the .wasm beside it.
   const kernel = new URL("editor/vendor/", output);

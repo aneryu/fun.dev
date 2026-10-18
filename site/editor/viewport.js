@@ -1621,6 +1621,12 @@ function exportModel(
       top.updateMatrixWorld(true);
     } else model.root.name = rootName;
   }
+  // "auto": every mesh directly under the root is static; meshes in groups move.
+  if (mergeStatic === "auto")
+    mergeStatic = model.root.children
+      .filter((o) => o.isMesh && !o.children.length && nodes.has(o.name))
+      .map((o) => o.name);
+  model.mergedStatic = mergeStatic;
   if (mergeStatic.length) {
     if (
       new Set(mergeStatic).size !== mergeStatic.length ||
@@ -1752,7 +1758,7 @@ function modelReport(project, model, options) {
       : { min: box.min.toArray(), max: box.max.toArray() },
     scope: options.ids ?? "all",
     origin: model.origin,
-    mergedStatic: options.mergeStatic ?? [],
+    mergedStatic: model.mergedStatic ?? options.mergeStatic ?? [],
     mergeGroups: meshes
       .filter((o) => o.userData.sourceIds)
       .map((o) => ({

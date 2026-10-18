@@ -18,6 +18,7 @@ import { createPreviewServer, listen } from "./preview-server.mjs";
 import { agentTools, toolInvocation } from "../site/editor/agent-tools.js";
 import { errorInfo } from "../site/editor/agent-contract.js";
 import { normalizeProject } from "../site/editor/document.js";
+import { runScript, guideText, compactError } from "./editor-script.mjs";
 import { parseModelFile, workshopProject } from "../site/editor/glb.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url)),
@@ -29,8 +30,9 @@ const defaultUrl = process.env.FUNDEV_WORKSHOP_URL || undefined;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--mcp") config.mcp = true;
   else if (args[i] === "--gpu") config.gpu = true;
+  else if (args[i] === "--guide") config.guide = true;
   else if (
-    ["--session", "--project", "--artifacts", "--cdp", "--url"].includes(
+    ["--session", "--project", "--artifacts", "--cdp", "--url", "--run"].includes(
       args[i],
     )
   ) {
@@ -40,10 +42,14 @@ for (let i = 0; i < args.length; i++) {
     config[key] = args[++i];
   } else if (args[i] === "--help") {
     console.log(
-      `node ${defaultUrl ? "fundev-workshop.mjs" : "scripts/editor-agent.mjs"} [--mcp] [--session state.json] [--project model.funmodel.glb|.json] [--artifacts directory] [--url ${defaultUrl ?? "https://fun.dev/editor/"}] [--gpu]\nExisting browser: --cdp http://127.0.0.1:9222 --url <exact editor tab URL>\nCLI stdin: one JSON {"method":"inspect","arguments":{}} per line; stdout: JSON results.\n${defaultUrl ? "Needs Playwright beside this file: npm i playwright && npx playwright install chromium" : "Build the editor first (npm run editor -- --build), or pass --url to drive a published workshop."}`,
+      `node ${defaultUrl ? "fundev-workshop.mjs" : "scripts/editor-agent.mjs"} --run model.mjs   (build a model from a script: --guide prints the quick reference)\nnode ${defaultUrl ? "fundev-workshop.mjs" : "scripts/editor-agent.mjs"} [--mcp] [--session state.json] [--project model.funmodel.glb|.json] [--artifacts directory] [--url ${defaultUrl ?? "https://fun.dev/editor/"}] [--gpu]\nExisting browser: --cdp http://127.0.0.1:9222 --url <exact editor tab URL>\nCLI stdin: one JSON {"method":"inspect","arguments":{}} per line; stdout: JSON results.\n${defaultUrl ? "Needs Playwright beside this file: npm i playwright && npx playwright install chromium" : "Build the editor first (npm run editor -- --build), or pass --url to drive a published workshop."}`,
     );
     process.exit(0);
   } else throw new Error("Unknown option " + args[i]);
+}
+if (config.guide) {
+  process.stdout.write(await guideText(root));
+  process.exit(0);
 }
 config.url ??= config.cdp ? undefined : defaultUrl;
 if (config.cdp && (!config.url || config.project || config.session))
@@ -417,10 +423,23 @@ async function handle(message) {
     }
   throw new Error("Unknown method");
 }
-const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
-process.once("SIGINT", () => lines.close());
-process.once("SIGTERM", () => lines.close());
+// --run: one model script, one JSON line of output, exit code 1 on failure.
+const lines = config.run
+  ? []
+  : createInterface({ input: process.stdin, crlfDelay: Infinity });
+if (!config.run) {
+  process.once("SIGINT", () => lines.close());
+  process.once("SIGTERM", () => lines.close());
+}
 try {
+  if (config.run)
+    try {
+      await start();
+      process.stdout.write(JSON.stringify(await runScript(config.run, invoke)) + "\n");
+    } catch (e) {
+      process.stdout.write(JSON.stringify({ ok: false, error: compactError(e) }) + "\n");
+      process.exitCode = 1;
+    }
   for await (const line of lines) {
     if (!line.trim()) continue;
     let message;
