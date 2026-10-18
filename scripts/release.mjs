@@ -56,7 +56,7 @@ const deployed = deployments.find((deployment) => !/fail|cancel|error/i.test(dep
 const known = deployed && spawnSync("git", ["cat-file", "-e", `${deployed}^{commit}`], { cwd: root }).status === 0;
 const changed = known ? git("diff", "--name-only", deployed, head).split("\n").filter(Boolean) : null;
 const touches = (pattern) => !changed || changed.some((file) => pattern.test(file));
-const siteChanged = touches(/^(?:site|skills|functions|server|migrations|migrations-models)\/|^scripts\/(?:build|check|csp|game-pages|local-games|game-release|vision)\.mjs$|^package(?:-lock)?\.json$|^wrangler\.jsonc$|^config\/mediapipe-LICENSE\.txt$|^sources\/sources\.lock$/);
+const siteChanged = touches(/^(?:site|skills|functions|server|migrations|migrations-models)\/|^scripts\/(?:build|check|csp|game-pages|local-games|game-release|vision|physics|library-models|fun3d-convert)\.mjs$|^package(?:-lock)?\.json$|^wrangler\.jsonc$|^config\/mediapipe-LICENSE\.txt$|^sources\/sources\.lock$/);
 const transferChanged = touches(/^(?:site\/progress|site\/player|server|functions|migrations)\//);
 
 // Two databases: DB (progress and transfers) and MODELS_DB (the model library, docs/models.md).
