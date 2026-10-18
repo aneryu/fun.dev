@@ -596,7 +596,8 @@ before anything but hulls is promised:
   on a flower — is an upload to fix, and the conversion report lists every model's roles for
   review). `mat_body` gets `tint`; transmissive materials `transmission`.
 - Lamps light their surroundings: every `lamp`-role emitter gets a `light` node (a spot shining
-  down from the glow, about 5 cd per square metre of its height, range three times the height,
+  down from the glow, about 2.5 cd per square metre of its height — radiance 0.8 on the ground
+  below, lit without clipping — range three times the height,
   at most eight per model) for the runtime's light slots.
 - Physics by library type (recorded in `asset.source.type`): props and pieces a convex hull
   (`collider*` nodes when present; convex decomposition later as `fun3d.decomposition`),
@@ -768,7 +769,7 @@ derived-data warnings in review, and pins; then release 2; then the workshop.
    library-wide gate is `scripts/browser/fun3d-parity.mjs` over `npm run fun3d -- library`.
 6. Emitter roles depend on the model class (vehicles read `mat_light*` as their lights, anything
    else as lamps), because the library's lights are named, never emissive.
-7. The converter is frozen after the gate of 2026-10-18 (stamp `f6eed04d…`; lamps' light nodes added 2026-10-19): 帝都 runs on a
+7. The converter is frozen after the gate of 2026-10-18 (stamp `31216386…`; lamps' light nodes added 2026-10-19): 帝都 runs on a
    derived taxi, the gate passed over the library, and the 19 road vehicles retyped to `vehicle`
    each settle on all wheels, drive, turn at full lock without rolling and brake to a stop in a
    Jolt run (Node, the kit's own physics). A change to the kit's writer or importer makes a new

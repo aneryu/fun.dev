@@ -136,7 +136,7 @@ test("a character converts with its rig roles, capsule and ragdoll; a prop gets 
   const light = lamp.manifest.nodes.find((n) => n.light);
   assert.ok(light, "a light node");
   assert.equal(light.light.type, "spot");
-  assert.ok(light.light.intensity > 150 && light.light.intensity < 260, `about 5 cd per square metre of height: ${light.light.intensity}`);
+  assert.ok(light.light.intensity > 75 && light.light.intensity < 130, `about 2.5 cd per square metre of height: ${light.light.intensity}`);
   assert.deepEqual(light.transform.rotation.map((v) => Math.round(v * 1000) / 1000), [-0.707, 0, 0, 0.707], "turned to shine down");
   const loaded = await fun3d.load(lamp.bytes);
   assert.equal(loaded.lights.length, 1);

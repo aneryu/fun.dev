@@ -277,7 +277,7 @@ export function createImporter({ THREE, loader, fun3d, encoder = null }) {
     const effectiveType = kind === "animations" ? "animations" : type === "vehicle" && !wheels.length ? "prop" : skinned.length && type !== "character" ? "character" : type;
     if (effectiveType !== type) warnings.push(`typed ${type}, converted as ${effectiveType}`);
     // Lamps light their surroundings: a spot shining down from each lamp-role emitter, sized by
-    // its height (about radiance 1.5 on the ground below), for kit/lights.js to lend slots to.
+    // its height (about radiance 0.8 on the ground below), for kit/lights.js to lend slots to.
     if (!skinned.length) addLampLights(root, roles);
     const rig = rigName && (skinned.length || kind === "animations") ? await rigOf(rigName, bones, root) : null;
     if (rig) for (const mesh of skinned) mesh.userData.fun3d = { ...mesh.userData.fun3d, rig, skeleton: "rig" };
@@ -305,7 +305,7 @@ export function createImporter({ THREE, loader, fun3d, encoder = null }) {
       const centre = box.getCenter(new THREE.Vector3()), world = centre.clone().applyMatrix4(mesh.matrixWorld);
       inverse.copy(root.matrixWorld).invert();
       const height = Math.max(0.5, world.clone().applyMatrix4(inverse).y);
-      const light = new THREE.SpotLight(0xfff1c8, Math.round(5 * height * height), round(3 * height, 2), 0.95, 0.42, 2);
+      const light = new THREE.SpotLight(0xfff1c8, Math.round(2.5 * height * height), round(3 * height, 2), 0.95, 0.42, 2);
       light.name = `${mesh.name}_light${count ? `_${count + 1}` : ""}`;
       light.position.set(centre.x, box.min.y - 0.02, centre.z);
       light.rotation.x = -Math.PI / 2; // the spot shines down the node's −Z: −Z turned to −Y
