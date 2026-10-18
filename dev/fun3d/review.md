@@ -243,3 +243,42 @@ Implemented in v5 unless noted.
 | Risk | Irreversibility before the consumer exists | Section 10 order: 帝都 runs on trial derived files, the converter is frozen only after the parity gate passes over the library, pins come last |
 
 Round 2 closed: v5 written. Round 3 is a final consistency check of v5.
+
+## Round 3 — final consistency check (29 findings, 7 unresolved round-2 rows, 4 feasibility checks)
+
+Implemented in v6.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| C1 | Morph cap 64 vs "100 expressions" | Cap 128 per geometry; the 1 M cap counts dense targets × vertices |
+| C2 | Release 1 excluded dynamic bodies while vehicles need them | Release 1: static and dynamic bodies; kinematic bodies and constraints release 2 |
+| C3 | Three rules for enumeration growth | One: new enum values are extensions named in `requires`; minor versions add fields only |
+| C4 | `source.kind` enum | `glb | edit | runtime` |
+| C5 | Id derivation could exceed 64 | Slug cut to 54, hash suffix, `_n` within 64 |
+| C6 | Name collisions between proxies and ids; `.` in ids trips PropertyBinding | Charset without `.`; proxies bound by uuid inside the model subtree; child meshes unnamed |
+| C7 | `switchable`/`active` described the wrong Jolt mechanism | `switchable` on static bodies (Jolt `mAllowDynamicOrKinematic`); `active: false` adds asleep and contacts wake it; destructibles are switchable static fragments |
+| C8 | `break` units vs contact listener | Read from the watched constraints' accumulated impulses per step |
+| C9 | Defaults incomplete | 4.13 completed; "fields not listed are required" |
+| C10–C12 | Examples referenced undefined ids, slot counts, keyframe times | Examples completed (vehicle, door/crate/character, ragdoll); two groups for two materials; 31 frames |
+| C13 | Principle 3 vs stream ids | Streams by id; only chunks by position |
+| C14, C23 | Validator list and caps incomplete | Intensity bounds, bodies on bones, depth-first order, lights, shapes, vehicles, wheels, parts, characters, editing size added |
+| C15 | Extension name lists disagreed | One list in section 10 and appendix A |
+| C16–C17 | Combination table not exhaustive; `visible` undefined | Table marked exhaustive with `hides`, body, tags, sockets, visible; `visible` defined |
+| C18 | Conflict cells self-contradictory | Fixed |
+| C19 | Terms with several meanings | `model.node(id)`; "palette" defined; "runtime file"; `source.kind` enum |
+| C20 | Normative sections | Sections 3–6 |
+| C21 | Role mapping | Name → role table in section 6; `beacon` role |
+| C22 | Value sets unspecified | Format table; sampler enums; filter bit ranges; `rest` enum; linear colour tracks |
+| C24 | Skeleton hash on local skeletons; referencing bones vs resolution | `hash` on every skeleton, recomputed by the validator; referencing bones resolve against the base |
+| C25 | Packs: bones without roles; canonical rig fixes ids | Dropped at retarget; `fundev-humanoid@1` fixes bone ids |
+| C26 | Group LOD selection undefined | Thresholds are minimum coverage per level; below the last, hidden |
+| C27 | Console validation not in release 2; `retype` recorded in a name string; writer vs importer duplicates | Release 2 row; `asset.source.type`; importer suffixes, Three.js writer refuses |
+| C28 | Example `uses` the library would refuse | Example uses [] |
+| C29 | Kinematic bodies vs detached nodes; headlight sentence | Kinematic nodes stay in the hierarchy and drive their bodies; sentence removed |
+| S12, P18, F6, F23, F30, F12, D8 | Unresolved from round 2 | Byte determinism per converter build; allowed editing contents; hashes verified by the build; validator list; conflict cell; enum rule; defaults |
+| Check (a) | `PropertyBinding` binds proxies by name or uuid, two-level paths through objectName | True; design uses uuid and nested proxy properties |
+| Check (b) | `InstancedMesh` morphs via morph texture | True; the file expresses one set of weights per node |
+| Check (c) | Jolt keeps ≤ 256 hull vertices | True; the input cap stays 256 |
+| Check (d) | `mAllowDynamicOrKinematic`, `EActivation_DontActivate` | Exist; semantics corrected (C7) |
+
+Round 3 closed: v6 is the final design for the owner's review.

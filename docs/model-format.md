@@ -1,12 +1,13 @@
-# .fun3d — fun.dev's model format (design v5, 2026-10-18)
+# .fun3d — fun.dev's model format (design v6, 2026-10-18)
 
-Status: **design for review.** Three adversarial review rounds (engine realism, format
-design, pipeline and operations; a resolution check; fresh eyes) and self-reviews produced
-the findings and decisions in `dev/fun3d/review.md`; this document is the result. The v1
-prototype on this branch validated the data path (container, GPU vertex formats, quantization
-and compression, palette batching, Jolt vehicles and ragdolls); its schema is replaced by
-this one. Sections 3–5 are normative for `fun3d` 1.0; appendix A lists what is planned but
-not in 1.0.
+Status: **final design for the owner's review.** Three adversarial review rounds (round 1:
+engine realism, format design, pipeline and operations; round 2: a resolution check and
+fresh eyes; round 3: a final consistency check) and self-reviews produced the findings and
+decisions in `dev/fun3d/review.md`; this document applies all of them. The v1 prototype on
+this branch validated the data path (container, GPU vertex formats, quantization and
+compression, palette batching, Jolt vehicles and ragdolls); its schema is replaced by this
+one. Sections 3–6 are normative for `fun3d` 1.0; appendix A lists what is planned but not in
+1.0.
 
 ## 1. Decisions this design serves
 
@@ -33,9 +34,8 @@ Agreed with the owner on 2026-10-18:
    buffers Three.js binds as they are; animation as keyframe tracks; skins as Three.js binds
    them. Loading is decoding and wiring.
 3. **Stable identity.** Every entity (node, geometry, material, image, texture, skeleton, clip,
-   physics object, variant, reference) has a string `id` that survives edits and regeneration
-   and is referenced by it. Physical layout (chunks, streams) is addressed by position because
-   it has no identity to keep.
+   physics object, variant, reference, stream) has a string `id` that survives edits and
+   regeneration and is referenced by it. Only chunks are addressed by position.
 4. **Explicit semantics.** Whatever the runtime acts on is structured data with a defined
    meaning. Names carry no meaning; producers' conventions live in import profiles.
 5. **Materials compose.** A shading model plus independent features, each with a defined
@@ -65,8 +65,8 @@ chunk*      type          4 ASCII bytes  "JSON" | "BIN " | "EDIT"; other types a
 
 - Little endian; the header is 16 bytes. Exactly one `JSON` chunk, first, never flagged
   editing. `EDIT` chunks always carry the editing flag; `BIN` chunks may. Chunks flagged
-  editing come after every runtime chunk; the runtime copy of a file is the file with editing
-  chunks removed, made without decoding.
+  editing come after every runtime chunk; the runtime file is the file with editing chunks
+  removed, made without decoding.
 - The manifest and the editing document address `BIN` chunks by ordinal among all `BIN`
   chunks in file order (editing `BIN` chunks are last, so stripping changes no runtime
   ordinal).
@@ -75,9 +75,10 @@ chunk*      type          4 ASCII bytes  "JSON" | "BIN " | "EDIT"; other types a
   reviver. `DecompressionStream` `deflate-raw` is native in Chrome 103+, Safari 16.4+,
   Firefox 113+ and Node 20.12+.
 - Writers put encoded images in `BIN` chunks without bit 0 (their encodings already compress);
-  geometry, animation and the manifest deflate.
+  geometry, animation and the manifest deflate. Within one converter build, the same source
+  gives the same bytes.
 - No per-chunk checksum: the library addresses files by their hash (`derived.sha256` covers
-  the stored bytes of the runtime copy; `asset.source.hash` the stored bytes of the source)
+  the stored bytes of the runtime file; `asset.source.hash` the stored bytes of the source)
   and games pin hashes.
 
 ## 4. Manifest
@@ -87,8 +88,8 @@ chunk*      type          4 ASCII bytes  "JSON" | "BIN " | "EDIT"; other types a
   "fun3d": "1.0",                                              // format version, major.minor
   "kind": "model",                                             // model | animations
   "asset": { "name": "city_taxi_01", "generator": "fun.dev workshop 3.1",
-             "source": { "kind": "glb", "hash": "sha256:…", "converter": "sha256:…", "profile": "fundev-library@1", "tool": null } },
-  "uses": ["fun3d.wind"], "requires": [],                      // extension names; requires ⊆ uses
+             "source": { "kind": "glb", "hash": "sha256:…", "converter": "sha256:…", "profile": "fundev-library@1", "type": "vehicle", "tool": null } },
+  "uses": [], "requires": [],                                  // extension names; requires ⊆ uses
   "streams":  [{ "id": "s0", "chunk": 0, "offset": 0, "length": 812, "count": 412, "stride": 8,     // chunk: BIN ordinal
                  "codec": "meshopt", "mode": "attributes" }],  // mode: attributes | triangles; filter: octahedral | quaternion; filterBits
   "nodes": [], "geometries": [], "materials": [], "images": [], "textures": [],
@@ -101,34 +102,47 @@ chunk*      type          4 ASCII bytes  "JSON" | "BIN " | "EDIT"; other types a
 faces +Z. Quaternions are `[x, y, z, w]`, unit length within 1e-3. A transform is
 `position`, `rotation` (quaternion) and `scale`, composed translation × rotation × scale;
 `mat4` is column-major with a positive determinant. Scale components are positive (writers
-bake mirroring). Colours are sRGB hex strings `#rrggbb`; vertex colours and tints are linear.
-Light and emission intensities are at most 1000 and finite. Three.js renders unitless
-radiance, so intensities only mean something against an exposure: the platform renders every
-scene with ACES tone mapping at exposure 1, where a white Lambert surface lit by `I` candela
-at `d` metres has radiance `I / (π d²)` and an emitter of intensity `e` has radiance `e`;
-radiance 1 maps to about 0.8, above about 8 clips. A 50 cd street lamp lights a white
-pavement 3 m below to radiance 1.8; a 3 cd headlight glass reads as an emitter of 3. The
-workshop previews with the same settings. UVs follow glTF: origin at the top-left, images
-never flipped. Every optional field has a default (section 4.13); an absent `transform` is
-identity. Licence and attribution are the catalogue's, not the file's.
+bake mirroring). Colours are sRGB hex strings `#rrggbb`; vertex colours, tints and colour
+tracks are linear. Light and emission intensities are finite and at most 1000. Three.js
+renders unitless radiance, so intensities only mean something against an exposure: the
+platform renders every scene with ACES tone mapping at exposure 1, where a white Lambert
+surface lit by `I` candela at `d` metres has radiance `I / (π d²)` and an emitter of
+intensity `e` has radiance `e`; radiance 1 maps to about 0.8, above about 8 clips. A 50 cd
+street lamp lights a white pavement 3 m below to radiance 1.8. The workshop previews with
+the same settings. UVs follow glTF: origin at the top-left, images never flipped. Fields not
+listed in 4.13 are required. Licence and attribution are the catalogue's, not the file's.
 
-**Ids.** Every entity has an `id`: 1–64 characters of `[A-Za-z0-9_.-]`, unique within its
+**Ids.** Every entity has an `id`: 1–64 characters of `[A-Za-z0-9_-]`, unique within its
 table (tables are separate id spaces; morph targets, wheels, ragdoll parts, socket keys,
 regions and variant axes use the same charset). The loader sets `object.name = id` and keeps
-the display name in `object.userData.name`, so Three.js name lookups and animation bindings
-are unique by construction. Writers derive ids deterministically (section 6 for imports);
-writing from Three.js objects maps `object.name` the same way and refuses duplicates. A
-regeneration that would change an id or a bone order is a new version.
+the display `name` (default: the id) in `object.userData.name`; child meshes of pivots carry
+no name; so Three.js name lookups and animation bindings are unique by construction. Writers
+derive ids deterministically: the importer by section 6; writing from Three.js objects maps
+`object.name` the same way and refuses duplicates. A regeneration that would change an id or
+a bone order is a new version.
 
 **Streams** are typed arrays after decoding: `count` × `stride` bytes; without a codec,
 `length = count × stride`. `offset` is a multiple of 4; vertex strides and attribute offsets
-are multiples of 4 (every format is x2 or x4); index streams use their element size. `codec`
-is `meshopt` with `mode` `attributes` (vertex codec; stride a multiple of 4, at most 64) or
-`triangles` (index codec), and an optional `filter` with `filterBits` applied after decoding
-(`octahedral` into `snorm8x4`/`snorm16x4`, `quaternion` into `snorm16x4`); filters apply to a
+are multiples of 4; index streams use their element size. `codec` is `meshopt` with `mode`
+`attributes` (vertex codec; stride a multiple of 4, at most 64) or `triangles` (index codec),
+and an optional `filter` with `filterBits` applied after decoding (`octahedral` 8–16 bits
+into `snorm8x4`/`snorm16x4`, `quaternion` 4–16 bits into `snorm16x4`); filters apply to a
 whole stream, so filtered attributes have their own stream. The sum of `count × stride` over
 all streams is capped (section 5) and checked before anything decodes. meshopt is the only
-codec of 1.0; another codec is a minor version that names itself in `requires`.
+codec of 1.0; another codec is an extension (`fun3d.codec.<name>`) named in `requires`.
+
+| Format | Used by |
+| --- | --- |
+| `snorm16x4`, `float32x3` | positions, morph deltas |
+| `snorm8x4` | normals, tangents |
+| `unorm16x2`, `float32x2` | UV sets |
+| `unorm8x4` | colours, tints, skin weights |
+| `uint8x4` | skin indices |
+| `uint16`, `uint32` | index streams, sparse morph indices |
+| `float32`, `float32x3`, `snorm16x4` | track values (scalars, vectors and colours, rotations) |
+| `float32` | times |
+| `mat4` | placement transforms, inverse binds |
+| bytes (`stride` 1) | images |
 
 **Kinds.**
 
@@ -139,16 +153,16 @@ codec of 1.0; another codec is a minor version that names itself in `requires`.
 
 ### 4.1 Nodes
 
-Depth-first; the first entry is the root; `parent` names a node id. A node is a transform with
-any of the following; the combinations allowed are in the table after the examples. Bones
-are the nodes a skeleton lists; they need no marker.
+Depth-first; the first entry is the root; `parent` names a node id. A node is a transform
+with any of the following; the table after the examples is exhaustive. Bones are the nodes a
+skeleton lists; they need no marker.
 
 ```jsonc
 { "id": "wheel_fl", "name": "wheel_front_left", "parent": "root",
   "transform": { "position": [0.82, 0.33, 1.31], "rotation": [0, 0, 0, 1], "scale": [1, 1, 1] },   // in the parent's space
-  "mesh": { "geometry": "wheel", "materials": ["rubber", "steel"], "shadow": "both" },   // one material per group; shadow: both | cast | receive | none
+  "mesh": { "geometry": "wheel", "materials": ["rubber", "steel"], "shadow": "both" },   // one material per group slot; shadow: both | cast | receive | none
   "sockets": { "hub": { "position": [0, 0, 0], "rotation": [0, 0, 0, 1] } },             // attachment frames, in node space
-  "tags": ["wheel"] }
+  "visible": true, "tags": ["wheel"] }
 
 { "id": "face", "parent": "root", "mesh": { "geometry": "head", "materials": ["skin"], "morphWeights": [0.2] }, "skin": "rig",
   "regions": ["head"] }                                                                   // what a part may hide (4.9)
@@ -160,22 +174,27 @@ are the nodes a skeleton lists; they need no marker.
 { "id": "bulb", "parent": "lamp_head", "light": { "type": "spot", "color": "#ffd9a0", "intensity": 50, "range": 12,   // point | spot, candela; spot: cone [inner, outer]
                                                  "cone": [0.4, 0.6], "importance": 0.5 } }
 
-{ "id": "tree", "parent": "root", "lod": { "levels": [{ "screenSize": 1, "children": ["near"] }, { "screenSize": 0.05, "children": ["far"] }] } }
+{ "id": "tree", "parent": "root", "lod": { "levels": [{ "screenSize": 0.3, "children": ["near"] }, { "screenSize": 0.02, "children": ["far"] }] } }
 ```
 
 | Node has | May also have | Never with |
 | --- | --- | --- |
-| `mesh` | `skin`, `regions`, `placements` (one static body per copy), `sockets`, `tags`, children (unless placed) | `light`, `lod` |
-| `skin` | `mesh`, `regions` | `placements`, `lod`, body |
+| nothing | `transform`, `name`, `visible`, `tags`, `sockets`, children, a body | — |
+| `mesh` | the above, `skin`, `regions`, `hides`, `placements` | `light`, `lod` |
+| `skin` | `mesh`, `regions`, `hides` | `placements`, `lod`, a body |
 | `placements` | `mesh`, one static body (one per copy; every copy's matrix uniformly scaled) | children, `light`, `lod`, `skin` |
-| `light` | `sockets` | `mesh`, `placements` |
-| `lod` | children | `mesh`, `placements`, `skin` |
+| `light` | `transform`, `name`, `visible`, `tags`, `sockets` | `mesh`, `placements`, a body |
+| `lod` | `transform`, `name`, `visible`, `tags`, children, one body for the group | `mesh`, `placements`, `skin` |
 
+- `visible` false hides the node and its children until a variant or a track shows it.
 - `placements` describes repetition; the runtime may instance, batch or merge.
-- `lod` on a group: levels in descending `screenSize` (fraction of the viewport height the
-  group's bounds cover); each level names the children it shows; a child named at no level is
-  always shown; the first level is the group's normal content and its bounds are the union of
-  that level's children. Levels of a skinned group share the skeleton.
+- `lod` on a group: levels in descending `screenSize`, the smallest fraction of the viewport
+  height the group's bounds must cover for that level; the level whose threshold the coverage
+  reaches first (level 0 when coverage ≥ 0.3 in the example, level 1 between 0.02 and 0.3)
+  shows its children, every child named at another level is hidden, children named at no level
+  always show, and below the last threshold the levels' children are all hidden. The group's
+  bounds are the union of its first level's children. Levels of a skinned group share the
+  skeleton.
 - `light` is intent with a physical unit; spots shine down the node's −Z (`cone` maps to
   Three.js `angle` = outer and `penumbra` = 1 − inner/outer; inner ≤ outer); `range` 0 means
   unlimited. The runtime owns a fixed set of real light slots per device tier, each with a
@@ -185,12 +204,15 @@ are the nodes a skeleton lists; they need no marker.
   in models.
 - Sockets are attachment frames games use (`model.socket(id)`); `tags` are free strings for
   games; the runtime never reads them.
-- A node with a physics body is detached to the world at load, children following it; a
-  kinematic body follows the node's animation tracks, a dynamic body ignores them.
-- Loaded object model: every node is an `Object3D` named by its id; a rigid quantized mesh is
-  a child `Mesh` carrying the dequantizing transform, so the node stays the pivot that
-  sockets, tracks and physics target; skinned and morphed meshes load with float positions
-  and are the node's mesh themselves. Games use `kit/models.js` handles, not the tree.
+- A node with a dynamic body is detached to the world at load, children following it, and
+  the body drives it. A kinematic body's node stays in the hierarchy: each step the runtime
+  feeds the node's world transform (parent × animated local) to the body. A static body is
+  placed once.
+- Loaded object model: every node is an `Object3D` named by its id (`model.node(id)`); a
+  rigid quantized mesh is an unnamed child `Mesh` carrying the dequantizing transform, so the
+  node stays the pivot that sockets, tracks and physics target; skinned and morphed meshes
+  load with float positions and are the node's mesh themselves. Games use `kit/models.js`
+  handles, not the tree.
 
 ### 4.2 Geometries
 
@@ -203,9 +225,10 @@ are the nodes a skeleton lists; they need no marker.
     { "stream": "s2", "attributes": { "uv": { "format": "unorm16x2", "offset": 0 } } } ],             // Uint16 buffer, stride 4
   "decode": { "position": { "offset": [0, 0.33, 0], "scale": 0.3401 }, "uv": { "offset": [0, 0], "scale": [1, 1] } },   // value = offset + stored × scale
   "index": { "stream": "s3", "format": "uint16" },                            // required
-  "groups": [{ "start": 0, "count": 1200, "material": 0, "flat": false }],    // start and count in indices; material = slot in the node's materials; flat: normals from derivatives
-  "lods": [{ "error": 0.01, "index": { "stream": "s4", "format": "uint16" }, "groups": [{ "start": 0, "count": 600, "material": 0 }] }],   // ascending error, relative to the bounds radius; levels reuse the vertices in the file (a batch copies them per level)
-  "morph": { "relative": true, "decode": { "scale": 0.02 },                    // deltas: value = stored × scale
+  "groups": [{ "start": 0, "count": 1200, "material": 0, "flat": false },     // start and count in indices; material = slot in the node's materials, slots 0…n−1 all used
+             { "start": 1200, "count": 600, "material": 1, "flat": true }],   // flat: normals from derivatives
+  "lods": [{ "error": 0.01, "index": { "stream": "s4", "format": "uint16" }, "groups": [{ "start": 0, "count": 600, "material": 0 }, { "start": 600, "count": 300, "material": 1, "flat": true }] }],   // ascending error, relative to the bounds radius; levels reuse the vertices in the file (a batch copies them per level)
+  "morph": { "decode": { "scale": 0.02 },                                      // deltas: value = stored × scale, added to the position
     "targets": [{ "id": "jawOpen", "sparse": { "indices": { "stream": "s5", "format": "uint16" } },
                   "position": { "stream": "s6", "format": "snorm16x4" }, "normal": { "stream": "s7", "format": "snorm8x4" } }] },
   "bounds": { "min": [-0.34, 0, -0.34], "max": [0.34, 0.68, 0.34] } }           // in geometry space, after decode; skinned meshes: bind pose
@@ -225,12 +248,13 @@ Buffers are grouped by element type because Three.js binds one typed array per i
 buffer; the runtime adds its own buffers and attributes (instance matrices take one buffer and
 four locations, tint one more), hence the caps of 6 and 11 against WebGPU's 8 and 16.
 Vertices at material-slot boundaries and at flat/smooth boundaries are duplicated. Morph
-targets are sparse (vertex indices plus values) with their own scale and expand to dense
-textures on the GPU (32 bytes per vertex per target), which the caps bound; a face that
-carries the expressions is its own geometry. Batchable geometries follow the profile's batch
-signature (the same attribute set and formats, padded by the importer), because a batch
-holds one layout; batches derive a per-vertex material slot (`unorm8x4`) from `groups` at
-load.
+targets are deltas, stored sparse (vertex indices plus values) with their own scale, and
+expand to dense textures on the GPU (32 bytes per vertex per target), which the caps bound; a
+face that carries the expressions is its own geometry. Batchable geometries follow the
+profile's batch signature (the same attribute set and formats, padded by the importer),
+because a batch holds one layout; batches derive a per-vertex material slot (`unorm8x4`)
+from `groups` at load and keep every material of the batch in a palette: a texture of material
+parameters indexed by that slot.
 
 ### 4.3 Materials
 
@@ -247,6 +271,7 @@ A material is a shading model, parameters, maps and features.
     "tint": {},                                                             // core: base colour and colour map multiply by the copy's tint
     "transmission": { "amount": 1, "ior": 1.5, "thickness": 0.01, "attenuation": "#ffffff", "attenuationDistance": 0 },   // core; 0 = infinite
     "fun3d.wind": { "strength": 0.2, "frequency": 1.1 } } }                  // extension features by full name
+
 ```
 
 | Model | Parameters and maps |
@@ -263,9 +288,10 @@ A material is a shading model, parameters, maps and features.
 
 - `emitter` is the only emission: colour × intensity (× `map`), scaled by a factor per role
   that `kit/models.js` sets (`roles.set("window", 0)` at day). Roles: `headlight`,
-  `taillight`, `brake`, `indicator`, `signal`, `window`, `lamp`, `screen`, or any string.
-- `tint`: the copy's tint (placements) or `handle.tint` multiplies the base colour and the
-  colour map; one tint per model.
+  `taillight`, `brake`, `indicator`, `signal`, `window`, `lamp`, `screen`, `beacon`, or any
+  string.
+- `tint`: one tint feature per material; its value is the copy's tint (placements) or
+  `handle.tint`, and multiplies the base colour and the colour map.
 - Every other feature is an extension (`fun3d.wind`, `fun3d.clearcoat`, `fun3d.decals`,
   `fun3d.hair`, `fun3d.skin`, later `fun3d.nodes` for TSL graphs). Each extension states the
   models it combines with and what the material looks like without it (its fallback). Dropped
@@ -279,9 +305,10 @@ A material is a shading model, parameters, maps and features.
 ### 4.4 Images and textures
 
 ```jsonc
-"images":   [{ "id": "paint_png", "stream": "s12", "mime": "image/webp" }],           // image/webp | image/png | image/jpeg | image/ktx2
+"images":   [{ "id": "paint_png", "stream": "s12", "mime": "image/webp" }],           // image/webp | image/png | image/jpeg | image/ktx2; the stream is bytes
 "textures": [{ "id": "paint", "image": "paint_png", "colorSpace": "srgb",            // srgb | linear
-               "sampler": { "wrap": ["repeat", "repeat"], "minFilter": "linear-mipmap-linear", "magFilter": "linear", "anisotropy": 4 } }]
+               "sampler": { "wrap": ["repeat", "repeat"],                             // repeat | clamp | mirror, per axis
+                            "minFilter": "linear-mipmap-linear", "magFilter": "linear", "anisotropy": 4 } }]   // nearest | linear | *-mipmap-* ; nearest | linear
 ```
 
 Images keep their source encoding; KTX2 (Basis Universal) is the GPU-compressed option; the
@@ -293,7 +320,8 @@ the encoded bytes on each texture only when asked (the workshop does, games do n
 
 ```jsonc
 { "id": "rig", "bones": ["hips", "spine", …], "inverseBinds": { "stream": "s20", "format": "mat4" },   // bone order = joint index
-  "rig": { "name": "fundev-humanoid", "version": 1, "rest": "T", "height": 1.78,
+  "hash": "sha256:…",                                                                   // over bone ids, rest transforms and inverse binds; written by the writer
+  "rig": { "name": "fundev-humanoid", "version": 1, "rest": "T", "height": 1.78,          // rest: T | A
            "roles": { "hips": "hips", "spine": "spine", "chest": "spine1", "upperChest": "spine2", "neck": "neck", "head": "head",
                       "leftShoulder": "…", "leftUpperArm": "…", "leftLowerArm": "…", "leftHand": "…",
                       "leftUpperLeg": "…", "leftLowerLeg": "…", "leftFoot": "…", "leftToes": "…", "right…": "…" } } }
@@ -302,13 +330,14 @@ the encoded bytes on each texture only when asked (the workshop does, games do n
 - `roles` maps standard roles (the VRM humanoid set; `hips`, `spine`, `head` and the four
   limb chains are required for a humanoid; creatures use their own role names) to bone ids.
   Skinned meshes bind with the identity matrix in attached mode, as GLTFLoader does. A
-  skeleton's identity is the hash of its bone ids, rest transforms and inverse binds
-  (`skeletons[].hash`, written by the writer, what references pin).
-- `fundev-humanoid@1` is the platform's canonical rig: the bone set, rest pose and axes every
-  public animation pack is authored on. Retargeting is rest-pose compensated: for each role,
+  skeleton's `hash` is its identity for references (4.9); the validator recomputes it.
+- `fundev-humanoid@1` is the platform's canonical rig: the bone set, bone ids, rest pose and
+  axes every public animation pack is authored on, so two models on it share bone ids.
+  Retargeting between rigs is rest-pose compensated: for each role,
   `R_target_world = R_target_rest_world × R_source_rest_world⁻¹ × R_source_world`, then to the
-  target bone's local space; root translation scales by `height`. `kit/animation.js` owns
-  this (Three.js's `SkeletonUtils.retarget` copies world rotations and is not it).
+  target bone's local space; root translation scales by `height`; bones without a role keep
+  their rest pose. `kit/animation.js` owns this (Three.js's `SkeletonUtils.retarget` copies
+  world rotations and is not it).
 
 ### 4.6 Animations
 
@@ -316,10 +345,10 @@ the encoded bytes on each texture only when asked (the workshop does, games do n
 { "id": "walk", "name": "walk", "duration": 1.03, "loop": "repeat",                  // repeat | once
   "blend": "normal",                                                                // normal | additive (relative to the clip's first frame)
   "mask": ["spine"],                                                                // bones and their descendants the clip may drive
-  "root": { "node": "hips", "motion": "inplace" },                                  // inplace | extract: horizontal translation and yaw go to the model's handle
+  "root": { "node": "hips", "motion": "extract" },                                  // extract: horizontal translation and yaw go to the model's handle
   "tracks": [
     { "node": "spine", "channel": "rotation", "interpolation": "linear",             // position | rotation | scale | visible | morph:<target id> | light.intensity | light.color
-      "times": { "start": 0, "fps": 30, "count": 32 }, "values": { "stream": "s30", "format": "snorm16x4" } },   // times: uniform, or { "stream" }
+      "times": { "start": 0, "fps": 30, "count": 31 }, "values": { "stream": "s30", "format": "snorm16x4" } },   // times: uniform, or { "stream" } of float32; every time ≤ duration
     { "material": "mat_lamp", "channel": "emitter.intensity", "times": { "stream": "s31" }, "values": { "stream": "s32", "format": "float32" } } ],
   "events": [{ "time": 0.42, "name": "footstep", "data": { "foot": "left" } }] }   // time ≤ duration; data at most 1 KB
 ```
@@ -329,58 +358,76 @@ the encoded bytes on each texture only when asked (the workshop does, games do n
   `alpha.opacity`, the model's parameters, `emitter.intensity`, `emitter.color`,
   `<feature>.<parameter>`. Interpolation: `linear`, `step`.
 - One mixer drives everything: the loader makes Three.js keyframe tracks for node channels,
-  bound by node id, and for material and light channels bound to proxy objects the runtime
-  creates per loaded model (one per animated material, one per light), so crossfades,
+  bound by node id, and for material and light channels bound to proxy `Object3D`s the
+  runtime creates per loaded model inside the model's subtree (one per animated material, one
+  per light), bound by uuid, with the channel's parameters as nested properties
+  (`proxy.emitter.intensity`; extension parameters flattened by the loader), so crossfades,
   weights, time scale, masks and additive blending apply the same way; after each mixer
   update the runtime copies proxy values into the model's materials (its own clones or palette
   slots) and light slots. Values dequantize and uniform times expand at load.
 - Animation packs (`kind: animations`) carry a skeleton with its rig and clips with node
   channels only; pack tracks bind by role: `tracks[].node` names bones of the pack's
-  skeleton, the loader maps bone → role (the pack's rig) → bone (the model's rig). A model on
-  the same rig name and version skips rest-pose compensation; other rigs retarget by role.
-  `mask` and `root.node` name roles.
+  skeleton, the loader maps bone → role (the pack's rig) → bone (the model's rig), dropping
+  tracks on bones without a role. A model on the same rig name and version skips rest-pose
+  compensation; other rigs retarget by role. `mask` and `root.node` name roles.
 
 ### 4.7 Physics
 
 Engine-neutral shapes, bodies and constraints; vehicles, ragdolls and characters map to Jolt's
 controllers. Every reference is an id; every vector is in the space of the body's node. The
 file's node transforms are the assembled pose: constraint frames and relative placements
-derive from them at load.
+derive from them at load. A vehicle:
 
 ```jsonc
 "physics": {
-  "shapes": [
-    { "id": "box", "type": "box", "halfExtents": [0.4, 0.4, 0.4] },
-    { "id": "ball", "type": "sphere", "radius": 0.3 },
-    { "id": "pill", "type": "capsule", "halfHeight": 0.6, "radius": 0.25 },             // axis Y, centred
-    { "id": "drum", "type": "cylinder", "halfHeight": 0.5, "radius": 0.2 },
-    { "id": "hull", "type": "convex", "points": { "stream": "s40", "format": "float32x3" } },   // 4–256 points, not coplanar (Jolt's hull limit)
-    { "id": "walls", "type": "mesh", "geometry": "static" },                             // static bodies only
-    { "id": "all", "type": "compound", "children": [{ "shape": "box", "position": [0, 0.4, 0], "rotation": [0, 0, 0, 1] }] } ],   // children are not compounds
+  "shapes": [{ "id": "hull", "type": "convex", "points": { "stream": "s40", "format": "float32x3" } }],   // 4–256 points, not coplanar (Jolt keeps at most 256 hull vertices)
   "bodies": [{ "id": "chassis", "node": "root", "shape": "hull", "motion": "dynamic",   // static | kinematic | dynamic
                "layer": "moving", "mass": 1200, "centerOfMass": [0, -0.2, 0], "friction": 0.5, "restitution": 0.1,
                "damping": { "linear": 0.05, "angular": 0.05 }, "gravity": 1, "ccd": false, "sensor": false, "sleep": true,
-               "active": true, "switchable": false }],                                   // active: starts simulating; switchable: may change between kinematic and dynamic
-  "constraints": [{ "id": "door", "type": "hinge", "bodies": ["frame", "door"],         // a null first body anchors to the world
-                    "frame": { "position": [0, 1, 0], "axis": [0, 1, 0], "normal": [1, 0, 0] },  // in the first body's node space (the world for a null body); the second body's frame follows from the assembled pose
-                    "limits": [0, 1.6], "limitSpring": { "frequency": 2, "damping": 0.5 },
-                    "motor": { "mode": "position", "target": 0, "maxForce": 50, "spring": { "frequency": 2, "damping": 0.5 } },
-                    "break": { "force": 5000, "torque": 1000 } }],                     // newtons, newton-metres
+               "active": true, "switchable": false }],
   "vehicles": [{ "id": "car", "type": "wheeled", "body": "chassis",
                  "wheels": [{ "id": "fl", "node": "wheel_fl", "radius": 0.33, "width": 0.22,          // the node's position is the wheel centre at suspension.rest
                               "suspension": { "min": 0.05, "max": 0.25, "rest": 0.15, "frequency": 1.6, "damping": 0.5 },
-                              "steer": 0.6, "brake": 1500, "handbrake": 0 }],
+                              "steer": 0.6, "brake": 1500, "handbrake": 0 },
+                            { "id": "fr", "node": "wheel_fr", "radius": 0.33, "width": 0.22, "suspension": { "min": 0.05, "max": 0.25, "rest": 0.15, "frequency": 1.6, "damping": 0.5 }, "steer": 0.6, "brake": 1500 },
+                            { "id": "rl", "node": "wheel_rl", "radius": 0.33, "width": 0.22, "handbrake": 4000 },
+                            { "id": "rr", "node": "wheel_rr", "radius": 0.33, "width": 0.22, "handbrake": 4000 }],
                  "engine": { "maxTorque": 300, "minRPM": 1000, "maxRPM": 6000 },
                  "transmission": { "gears": [2.66, 1.78, 1.3, 1.0, 0.74], "reverse": [-2.9] },   // automatic
                  "differentials": [{ "wheels": ["fl", "fr"], "ratio": 3.42, "split": 0.5, "engineShare": 1, "limitedSlip": 1.4 }],   // Jolt mDifferentialRatio, mLeftRightSplit, mEngineTorqueRatio, mLimitedSlipRatio
-                 "antiRoll": [{ "wheels": ["fl", "fr"], "stiffness": 1000 }] }],
-  "ragdolls": [{ "id": "doll", "skeleton": "rig",
-                 "parts": [{ "id": "pelvis", "bone": "role:hips", "to": "role:spine", "radius": 0.13, "mass": 11 },
-                           { "id": "chest", "bone": "role:chest", "parent": "pelvis", "to": "role:neck", "radius": 0.15, "mass": 14, "limits": { "normalCone": 0.35, "planeCone": 0.35, "twist": [-0.25, 0.25] } },
-                           { "id": "head", "bone": "role:head", "parent": "chest", "length": 0.22, "radius": 0.1, "mass": 5, "limits": { "normalCone": 0.6, "planeCone": 0.6, "twist": [-0.6, 0.6] } },
-                           { "id": "thigh_l", "bone": "role:leftUpperLeg", "parent": "pelvis", "to": "role:leftLowerLeg", "radius": 0.075, "mass": 7, "limits": { "normalCone": 1.0, "planeCone": 1.0, "twist": [-0.4, 0.4] } }] }],
+                 "antiRoll": [{ "wheels": ["fl", "fr"], "stiffness": 1000 }] }]
+}
+```
+
+A door, a crate and a character:
+
+```jsonc
+"physics": {
+  "shapes": [{ "id": "box", "type": "box", "halfExtents": [0.4, 0.4, 0.4] },
+             { "id": "slab", "type": "box", "halfExtents": [0.45, 1.0, 0.03] },
+             { "id": "pill", "type": "capsule", "halfHeight": 0.6, "radius": 0.25 },             // axis Y, centred; also sphere { radius }, cylinder { halfHeight, radius }
+             { "id": "walls", "type": "mesh", "geometry": "static" },                             // static bodies only
+             { "id": "all", "type": "compound", "children": [{ "shape": "box", "position": [0, 0.4, 0], "rotation": [0, 0, 0, 1] }] } ],   // children are not compounds
+  "bodies": [{ "id": "crate", "node": "crate", "shape": "box", "motion": "dynamic", "mass": 25 },
+             { "id": "door", "node": "door", "shape": "slab", "motion": "dynamic", "mass": 30 },
+             { "id": "debris", "node": "shard_1", "shape": "box", "motion": "static", "switchable": true }],   // stands until the game switches it to dynamic
+  "constraints": [{ "id": "door_hinge", "type": "hinge", "bodies": [null, "door"],      // a null first body anchors to the world
+                    "frame": { "position": [-0.45, 1.0, 0], "axis": [0, 1, 0], "normal": [1, 0, 0] },  // in the first body's node space (the world for null); the second body's frame follows from the assembled pose
+                    "limits": [0, 1.6], "limitSpring": { "frequency": 2, "damping": 0.5 },
+                    "motor": { "mode": "position", "target": 0, "maxForce": 50, "spring": { "frequency": 2, "damping": 0.5 } },
+                    "break": { "force": 5000, "torque": 1000 } }],                     // newtons, newton-metres, from the constraint's own load
   "characters": [{ "id": "walker", "node": "root", "shape": "pill", "offset": [0, 0.9, 0], "mass": 70, "maxSlope": 0.8, "stepHeight": 0.3 }]   // offset: shape centre from the node (feet)
 }
+```
+
+A ragdoll:
+
+```jsonc
+"ragdolls": [{ "id": "doll", "skeleton": "rig",
+               "parts": [{ "id": "pelvis", "bone": "role:hips", "to": "role:spine", "radius": 0.13, "mass": 11 },             // bone: id or role:<role>; to: bone or role
+                         { "id": "chest", "bone": "role:chest", "parent": "pelvis", "to": "role:neck", "radius": 0.15, "mass": 14, "limits": { "normalCone": 0.35, "planeCone": 0.35, "twist": [-0.25, 0.25] } },
+                         { "id": "head", "bone": "role:head", "parent": "chest", "length": 0.22, "radius": 0.1, "mass": 5, "limits": { "normalCone": 0.6, "planeCone": 0.6, "twist": [-0.6, 0.6] } },
+                         { "id": "thigh_l", "bone": "role:leftUpperLeg", "parent": "pelvis", "to": "role:leftLowerLeg", "radius": 0.075, "mass": 7, "limits": { "normalCone": 1.0, "planeCone": 1.0, "twist": [-0.4, 0.4] } }] }]   // parent: part id
 ```
 
 | Constraint | `limits` | `motor` |
@@ -394,15 +441,16 @@ Rules: nodes with bodies have uniform world scale (per copy for placed nodes); b
 nodes outside skeletons unless they are ragdoll parts; mesh shapes belong to static bodies
 and stay under 100 k triangles (Jolt's JS bindings take them one element at a time); a
 ragdoll's bones belong to its skeleton; `centerOfMass` offsets are subtracted when Jolt
-frames are built; `break` is watched by the runtime from contact impulses (a contact listener,
-not polling) and the constraint is removed; bodies with `active: false` start asleep and
-static-like until the game activates them (`EActivation_DontActivate`), which with
-`switchable` is how destructibles stand until hit. Collision layers are the platform's four
-(static, moving, debris, sensor; static–moving, moving–moving, debris–static, sensor–moving
-collide); a body picks one with `layer`. Motorcycles, tracked vehicles, height fields and
-soft bodies are extensions (`fun3d.motorcycle`, `fun3d.tracked`, `fun3d.heightfield`,
-`fun3d.softbody`). A shape the runtime cannot build marks the model's physics failed: the
-loader reports it and the model loads without that body; the library records the failure.
+frames are built; `break` is read every step from the watched constraints' accumulated
+impulses divided by the step (Jolt reports them; the runtime removes the constraint; at most
+64 watched per scene). `active: false` adds a body asleep; any contact with an active body
+wakes it (Jolt's rule). `switchable: true` on a `static` body lets the game switch it to
+kinematic or dynamic later (Jolt's `mAllowDynamicOrKinematic`), which is how destructible
+fragments stand until hit. Collision layers are the platform's four (static, moving, debris,
+sensor; static–moving, moving–moving, debris–static, sensor–moving collide); a body picks
+one with `layer`. Motorcycles, tracked vehicles, height fields and soft bodies are extensions
+(appendix A). A shape the runtime cannot build marks the model's physics failed: the loader
+reports it and the model loads without that body; the library records the failure.
 
 ### 4.8 Variants
 
@@ -417,23 +465,25 @@ One variant active per axis; overrides may set `materials`, `geometry`, `visible
 ### 4.9 References
 
 ```jsonc
-"refs": [{ "id": "base", "model": "commuter_body_01@v003" }]
+"refs": [{ "id": "base", "model": "commuter_body_01@v003" }, { "id": "shared", "model": "didu_tiles_shared@v001" }]
 "skeletons": [{ "id": "rig", "ref": "base", "entry": "rig", "hash": "sha256:…",          // the base skeleton's hash (4.5)
                 "bones": ["hips", …], "inverseBinds": { "stream": "s20", "format": "mat4" } }]
-"images":    [{ "id": "atlas", "ref": "tiles_shared", "entry": "atlas" }]
-"nodes":     [{ "id": "shirt", "mesh": {}, "skin": "rig", "hides": ["torso", "upper_arms"] }]   // regions of the base this part covers
+"images":    [{ "id": "atlas", "ref": "shared", "entry": "atlas" }]
+"nodes":     [{ "id": "shirt", "parent": "root", "mesh": { "geometry": "shirt", "materials": ["cloth"] }, "skin": "rig", "hides": ["torso", "upper_arms"] }]   // regions of the base this part covers
 ```
 
 - A skeleton, image or texture may come from another file. A referencing skeleton lists the
   bone ids the part uses, in its own joint order (what its `skinIndex` values index) with its
-  own inverse binds; the loader maps them to the base's bones by id, and the base's skeleton
-  `hash` must match, so a base re-version that keeps its skeleton keeps its parts.
+  own inverse binds; those ids resolve against the base, not this file; the loader maps them
+  to the base's bones by id, and the base's skeleton `hash` must match, so a base re-version
+  that keeps its skeleton keeps its parts.
 - A part may `hides` regions the base declares on its nodes (`regions`), and morph targets
   with the same id on the base and the part are driven together, so body sliders deform
   clothes.
-- Only pinned library versions may be referenced; one hop of depth; the game build resolves
-  the closure and records it in `models.lock` (section 8); the loader never fetches. In the
-  workshop, the library is the resolver.
+- Only pinned library versions may be referenced; one hop of depth (a referenced file has no
+  refs). The game build resolves the closure, verifies every `hash` and records it in
+  `models.lock` (section 8); the loader trusts the lock and never fetches. In the workshop,
+  the library is the resolver and the validator verifies hashes.
 
 ### 4.10 Extensions
 
@@ -444,74 +494,85 @@ extension data are features (4.3). Names are `fun3d.<name>` for the platform and
 An unknown optional extension drops to the fallback its specification defines; an unknown
 required one refuses the file with its name. The library accepts only `fun3d.*` names its
 runtime registers; `x.*` extensions live in games' own assets. New values of the schema's
-closed enumerations (shape types, channels, modes) are extensions or a major version, never
-silently ignorable additions. Node graphs (`fun3d.nodes`, later) are data interpreted by a
-whitelisted node registry.
+closed enumerations (shape and constraint types, channels, modes, codecs, image formats)
+arrive only as extensions named in `requires`; minor versions add fields. Node graphs
+(`fun3d.nodes`, later) are data interpreted by a whitelisted node registry.
 
 ### 4.11 Editing section
 
 An `EDIT` chunk is `{ "tool": "fun.dev/workshop", "version": 3, "document": {} }`; editing-flagged
 `BIN` chunks hold its binary data, addressed by ordinal like every `BIN` chunk. A file has at
-most one editing section; `asset.source.kind` is `glb` or `edit`, exactly one, and
-`asset.source.tool` names the section's tool when it is `edit`. A tool that saves a file it
-does not understand the section of drops the section (the file becomes `kind: glb`-like:
-runtime data only, `source.kind: "runtime"`). The library never edits runtime data. The
-validator caps the section's size, strips absolute paths and parses it with a null-prototype
-reviver; the workshop treats sections from other tools as untrusted input.
+most one editing section. `asset.source.kind` is `glb` (regenerated through the importer),
+`edit` (regenerated through the section's tool, named in `asset.source.tool`) or `runtime`
+(a file with runtime data only, its own source, never regenerated). A tool that saves a file
+whose section it does not understand drops the section and writes `kind: runtime`. The
+library never edits runtime data. The validator caps the section's size, strips absolute
+paths and parses it with a null-prototype reviver; allowed contents are the tool's document
+and binary data, never scripts, local file references or credentials; the workshop treats
+sections from other tools as untrusted input.
 
 ### 4.12 Versioning
 
 `fun3d` is `major.minor`. A minor change adds fields old readers can ignore without loading
-anything wrong (writers must show this; new enumeration values are not minor, see 4.10); a
-major change refuses old readers. The schema is strict for the writer's own minor; a loader
+anything wrong (writers must show this; new enumeration values are extensions, 4.10); a major
+change refuses old readers. The schema is strict for the writer's own minor; a loader
 tolerates unknown fields of a newer minor. Extensions version by name.
 `asset.source.converter` and `profile` name what produced the runtime section; a derived
 file never changes in place (section 8).
 
 ### 4.13 Defaults
 
+Fields not listed here are required.
+
 | Field | Default |
 | --- | --- |
-| node `transform` | identity; `visible` true; `tags` []; `sockets` {}; `regions` [] |
+| node `transform` | identity; `name` the id; `visible` true; `tags` []; `sockets` {}; `regions` []; `hides` [] |
 | `mesh.shadow` | `both`; `morphWeights` zeros |
-| `light.range` | 0 (unlimited); `importance` 0.5; `cone` [0.5, 0.6] |
-| material `model` | `pbr`; `color` `#ffffff`; `alpha.mode` `opaque`, `cutoff` 0.5, `opacity` 1; `side` `front`; `pbr.roughness` 1, `metalness` 0; map `uv` 0, `transform` identity; `emitter.intensity` 1; `transmission.amount` 1, `ior` 1.5, `thickness` 0, `attenuation` `#ffffff`, `attenuationDistance` 0 |
+| `placements.tint` | none (white) |
+| `light.color` | `#ffffff`; `range` 0 (unlimited); `importance` 0.5; `cone` [0.5, 0.6] |
+| geometry `groups[].flat` | false; `lods` []; `morph` none; `decode` none (float formats) |
+| material `model` | `pbr`; `color` `#ffffff`; `alpha.mode` `opaque`, `cutoff` 0.5, `opacity` 1; `side` `front`; `pbr.roughness` 1, `metalness` 0; map `uv` 0, `transform` identity; `normal.scale` 1; `emitter.color` `#ffffff`, `intensity` 1, `map` none; `transmission.amount` 1, `ior` 1.5, `thickness` 0, `attenuation` `#ffffff`, `attenuationDistance` 0 |
 | texture `colorSpace` | `linear`; `wrap` repeat; `minFilter` `linear-mipmap-linear`; `magFilter` `linear`; `anisotropy` 1 |
-| `rig.rest` | `T`; `rig.version` 1 |
-| clip `loop` | `repeat`; `blend` `normal`; `mask` all bones; `root.motion` `inplace`; `interpolation` `linear` |
+| `rig.rest` | `T`; `rig.version` 1; `rig.height` 1.7 |
+| clip `loop` | `repeat`; `blend` `normal`; `mask` all bones; `root` none; `interpolation` `linear`; `events` []; `events[].data` {} |
 | body `motion` | `static`; `layer` by motion (static → static, else moving); `mass` from shape volume × 1000 kg/m³; `friction` 0.5; `restitution` 0; `damping` 0.05 / 0.05; `gravity` 1; `ccd` false; `sensor` false; `sleep` true; `active` true; `switchable` false; `centerOfMass` from the shape |
 | wheel | `steer` 0; `brake` 1500; `handbrake` 0; `suspension` min 0.05, max 0.25, rest max, frequency 1.5, damping 0.5 |
-| engine | `maxTorque` 300, `minRPM` 1000, `maxRPM` 6000; gears as the example, reverse [-2.9]; differential `split` 0.5, `engineShare` 1, `limitedSlip` 1.4 |
-| constraint `limitSpring` / `motor` / `break` | none |
-| ragdoll part `limits` | required when `parent` is present; `characters[].offset` [0, 0, 0] |
+| engine | `maxTorque` 300, `minRPM` 1000, `maxRPM` 6000; gears as the example, reverse [-2.9]; `differentials` []; `antiRoll` []; differential `split` 0.5, `engineShare` 1, `limitedSlip` 1.4 |
+| constraint `limits` | free; `limitSpring`, `motor`, `break` none |
+| ragdoll part `limits` | required when `parent` is present; `characters[].offset` [0, 0, 0], `maxSlope` 0.8, `stepHeight` 0.3 |
+| `uses`, `requires`, `variants`, `refs`, `extensions` | empty |
 
 ## 5. Validation and limits
 
 The validator runs in the maintenance script (before anything is served), in the console when
 a `.fun3d` is uploaded directly (release 2), and in the loader (counts, ranges, non-finite
 values; cheap). It checks the JSON Schema (written first; this table derives from it), that
-every reference resolves (including `refs` targets, which may not have refs of their own),
-that streams lie inside chunks with aligned offsets and attributes inside strides, that the
-decoded size of all streams fits the cap before anything decodes, that parents form a tree,
-that quaternions are unit and placement matrices have positive determinants, that every
-decoded float stream is finite and every index in range, that `cone[0] ≤ cone[1]`,
-`morphWeights` lengths, material counts against group slots, UV sets against the geometries a
-material is used with, `events[].time ≤ duration`, that hulls have four non-coplanar points,
-and the caps below (the library profile's). `npm test` validates every converted library file.
+nodes are in depth-first order and parents form a tree, that every reference resolves
+(including `refs` targets, which may not have refs of their own; referencing skeletons'
+bones resolve against their base), that streams lie inside chunks with aligned offsets and
+attributes inside strides, that the decoded size of all streams fits the cap before anything
+decodes, that quaternions are unit and placement matrices have positive determinants, that
+every decoded float stream is finite and every index in range, that intensities are within
+bounds, that `cone[0] ≤ cone[1]`, `morphWeights` lengths, material counts equal group slots,
+UV sets against the geometries a material is used with, keyframe and event times within
+`duration`, bodies outside skeletons, that hulls have four non-coplanar points, that
+skeleton hashes recompute, and the caps below (the library profile's). `npm test` validates
+every converted library file.
 
 | | Cap |
 | --- | --- |
-| file | 64 MB stored, 256 MB raw; JSON chunk 16 MB; chunks 64; streams 4096; decoded streams 256 MB in all |
-| nodes / geometries / materials / images / textures / skeletons | 4096 / 1024 / 256 / 64 / 256 / 16 |
+| file | 64 MB stored, 256 MB raw; JSON chunk 16 MB; editing section 16 MB; chunks 64; streams 4096; decoded streams 256 MB in all |
+| nodes / geometries / materials / images / textures / skeletons / lights | 4096 / 1024 / 256 / 64 / 256 / 16 / 64 |
 | vertices / triangles per geometry, total | 4 M / 8 M, 16 M / 32 M including LOD levels |
 | vertex buffers / attributes per geometry, vertex stride | 6 / 11 (WebGPU allows 8 / 16; instancing and tint take the rest), 64 |
 | texels per image / per file | 16 M (4096²) / 64 M |
 | bones per skeleton, influences | 128 (policy: within a WebGL 2 uniform block; Three.js would fall back to a bone texture above it), 4 |
-| morph targets per geometry, targets × vertices per file | 64, 1 M (32 MB of GPU memory; 100 expressions on a 10 k-vertex face) |
+| morph targets per geometry; targets × vertices per file (dense) | 128; 1 M (32 MB of GPU memory: 100 expressions on a 10 k-vertex face) |
 | clips, tracks per clip, keyframes per file, events per clip | 256, 1024, 4 M, 256 |
 | placements per node, per file | 65 536, 262 144 |
 | sockets per node, regions per node, variants, refs, `extensions` bytes | 32, 16, 64, 8, 64 KB |
-| convex points, mesh-shape triangles, bodies, constraints, watched `break` per scene | 256, 100 k, 256, 256, 64 |
+| shapes, bodies, constraints, vehicles, wheels per vehicle, ragdoll parts, characters | 256, 256, 256, 8, 32, 32, 8 |
+| convex points, mesh-shape triangles, watched `break` per scene | 256, 100 k, 64 |
 
 ## 6. Profiles
 
@@ -526,18 +587,20 @@ before anything but hulls is promised:
   merge into their pivot; other mesh nodes merge their primitives; flat faces weld and lose
   their normals (`groups[].flat`); unused texture coordinates go; batchable geometries get the
   batch signature.
-- `mat_light*`, `mat_signal*`, `mat_window*`, `mat_lamp*`, `mat_screen*`, `mat_beacon*` get
-  `emitter` with the matching role; `mat_body` gets `tint`; transmissive materials
-  `transmission`.
-- Physics by library type: props and pieces a convex hull (`collider*` nodes when present;
-  convex decomposition later as `fun3d.decomposition`), vehicles (type `vehicle`; the one-time
-  `retype` of approved vehicles typed `prop` is recorded in `asset.source.profile`) a wheeled
-  vehicle from `wheel_*` nodes with defaults by mass class, characters a capsule and a ragdoll
-  from the rig's roles. Mass from a density table by type.
-- Ids: a glTF name becomes its ASCII slug (`[A-Za-z0-9_.-]`, other runs of characters
-  collapse to `_`) plus `-` and the first six hex digits of the SHA-256 of the UTF-8 name
-  whenever the slug lost anything or exceeds 58 characters; a repeated id gets `_2`, `_3`… in
-  document order; bone order is the glTF skin order. Every later profile reproduces `@1` ids.
+- Material names map to `emitter` roles: `mat_light` → `headlight`, `mat_light_red` →
+  `taillight`, `mat_signal*` → `signal`, `mat_window*` → `window`, `mat_lamp*` → `lamp`,
+  `mat_screen*` → `screen`, `mat_beacon*` → `beacon`; `mat_body` gets `tint`; transmissive
+  materials `transmission`.
+- Physics by library type (recorded in `asset.source.type`): props and pieces a convex hull
+  (`collider*` nodes when present; convex decomposition later as `fun3d.decomposition`),
+  vehicles (type `vehicle`, after the one-time `retype` of approved vehicles typed `prop`) a
+  wheeled vehicle from `wheel_*` nodes with defaults by mass class, characters a capsule and a
+  ragdoll from the rig's roles. Mass from a density table by type.
+- Ids: a glTF name becomes its slug (`[A-Za-z0-9_-]`, other runs of characters collapse to
+  `_`, cut to 54 characters) plus `-` and the first six hex digits of the SHA-256 of the UTF-8
+  name whenever the slug lost anything; a repeated id gets `_2`, `_3`… in document order,
+  always within 64 characters; bone order is the glTF skin order. Every later profile
+  reproduces `@1` ids.
 
 ## 7. Runtime
 
@@ -546,7 +609,7 @@ before anything but hulls is promised:
 | `kit/fun3d.js` | read, validate, load into Three.js, write from Three.js, strip editing sections, dispose |
 | `kit/fun3d-import.js` | GLB → `.fun3d` through a profile (typed-array welding, bounded memory; 200 k triangles in a browser, unbounded in the script) |
 | `kit/materials.js` | models and features in TSL; one builder serves single meshes and batches; registry |
-| `kit/models.js` | places loaded models and returns handles: batches rigid batchable meshes, instances placements, picks LOD levels, fills light slots, applies variants and tints; `model.part(id)`, `model.socket(id)`, `handle.tint`, `handle.remove()`, `roles.set` |
+| `kit/models.js` | places loaded models and returns handles: batches rigid batchable meshes, instances placements, picks LOD levels, fills light slots, applies variants and tints; `model.node(id)`, `model.socket(id)`, `handle.tint`, `handle.remove()`, `roles.set` |
 | `kit/physics.js` | Jolt: bodies, constraints, vehicles, ragdolls, characters; asynchronous API, pooled temporaries, `dispose()`; the world can move to a worker |
 | `kit/animation.js` | clips through one mixer (proxies for material and light channels), masks, additive blending, events; retargeting by role (release 2) |
 
@@ -572,8 +635,8 @@ except references, which refuse the load.
   converts. A new converter or profile makes a new derived file; the old one stays as long
   as any `models.lock` pins it and is deleted otherwise. Regeneration that would change ids
   or bone order is refused (the model needs a new version). Workshop sources (`kind: edit`)
-  regenerate through the headless workshop; GLB sources through the importer. Nothing is
-  pinned until the converter is frozen (section 10).
+  regenerate through the headless workshop; GLB sources through the importer; `runtime`
+  sources never. Nothing is pinned until the converter is frozen (section 10).
 - **Parity gate.** `npm run models -- convert` renders GLB and `.fun3d` in the same viewer
   with the same classic materials, pixel-diffs them against per-model thresholds on a masked
   metric (emitter roles and tints excluded), writes a worst-50 sheet, and checks derived data
@@ -581,14 +644,15 @@ except references, which refuse the load.
   `verify kit` renders library models alone and in a batch and diffs the two.
 - **Console.** Uploads stay as they are (GLB in, thumbnails from GLB); a version shows `未转换`
   in the console and in `npm run models -- list` until the script derives its file. Browser
-  conversion is a preview at most, never what the library serves.
+  conversion is a preview at most, never what the library serves. Direct `.fun3d` uploads
+  (release 2) pass the validator before storage.
 - **Games.** `game.json` pins versions and names the format for library models
   (`"models": { "format": "fun3d" }`, one format per library model; game-local assets may stay
   GLB); `games/<id>/models.lock` records hash, size and path of every pinned file and of the
-  closure of references (the build inflates each pinned manifest to collect them; paths are
-  `models/<id>@<version>.fun3d`; the loader's resolver is `(id, version) → asset(path)`);
-  `npm run models -- update <game>` advances it. Game-local GLBs convert at build on request
-  (`"convert": ["assets/tiles/*.glb"]`), cached by hash.
+  closure of references (the build inflates each pinned manifest to collect them and verifies
+  skeleton hashes; paths are `models/<id>@<version>.fun3d`; the loader's resolver is
+  `(id, version) → asset(path)`); `npm run models -- update <game>` advances it. Game-local
+  GLBs convert at build on request (`"convert": ["assets/tiles/*.glb"]`), cached by hash.
 - **Workshop.** Keeps `.funmodel.glb` until its binary storage lands; then saves `.fun3d` with
   its editing section, exports plain GLB, gains physics commands with a Jolt preview.
 - **Library pages.** Keep GLB in the first release; switch when the viewer uses the runtime
@@ -615,7 +679,7 @@ only with the stated restriction).
 | Animated materials and lights, visibility | core | 2 | 4.6 channels through proxies | workshop, games / runtime |
 | Events, additive clips, masks, root motion | core | 2 | 4.6 | animation packs / `kit/animation.js` |
 | Doors, drawers, levers | core | 2 | 4.7 constraints, world anchors | workshop physics commands / `kit/physics.js` |
-| Destructibles | core data + game code | 2 | inactive switchable fragments, `break` | workshop / physics; the swap is the game's |
+| Destructibles | core data + game code | 2 | switchable static fragments, `break` | workshop / physics; the swap is the game's |
 | Cars | core | 1 | 4.7 wheeled | profile, workshop / physics |
 | Motorcycles, tracked vehicles, boats | extension | later | `fun3d.motorcycle`, `fun3d.tracked`, `fun3d.buoyancy` | nobody yet |
 | Cloth, soft bodies | extension | later | `fun3d.softbody` | workshop later / Jolt |
@@ -628,7 +692,7 @@ only with the stated restriction).
 | Custom shaders | extension | later | `fun3d.nodes` | workshop later |
 | GPU-driven rendering | extension | later | `fun3d.clusters` | runtime |
 | Other tools' editing data | core | 3 (workshop) | 4.11 | tools |
-| New codecs and image formats | minor version + `requires` | — | 4.12 | — |
+| New codecs and image formats | extension | — | `fun3d.codec.<name>` in `requires` | — |
 | Instanced skinning | extension | later | `fun3d.vat` or a TSL skinning node over instances (runtime work, not a format change) | creator / games |
 
 **Conflicts** (what the runtime enforces):
@@ -637,12 +701,12 @@ only with the stated restriction).
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Batching | — | no (drawn alone) | no | per copy | palette slots | yes | second batch, sorted per copy | — |
 | Skinning | no | — | yes | yes | yes | no (see crowds) | yes | ragdoll, character |
-| Morphs | no | yes | — | yes | `morphWeights` | yes (`InstancedMesh` morph texture) | yes | — |
+| Morphs | no | yes | — | yes | `morphWeights` | yes, the same weights for every copy | yes | — |
 | Group LOD | per level | levels share the skeleton | yes | yes | yes | no | yes | one body for the group |
 | Variants | yes | yes | yes | yes | one per axis | every copy | yes | shapes unchanged |
 | Placements | yes | no | yes | yes | every copy | — | instances are not depth-sorted among themselves | static body per copy |
 | Animation | yes | yes | yes | yes | after variants | per node, not per copy | yes | kinematic follows, dynamic ignores |
-| Transmission | no | yes | yes | yes | yes | no (one draw per copy; keep copies few) | yes | — |
+| Transmission | no | yes | yes | yes | yes | yes, one draw per copy | yes | — |
 | Refs | parts never batch (skinned); shared images do | base skeleton | shared ids drive together | own | local entries only | yes | yes | own |
 | Lights | emitters always glow; real lights fill fixed slots with fixed shadows | lights on bones follow them | — | — | `visible` overrides apply | not on placed nodes | — | lights on bodies follow them |
 | Masks | — | after retargeting | — | — | — | — | — | a mask without the root drops root motion |
@@ -653,10 +717,10 @@ only with the stated restriction).
 
 | Release | Runtime implements | Loader behaviour with the rest |
 | --- | --- | --- |
-| 1 | container, schema, validator; nodes with meshes, sockets, tags, placements with tint; geometries with groups, flat groups, geometry LOD; `pbr` and `unlit` with `emitter` and `tint`; images and textures (webp, png, jpeg, ktx2); skeletons and skinned meshes; clips with node channels on the same bone ids; batching; physics static bodies and wheeled vehicles; `models.lock`; parity gate; agent one-pager; `verify kit` with synthetic scenarios | morphs, variants, group LOD, lights, constraints, dynamic bodies, ragdolls, characters, material and light channels, events, additive and masks: ignored with a warning; refs: refused; `transmission`, extension features: dropped to the base |
-| 2 | references, retargeting, ragdolls, characters, constraints and dynamic bodies, morphs, variants, group LOD, lights with slots, material and light channels through proxies, events, additive clips and masks, `transmission`; 准点下班 adopts | extension features: dropped to the base |
+| 1 | container, schema, validator; nodes with meshes, sockets, tags, placements with tint; geometries with groups, flat groups, geometry LOD; `pbr` and `unlit` with `emitter` and `tint`; images and textures (webp, png, jpeg, ktx2); skeletons and skinned meshes; clips with node channels on the same bone ids; batching; physics static and dynamic bodies, wheeled vehicles; `models.lock`; parity gate; agent one-pager; `verify kit` with synthetic scenarios | morphs, variants, group LOD, lights, constraints, kinematic bodies, ragdolls, characters, material and light channels, events, additive and masks: ignored with a warning; refs: refused; `transmission`, extension features: dropped to the base |
+| 2 | references, retargeting, ragdolls, characters, constraints and kinematic bodies, morphs, variants, group LOD, lights with slots, material and light channels through proxies, events, additive clips and masks, `transmission`; direct `.fun3d` uploads; 准点下班 adopts | extension features: dropped to the base |
 | 3 | workshop: `.fun3d` save and open with editing sections, GLB export, physics commands; library pages on `.fun3d` | — |
-| later | extensions as needed, each with its producer and consumer: wind, decals, hair, skin, soft bodies, crowds, texture arrays, nodes, clusters, heightfields, motorcycles; appendix A items as they find producers | — |
+| later | extensions as needed, each with its producer and consumer: `fun3d.wind`, `fun3d.clearcoat`, `fun3d.decals`, `fun3d.hair`, `fun3d.skin`, `fun3d.softbody`, `fun3d.vat`, `fun3d.nodes`, `fun3d.clusters`, `fun3d.heightfield`, `fun3d.motorcycle`, `fun3d.tracked`, `fun3d.buoyancy`, `fun3d.decomposition`, texture arrays; appendix A items as they find producers | — |
 
 Order: release 1 core with `verify kit`; 帝都 on trial derived files (not pinned); the
 converter frozen only when 帝都 runs on them and the parity gate passes over the library;
@@ -674,8 +738,9 @@ derived-data warnings in review, and pins; then release 2; then the workshop.
 
 ## Appendix A. Planned, not in 1.0
 
-Each enters as a minor version named in `requires`, or as an extension, when it has a
-producer and a consumer: `toon` shading model; `lines` and `points` geometry modes; raw
-image data (`images[].data`); `uv2`/`uv3`; `cubic` interpolation and `pingpong` loops;
-`cone`, `sixDOF` and `distance` constraints; manual transmissions; the `exponential`
-meshopt filter; texture arrays and cube maps; codecs other than meshopt.
+Each enters as an extension named in `requires` (new values) or a minor version (new fields)
+when it has a producer and a consumer: `toon` shading model; lines and points geometry;
+raw image data; `uv2`/`uv3`; cubic interpolation and ping-pong loops; `cone`, `sixDOF` and
+`distance` constraints; manual transmissions; the `exponential` meshopt filter; texture
+arrays and cube maps; codecs other than meshopt; motorcycles, tracked vehicles, height
+fields, soft bodies.
