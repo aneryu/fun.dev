@@ -1898,7 +1898,7 @@ async function start() {
   };
   $("#agent").onclick = () => {
     const guide = text("a", t("edDocs"));
-    guide.href = "/editor/guide.html";
+    guide.href = "/editor/guide";
     guide.target = "_blank";
     guide.rel = "noopener";
     info(t("edAgent"), [

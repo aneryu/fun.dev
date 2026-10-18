@@ -124,7 +124,7 @@ const beak = scene.getObjectByName("beak");
 ## Agent contract
 
 The page exposes `window.funEditor.version === 3`. The complete API, command fields,
-examples and project schema are at `/editor/guide.html` (source:
+examples and project schema are at `/editor/guide` (source:
 [`site/editor/guide.html`](../site/editor/guide.html)). Wait for the API, then inspect
 → apply → renderViews → validate → exportGLB. API v2 makes world-space extrusion and
 world-preserving reparenting the defaults; explicit local-space options remain.

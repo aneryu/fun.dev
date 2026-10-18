@@ -447,7 +447,7 @@ export async function editorChecks({ browser, base }) {
       "readonly",
     );
     assert.ok(await peer.locator("#draft-banner").isVisible());
-    await page.goto(`${base}/editor/guide.html`);
+    await page.goto(`${base}/editor/guide`);
     assert.ok(await page.locator("h1").isVisible());
     await peer.locator("#draft-retry").click();
     await peer.waitForFunction(
