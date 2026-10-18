@@ -420,7 +420,8 @@ const file = await funEditor.exportGLB({ encoding: "base64" });</pre
               unless newIds lists the roots; linked:false copies independently.
               merge:true appends the copies to this part's own mesh in local
               coordinates; that form is also a recipe step, so count can be a
-              parameter. Merged copies must not overlap.
+              parameter. Overlapping merged copies stay separate shells and
+              only warn (shell-overlap).
             </td>
           </tr>
           <tr>
@@ -599,8 +600,8 @@ const file = await funEditor.exportGLB({ encoding: "base64" });</pre
               newId-2, …) into new parts with the same parent and transform.
               join: <code>id, with:[ids]</code> moves other parts' geometry into
               this part's coordinates and consumes them; their children and
-              mirrors stay. Overlapping parts are refused: use boolean union
-              for one clean solid.
+              mirrors stay. Overlapping parts stay separate shells (a
+              shell-overlap warning); boolean union makes one clean solid.
             </td>
           </tr>
         </tbody>

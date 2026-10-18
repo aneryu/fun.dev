@@ -121,7 +121,7 @@ test("dissolve merges coplanar faces: explicit edges, limited cleanup, vertices"
   closed(store.snapshot());
 });
 
-test("join merges parts in the target's frame; overlapping parts point to boolean union", () => {
+test("join merges parts in the target's frame; overlapping parts stay as warned shells", () => {
   const store = createStore(emptyProject("Join"));
   store.apply([
     box("a"),
@@ -143,11 +143,13 @@ test("join merges parts in the target's frame; overlapping parts point to boolea
   // a spans ±0.5, c sits at x = -2, b (turned 45°) reaches 2 + √½.
   assert.ok(Math.abs(measure(p, "a").bounds.size[0] - (2.5 + 2 + Math.SQRT1_2)) < 1e-9);
   closed(p);
+  // Like Blender's join, overlapping parts become separate shells of one mesh: allowed,
+  // reported as shell-overlap (boolean union makes one clean solid instead).
   store.apply([box("d", { position: [0.5, 0, 0] })]);
-  assert.throws(
-    () => store.apply([{ op: "join", id: "a", with: ["d"] }]),
-    (e) => /boolean union/.test(e.suggestion),
-  );
+  store.apply([{ op: "join", id: "a", with: ["d"] }]);
+  const joinedOverlap = validateProject(store.snapshot());
+  assert.equal(joinedOverlap.errors.length, 0);
+  assert.ok(joinedOverlap.warnings.some((w) => w.code === "shell-overlap" && w.node === "a"));
 });
 
 test("weld merges split vertices into one closed solid and refuses to pinch faces", () => {

@@ -306,6 +306,10 @@ const additions = {
   edParam_cavityDepth: ["内腔深度 (m)", "Cavity depth (m)"],
   edParam_bevel: ["倒角 (m)", "Bevel (m)"],
   "edIssue_self-intersection": ["表面自相交", "Surface intersection"],
+  "edIssue_shell-overlap": [
+    "分开的形体相互穿插（允许）",
+    "Separate shells pass through each other (allowed)",
+  ],
   "edIssue_inward-shell": ["封闭壳体法线朝内", "Inward closed shell"],
   "edIssue_zero-volume": ["封闭壳体体积为零", "Zero-volume shell"],
   "edIssue_surface-check-incomplete": [

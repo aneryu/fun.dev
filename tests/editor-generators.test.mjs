@@ -247,11 +247,12 @@ test("array: linked copies with named parts, radial copies about a pivot, merged
   store.apply([{ op: "recipeParameters", id: "pickets", values: { n: 9 } }]);
   assert.equal(faces(), 9 * 6);
   solid(store.snapshot(), "pickets");
-  // Overlapping merged copies are rejected by the self-intersection check.
-  assert.throws(
-    () => store.apply([{ op: "array", id: "post_body", count: 2, offset: [0.05, 0, 0], merge: true }]),
-    /intersect/,
-  );
+  // Overlapping merged copies are separate shells passing through each other: allowed,
+  // reported as a warning.
+  store.apply([{ op: "array", id: "post_body", count: 2, offset: [0.05, 0, 0], merge: true }]);
+  const overlap = validateProject(store.snapshot());
+  assert.equal(overlap.errors.length, 0);
+  assert.ok(overlap.warnings.some((w) => w.code === "shell-overlap" && w.node === "post_body"));
   assert.throws(() => store.apply([{ op: "array", id: "post", count: 3 }]), /offset or a rotation/);
   assert.throws(() => store.apply([{ op: "array", id: "post", count: 3, offset: [1, 0, 0] }]), /already exists/);
 });

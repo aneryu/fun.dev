@@ -128,8 +128,8 @@ Beyond boxes, spheres, cylinders, cones, outlines and lathes (`site/editor/gener
   arrays). Copies are linked parts named `<id>_2`, `<id>_3`… with their descendants
   suffixed the same way, or the roots listed in `newIds`; `linked:false` copies
   independently. `merge:true` appends the copies to the part's own mesh instead, which is
-  also the recipe step form (count as a parameter, e.g. fence pickets). Merged copies must
-  not overlap.
+  also the recipe step form (count as a parameter, e.g. fence pickets). Merged copies that
+  overlap stay separate shells (a `shell-overlap` warning).
 
 The add-shape dialog offers revolve and sweep (section in the profile editor, path as
 `x, y, z` lines) and a corner radius; holes are agent-only. The parts panel's **Array**
@@ -167,8 +167,8 @@ editable parts:
 
 Imports replace the project as one undoable change, or `mode:"add"` adds the parts (under
 `parent`, if given); clashing node and material IDs get suffixes. Merged meshes whose parts
-overlap (the library's `static__mat_*` nodes, for example) validate as self-intersecting:
-the workshop then refuses topology edits on them and Export GLB asks for its override.
+pass through each other (the library's `static__mat_*` nodes, for example) are separate
+shells: validation warns (`shell-overlap`) and editing and export work as usual.
 
 ## Draft ownership
 
@@ -308,8 +308,11 @@ material references. It reports non-planar polygons, open/nonmanifold/inconsiste
 edges and optional budgets. GUI diagnostics locate the offending part/face. Draw
 calls count mesh/material groups, excluding helpers, shadows and renderer passes.
 Surface checks additionally detect triangle self-intersections (including coplanar
-overlap), inward closed shells and zero-volume shells. Geometry-changing commands
-reject intersecting/collapsed results or an exhausted diagnostic budget before commit.
+overlap), inward closed shells and zero-volume shells. A shell is an edge-connected set
+of faces: a shell crossing itself is an error, separate shells passing through each other
+(merged parts, joined pieces) only warn (`shell-overlap`). Geometry-changing commands
+reject results that add self-intersections or collapsed shells; faults a mesh already
+had (from a loaded project or an import) and checks too large to finish do not block.
 Inward shells are warnings: nested cavity shells can intentionally face inward.
 `validate()` reports errors separately from warnings and explicitly lists checked
 and unchecked categories. Inter-object collisions, minimum wall thickness, visual

@@ -103,3 +103,53 @@ test("a boolean recipe step keeps a parametric hole editable", () => {
   clean(store.snapshot());
   assert.ok(store.snapshot().nodes[0].recipe, "the recipe survives");
 });
+
+test("separate shells passing through each other warn; only faults an edit adds block it", async () => {
+  const { surfaceDiagnostics } = await import("../site/editor/diagnostics.js");
+  const { primitive } = await import("../site/editor/mesh.js");
+  // Two crossing boxes in one mesh, as merged library parts arrive.
+  const a = primitive("box", { size: [1, 1, 1] }, "mat_cream"),
+    b = primitive("box", { size: [0.4, 2, 0.4] }, "mat_wood");
+  const merged = {
+    vertices: [...a.vertices, ...b.vertices],
+    faces: [
+      ...a.faces,
+      ...b.faces.map((f, i) => ({ ...f, id: `g${i}`, vertices: f.vertices.map((v) => v + a.vertices.length) })),
+    ],
+  };
+  const report = surfaceDiagnostics(merged);
+  assert.ok(report.issues.some((i) => i.code === "shell-overlap"));
+  assert.ok(!report.issues.some((i) => i.code === "self-intersection"));
+  const store = createStore(palette());
+  store.apply([{ op: "create", id: "lamp", kind: "mesh", mesh: merged }]);
+  const v = validateProject(store.snapshot());
+  assert.equal(v.errors.length, 0, "overlapping parts are not an error");
+  // Topology edits on the merged mesh work.
+  store.apply([{ op: "paint", id: "lamp", material: "mat_wood", select: { kind: "faces", normal: [0, 1, 0] } }]);
+  store.apply([{ op: "boolean", id: "lamp", operation: "difference", shape: { kind: "box", position: [0, -0.9, 0], options: { size: [3, 0.4, 3] } } }]);
+  // A self-intersecting shell that already exists does not block an unrelated edit…
+  // One shell folding through itself: a triangulated box whose top corner is pulled
+  // down through its bottom face.
+  const cube = primitive("box", { size: [1, 1, 1] }, "mat_cream");
+  const fold = {
+    vertices: cube.vertices.map((v, i) => (i === 6 ? [0, -1, 0] : v)),
+    faces: cube.faces.flatMap((f) => [
+      { id: `${f.id}a`, vertices: [f.vertices[0], f.vertices[1], f.vertices[2]], material: f.material },
+      { id: `${f.id}b`, vertices: [f.vertices[0], f.vertices[2], f.vertices[3]], material: f.material },
+    ]),
+  };
+  // Creating such geometry is a new fault and refused…
+  assert.throws(() => store.apply([{ op: "create", id: "fold", kind: "mesh", mesh: fold }]), /intersect itself/);
+  // …but one that arrives with a loaded project or an import stays editable.
+  const loaded = createStore({
+    ...palette(),
+    nodes: [{ id: "fold", name: "fold", parent: null, position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mesh: fold }],
+  });
+  assert.ok(validateProject(loaded.snapshot()).errors.some((e) => e.code === "self-intersection"));
+  const { topologyToken } = await import("../site/editor/components.js");
+  loaded.apply([{ op: "vertices", id: "fold", topology: topologyToken(loaded.snapshot().nodes[0].mesh), changes: [{ index: 3, position: [-0.6, 0.5, -0.5] }] }]);
+  // …and a budget too small to finish reports incompleteness instead of blocking.
+  const tiny = surfaceDiagnostics(merged, { maxPairs: 1 });
+  assert.equal(tiny.complete, false);
+  assert.ok(tiny.issues.some((i) => i.code === "surface-check-incomplete"));
+});

@@ -2143,25 +2143,23 @@ export function evaluateTransaction(
           previous = topologyToken(old?.mesh),
           topology = topologyToken(n.mesh);
         if (topology === previous) continue;
-        const report = surfaces(n.mesh);
-        const invalid = report.issues.filter((i) =>
-          [
-            "self-intersection",
-            "zero-volume",
-            "surface-check-incomplete",
-          ].includes(i.code),
-        );
-        if (invalid.length) {
+        // Only faults this edit adds block it: an imported mesh may already carry some.
+        // Separate shells passing through each other, and checks too large to finish,
+        // are warnings.
+        const faults = (mesh) =>
+          surfaces(mesh).issues.filter((i) =>
+            ["self-intersection", "zero-volume"].includes(i.code),
+          );
+        const invalid = faults(n.mesh);
+        if (invalid.length > (old?.mesh ? faults(old.mesh).length : 0)) {
           const error = new ModelError(
-            "Geometry would intersect itself, collapse, or exceed the diagnostic budget",
+            "Geometry would intersect itself or collapse",
             "geometry",
             `nodes.${n.id}.mesh`,
           );
           error.issues = invalid.map((i) => ({ ...i, node: n.id }));
           error.suggestion =
-            command.op === "join"
-              ? "The joined parts touch or overlap; use boolean union for one clean solid, or keep them as separate parts."
-              : "Reduce the edit distance or split the operation; inspect the reported faces.";
+            "Reduce the edit distance or split the operation; inspect the reported faces.";
           throw error;
         }
         if (includeResults) {
