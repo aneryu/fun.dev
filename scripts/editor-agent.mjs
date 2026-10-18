@@ -105,13 +105,12 @@ async function connect() {
   } else {
     let url = config.url;
     if (!url) {
+      // Rebuild on every start: a preview older than the sources would reject new commands.
       const output = resolve(root, ".editor-preview");
-      await access(resolve(output, "editor/index.html")).catch(() =>
-        execFileSync(process.execPath, ["scripts/editor.mjs", "--build"], {
-          cwd: root,
-          stdio: ["ignore", "ignore", "inherit"],
-        }),
-      );
+      execFileSync(process.execPath, ["scripts/editor.mjs", "--build"], {
+        cwd: root,
+        stdio: ["ignore", "ignore", "inherit"],
+      });
       server = createPreviewServer({ root: output });
       const { port } = await listen(server, 0, "127.0.0.1");
       url = `http://127.0.0.1:${port}/editor/?lang=en`;
