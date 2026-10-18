@@ -9,8 +9,9 @@
 //   mat_light_red → taillight, mat_light_amber → indicator, elsewhere mat_light* → lamp);
 //   mat_body gets tint; transmissive materials transmission;
 // - physics by library type: props a switchable convex hull (collider* nodes when present),
-//   pieces their mesh, vehicles a wheeled vehicle from wheel_* nodes, characters a capsule and a
-//   ragdoll from the rig's roles; mass from a density table.
+//   pieces their mesh, vehicles a wheeled vehicle from wheel_* nodes (drive, brakes and centre of
+//   mass by mass class), characters a capsule and a ragdoll from the rig's roles; mass from a
+//   density table.
 //
 //   const importer = createImporter({ THREE, loader, fun3d });
 //   const { bytes, manifest, report } = await importer.importGLB(glb, { type: "vehicle", name: "city_taxi_01", hash });
@@ -304,16 +305,34 @@ export function createImporter({ THREE, loader, fun3d, encoder = null }) {
         const wbox = bounds(wheel), wsize = wbox.getSize(new THREE.Vector3());
         const centre = wheel.getWorldPosition(new THREE.Vector3());
         root.worldToLocal(centre);
-        const front = centre.z > 0;
         wheelDefs.push({ id: await idOf(wheel.name), node: await idOf(wheel.name), radius: round(Math.max(0.05, Math.max(wsize.y, wsize.z) / 2), 4), width: round(Math.max(0.05, wsize.x), 4),
-          suspension: { min: 0.05, max: 0.25, rest: 0.15, frequency: 1.6, damping: 0.5 }, ...(front ? { steer: 0.6, brake: 1500 } : { brake: 1500, handbrake: 4000 }), _x: centre.x, _z: centre.z });
+          suspension: { min: 0.05, max: 0.25, rest: 0.15, frequency: 1.6, damping: 0.5 }, _x: centre.x, _z: centre.z });
       }
-      const pair = (front) => { const row = wheelDefs.filter((w) => (w._z > 0) === front); const left = row.find((w) => w._x > 0), right = row.find((w) => w._x <= 0); return left && right && left !== right ? [left.id, right.id] : null; };
-      const differentials = [pair(true) ?? pair(false)].filter(Boolean).map((pairIds) => ({ wheels: pairIds, ratio: 3.42, split: 0.5, engineShare: 1, limitedSlip: 1.4 }));
+      // Brakes stop the vehicle at about 1 g whatever its mass; front wheels steer, rear ones hold the handbrake.
+      for (const w of wheelDefs) {
+        const brake = Math.max(1500, Math.round((mass * 9.81 * w.radius) / wheelDefs.length / 10) * 10);
+        Object.assign(w, w._z > 0 ? { steer: 0.6, brake } : { brake, handbrake: Math.max(4000, brake) });
+      }
+      // Axles: wheels within 0.2 m along the length, front first; each drives through its outermost pair.
+      const axles = [];
+      for (const w of [...wheelDefs].sort((a, b) => b._z - a._z)) {
+        const axle = axles.find((a) => Math.abs(a.z - w._z) < 0.2);
+        if (axle) axle.wheels.push(w); else axles.push({ z: w._z, wheels: [w] });
+      }
+      const pairOf = (axle) => {
+        const left = axle.wheels.filter((w) => w._x > 0).sort((a, b) => b._x - a._x)[0], right = axle.wheels.filter((w) => w._x <= 0).sort((a, b) => a._x - b._x)[0];
+        return left && right ? [left.id, right.id] : null;
+      };
+      // Light vehicles drive the front axle; heavy ones (3 t and up, or more than four wheels) every axle behind it.
+      const heavy = mass >= 3000 || wheelDefs.length > 4;
+      let pairs = (heavy ? axles.filter((a) => a.z <= 0) : axles.filter((a) => a.z > 0).slice(0, 1)).map(pairOf).filter(Boolean);
+      if (!pairs.length) pairs = axles.map(pairOf).filter(Boolean).slice(0, 1);
+      const differentials = pairs.map((pair) => ({ wheels: pair, ratio: 3.42, split: 0.5, engineShare: round(1 / pairs.length, 4), limitedSlip: 1.4 }));
       for (const w of wheelDefs) { delete w._x; delete w._z; }
       return {
         shapes: [{ id: "hull", type: "convex", points: hullPoints(root, (o) => !inWheel(o) && o.visible) }],
-        bodies: [{ id: "chassis", node: rootId, shape: "hull", motion: "dynamic", layer: "moving", mass, centerOfMass: [0, round(-0.15 * bodySize.y, 3), 0], friction: 0.5, restitution: 0.1, damping: { linear: 0.05, angular: 0.05 } }],
+        // The centre of mass sits a quarter of the body's height below the hull's: engines, frames and floors are low.
+        bodies: [{ id: "chassis", node: rootId, shape: "hull", motion: "dynamic", layer: "moving", mass, centerOfMass: [0, round(-0.25 * bodySize.y, 3), 0], friction: 0.5, restitution: 0.1, damping: { linear: 0.05, angular: 0.05 } }],
         vehicles: [{ id: "car", type: "wheeled", body: "chassis", wheels: wheelDefs, engine: { maxTorque: Math.round(mass * 0.25), minRPM: 1000, maxRPM: 6000 }, transmission: { gears: [2.66, 1.78, 1.3, 1.0, 0.74], reverse: [-2.9] }, differentials, antiRoll: [] }],
       };
     }

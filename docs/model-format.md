@@ -598,8 +598,12 @@ before anything but hulls is promised:
 - Physics by library type (recorded in `asset.source.type`): props and pieces a convex hull
   (`collider*` nodes when present; convex decomposition later as `fun3d.decomposition`),
   vehicles (type `vehicle`, after the one-time `retype` of approved vehicles typed `prop`) a
-  wheeled vehicle from `wheel_*` nodes with defaults by mass class, characters a capsule and a
-  ragdoll from the rig's roles. Mass from a density table by type.
+  wheeled vehicle from `wheel_*` nodes with defaults by mass class — light vehicles (under 3 t,
+  four wheels) drive the front axle, heavier ones every axle behind the front one, brakes stop
+  at about 1 g, the centre of mass sits a quarter of the body's height below the hull's, front
+  wheels steer, rear ones hold the handbrake — characters a capsule and a ragdoll from the rig's
+  roles. Mass from a density table by type. Articulated vehicles (a tractor with its trailer)
+  need two bodies and a hinge (constraints, release 2) and stay props until then.
 - Ids: a glTF name becomes its slug (`[A-Za-z0-9_-]`, other runs of characters collapse to
   `_`, cut to 54 characters) plus `-` and the first six hex digits of the SHA-256 of the UTF-8
   name whenever the slug lost anything; a repeated id gets `_2`, `_3`… in document order,
@@ -759,9 +763,11 @@ derived-data warnings in review, and pins; then release 2; then the workshop.
    library-wide gate is `scripts/browser/fun3d-parity.mjs` over `npm run fun3d -- library`.
 6. Emitter roles depend on the model class (vehicles read `mat_light*` as their lights, anything
    else as lamps), because the library's lights are named, never emissive.
-7. The converter is frozen after the gate of 2026-10-18 (stamp `19c2dc60…`): 帝都 runs on a
-   derived taxi, the gate passed over the library. A change to the kit's writer or importer makes
-   a new stamp; the library converts again with `--force` only when the change is wanted there.
+7. The converter is frozen after the gate of 2026-10-18 (stamp `234100ab…`): 帝都 runs on a
+   derived taxi, the gate passed over the library, and the 19 road vehicles retyped to `vehicle`
+   each settle on all wheels, drive, turn at full lock without rolling and brake to a stop in a
+   Jolt run (Node, the kit's own physics). A change to the kit's writer or importer makes a new
+   stamp; the library converts again with `--force` only when the change is wanted there.
 
 ## Appendix A. Planned, not in 1.0
 
