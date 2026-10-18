@@ -758,6 +758,25 @@ node fundev-workshop.mjs --mcp --session model.json --artifacts out/</pre
       </p>
       <p><a href="/editor/">← 回到工坊 / Back to the workshop</a></p>
       <section>
+        <h2>Round shapes · 圆形和曲线</h2>
+        <p>
+          圆柱和圆锥可以设顶半径（圆台）、内半径（管、垫圈）、边缘圆角和旋转角度（半管）；球可以设纬度范围（穹顶、碗）和角度；新增圆环（弯头）和胶囊。“朝向”把圆形横放到
+          X 或 Z 轴。分段数留空就是自动：按大小定，约 2 毫米弦差。轮廓每行第三个数是该角的圆角半径；以
+          <code>{</code> 开头的一行是 JSON：<code>{"arc": {"center": [x, y], "angle": 90}}</code>
+          接着上一点画圆弧，<code>{"arc": {"through": [x, y], "to": [x, y]}}</code> 经过一点画到终点，单独一行
+          <code>{"circle": 0.1}</code> 让整个轮廓是圆。部件面板的“平滑着色”让圆的部分显得圆，折角以上的边保持硬边。
+        </p>
+        <p>
+          Cylinders and cones take a top radius (frustums), an inner radius (tubes), a rim radius
+          and an angle; spheres a latitude range (domes, bowls); tori (elbows) and capsules are
+          new; the axis lays round shapes along X or Z. An empty segments field means auto (about
+          2 mm from the true curve). In outlines a third number rounds that corner and JSON lines
+          add arcs, curves or a whole circle. Smooth shading in the parts panel makes round parts
+          look round while edges sharper than the crease stay hard. Agents:
+          <code>options.radiusTop</code>, <code>innerRadius</code>, <code>latitude</code>,
+          <code>axis</code>, <code>segments: "auto"</code>, outline items and
+          <code>smooth</code> (see the quick reference).
+        </p>
         <h2>Blueprints · 蓝图</h2>
         <p>
           A blueprint is a parametric model family: <code>funEditor.blueprints()</code>

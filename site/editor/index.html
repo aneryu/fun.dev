@@ -365,6 +365,16 @@
             这是一个空部件，可以作为分组、枢轴或挂点。
           </p>
           <div id="mesh-properties">
+            <div id="shading-tools" class="pair">
+              <label class="check"
+                ><input type="checkbox" id="smooth" /><span data-i18n="edSmooth"
+                  >平滑着色</span
+                ></label
+              ><label
+                ><span data-i18n="edCrease">折角（度）</span
+                ><input id="smooth-angle" type="number" value="60" min="1" max="180" step="1"
+              /></label>
+            </div>
             <section id="face-tools" hidden>
               <label for="face" data-i18n="edFaceId">选择面</label
               ><select id="face"></select>
@@ -597,6 +607,8 @@
             <option value="sphere" data-i18n="edSphere">低模球</option>
             <option value="cylinder" data-i18n="edCylinder">圆柱</option>
             <option value="cone" data-i18n="edCone">圆锥</option>
+            <option value="torus" data-i18n="edTorus">圆环</option>
+            <option value="capsule" data-i18n="edCapsule">胶囊</option>
             <option value="extrude" data-i18n="edOutline">轮廓挤出</option>
             <option value="lathe" data-i18n="edLathe">旋转成型</option>
             <option value="revolve" data-i18n="edRevolve">截面旋转</option>
@@ -620,6 +632,49 @@
               step="any"
             />
           </div>
+          <div id="radius-top-field" hidden>
+            <label for="radius-top" data-i18n="edRadiusTop">顶半径（米）</label
+            ><input
+              id="radius-top"
+              type="number"
+              min="0"
+              step="any"
+              placeholder="="
+            />
+          </div>
+          <div id="inner-radius-field" hidden>
+            <label for="inner-radius" data-i18n="edInnerRadius"
+              >内半径（米，0 为实心）</label
+            ><input id="inner-radius" type="number" value="0" min="0" step="any" />
+          </div>
+          <div id="tube-field" hidden>
+            <label for="tube" data-i18n="edTube">管半径（米）</label
+            ><input id="tube" type="number" value="0.1" min="0.0005" step="any" />
+            <label for="tube-segments" data-i18n="edTubeSegments">管截面分段</label
+            ><input
+              id="tube-segments"
+              type="number"
+              min="3"
+              max="64"
+              step="1"
+              placeholder="auto"
+            />
+          </div>
+          <div id="latitude-field" hidden>
+            <label data-i18n="edLatitude">纬度范围（度，−90 到 90）</label>
+            <div class="pair">
+              <input id="latitude-start" type="number" value="-90" min="-90" max="90" step="any" aria-label="from" />
+              <input id="latitude-end" type="number" value="90" min="-90" max="90" step="any" aria-label="to" />
+            </div>
+          </div>
+          <div id="axis-field" hidden>
+            <label for="shape-axis" data-i18n="edAxis">朝向（轴）</label
+            ><select id="shape-axis">
+              <option value="y">Y</option>
+              <option value="x">X</option>
+              <option value="z">Z</option>
+            </select>
+          </div>
           <div id="height-field" hidden>
             <label for="height" data-i18n="edHeight">高度（米）</label
             ><input
@@ -632,7 +687,7 @@
           </div>
           <div id="rings-field" hidden>
             <label for="rings" data-i18n="edRings">纬向分段</label
-            ><input id="rings" type="number" value="6" min="3" max="64" />
+            ><input id="rings" type="number" value="6" min="1" max="64" placeholder="auto" />
           </div>
           <div id="segment-field" hidden>
             <label for="segments" data-i18n="edSegments">圆周分段</label
@@ -643,6 +698,7 @@
               min="3"
               max="64"
               step="1"
+              placeholder="auto"
             />
           </div>
           <div id="outline-field" hidden>

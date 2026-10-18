@@ -14,7 +14,7 @@ import {
 } from "./export-scope.js";
 import { bindingFor } from "./assembly.js";
 import { meshEdges } from "./topology.js";
-import { normal, triangulate } from "./mesh.js";
+import { normal, triangulate, cornerNormals } from "./mesh.js";
 import { nameMeshes } from "./glb.js";
 import { createSoftRenderer } from "./soft-renderer.js";
 
@@ -112,19 +112,23 @@ export function buildModel(project) {
         triangleFaces = [],
         geometry = new THREE.BufferGeometry();
       const used = [...new Set(node.mesh.faces.map((f) => f.material))];
+      // Smooth parts carry a normal per face corner; flat ones the face's own.
+      const corners = node.smooth ? cornerNormals(node.mesh, node.smooth) : null,
+        faceIndex = new Map(node.mesh.faces.map((f, i) => [f, i]));
       for (const [index, material] of used.entries()) {
         const start = positions.length / 3;
         for (const face of node.mesh.faces.filter(
           (f) => f.material === material,
         )) {
-          const n = normal(node.mesh.vertices, face.vertices);
+          const n = normal(node.mesh.vertices, face.vertices),
+            smooth = corners?.[faceIndex.get(face)];
           for (const triangle of triangulate(
             node.mesh.vertices,
             face.vertices,
           )) {
             for (const i of triangle) {
               positions.push(...node.mesh.vertices[i]);
-              normals.push(...n);
+              normals.push(...(smooth ? smooth[face.vertices.indexOf(i)] : n));
             }
             triangleFaces.push(face.id);
           }

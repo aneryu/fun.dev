@@ -280,6 +280,50 @@ export function editableMesh(positions, triangles, materials) {
   return polygonize(points, tris, group.map(String), materials);
 }
 
+// Smooth shading of an imported mesh, read from its normals: an edge is smooth where the
+// normals on both sides agree at both ends. The crease angle is just above the sharpest
+// smooth edge (95th percentile, so stray edges do not decide); 0 when the mesh is flat.
+export function importedSmoothing(positions, triangles, normals) {
+  if (!normals) return 0;
+  const weld = new Map(),
+    id = (i) => {
+      const key = positions[i].map((v) => Math.round(v * 1e6)).join(",");
+      if (!weld.has(key)) weld.set(key, weld.size);
+      return weld.get(key);
+    };
+  const faceNormal = triangles.map(([a, b, c]) => {
+    const n = cross(sub(positions[b], positions[a]), sub(positions[c], positions[a])),
+      length = Math.hypot(...n);
+    return length > 1e-14 ? n.map((v) => v / length) : null;
+  });
+  const edges = new Map();
+  triangles.forEach((t, f) => {
+    if (!faceNormal[f]) return;
+    t.forEach((a, k) => {
+      const b = t[(k + 1) % 3],
+        [wa, wb] = [id(a), id(b)],
+        key = wa < wb ? `${wa}:${wb}` : `${wb}:${wa}`;
+      if (!edges.has(key)) edges.set(key, []);
+      edges.get(key).push({ f, at: new Map([[wa, a], [wb, b]]) });
+    });
+  });
+  const same = (u, v) => dot(u, v) > 0.9998; // about 1°
+  const smooth = [];
+  let hard = 0;
+  for (const [key, sides] of edges) {
+    if (sides.length !== 2) continue;
+    const [x, y] = sides,
+      angle = (Math.acos(Math.max(-1, Math.min(1, dot(faceNormal[x.f], faceNormal[y.f])))) * 180) / Math.PI;
+    if (angle < 0.5) continue;
+    const ends = key.split(":").map(Number);
+    if (ends.every((w) => same(normals[x.at.get(w)], normals[y.at.get(w)]))) smooth.push(angle);
+    else hard++;
+  }
+  if (!smooth.length || smooth.length < 0.05 * (smooth.length + hard)) return 0;
+  smooth.sort((a, b) => a - b);
+  return Math.min(180, Math.ceil(smooth[Math.floor(0.95 * (smooth.length - 1))]) + 1);
+}
+
 function projectFromGLTF(json, buffers, { name } = {}) {
   const warnings = new Map(),
     warn = (code, message) => {
@@ -335,8 +379,10 @@ function projectFromGLTF(json, buffers, { name } = {}) {
     if (meshes.has(index)) return meshes.get(index);
     const mesh = json.meshes?.[index] ?? fail(`Missing mesh ${index}`);
     const positions = [],
+      normals = [],
       triangles = [],
       triangleMaterials = [];
+    let withNormals = true;
     for (const primitive of mesh.primitives ?? []) {
       const mode = primitive.mode ?? 4;
       if (![4, 5, 6].includes(mode)) {
@@ -351,6 +397,14 @@ function projectFromGLTF(json, buffers, { name } = {}) {
         base = positions.length,
         count = p.length / 3;
       for (let i = 0; i < count; i++) positions.push([p[i * 3], p[i * 3 + 1], p[i * 3 + 2]]);
+      if (primitive.attributes.NORMAL !== undefined) {
+        const n = read(primitive.attributes.NORMAL);
+        for (let i = 0; i < count; i++) {
+          const v = [n[i * 3], n[i * 3 + 1], n[i * 3 + 2]],
+            length = Math.hypot(...v) || 1;
+          normals.push(v.map((x) => x / length));
+        }
+      } else withNormals = false;
       const indices =
         primitive.indices !== undefined
           ? read(primitive.indices)
@@ -380,6 +434,7 @@ function projectFromGLTF(json, buffers, { name } = {}) {
     const result = triangles.length
       ? editableMesh(positions, triangles, triangleMaterials)
       : null;
+    if (result) result.smooth = importedSmoothing(positions, triangles, withNormals ? normals : null);
     meshes.set(index, result?.faces.length ? result : null);
     return meshes.get(index);
   };
@@ -414,7 +469,9 @@ function projectFromGLTF(json, buffers, { name } = {}) {
       if (sources.has(g.mesh)) node.instanceOf = sources.get(g.mesh);
       else {
         sources.set(g.mesh, id);
-        node.mesh = structuredClone(meshFor(g.mesh));
+        const { smooth, ...mesh } = meshFor(g.mesh);
+        node.mesh = structuredClone(mesh);
+        if (smooth) node.smooth = smooth;
       }
     }
     nodes.push(node);

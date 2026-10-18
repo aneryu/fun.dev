@@ -1,5 +1,14 @@
 // Editable polygon meshes. IDs belong to faces, not generated render triangles.
-import { extrudeShape, revolveShape, sweepShape } from "./generators.js";
+import {
+  extrudeShape,
+  revolveShape,
+  sweepShape,
+  revolveContours,
+  expandOutline,
+  roundOutline,
+  segmentCount,
+  autoSegments,
+} from "./generators.js";
 import { roundedBox } from "./rounded.js";
 export class ModelError extends Error {
   constructor(message, code = "invalid", path = "") {
@@ -52,6 +61,39 @@ export function normal(vertices, face) {
   const length = Math.hypot(...n);
   if (length < 1e-10) fail("Face has zero area");
   return mul(n, 1 / length);
+}
+
+// Normals per face corner for smooth shading: each corner averages the normals of the faces
+// meeting at its point (weighted by their angle there) that lie within `crease` degrees of
+// its own face; edges sharper than the crease stay hard. Points are matched by position,
+// so seams of unwelded vertices smooth too.
+export function cornerNormals(mesh, crease) {
+  const limit = Math.cos((crease * Math.PI) / 180) - 1e-9,
+    normals = mesh.faces.map((f) => normal(mesh.vertices, f.vertices)),
+    key = (v) => v.map((x) => Math.round(x * 1e6)).join(","),
+    corners = new Map();
+  mesh.faces.forEach((face, f) => {
+    const n = face.vertices.length;
+    face.vertices.forEach((index, k) => {
+      const p = mesh.vertices[index],
+        u = sub(mesh.vertices[face.vertices[(k + n - 1) % n]], p),
+        w = sub(mesh.vertices[face.vertices[(k + 1) % n]], p),
+        lengths = Math.hypot(...u) * Math.hypot(...w),
+        angle = lengths > 0 ? Math.acos(Math.max(-1, Math.min(1, dot(u, w) / lengths))) : 0,
+        id = key(p);
+      if (!corners.has(id)) corners.set(id, []);
+      corners.get(id).push([f, angle]);
+    });
+  });
+  return mesh.faces.map((face, f) =>
+    face.vertices.map((index) => {
+      let sum = [0, 0, 0];
+      for (const [g, angle] of corners.get(key(mesh.vertices[index])))
+        if (dot(normals[g], normals[f]) >= limit) sum = add(sum, mul(normals[g], angle));
+      const length = Math.hypot(...sum);
+      return length > 1e-12 ? mul(sum, 1 / length) : normals[f];
+    }),
+  );
 }
 
 // Ear clipping in the face's dominant plane supports concave outlines. Non-planar
@@ -174,6 +216,280 @@ const mesh = (vertices, faces, material) => ({
   vertices,
   faces: faces.map((vertices, i) => ({ id: `f${i}`, vertices, material })),
 });
+// Plain outlines ([x, y] points only) keep the original prism; anything else (arcs,
+// curves, shapes, corner radii) goes through generators.js.
+const plainOutline = (points) =>
+  points === undefined ||
+  (Array.isArray(points) &&
+    points.every((p) => Array.isArray(p) && p.length === 2));
+
+// A profile (bottom to top, x = distance from the Y axis) turned about +Y in `count`
+// steps: quads between rows, fans at points on the axis, flat caps at open ends. A closed
+// profile (a ring section, counter-clockwise) joins its last row to its first instead.
+function latheRows(profile, count, material, { closed = false } = {}) {
+  const vertices = [],
+    faces = [];
+  const rows = profile.map(([r, y]) =>
+    Array.from({ length: r === 0 ? 1 : count }, (_, i) => {
+      const id = vertices.length,
+        angle = (2 * Math.PI * i) / count;
+      vertices.push([r * Math.cos(angle), y, r * Math.sin(angle)]);
+      return id;
+    }),
+  );
+  const spans = closed ? rows.length : rows.length - 1;
+  for (let j = 0; j < spans; j++)
+    for (let i = 0; i < count; i++) {
+      const a = rows[j],
+        b = rows[(j + 1) % rows.length],
+        next = (i + 1) % count;
+      if (a.length === 1 && b.length === 1)
+        fail("Consecutive points on the lathe axis form no surface");
+      faces.push(
+        a.length === 1
+          ? [a[0], b[i], b[next]]
+          : b.length === 1
+            ? [a[i], b[0], a[next]]
+            : [a[i], b[i], b[next], a[next]],
+      );
+    }
+  if (!closed) {
+    if (rows[0].length > 1) faces.push([...rows[0]]);
+    if (rows.at(-1).length > 1) faces.push([...rows.at(-1)].reverse());
+  }
+  return mesh(vertices, faces, material);
+}
+
+const signedArea = (pts) =>
+  pts.reduce((sum, a, i) => {
+    const b = pts[(i + 1) % pts.length];
+    return sum + a[0] * b[1] - b[0] * a[1];
+  }, 0) / 2;
+
+// A closed (r, y) section, counter-clockwise, turned fully (rows) or partly (kernel, capped).
+function turnSection(section, count, angle, material) {
+  if (signedArea(section) < 0) section = [...section].reverse();
+  if (angle >= 360) {
+    // Sections touching the axis open there: start and end on it, bottom to top.
+    const onAxis = section.map((p, i) => (p[0] === 0 ? i : -1)).filter((i) => i >= 0);
+    if (!onAxis.length) return latheRows(section, count, material, { closed: true });
+    const first = section.findIndex(
+      (p, i) => p[0] === 0 && section[(i + 1) % section.length][0] !== 0,
+    );
+    const open = [...section.slice(first), ...section.slice(0, first)];
+    const last = open.findIndex((p, i) => i > 0 && p[0] === 0);
+    return latheRows(open.slice(0, last + 1), count, material);
+  }
+  return revolveContours([section], count, angle, material, "angle");
+}
+
+function wholeNumber(value, min, max, path) {
+  const result = number(value, min, max, path);
+  if (!Number.isInteger(result)) fail(`${path} must be a whole number`, path);
+  return result;
+}
+
+// Round primitives (docs/workshop-agents.md "Shapes"). Options that existed before keep
+// their original meshes (and face IDs); new ones (radiusTop, angle, innerRadius, round,
+// latitude, axis, "auto" segments, torus, capsule) build the same kind of rows.
+function roundShape(kind, options, material) {
+  if (kind === "lathe") {
+    const { points, radii } = expandOutline(options.profile, {
+      path: "profile",
+      min: 2,
+      max: 64,
+      closed: false,
+    });
+    let profile = roundOutline(
+      points,
+      radii.map((r) => r ?? 0),
+      wholeNumber(options.roundSegments ?? 3, 1, 16, "roundSegments"),
+      { open: true },
+    );
+    profile = profile.map((p, i) => [
+      number(p[0], 0, 1000, `profile.${i}`),
+      number(p[1], -1000, 1000, `profile.${i}`),
+    ]);
+    if (profile.length > 1024) fail("The lathe profile exceeds 1024 points", "profile");
+    const count = segmentCount(options.segments, Math.max(...profile.map((p) => p[0])), 8);
+      if (
+        profile.some(
+          (p, i) =>
+            i &&
+            Math.hypot(p[0] - profile[i - 1][0], p[1] - profile[i - 1][1]) <
+              1e-8,
+        )
+      )
+        fail("Repeated lathe profile point");
+      const outline = [[0, profile[0][1]], ...profile, [0, profile.at(-1)[1]]];
+      const area = outline.reduce((sum, a, i) => {
+        const b = outline[(i + 1) % outline.length];
+        return sum + a[0] * b[1] - b[0] * a[1];
+      }, 0);
+      if (Math.abs(area) < 1e-10) fail("Lathe profile has zero volume");
+      if (area < 0) profile.reverse();
+      const turn = (a, b, c) =>
+        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+      for (let i = 0; i < profile.length - 1; i++)
+        for (let j = i + 2; j < profile.length - 1; j++) {
+          const [a, b, c, d] = [
+            profile[i],
+            profile[i + 1],
+            profile[j],
+            profile[j + 1],
+          ];
+          if (
+            turn(a, b, c) * turn(a, b, d) < -1e-12 &&
+            turn(c, d, a) * turn(c, d, b) < -1e-12
+          )
+            fail("Lathe profile intersects itself");
+        }
+    return latheRows(profile, count, material);
+  }
+  if (kind === "sphere") {
+    const radius = number(options.radius ?? 0.5, 0.001, 1000, "radius"),
+      count = segmentCount(options.segments, radius, 8),
+      rings =
+        options.rings === "auto"
+          ? Math.max(4, autoSegments(radius) / 2)
+          : segments(options.rings, 6),
+      angle = number(options.angle ?? 360, 1, 360, "angle"),
+      latitude = options.latitude ?? [-90, 90];
+    if (
+      !Array.isArray(latitude) ||
+      latitude.length !== 2 ||
+      latitude.some((v) => !Number.isFinite(v) || v < -90 || v > 90) ||
+      latitude[0] >= latitude[1]
+    )
+      fail("latitude is [from, to] in degrees, −90 ≤ from < to ≤ 90", "latitude");
+    const [from, to] = latitude;
+    if (angle === 360 && from === -90 && to === 90)
+      return latheRows(
+        Array.from({ length: rings + 1 }, (_, i) => [
+          i === 0 || i === rings ? 0 : radius * Math.sin((Math.PI * i) / rings),
+          -radius * Math.cos((Math.PI * i) / rings),
+        ]),
+        count,
+        material,
+      );
+    // Part of a sphere: flat where it is cut, as a dome, bowl or wedge.
+    const steps = Math.max(1, Math.round((rings * (to - from)) / 180)),
+      at = (deg) => (deg * Math.PI) / 180;
+    const meridian = Array.from({ length: steps + 1 }, (_, k) => {
+      const lat = from + ((to - from) * k) / steps;
+      return [Math.abs(lat) === 90 ? 0 : radius * Math.cos(at(lat)), radius * Math.sin(at(lat))];
+    });
+    const profile = [
+      ...(from > -90 ? [[0, radius * Math.sin(at(from))]] : []),
+      ...meridian,
+      ...(to < 90 ? [[0, radius * Math.sin(at(to))]] : []),
+    ];
+    return angle === 360
+      ? latheRows(profile, count, material)
+      : turnSection(profile, count, angle, material);
+  }
+  if (kind === "cylinder" || kind === "cone") {
+    const radius = number(options.radius ?? 0.5, 0.001, 1000, "radius"),
+      top =
+        options.radiusTop === undefined
+          ? kind === "cone"
+            ? 0
+            : radius
+          : number(options.radiusTop, 0, 1000, "radiusTop"),
+      h = number(options.height ?? 1, 0.001, 1000, "height") / 2,
+      count = segmentCount(options.segments, Math.max(radius, top), 8),
+      angle = number(options.angle ?? 360, 1, 360, "angle"),
+      inner =
+        options.innerRadius === undefined
+          ? 0
+          : number(options.innerRadius, 0, 1000, "innerRadius"),
+      round = number(options.round ?? 0, 0, 1000, "round"),
+      roundSegments = wholeNumber(options.roundSegments ?? 3, 1, 16, "roundSegments");
+    if (angle === 360 && !inner && !round)
+      return latheRows([[radius, -h], [top, h]], count, material);
+    let section, radii;
+    if (inner) {
+      // The bore runs parallel to the outside: the wall keeps its thickness.
+      const innerTop = inner + (top - radius);
+      if (inner >= radius || innerTop <= 0 || innerTop >= top)
+        fail("innerRadius must leave a wall at both ends (radiusTop − radius + innerRadius > 0)", "innerRadius");
+      section = [[inner, -h], [radius, -h], [top, h], [innerTop, h]];
+      radii = [round, round, round, round];
+    } else if (top > 0) {
+      section = [[0, -h], [radius, -h], [top, h], [0, h]];
+      radii = [0, round, round, 0];
+    } else {
+      section = [[0, -h], [radius, -h], [0, h]];
+      radii = [0, round, 0];
+    }
+    return turnSection(roundOutline(section, radii, roundSegments), count, angle, material);
+  }
+  if (kind === "capsule") {
+    const radius = number(options.radius ?? 0.25, 0.001, 1000, "radius"),
+      height = number(options.height ?? 1, 0.002, 1000, "height");
+    if (height < 2 * radius - 1e-9)
+      fail("A capsule is at least as tall as it is wide (height ≥ 2 × radius)", "height");
+    const count = segmentCount(options.segments ?? "auto", radius, 16),
+      caps =
+        options.rings === undefined || options.rings === "auto"
+          ? Math.max(2, autoSegments(radius) / 4)
+          : wholeNumber(options.rings, 1, 32, "rings"),
+      straight = height / 2 - radius,
+      profile = [[0, -height / 2]];
+    for (let k = 1; k <= caps; k++) {
+      const a = -Math.PI / 2 + ((Math.PI / 2) * k) / caps;
+      profile.push([radius * Math.cos(a), -straight + radius * Math.sin(a)]);
+    }
+    for (let k = straight > 1e-9 ? 0 : 1; k < caps; k++) {
+      const a = ((Math.PI / 2) * k) / caps;
+      profile.push([radius * Math.cos(a), straight + radius * Math.sin(a)]);
+    }
+    profile.push([0, height / 2]);
+    return latheRows(profile, count, material);
+  }
+  // Torus: a tube of radius `tube` around a ring of radius `radius` in the XZ plane.
+  // Partial rings start on +X and turn like a positive rotation about +Y, with flat ends.
+  const radius = number(options.radius ?? 0.4, 0.001, 1000, "radius"),
+    tube = number(options.tube ?? 0.1, 0.0005, 1000, "tube");
+  if (tube >= radius) fail("A torus tube must be thinner than its ring (tube < radius)", "tube");
+  const angle = number(options.angle ?? 360, 1, 360, "angle"),
+    around = segmentCount(options.segments ?? "auto", radius + tube, 24),
+    sides = segmentCount(options.tubeSegments ?? "auto", tube, 12, "tubeSegments"),
+    partial = angle < 360,
+    steps = partial ? Math.max(1, Math.round((around * angle) / 360)) : around;
+  const vertices = [],
+    faces = [];
+  for (let i = 0; i < (partial ? steps + 1 : steps); i++) {
+    const phi = ((angle * Math.PI) / 180) * (i / steps),
+      d = [Math.cos(phi), 0, -Math.sin(phi)];
+    for (let j = 0; j < sides; j++) {
+      const theta = (2 * Math.PI * j) / sides,
+        c = Math.cos(theta),
+        sn = Math.sin(theta);
+      vertices.push([d[0] * (radius + tube * c), tube * sn, d[2] * (radius + tube * c)]);
+    }
+  }
+  const v = (i, j) => (i % (partial ? steps + 1 : steps)) * sides + (j % sides);
+  for (let i = 0; i < steps; i++)
+    for (let j = 0; j < sides; j++)
+      faces.push([v(i, j), v(i + 1, j), v(i + 1, j + 1), v(i, j + 1)]);
+  if (partial) {
+    faces.push(Array.from({ length: sides }, (_, j) => v(0, j)));
+    faces.push(Array.from({ length: sides }, (_, j) => v(steps, sides - 1 - j)));
+  }
+  return mesh(vertices, faces, material);
+}
+
+// axis: "y" (default) keeps a round shape upright; "x" and "z" lay it along those axes.
+function orient(result, axis = "y") {
+  if (axis === "y") return result;
+  if (axis !== "x" && axis !== "z") fail('axis is "x", "y" or "z"', "axis");
+  result.vertices = result.vertices.map(([x, y, z]) =>
+    axis === "x" ? [y, -x, z] : [x, -z, y],
+  );
+  return result;
+}
+
 export function primitive(kind, options = {}, material = "yellow") {
   if (kind === "box") {
     const [x, y, z] = vector(options.size ?? [1, 1, 1]).map(
@@ -216,97 +532,15 @@ export function primitive(kind, options = {}, material = "yellow") {
     }
     return result;
   }
-  if (["sphere", "cylinder", "cone", "lathe"].includes(kind)) {
-    const count = segments(options.segments, 8);
-    let profile;
-    if (kind === "sphere") {
-      const rings = segments(options.rings, 6),
-        radius = number(options.radius ?? 0.5, 0.001, 1000);
-      profile = Array.from({ length: rings + 1 }, (_, i) => [
-        i === 0 || i === rings ? 0 : radius * Math.sin((Math.PI * i) / rings),
-        -radius * Math.cos((Math.PI * i) / rings),
-      ]);
-    } else if (kind === "lathe") {
-      profile = options.profile;
-      if (!Array.isArray(profile) || profile.length < 2 || profile.length > 64)
-        fail("Lathe needs 2–64 [radius, height] points");
-      profile = profile.map((p) => {
-        if (!Array.isArray(p) || p.length !== 2) fail("Invalid lathe point");
-        return [number(p[0], 0, 1000), number(p[1], -1000, 1000)];
-      });
-      if (
-        profile.some(
-          (p, i) =>
-            i &&
-            Math.hypot(p[0] - profile[i - 1][0], p[1] - profile[i - 1][1]) <
-              1e-8,
-        )
-      )
-        fail("Repeated lathe profile point");
-      const outline = [[0, profile[0][1]], ...profile, [0, profile.at(-1)[1]]];
-      const area = outline.reduce((sum, a, i) => {
-        const b = outline[(i + 1) % outline.length];
-        return sum + a[0] * b[1] - b[0] * a[1];
-      }, 0);
-      if (Math.abs(area) < 1e-10) fail("Lathe profile has zero volume");
-      if (area < 0) profile.reverse();
-      const turn = (a, b, c) =>
-        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-      for (let i = 0; i < profile.length - 1; i++)
-        for (let j = i + 2; j < profile.length - 1; j++) {
-          const [a, b, c, d] = [
-            profile[i],
-            profile[i + 1],
-            profile[j],
-            profile[j + 1],
-          ];
-          if (
-            turn(a, b, c) * turn(a, b, d) < -1e-12 &&
-            turn(c, d, a) * turn(c, d, b) < -1e-12
-          )
-            fail("Lathe profile intersects itself");
-        }
-    } else {
-      const radius = number(options.radius ?? 0.5, 0.001, 1000),
-        h = number(options.height ?? 1, 0.001, 1000) / 2;
-      profile = [
-        [radius, -h],
-        [kind === "cone" ? 0 : radius, h],
-      ];
-    }
-    const vertices = [],
-      faces = [];
-    const rows = profile.map(([r, y]) =>
-      Array.from({ length: r === 0 ? 1 : count }, (_, i) => {
-        const id = vertices.length,
-          angle = (2 * Math.PI * i) / count;
-        vertices.push([r * Math.cos(angle), y, r * Math.sin(angle)]);
-        return id;
-      }),
-    );
-    for (let j = 0; j < rows.length - 1; j++)
-      for (let i = 0; i < count; i++) {
-        const a = rows[j],
-          b = rows[j + 1],
-          next = (i + 1) % count;
-        if (a.length === 1 && b.length === 1)
-          fail("Consecutive points on the lathe axis form no surface");
-        faces.push(
-          a.length === 1
-            ? [a[0], b[i], b[next]]
-            : b.length === 1
-              ? [a[i], b[0], a[next]]
-              : [a[i], b[i], b[next], a[next]],
-        );
-      }
-    if (rows[0].length > 1) faces.push([...rows[0]]);
-    if (rows.at(-1).length > 1) faces.push([...rows.at(-1)].reverse());
-    return mesh(vertices, faces, material);
-  }
+  if (["sphere", "cylinder", "cone", "lathe", "torus", "capsule"].includes(kind))
+    return orient(roundShape(kind, options, material), options.axis);
   // Holes, rounded corners, revolved sections and sweeps: generators.js.
-  if (kind === "extrude" && (options.holes?.length || options.round))
+  if (
+    kind === "extrude" &&
+    (options.holes?.length || options.round || !plainOutline(options.points))
+  )
     return extrudeShape(options, material);
-  if (kind === "revolve") return revolveShape(options, material);
+  if (kind === "revolve") return orient(revolveShape(options, material), options.axis);
   if (kind === "sweep") return sweepShape(options, material);
   if (kind === "extrude") {
     const points = options.points ?? [

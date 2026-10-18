@@ -153,6 +153,39 @@ The add-shape dialog offers revolve and sweep (section in the profile editor, pa
 `x, y, z` lines) and a corner radius; holes are agent-only. The parts panel's **Array**
 control makes linked or independent copies of the selected part.
 
+### Round shapes, curves in outlines, smooth shading (2026-10-19)
+
+- **Cylinders and cones** take `radiusTop` (frustums; a cone is the case 0),
+  `innerRadius` (tubes, rings, washers; the bore runs parallel to the outside so the wall
+  keeps its thickness), `round` (rim radius, `roundSegments`) and `angle` (half pipes,
+  pie slices). **Spheres** take `latitude: [from, to]` (domes, bowls, flat where cut) and
+  `angle` (wedges). New kinds **torus** (`radius` of the centre line, `tube`,
+  `tubeSegments`, `angle` for elbows) and **capsule** (`radius`, total `height`,
+  `rings` per end). `axis: "x" | "z"` lays cylinders, cones, tori, capsules, lathes and
+  revolves along that axis.
+- Options that existed before rebuild exactly as before (fingerprinted in
+  `tests/editor-shapes.test.mjs`): saved projects, recipes and painted faces keep their
+  geometry and face IDs. New options build the same kinds of rows (quads between rings,
+  fans at the axis); partial angles go through the kernel, which caps the ends.
+- `segments`, `rings` and `tubeSegments` take `"auto"`: the chord stays within 2 mm of
+  the true curve, 8–64 in steps of four (`autoSegments` in `generators.js`). Tori,
+  capsules and curves in outlines default to it; older kinds keep their defaults (8, 6),
+  so projects without the option are unchanged. The dialog shows "auto" as an empty field.
+- **Outline items** (`expandOutline` in `generators.js`): points, `[x, y, r]` corners with
+  their own fillet radius, and segments continuing from the last point — `{ arc: { center,
+  angle } }`, `{ arc: { through, to } }`, `{ bezier: { controls, to } }` — or a whole shape
+  (`circle`, `ellipse`, `rect` with `round`, `polygon`). Paths take the 3D forms, with
+  `rise` for helices. Items are stored as written (a blueprint binds a radius, not a list
+  of sampled points) and sampled when the shape builds, up to 1024 points; the dialog
+  shows curves as JSON lines and corner radii as a third number.
+- **Smooth shading** is a part property, `smooth` (crease angle in degrees; `true` = 60):
+  `create`, `set` and the parts panel's checkbox set it, linked copies and mirrors follow
+  their source. Each face corner averages the normals of faces meeting at its point within
+  the crease (weighted by their angle there, matched by position so unwelded seams smooth
+  too); the viewport, observations, the software renderer and exported GLB normals all use
+  it. GLB import reads the file's normals: edges whose normals agree on both sides were
+  smooth, and the part gets a crease just above the sharpest of them (95th percentile).
+
 ## Project files and GLB import
 
 **Save project** (and Ctrl/Cmd+S) downloads a project file, `<name>.funmodel.glb`: the model

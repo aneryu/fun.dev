@@ -101,6 +101,9 @@ const lengthVectors = new Set([
   "pivot",
 ]);
 const lengthFields = [
+  "radius-top",
+  "inner-radius",
+  "tube",
   "extrude-distance",
   "inset-distance",
   "bevel-distance",
@@ -723,6 +726,13 @@ async function start() {
       !paintTargets().length || ["edge", "vertex"].includes(selection.mode);
     $("#node-name").value = n.name;
     $("#node-id").value = n.id;
+    {
+      const owner = p.nodes.find((o) => o.id === (n.symmetry?.source ?? n.instanceOf ?? n.id)) ?? n;
+      $("#smooth").checked = !!owner.smooth;
+      $("#smooth-angle").value = owner.smooth || 60;
+      $("#smooth-angle").disabled = !owner.smooth || !draft.writable;
+      $("#smooth").disabled = !draft.writable;
+    }
     const excluded = new Set([n.id]);
     for (let i = 0; i < p.nodes.length; i++)
       for (const other of p.nodes)
@@ -1774,21 +1784,28 @@ async function start() {
       )
       .join("\n");
   }
+  const ROUND_KINDS = ["sphere", "cylinder", "cone", "torus", "capsule"];
   function shapeFields(reset = false) {
     const kind = $("#kind").value;
     for (const [field, visible] of Object.entries({
       size: kind === "box",
-      radius: ["sphere", "cylinder", "cone"].includes(kind),
-      height: ["cylinder", "cone"].includes(kind),
-      rings: kind === "sphere",
-      segment: ["sphere", "cylinder", "cone", "lathe", "revolve"].includes(kind),
+      radius: ROUND_KINDS.includes(kind),
+      "radius-top": ["cylinder", "cone"].includes(kind),
+      "inner-radius": ["cylinder", "cone"].includes(kind),
+      tube: kind === "torus",
+      latitude: kind === "sphere",
+      axis: ["cylinder", "cone", "torus", "capsule", "lathe", "revolve"].includes(kind),
+      height: ["cylinder", "cone", "capsule"].includes(kind),
+      rings: ["sphere", "capsule"].includes(kind),
+      segment: [...ROUND_KINDS, "lathe", "revolve"].includes(kind),
       outline: ["extrude", "lathe", "revolve", "sweep"].includes(kind),
       depth: kind === "extrude",
-      round: ["extrude", "revolve", "sweep"].includes(kind),
-      angle: kind === "revolve",
+      round: ["extrude", "revolve", "sweep", "cylinder", "cone"].includes(kind),
+      angle: ["revolve", "cylinder", "cone", "sphere", "torus"].includes(kind),
       path: kind === "sweep",
     }))
       $("#" + field + "-field").hidden = !visible;
+    $('label[for="radius"]').textContent = t(kind === "torus" ? "edRingRadius" : "edRadius");
     $("#cup-profile").hidden = kind !== "lathe";
     $("#outline-hint").textContent = t(
       {
@@ -1808,6 +1825,24 @@ async function start() {
       );
       $("#round").value = kind === "sweep" ? 0.03 / unitFactor() : 0;
       $("#angle").value = 360;
+      // Tori and capsules start with "auto" segments (empty fields); the rest as before.
+      const auto = ["torus", "capsule"].includes(kind);
+      $("#segments").value = auto ? "" : 8;
+      $("#rings").value = auto ? "" : 6;
+      $("#tube-segments").value = "";
+      $("#radius-top").value = kind === "cone" ? 0 : "";
+      $("#inner-radius").value = 0;
+      $("#latitude-start").value = -90;
+      $("#latitude-end").value = 90;
+      $("#shape-axis").value = "y";
+      if (kind === "torus") {
+        $("#radius").value = 0.4 / unitFactor();
+        $("#tube").value = 0.1 / unitFactor();
+      }
+      if (kind === "capsule") {
+        $("#radius").value = 0.25 / unitFactor();
+        $("#height").value = 1 / unitFactor();
+      }
       $("#path-smooth").checked = true;
       $("#path").value = scalePath(
         "0, 0, 0\n0, 0.8, 0\n0.5, 1.2, 0\n1.2, 1.2, 0",
@@ -1816,6 +1851,50 @@ async function start() {
     }
     if (["lathe", "extrude", "revolve", "sweep"].includes(kind)) profile.draw();
   }
+  // Outline and path text: one point per line (x, y[, corner radius] or x, y, z), or a
+  // line of JSON for an arc, a curve, or (alone) a whole shape. Lengths follow the length
+  // unit; angles, segment counts and sides do not.
+  function scaleItem(value, factor, key = "") {
+    if (typeof value === "number")
+      return ["angle", "segments", "sides"].includes(key) ? value : value * factor;
+    if (Array.isArray(value)) return value.map((v) => scaleItem(v, factor, key));
+    if (value && typeof value === "object")
+      return Object.fromEntries(
+        Object.entries(value).map(([k, v]) => [k, scaleItem(v, factor, k)]),
+      );
+    return value;
+  }
+  function parseItems(text) {
+    const lines = text
+      .trim()
+      .split(/\n+/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const json = (line) => scaleItem(JSON.parse(line), unitFactor());
+    if (lines.length === 1 && lines[0].startsWith("{")) {
+      const item = json(lines[0]);
+      if (!item.arc && !item.bezier) return item;
+    }
+    return lines.map((line) =>
+      line.startsWith("{")
+        ? json(line)
+        : line.split(/[,\s]+/).map((n) => Number(n) * unitFactor()),
+    );
+  }
+  function formatItems(value) {
+    const show = (v) => Number((v / unitFactor()).toPrecision(12));
+    if (value && !Array.isArray(value))
+      return JSON.stringify(scaleItem(value, 1 / unitFactor()));
+    return (value ?? [])
+      .map((p) =>
+        Array.isArray(p)
+          ? p.map(show).join(", ")
+          : JSON.stringify(scaleItem(p, 1 / unitFactor())),
+      )
+      .join("\n");
+  }
+  // An empty segment field means "auto": the count follows the shape's size.
+  const countValue = (id) => ($("#" + id).value === "" ? "auto" : Number($("#" + id).value));
   function shapeOptions() {
     const kind = $("#kind").value,
       opts = {};
@@ -1823,38 +1902,46 @@ async function start() {
       opts.size = vectorValue("primitiveSize");
       opts.bevel = distanceValue("box-bevel");
     }
-    if (["sphere", "cylinder", "cone"].includes(kind))
-      opts.radius = distanceValue("radius");
-    if (["cylinder", "cone"].includes(kind))
+    if (ROUND_KINDS.includes(kind)) opts.radius = distanceValue("radius");
+    if (["cylinder", "cone", "capsule"].includes(kind))
       opts.height = distanceValue("height");
-    if (kind === "sphere") opts.rings = Number($("#rings").value);
-    if (["sphere", "cylinder", "cone", "lathe", "revolve"].includes(kind))
-      opts.segments = Number($("#segments").value);
+    // New options only when set, so older shapes keep exactly their options.
+    if (["cylinder", "cone"].includes(kind)) {
+      if ($("#radius-top").value !== "") opts.radiusTop = distanceValue("radius-top");
+      if (distanceValue("inner-radius") > 0)
+        opts.innerRadius = distanceValue("inner-radius");
+      if (distanceValue("round") > 0) opts.round = distanceValue("round");
+    }
+    if (kind === "torus") {
+      opts.tube = distanceValue("tube");
+      opts.tubeSegments = countValue("tube-segments");
+    }
+    if (kind === "sphere") {
+      const latitude = [Number($("#latitude-start").value), Number($("#latitude-end").value)];
+      if (latitude[0] !== -90 || latitude[1] !== 90) opts.latitude = latitude;
+    }
+    if (["sphere", "capsule"].includes(kind)) opts.rings = countValue("rings");
+    if ([...ROUND_KINDS, "lathe", "revolve"].includes(kind))
+      opts.segments = countValue("segments");
+    if (
+      ["cylinder", "cone", "torus", "capsule", "lathe", "revolve"].includes(kind) &&
+      $("#shape-axis").value !== "y"
+    )
+      opts.axis = $("#shape-axis").value;
     if (["lathe", "extrude", "revolve", "sweep"].includes(kind))
-      opts[kind === "extrude" ? "points" : "profile"] = $("#outline")
-        .value.trim()
-        .split(/\n+/)
-        .map((line) =>
-          line
-            .trim()
-            .split(/[,\s]+/)
-            .map((n) => Number(n) * unitFactor()),
-        );
+      opts[kind === "extrude" ? "points" : "profile"] = parseItems($("#outline").value);
     if (kind === "extrude") opts.depth = distanceValue("depth");
     // A zero radius keeps plain outlines (and their face IDs) unchanged.
     if (["extrude", "revolve", "sweep"].includes(kind))
       opts.round = distanceValue("round");
     if (kind === "revolve") opts.angle = Number($("#angle").value);
+    else if (
+      ["cylinder", "cone", "sphere", "torus"].includes(kind) &&
+      Number($("#angle").value) !== 360
+    )
+      opts.angle = Number($("#angle").value);
     if (kind === "sweep") {
-      opts.path = $("#path")
-        .value.trim()
-        .split(/\n+/)
-        .map((line) =>
-          line
-            .trim()
-            .split(/[,\s]+/)
-            .map((n) => Number(n) * unitFactor()),
-        );
+      opts.path = parseItems($("#path").value);
       opts.smooth = $("#path-smooth").checked;
     }
     return { kind, opts };
@@ -2006,28 +2093,28 @@ async function start() {
         o = g.options;
       $("#kind").value = g.kind;
       setVector("primitiveSize", o.size ?? [1, 1, 1]);
+      const auto = ["torus", "capsule"].includes(g.kind);
       for (const [id, value] of Object.entries({
-        radius: o.radius ?? 0.5,
+        radius: o.radius ?? (g.kind === "torus" ? 0.4 : g.kind === "capsule" ? 0.25 : 0.5),
         height: o.height ?? 1,
-        rings: o.rings ?? 6,
-        segments: o.segments ?? 8,
+        rings: o.rings === "auto" || (auto && o.rings === undefined) ? "" : (o.rings ?? 6),
+        segments: o.segments === "auto" || (auto && o.segments === undefined) ? "" : (o.segments ?? 8),
+        "tube-segments": o.tubeSegments === undefined || o.tubeSegments === "auto" ? "" : o.tubeSegments,
         "box-bevel": o.bevel ?? 0,
         depth: o.depth ?? 0.5,
         round: o.round ?? 0,
         angle: o.angle ?? 360,
+        "radius-top": o.radiusTop ?? (g.kind === "cone" ? 0 : ""),
+        "inner-radius": o.innerRadius ?? 0,
+        tube: o.tube ?? 0.1,
+        "latitude-start": o.latitude?.[0] ?? -90,
+        "latitude-end": o.latitude?.[1] ?? 90,
       }))
         $("#" + id).value =
-          value / (lengthFields.includes(id) ? unitFactor() : 1);
-      $("#outline").value = (o.profile ?? o.points ?? [])
-        .map((p) =>
-          p.map((v) => Number((v / unitFactor()).toPrecision(12))).join(", "),
-        )
-        .join("\n");
-      $("#path").value = (o.path ?? [])
-        .map((p) =>
-          p.map((v) => Number((v / unitFactor()).toPrecision(12))).join(", "),
-        )
-        .join("\n");
+          value === "" ? "" : value / (lengthFields.includes(id) ? unitFactor() : 1);
+      $("#shape-axis").value = o.axis ?? "y";
+      $("#outline").value = formatItems(o.profile ?? o.points ?? []);
+      $("#path").value = formatItems(o.path ?? []);
       $("#path-smooth").checked = o.smooth === true;
     } else {
       setVector("primitiveSize", [1, 1, 1]);
@@ -2040,6 +2127,25 @@ async function start() {
     profile.reset();
     scheduleShapePreview();
   }
+  // Smooth shading of the selected parts; linked copies and mirrors follow their source.
+  function applySmoothing() {
+    const p = store.snapshot(),
+      angle = $("#smooth").checked ? Number($("#smooth-angle").value) || 60 : false,
+      owners = [
+        ...new Set(
+          (selection.ids.length ? selection.ids : [selection.id])
+            .map((id) => p.nodes.find((n) => n.id === id))
+            .filter((n) => n?.mesh)
+            .map((n) => n.symmetry?.source ?? n.instanceOf ?? n.id),
+        ),
+      ];
+    if (owners.length)
+      act(() => store.apply(owners.map((id) => ({ op: "set", id, smooth: angle }))));
+  }
+  $("#smooth").onchange = applySmoothing;
+  $("#smooth-angle").onchange = () => {
+    if ($("#smooth").checked) applySmoothing();
+  };
   $("#add").onclick = () => shapeDialog();
   $("#parameters").onclick = () => shapeDialog(true);
   $("#kind").onchange = () => shapeFields(true);

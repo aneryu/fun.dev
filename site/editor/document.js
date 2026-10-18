@@ -138,6 +138,13 @@ export function emptyProject(name = "Untitled") {
   };
 }
 
+// Smooth shading of a part: the crease angle in degrees (edges sharper than it stay hard),
+// true for 60°; false, 0 or nothing for flat faces.
+export function smoothAngle(value, path = "smooth") {
+  if (value === undefined || value === null || value === false || value === 0) return 0;
+  if (value === true) return 60;
+  return number(value, 0, 180, path);
+}
 export function normalizeProject(input) {
   if (!input || input.format !== FORMAT || input.version !== VERSION)
     fail("Unsupported project format/version", "version");
@@ -170,6 +177,8 @@ export function normalizeProject(input) {
       scale: vector(node.scale ?? [1, 1, 1], "scale"),
       mesh: null,
     };
+    const smooth = smoothAngle(node.smooth, `nodes.${node.id}.smooth`);
+    if (smooth) result.smooth = smooth;
     if (result.scale.some((v) => v < 0.001 || v > 1000))
       fail(
         "Scale must be positive, from 0.001 to 1000; use mirror for reflection",
@@ -187,6 +196,8 @@ export function normalizeProject(input) {
           "extrude",
           "revolve",
           "sweep",
+          "torus",
+          "capsule",
         ].includes(g.kind)
       )
         fail("Unknown generator kind");
@@ -1020,11 +1031,15 @@ function selectionTransform(project, command) {
 }
 function synchronize(project) {
   for (const node of project.nodes.filter((n) => n.instanceOf)) {
-    node.mesh = copy(project.nodes.find((n) => n.id === node.instanceOf).mesh);
+    const source = project.nodes.find((n) => n.id === node.instanceOf);
+    node.mesh = copy(source.mesh);
     if (node.mesh && node.instanceBasis)
       transformMesh(node.mesh, node.instanceBasis);
     delete node.generator;
     delete node.recipe;
+    // Linked copies share the source's look: its smoothing too.
+    if (source.smooth) node.smooth = source.smooth;
+    else delete node.smooth;
   }
   const pending = project.nodes.filter((n) => n.symmetry),
     done = new Set();
@@ -1041,6 +1056,8 @@ function synchronize(project) {
         node.mesh = copy(source.mesh);
         delete node.generator;
         delete node.recipe;
+        if (source.smooth) node.smooth = source.smooth;
+        else delete node.smooth;
         const flip = reflection(s.axis),
           reference = multiply(
             worldMatrix(project, s.reference),
@@ -1295,6 +1312,9 @@ function run(project, command) {
             : primitive(kind, options, material),
       ...(!["group", "mesh"].includes(kind)
         ? { generator: { kind, options: copy(options), material } }
+        : {}),
+      ...(smoothAngle(command.smooth) && kind !== "group"
+        ? { smooth: smoothAngle(command.smooth) }
         : {}),
     });
     return;
@@ -1619,6 +1639,11 @@ function run(project, command) {
       }
       for (const key of ["name", "position", "rotation", "scale"])
         if (command[key] !== undefined) node[key] = copy(command[key]);
+      if (command.smooth !== undefined) {
+        const angle = smoothAngle(command.smooth);
+        if (angle) node.smooth = angle;
+        else delete node.smooth;
+      }
       break;
     }
     case "delete": {

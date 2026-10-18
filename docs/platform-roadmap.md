@@ -117,7 +117,8 @@ previews anywhere and edits in the workshop. Libraries: manifold-3d (solids), la
    reference images, an agent runtime package that needs no repository, limits of 50,000
    triangles and 512 parts.
 2. **Organic shapes and large models** (food, plants, rocks, terrain, whole buildings): binary
-   mesh storage and incremental history, smooth shading and subdivision, procedural shaping
+   mesh storage and incremental history, subdivision (smooth shading came early, with
+   round shapes and curves in outlines, 2026-10-19), procedural shaping
    (displace, inflate, smooth, soft selection, voxel remesh, decimate), scatter and
    instancing, scene assembly from library models.
 3. **UVs, textures and baking**: corner attributes (two UV sets, vertex colours), unwrapping

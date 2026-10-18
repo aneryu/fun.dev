@@ -42,16 +42,224 @@ const flag = (value, fallback, path) => {
   return value;
 };
 
-// Fillets every corner of a closed outline: the arc is tangent to both edges and each
+// Segments for a full circle of this radius: the chord stays within 2 mm of the true
+// circle, in steps of four (so quarters meet the axes), 8 to 64.
+export function autoSegments(radius) {
+  const tolerance = 0.002;
+  if (!(radius > tolerance / 2)) return 8;
+  const n = Math.PI / Math.acos(Math.max(-1, 1 - tolerance / radius));
+  return Math.min(64, Math.max(8, Math.ceil(n / 4) * 4));
+}
+// A segment count: an integer, or "auto" for the radius at hand.
+export function segmentCount(value, radius, fallback, path = "segments", min = 3) {
+  if (value === "auto") return Math.max(min, autoSegments(radius));
+  return count(value ?? fallback, min, 64, path);
+}
+// Arc samples for `angle` radians of a circle of this radius.
+const arcSteps = (radius, angle, value, path) =>
+  value === undefined || value === "auto"
+    ? Math.max(1, Math.ceil((Math.abs(angle) / (2 * Math.PI)) * autoSegments(radius)))
+    : count(value, 1, 64, path);
+
+const pair = (value, path) => {
+  if (!Array.isArray(value) || value.length !== 2)
+    fail("Expected [x, y]", path);
+  return value.map((v) => number(v, -1000, 1000, path));
+};
+const triple = (value, path) => {
+  if (!Array.isArray(value) || value.length !== 3)
+    fail("Expected [x, y, z]", path);
+  return value.map((v) => number(v, -1000, 1000, path));
+};
+
+// Circle through three points (2D or 3D): centre, radius and the plane's unit normal.
+function circleThrough(a, b, c, path) {
+  const [p, q, r] = [a, b, c].map((v) => (v.length === 2 ? [...v, 0] : v));
+  const ab = sub(q, p),
+    ac = sub(r, p),
+    n = cross(ab, ac),
+    nn = dot(n, n);
+  if (nn < 1e-18) fail("An arc's three points lie on a line", path);
+  const centre = add(
+    p,
+    mul(
+      add(mul(cross(n, ab), dot(ac, ac)), mul(cross(ac, n), dot(ab, ab))),
+      1 / (2 * nn),
+    ),
+  );
+  return { centre, radius: Math.hypot(...sub(p, centre)), normal: mul(n, 1 / Math.sqrt(nn)) };
+}
+// Rotates v about a unit axis through `centre` (Rodrigues).
+function turn(v, centre, axis, angle) {
+  return add(centre, rotate(sub(v, centre), axis, angle));
+}
+function bezierPoints(from, controls, to, steps) {
+  const points = [from, ...controls, to],
+    out = [];
+  for (let k = 1; k <= steps; k++) {
+    const t = k / steps;
+    let level = points;
+    while (level.length > 1)
+      level = level.slice(1).map((p, i) => add(mul(level[i], 1 - t), mul(p, t)));
+    out.push(level[0]);
+  }
+  return out;
+}
+
+// Outlines and paths (docs/workshop-agents.md "Outlines and paths"). A list of points
+// ([x, y], or [x, y, r] with its own corner radius) and segments that continue from the
+// last point: { arc: { center, angle } } turns about a centre (degrees, + counter-clockwise;
+// in 3D about `axis`, with `rise` along it for a helix), { arc: { through, to } } passes
+// three points, { bezier: { controls, to } } is a quadratic or cubic curve. A whole 2D
+// outline may be one shape instead: { circle }, { ellipse }, { rect }, { polygon }.
+// Returns { points, radii } with radii per point (generated curve points have none).
+export function expandOutline(value, { path, dims = 2, min = 3, max = 64, closed = true } = {}) {
+  if (value && !Array.isArray(value) && typeof value === "object") {
+    if (dims !== 2) fail(`${path} takes points and segments`, path);
+    return shapeOutline(value, path);
+  }
+  if (!Array.isArray(value) || value.length < (min === 2 ? 2 : 1) || value.length > max)
+    fail(`${path} needs up to ${max} points and segments`, path);
+  const points = [],
+    radii = [];
+  const point = dims === 2 ? pair : triple;
+  value.forEach((item, i) => {
+    const at = `${path}.${i}`;
+    if (Array.isArray(item)) {
+      if (item.length === dims + 1) {
+        points.push(point(item.slice(0, dims), at));
+        radii.push(number(item[dims], 0, 1000, at));
+      } else {
+        points.push(point(item, at));
+        radii.push(undefined);
+      }
+      return;
+    }
+    if (!points.length) fail(`${path} starts with a point`, at);
+    const last = dims === 2 ? [...points.at(-1), 0] : points.at(-1);
+    const keep = (v) => (dims === 2 ? [v[0], v[1]] : v);
+    let made = [];
+    if (item?.arc && item.arc.center !== undefined) {
+      const centre = dims === 2 ? [...pair(item.arc.center, `${at}.arc.center`), 0] : triple(item.arc.center, `${at}.arc.center`);
+      const axisValue = dims === 2 ? [0, 0, 1] : triple(item.arc.axis ?? [0, 1, 0], `${at}.arc.axis`);
+      const axis = mul(axisValue, 1 / (Math.hypot(...axisValue) || fail("An arc axis needs a length", `${at}.arc.axis`)));
+      const angle = (number(item.arc.angle, -3600, 3600, `${at}.arc.angle`) * Math.PI) / 180;
+      const rise = dims === 3 ? number(item.arc.rise ?? 0, -1000, 1000, `${at}.arc.rise`) : 0;
+      const offset = sub(last, centre),
+        radius = Math.hypot(...sub(offset, mul(axis, dot(offset, axis))));
+      if (radius < 1e-9) fail("An arc starts at its own centre", at);
+      const steps = arcSteps(radius, angle, item.arc.segments, `${at}.arc.segments`);
+      for (let k = 1; k <= steps; k++)
+        made.push(add(turn(last, centre, axis, (angle * k) / steps), mul(axis, (rise * k) / steps)));
+    } else if (item?.arc && item.arc.through !== undefined) {
+      const through = dims === 2 ? [...pair(item.arc.through, `${at}.arc.through`), 0] : triple(item.arc.through, `${at}.arc.through`),
+        to = dims === 2 ? [...pair(item.arc.to, `${at}.arc.to`), 0] : triple(item.arc.to, `${at}.arc.to`);
+      const { centre, radius, normal } = circleThrough(last, through, to, at);
+      // The arc runs from the last point past `through` to `to`, about the plane's normal.
+      const angleOf = (v) => {
+        const a = sub(last, centre),
+          b = sub(v, centre);
+        let t = Math.atan2(dot(cross(a, b), normal), dot(a, b));
+        if (t < 0) t += 2 * Math.PI;
+        return t;
+      };
+      const total = angleOf(to);
+      const steps = arcSteps(radius, total, item.arc.segments, `${at}.arc.segments`);
+      for (let k = 1; k < steps; k++) made.push(turn(last, centre, normal, (total * k) / steps));
+      made.push(to);
+    } else if (item?.bezier) {
+      const controls = item.bezier.controls;
+      if (!Array.isArray(controls) || controls.length < 1 || controls.length > 2)
+        fail("A bezier has one or two control points", `${at}.bezier.controls`);
+      const c = controls.map((v, k) => (dims === 2 ? [...pair(v, `${at}.bezier.controls.${k}`), 0] : triple(v, `${at}.bezier.controls.${k}`)));
+      const to = dims === 2 ? [...pair(item.bezier.to, `${at}.bezier.to`), 0] : triple(item.bezier.to, `${at}.bezier.to`);
+      const steps = item.bezier.segments === undefined || item.bezier.segments === "auto" ? 12 : count(item.bezier.segments, 1, 64, `${at}.bezier.segments`);
+      made = bezierPoints(last, c, to, steps);
+    } else fail("Expected a point, { arc } or { bezier }", at);
+    for (const v of made) {
+      points.push(keep(v));
+      radii.push(0);
+    }
+  });
+  // Drop repeats, and the closing point of a closed outline.
+  const same = (a, b) => Math.hypot(...sub(a, b)) < 1e-9;
+  const outP = [],
+    outR = [];
+  points.forEach((p, i) => {
+    if (outP.length && same(outP.at(-1), p)) {
+      if (radii[i] !== undefined && radii[i] !== 0) outR[outR.length - 1] = radii[i];
+      return;
+    }
+    outP.push(p);
+    outR.push(radii[i]);
+  });
+  if (closed && outP.length > 1 && same(outP[0], outP.at(-1))) {
+    outP.pop();
+    outR.pop();
+  }
+  if (outP.length < min) fail(`${path} needs at least ${min} distinct points`, path);
+  if (outP.length > 1024) fail(`${path} exceeds 1024 points once curves are sampled`, path);
+  return { points: outP, radii: outR };
+}
+
+// A whole outline as one shape, counter-clockwise.
+function shapeOutline(value, path) {
+  const centreOf = (spec) => (spec.center === undefined ? [0, 0] : pair(spec.center, `${path}.center`));
+  if (value.circle !== undefined) {
+    const spec = typeof value.circle === "number" ? { radius: value.circle } : value.circle;
+    const r = number(spec.radius, 0.0001, 1000, `${path}.circle.radius`),
+      c = centreOf(spec),
+      n = segmentCount(spec.segments ?? "auto", r, 16, `${path}.circle.segments`);
+    const points = Array.from({ length: n }, (_, i) => [c[0] + r * Math.cos((2 * Math.PI * i) / n), c[1] + r * Math.sin((2 * Math.PI * i) / n)]);
+    return { points, radii: points.map(() => 0) };
+  }
+  if (value.ellipse !== undefined) {
+    const spec = Array.isArray(value.ellipse) ? { radii: value.ellipse } : value.ellipse;
+    const [rx, ry] = pair(spec.radii, `${path}.ellipse.radii`).map((v) => number(v, 0.0001, 1000, `${path}.ellipse.radii`)),
+      c = centreOf(spec),
+      n = segmentCount(spec.segments ?? "auto", Math.max(rx, ry), 16, `${path}.ellipse.segments`);
+    const points = Array.from({ length: n }, (_, i) => [c[0] + rx * Math.cos((2 * Math.PI * i) / n), c[1] + ry * Math.sin((2 * Math.PI * i) / n)]);
+    return { points, radii: points.map(() => 0) };
+  }
+  if (value.rect !== undefined) {
+    const spec = Array.isArray(value.rect) ? { size: value.rect } : value.rect;
+    const [w, h] = pair(spec.size, `${path}.rect.size`).map((v) => number(v, 0.0001, 1000, `${path}.rect.size`) / 2),
+      c = centreOf(spec),
+      r = number(spec.round ?? 0, 0, 1000, `${path}.rect.round`);
+    const points = [[c[0] - w, c[1] - h], [c[0] + w, c[1] - h], [c[0] + w, c[1] + h], [c[0] - w, c[1] + h]];
+    return { points, radii: points.map(() => r) };
+  }
+  if (value.polygon !== undefined) {
+    const spec = value.polygon;
+    const sides = count(spec.sides, 3, 64, `${path}.polygon.sides`),
+      r = number(spec.radius, 0.0001, 1000, `${path}.polygon.radius`),
+      c = centreOf(spec);
+    // A corner points up (+y): triangles stand on a side, hexagons have flat sides left and right.
+    const points = Array.from({ length: sides }, (_, i) => {
+      const a = Math.PI / 2 + (2 * Math.PI * i) / sides;
+      return [c[0] + r * Math.cos(a), c[1] + r * Math.sin(a)];
+    });
+    return { points, radii: points.map(() => number(spec.round ?? 0, 0, 1000, `${path}.polygon.round`)) };
+  }
+  fail("Expected points, or { circle }, { ellipse }, { rect } or { polygon }", path);
+}
+
+// Fillets the corners of a closed outline: the arc is tangent to both edges and each
 // corner uses at most half of its neighbouring edges, so fillets never overlap. Concave
-// corners fill in, convex corners cut off.
-export function roundOutline(points, radius, segments) {
-  if (!radius) return points;
+// corners fill in, convex corners cut off. `radius` is one radius for every corner or a
+// list per point (0 or undefined: keep the corner).
+export function roundOutline(points, radius, segments, { open = false } = {}) {
+  const radiusAt = (i) => (Array.isArray(radius) ? radius[i] ?? 0 : radius);
+  if (!points.some((_, i) => radiusAt(i) > 0)) return points;
   const n = points.length,
     out = [];
   for (let i = 0; i < n; i++) {
-    const p = points[i],
-      a = points[(i + n - 1) % n],
+    const p = points[i];
+    if (!(radiusAt(i) > 0) || (open && (i === 0 || i === n - 1))) {
+      out.push(p);
+      continue;
+    }
+    const a = points[(i + n - 1) % n],
       b = points[(i + 1) % n],
       la = Math.hypot(a[0] - p[0], a[1] - p[1]),
       lb = Math.hypot(b[0] - p[0], b[1] - p[1]);
@@ -64,7 +272,7 @@ export function roundOutline(points, radius, segments) {
       continue;
     }
     const half = theta / 2,
-      t = Math.min(radius / Math.tan(half), la / 2, lb / 2),
+      t = Math.min(radiusAt(i) / Math.tan(half), la / 2, lb / 2),
       r = t * Math.tan(half),
       bisector = [u[0] + v[0], u[1] + v[1]],
       length = Math.hypot(...bisector),
@@ -96,21 +304,24 @@ function rounding(options) {
     segments: count(options.roundSegments ?? 3, 1, 16, "roundSegments"),
   };
 }
-function section(options, field, { minX } = {}) {
-  const { radius, segments } = rounding(options);
-  const outline = roundOutline(
-    points2(options[field], 3, 64, field),
-    radius,
+// A closed contour: outline items expanded, corners rounded by their own radius or `round`.
+export function contour(value, path, radius, segments) {
+  const { points, radii } = expandOutline(value, { path });
+  return roundOutline(
+    points,
+    radii.map((r) => r ?? radius),
     segments,
   );
+}
+function section(options, field, { minX } = {}) {
+  const { radius, segments } = rounding(options);
+  const outline = contour(options[field], field, radius, segments);
   const holes = options.holes ?? [];
   if (!Array.isArray(holes) || holes.length > 32)
     fail("holes needs up to 32 outlines", "holes");
   const contours = [
     outline,
-    ...holes.map((h, i) =>
-      roundOutline(points2(h, 3, 64, `holes.${i}`), radius, segments),
-    ),
+    ...holes.map((h, i) => contour(h, `holes.${i}`, radius, segments)),
   ];
   if (minX !== undefined && contours.flat().some(([x]) => x < minX - 1e-9))
     fail(
@@ -231,9 +442,14 @@ export function extrudeShape(options, material) {
 // angles start on +X, turn like a positive rotation about +Y and get end caps.
 export function revolveShape(options, material) {
   const contours = section(options, "profile", { minX: 0 });
-  const segments = count(options.segments ?? 12, 3, 64, "segments"),
+  const radius = Math.max(...contours.flat().map(([x]) => x)),
+    segments = segmentCount(options.segments, radius, 12),
     angle = number(options.angle ?? 360, 1, 360, "angle");
-  const shape = crossSection(contours, "profile");
+  return revolveContours(contours, segments, angle, material, "profile");
+}
+// Closed (x ≥ 0, y) contours turned about +Y by the kernel; partial angles get end caps.
+export function revolveContours(contours, segments, angle, material, path = "profile") {
+  const shape = crossSection(contours, path);
   // segments count a full circle, as for cylinders and lathes; the kernel counts the arc.
   const arc = angle >= 360 ? segments : Math.max(3, Math.round((segments * angle) / 360));
   // The kernel revolves around its Y axis and returns that axis as Z: turn Z back to Y.
@@ -302,19 +518,15 @@ function rotate(v, axis, angle) {
 // a level path keeps up = +Y.
 export function sweepShape(options, material) {
   const { radius, segments } = rounding(options);
-  let profile = roundOutline(
-    points2(options.profile, 3, 64, "profile"),
-    radius,
-    segments,
-  );
+  let profile = contour(options.profile, "profile", radius, segments);
   if (profile.length > 64)
-    fail("The rounded profile exceeds 64 points; lower roundSegments", "round");
+    fail("The profile exceeds 64 points once rounded and sampled; lower roundSegments or segments", "profile");
   if (area(profile) < 0) profile = [...profile].reverse();
   const closed = flag(options.closed, false, "closed"),
     caps = flag(options.caps, true, "caps") && !closed,
     smooth = flag(options.smooth, false, "smooth"),
     per = count(options.pathSegments ?? 6, 1, 32, "pathSegments");
-  let path = points3(options.path, 2, 256, "path");
+  let path = expandOutline(options.path, { path: "path", dims: 3, min: 2, max: 256, closed: false }).points;
   if (closed && path.length < 3) fail("A closed path needs 3 points", "path");
   if (smooth && path.length > 2) path = catmullRom(path, closed, per);
   path = path.filter(

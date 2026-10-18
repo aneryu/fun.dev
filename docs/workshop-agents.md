@@ -69,19 +69,61 @@ export default async function (ws) {
   (metalness 1) reflects its surroundings: the workshop and library show a sky, but a
   game without an environment shows it almost black. Library metals mostly use 0.55.
 
-## Shapes: `{ op: "create", id, kind, parent?, material?, position?, rotation?, scale?, options }`
+## Shapes: `{ op: "create", id, kind, parent?, material?, position?, rotation?, scale?, options, smooth? }`
 
 | kind | options |
 | --- | --- |
 | box | `size:[x,y,z]`, `bevel?`, `bevelSegments?` (rounded) |
-| sphere | `radius`, `segments`, `rings` |
-| cylinder, cone | `radius`, `height`, `segments` (along local Y) |
-| lathe | `profile:[[r,y]…]` from the axis back to the axis, `segments` (around Y) |
-| extrude | `points:[[x,y]…]` outline in local XY (may be concave), `depth` (centred on Z), `holes?`, `round?`, `roundSegments?` |
-| revolve | `profile:[[x,y]…]` closed section with x ≥ 0, `angle` (degrees), `segments` |
-| sweep | `profile:[[x,y]…]` closed section, `path:[[x,y,z]…]`, `smooth?`, `pathSegments?`, `caps?` |
+| sphere | `radius`, `segments`, `rings`; `latitude:[from,to]?` degrees (−90…90: `[0,90]` a dome, `[-90,0]` a bowl), `angle?` (a wedge) |
+| cylinder, cone | `radius`, `height`, `segments`; `radiusTop?` (a frustum; a cone's is 0), `innerRadius?` (a tube; the bore runs parallel to the outside), `round?` (rim radius), `roundSegments?`, `angle?` |
+| torus | `radius` (ring centre line), `tube` (tube radius), `segments`, `tubeSegments`, `angle?` (an elbow) |
+| capsule | `radius`, `height` (total, ≥ 2 × radius), `segments`, `rings` (per end) |
+| lathe | `profile` from the axis back to the axis as `[r,y]` items (outline items below), `segments` (around Y) |
+| extrude | `points` outline in local XY (may be concave), `depth` (centred on Z), `holes?`, `round?`, `roundSegments?` |
+| revolve | `profile` closed section with x ≥ 0, `angle` (degrees), `segments` |
+| sweep | `profile` closed section, `path` (3D items), `smooth?`, `pathSegments?`, `caps?` |
 | mesh | top-level `mesh: { vertices, faces:[{ id, vertices, material }] }` |
 | group | no geometry: a pivot or container |
+
+- Round shapes stand on their local Y axis, centred on their position (cylinders, cones,
+  capsules and spheres reach half their height below it); `axis: "x" | "z"` lays cylinders,
+  cones, tori, capsules, lathes and revolves along that axis instead. Partial `angle`s
+  start on +X and turn like a positive rotation about the axis (+X towards −Z), with flat ends.
+- `segments` (and `rings`, `tubeSegments`) take a whole number or `"auto"`: about 2 mm from
+  the true curve, 8–64, in steps of four, so big and small round parts of one model look
+  alike. Tori, capsules and curves in outlines default to `"auto"`; the others keep their
+  old defaults (8 around, 6 rings).
+- `smooth: true` (or a crease angle in degrees, `true` = 60) shades a part smoothly: edges
+  sharper than the crease stay hard, so a 24-segment can looks round with crisp rims and a
+  box stays a box. `{ op: "set", id, smooth: false }` returns to flat faces. Without it every
+  face is flat, the library's low-poly look. Imported smooth models keep their smoothing.
+
+## Outlines and paths
+
+Wherever a shape takes `points`, `profile`, `holes` or `path`, the list holds points and
+segments that continue from the last point:
+
+```js
+[x, y]                                   // a point
+[x, y, r]                                // a point whose corner is rounded with radius r
+{ arc: { center: [cx, cy], angle: 90 } } // turn about a centre (degrees, + counter-clockwise)
+{ arc: { through: [x, y], to: [x, y] } } // an arc through a point to an end point
+{ bezier: { controls: [[x, y]], to: [x, y] } }  // one control: quadratic, two: cubic
+```
+
+A whole 2D outline (or hole) may be one shape: `{ circle: r }` or `{ circle: { radius,
+center } }`, `{ ellipse: [rx, ry] }`, `{ rect: { size: [w, h], round } }`, `{ polygon: {
+sides, radius } }` (a corner points up). Path items are 3D: `[x, y, z]`, `{ arc: { center,
+axis, angle, rise? } }` (`rise` along the axis makes a helix), `{ arc: { through, to } }`,
+`{ bezier: { controls, to } }`. Arcs and curves take `segments` (default `"auto"`).
+
+```js
+// A wheel arch in a side outline, an arched window, a washer, a spiral handrail:
+points: [[-2, 0.2], [-1.25, 0.2], { arc: { center: [-0.9, 0.2], angle: -180 } }, [2, 0.2], [2, 1], [-2, 1]]
+points: [[-0.3, 0], [0.3, 0], [0.3, 0.4], { arc: { through: [0, 0.7], to: [-0.3, 0.4] } }]
+{ kind: "extrude", options: { points: { circle: 0.05 }, holes: [{ circle: 0.02 }], depth: 0.004 } }
+{ kind: "sweep", options: { profile: { circle: 0.025 }, path: [[0.6, 0.9, 0], { arc: { center: [0, 0.9, 0], axis: [0, 1, 0], angle: 360, rise: 3 } }] } }
+```
 
 A side profile extruded with `rotation:[0,-90,0]` runs along +Z (its depth along X): a car
 body with wheel-arch notches is one concave outline.

@@ -73,6 +73,8 @@ export function normalizeRecipe(input) {
       "lathe",
       "revolve",
       "sweep",
+      "torus",
+      "capsule",
       "mesh",
     ].includes(r.generator.kind)
   )

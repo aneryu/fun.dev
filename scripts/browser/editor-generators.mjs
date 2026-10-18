@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { results, watch } from "./harness.mjs";
+import { parseModelFile } from "../../site/editor/glb.js";
 
 // The add-shape dialog builds revolved sections and sweeps, edits them again, and the parts
 // panel's Array control repeats the selection.
@@ -86,6 +87,62 @@ export async function editorGeneratorChecks({ browser, base }) {
     assert.deepEqual(blueprint.stamp, { id: "lamp-post", version: 1, params: { arms: 2 } });
     assert.equal(blueprint.validation, 0);
     assert.ok(blueprint.bytes > 1000, "the derived model exports");
+
+    // Round shapes from the dialog: a torus with automatic segments, a hollow half frustum
+    // along X; an agent's arched outline survives the dialog; smooth shading reaches the GLB.
+    await page.evaluate(async () =>
+      funEditor.loadProject((await import("/editor/document.js")).emptyProject("Round"), { ifRevision: funEditor.inspect().revision }),
+    );
+    await page.locator("#add").click();
+    await page.locator("#kind").selectOption("torus");
+    for (const field of ["radius", "tube", "segment", "angle", "axis"])
+      assert.equal(await page.locator(`#${field}-field`).isHidden(), false, field);
+    assert.equal(await page.locator("#segments").inputValue(), "", "tori start with automatic segments");
+    await submit();
+    const torus = await page.evaluate(() => funEditor.inspect().selection.id);
+    node = await page.evaluate((id) => funEditor.inspect({ id }).node, torus);
+    assert.equal(node.generator.kind, "torus");
+    assert.equal(node.generator.options.segments, "auto");
+    await page.locator("#add").click();
+    await page.locator("#kind").selectOption("cylinder");
+    await page.locator("#radius").fill("0.5");
+    await page.locator("#radius-top").fill("0.3");
+    await page.locator("#inner-radius").fill("0.4");
+    await page.locator("#angle").fill("180");
+    await page.locator("#shape-axis").selectOption("x");
+    await page.locator("#angle").dispatchEvent("change");
+    await submit();
+    const pipe = await page.evaluate(() => funEditor.inspect().selection.id);
+    node = await page.evaluate((id) => funEditor.inspect({ id }).node, pipe);
+    assert.deepEqual(
+      { ...node.generator.options, segments: undefined },
+      { radius: 0.5, height: 1, radiusTop: 0.3, innerRadius: 0.4, segments: undefined, axis: "x", angle: 180 },
+    );
+    const arch = { points: [[-0.3, 0], [0.3, 0], [0.3, 0.4, 0.05], { arc: { through: [0, 0.7], to: [-0.3, 0.4] } }], depth: 0.1 };
+    await page.evaluate((options) => {
+      funEditor.apply([{ op: "create", id: "arch", kind: "extrude", options }], { ifRevision: funEditor.inspect().revision });
+      funEditor.select("arch");
+    }, arch);
+    await page.locator("#parameters").click();
+    assert.match(await page.locator("#outline").inputValue(), /^-0\.3, 0\n0\.3, 0\n0\.3, 0\.4, 0\.05\n\{"arc":/);
+    await submit();
+    node = await page.evaluate(() => funEditor.inspect({ id: "arch" }).node);
+    assert.deepEqual(node.generator.options.points, arch.points, "arcs and corner radii survive the dialog");
+    const exported = async () => {
+      const glb = await page.evaluate(async (id) => (await funEditor.exportGLB({ encoding: "base64", ids: [id] })).data, torus);
+      const { json } = parseModelFile(new Uint8Array(Buffer.from(glb, "base64")));
+      return json.meshes.flatMap((m) => m.primitives).reduce((sum, p) => sum + json.accessors[p.attributes.POSITION].count, 0);
+    };
+    const flat = await exported();
+    await page.evaluate((id) => funEditor.select(id), torus);
+    await page.locator("#smooth").check();
+    assert.equal(await page.evaluate((id) => funEditor.inspect({ id }).node.smooth, torus), 60);
+    const smooth = await exported();
+    assert.ok(smooth < flat / 2, `smooth vertices share their normals: ${smooth} vs ${flat}`);
+    await page.locator("#smooth").uncheck();
+    assert.equal(await page.evaluate((id) => funEditor.inspect({ id }).node.smooth ?? null, torus), null);
+    await page.screenshot({ path: resolve(results, "editor-round-shapes.png") });
+    assert.deepEqual(errors, []);
   } finally {
     await context.close();
   }

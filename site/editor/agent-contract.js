@@ -75,6 +75,86 @@ recipeStageQuerySchema.required = [];
 delete recipeStageQuerySchema.properties.id;
 delete recipeStageQuerySchema.properties.ifRevision;
 recipeStageQuerySchema.properties.space = { const: "local" };
+// Segment counts: whole numbers, or "auto" (about 2 mm from the true curve, 8–64).
+const segmentsValue = { oneOf: [{ type: "integer" }, { const: "auto" }] },
+  pair = { type: "array", items: number, minItems: 2, maxItems: 2 },
+  // Outline items (docs/workshop-agents.md "Outlines and paths"): [x, y] or [x, y, corner
+  // radius], arcs and curves continuing from the last point, or one whole shape.
+  arcItem = (point) => ({
+    type: "object",
+    properties: {
+      arc: {
+        type: "object",
+        properties: {
+          center: point,
+          angle: number,
+          axis: vector,
+          rise: number,
+          through: point,
+          to: point,
+          segments: segmentsValue,
+        },
+        additionalProperties: false,
+      },
+    },
+    required: ["arc"],
+    additionalProperties: false,
+  }),
+  bezierItem = (point) => ({
+    type: "object",
+    properties: {
+      bezier: {
+        type: "object",
+        properties: {
+          controls: { type: "array", items: point, minItems: 1, maxItems: 2 },
+          to: point,
+          segments: segmentsValue,
+        },
+        required: ["controls", "to"],
+        additionalProperties: false,
+      },
+    },
+    required: ["bezier"],
+    additionalProperties: false,
+  }),
+  centred = (fields, required) => ({
+    type: "object",
+    properties: { center: pair, segments: segmentsValue, ...fields },
+    required,
+    additionalProperties: false,
+  }),
+  outline = {
+    oneOf: [
+      {
+        type: "array",
+        minItems: 1,
+        maxItems: 64,
+        items: {
+          oneOf: [
+            { type: "array", items: number, minItems: 2, maxItems: 3 },
+            arcItem(pair),
+            bezierItem(pair),
+          ],
+        },
+      },
+      {
+        type: "object",
+        properties: {
+          circle: { oneOf: [number, centred({ radius: number }, ["radius"])] },
+          ellipse: { oneOf: [pair, centred({ radii: pair }, ["radii"])] },
+          rect: { oneOf: [pair, centred({ size: pair, round: number }, ["size"])] },
+          polygon: centred({ sides: { type: "integer" }, radius: number, round: number }, ["sides", "radius"]),
+        },
+        additionalProperties: false,
+      },
+    ],
+  },
+  path3 = {
+    type: "array",
+    minItems: 1,
+    maxItems: 256,
+    items: { oneOf: [vector, arcItem(vector), bezierItem(vector)] },
+  };
 const props = {
   replacement: string,
   id: string,
@@ -114,11 +194,15 @@ const props = {
       "extrude",
       "revolve",
       "sweep",
+      "torus",
+      "capsule",
       "mesh",
       "group",
     ],
   },
   parent: { oneOf: [string, { type: "null" }] },
+  // Smooth shading: true (60°) or the crease angle in degrees; false or 0 for flat.
+  smooth: { oneOf: [boolean, { type: "number", minimum: 0, maximum: 180 }] },
   position: vector,
   rotation: vector,
   scale: vector,
@@ -132,24 +216,33 @@ const props = {
       size: vector,
       bevel: number,
       radius: number,
+      // Cylinders and cones: the top's radius (a frustum), a bore, laid along an axis.
+      radiusTop: number,
+      innerRadius: number,
+      axis: { enum: ["x", "y", "z"] },
       height: number,
-      segments: { type: "integer" },
+      segments: segmentsValue,
       bevelSegments: { type: "integer", minimum: 1, maximum: 16 },
-      rings: { type: "integer" },
-      points: list({ type: "array", items: number, minItems: 2, maxItems: 2 }),
-      profile: list({ type: "array", items: number, minItems: 2, maxItems: 2 }),
+      rings: segmentsValue,
+      // Spheres: [from, to] degrees of latitude (domes, bowls).
+      latitude: pair,
+      // Tori: the tube's radius and its segments.
+      tube: number,
+      tubeSegments: segmentsValue,
+      points: outline,
+      profile: outline,
       depth: number,
       // Extrusions and revolved sections: holes and rounded corners.
       holes: {
         type: "array",
         maxItems: 32,
-        items: list({ type: "array", items: number, minItems: 2, maxItems: 2 }),
+        items: outline,
       },
       round: number,
       roundSegments: { type: "integer" },
       angle: number,
       // Sweeps: a closed profile along a 3D path.
-      path: list(vector),
+      path: path3,
       closed: boolean,
       caps: boolean,
       smooth: boolean,
@@ -262,6 +355,8 @@ props.shape = {
         "extrude",
         "revolve",
         "sweep",
+        "torus",
+        "capsule",
       ],
     },
     options: props.options,
@@ -275,7 +370,7 @@ props.shape = {
 const specs = {
   create: [
     "id kind",
-    "name parent position rotation scale material options mesh",
+    "name parent position rotation scale material options mesh smooth",
   ],
   material: [
     "id",
@@ -284,7 +379,7 @@ const specs = {
   removeMaterial: ["id", "replacement"],
   purgeMaterials: ["", ""],
   renameProject: ["name", ""],
-  set: ["id", "name parent position rotation scale keepWorld"],
+  set: ["id", "name parent position rotation scale keepWorld smooth"],
   transform: [
     "",
     "id ids vertices faces edges topology select translation rotation scale pivot space matrix",
@@ -494,6 +589,8 @@ export const modelDefinitions = {
                   "extrude",
                   "revolve",
                   "sweep",
+                  "torus",
+                  "capsule",
                 ],
               },
               options: expressions(optionsSchema),
@@ -758,6 +855,11 @@ export function capabilities({ detail = "full", command } = {}) {
       "arrays",
       "meshEditing",
       "roundedBevels",
+      "frustumsTubesAndPartialRounds",
+      "toriAndCapsules",
+      "outlineArcsCurvesAndShapes",
+      "autoSegments",
+      "smoothShading",
       "glbImport",
       "projectFiles",
       "referenceImages",
@@ -765,7 +867,7 @@ export function capabilities({ detail = "full", command } = {}) {
     ],
     unsupported: [
       "UV textures",
-      "smooth shading and subdivision",
+      "subdivision",
       "rigging",
       "animation",
       "inter-object collision validation",

@@ -22,8 +22,10 @@ export function profileEditor(
           .split(/[,\s]+/)
           .map(Number),
       );
+  // [x, y], or [x, y, corner radius]; lines of JSON (arcs, curves) leave the drawing as it is.
   const valid = (p) =>
-    p.length >= 2 && p.every((v) => v.length === 2 && v.every(Number.isFinite));
+    p.length >= 2 &&
+    p.every((v) => (v.length === 2 || v.length === 3) && v.every(Number.isFinite));
   const project = ([x, y]) => [
     20 + ((x - range.x) / range.w) * 240,
     170 - ((y - range.y) / range.h) * 150,
@@ -117,7 +119,7 @@ export function profileEditor(
           e.preventDefault();
           remember();
           selected = i;
-          points[i] = p.map((v, k) => v + delta[k] * (e.shiftKey ? 10 : 1));
+          points[i] = p.map((v, k) => v + (delta[k] ?? 0) * (e.shiftKey ? 10 : 1));
           write();
           draw(false);
           svg.querySelector(`[data-point="${i}"]`)?.focus();
@@ -167,7 +169,7 @@ export function profileEditor(
         v +
         ((constraint === "x" && k === 1) || (constraint === "y" && k === 0)
           ? 0
-          : delta[k]),
+          : (delta[k] ?? 0)),
     );
     write();
     draw(false);
