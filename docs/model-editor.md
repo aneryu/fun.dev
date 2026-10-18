@@ -47,7 +47,8 @@ tapered legs; Planter has an editable profile with a returning inner wall.
   step; Shift multiplies it by ten. Shape previews include the resulting dimensions.
   Wire display shows original polygon edges rather than triangulation diagonals.
 - Named front/side/top views are orthographic, with an explicit perspective toggle.
-  The work viewport has neutral lighting/background, Material/Clay/Silhouette modes
+  The work viewport has neutral lighting/background (a sun and a sky environment that
+  metal and glass reflect), Material/Clay/Silhouette modes
   and a camera-relative orientation indicator. Direction and projection switches
   preserve the working target and screen scale; Fit explicitly reframes the model.
 - Primitives retain generator kind, options and optional baked affine basis.

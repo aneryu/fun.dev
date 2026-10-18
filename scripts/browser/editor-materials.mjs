@@ -147,6 +147,30 @@ export async function editorMaterialChecks({ browser, base }) {
       ),
       JSON.stringify(exported),
     );
+    // Full metal reflects the ambient sky instead of rendering black.
+    const metal = await page.evaluate(async () => {
+      funEditor.loadProject(
+        (await import("/editor/document.js")).emptyProject("Chrome"),
+      );
+      funEditor.apply([
+        {
+          op: "material",
+          id: "chrome",
+          color: "#949aa1",
+          roughness: 0.25,
+          metalness: 1,
+        },
+        { op: "create", id: "ball", kind: "sphere", material: "chrome" },
+      ]);
+      const [shot] = funEditor.renderViews(["perspective"], { size: 128 }),
+        image = new Image();
+      image.src = shot.dataUrl;
+      await image.decode();
+      const context = new OffscreenCanvas(128, 128).getContext("2d");
+      context.drawImage(image, 0, 0);
+      return [...context.getImageData(64, 64, 1, 1).data.slice(0, 3)];
+    });
+    assert.ok(Math.max(...metal) > 60, `chrome renders ${metal}`);
     assert.deepEqual(errors, []);
     return exported;
   } finally {

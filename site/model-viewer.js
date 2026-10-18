@@ -9,11 +9,27 @@ const VIEW = new THREE.Vector3(0.9, 0.55, 1.2).normalize();
 
 function stage() {
   const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xfff7d6, 0x5c5133, 2.2));
   const sun = new THREE.DirectionalLight(0xffffff, 2.2);
   sun.position.set(3, 5, 4);
   scene.add(sun);
   return { scene, camera: new THREE.PerspectiveCamera(35, 1, 0.01, 1000) };
+}
+
+// Ambient light as a sky above a ground: on painted surfaces it is exactly a hemisphere light, and
+// as an environment it gives metal and glass something to reflect (without one, full metal renders
+// black). Needs an initialized renderer; dispose the result.
+function sky(renderer, top = 0xfff7d6, bottom = 0x5c5133, intensity = 2.2) {
+  const scene = new THREE.Scene();
+  for (const [color, start] of [[top, 0], [bottom, Math.PI / 2]])
+    scene.add(new THREE.Mesh(
+      new THREE.SphereGeometry(1, 32, 8, 0, Math.PI * 2, start, Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(intensity / Math.PI), side: THREE.DoubleSide }),
+    ));
+  const generator = new THREE.PMREMGenerator(renderer);
+  const target = generator.fromScene(scene, 0, 0.1, 10, { size: 128 });
+  generator.dispose();
+  release(scene);
+  return target;
 }
 
 // Points the camera at the model from the front-right, above, with the whole box in view.
@@ -65,9 +81,11 @@ export async function renderThumbnail(bytes, size = 512) {
   renderer.setClearColor(BACKGROUND, 1);
   const { scene, camera } = stage();
   const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-  let gltf = null;
+  let gltf = null, environment = null;
   try {
     await renderer.init();
+    environment = sky(renderer);
+    scene.environment = environment.texture;
     gltf = await new GLTFLoader().parseAsync(buffer, "");
     pose(gltf);
     scene.add(gltf.scene);
@@ -79,6 +97,7 @@ export async function renderThumbnail(bytes, size = 512) {
     return new Uint8Array(await blob.arrayBuffer());
   } finally {
     release(gltf?.scene);
+    environment?.dispose();
     void renderer.dispose();
   }
 }
@@ -96,8 +115,14 @@ export function createViewer(container) {
   controls.autoRotate = !matchMedia("(prefers-reduced-motion: reduce)").matches;
   controls.autoRotateSpeed = 1.5;
   controls.addEventListener("start", () => { controls.autoRotate = false; });
-  let model = null, frameRequest = 0, disposed = false, initialized = false;
-  ready.then(() => { initialized = true; request(); }, () => {});
+  let model = null, frameRequest = 0, disposed = false, initialized = false, environment = null;
+  ready.then(() => {
+    if (disposed) return;
+    environment = sky(renderer);
+    scene.environment = environment.texture;
+    initialized = true;
+    request();
+  }, () => {});
 
   function resize() {
     const { width, height } = container.getBoundingClientRect();
@@ -142,6 +167,7 @@ export function createViewer(container) {
       observer.disconnect();
       controls.dispose();
       release(model);
+      environment?.dispose();
       void renderer.dispose();
       renderer.domElement.remove();
     },

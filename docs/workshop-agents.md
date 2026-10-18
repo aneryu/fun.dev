@@ -62,7 +62,9 @@ export default async function (ws) {
   material, named `static__<material>`; meshes inside groups stay separate (they move).
   With `rootName`, a single top-level group becomes the root itself.
 - Materials: `id, name?, color "#rrggbb", roughness, metalness?, emissive?,
-  emissiveIntensity?, opacity?, transmission?, ior?, doubleSided?`.
+  emissiveIntensity?, opacity?, transmission?, ior?, doubleSided?`. Full metal
+  (metalness 1) reflects its surroundings: the workshop and library show a sky, but a
+  game without an environment shows it almost black. Library metals mostly use 0.55.
 
 ## Shapes: `{ op: "create", id, kind, parent?, material?, position?, rotation?, scale?, options }`
 

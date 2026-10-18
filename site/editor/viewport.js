@@ -63,6 +63,39 @@ export function createMaterial(m) {
     : new THREE.MeshStandardMaterial(options);
 }
 
+// Ambient light as a sky above a ground: on painted surfaces it is exactly a hemisphere
+// light, and as an environment it gives metal and glass something to reflect (without
+// one, full metal renders black). The library's stage does the same (site/model-viewer.js).
+function sky(renderer, top, bottom, intensity) {
+  const scene = new THREE.Scene(),
+    parts = [];
+  for (const [color, start] of [
+    [top, 0],
+    [bottom, Math.PI / 2],
+  ]) {
+    const geometry = new THREE.SphereGeometry(
+        1,
+        32,
+        8,
+        0,
+        Math.PI * 2,
+        start,
+        Math.PI / 2,
+      ),
+      material = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(color).multiplyScalar(intensity / Math.PI),
+        side: THREE.DoubleSide,
+      });
+    scene.add(new THREE.Mesh(geometry, material));
+    parts.push(geometry, material);
+  }
+  const generator = new THREE.PMREMGenerator(renderer),
+    target = generator.fromScene(scene, 0, 0.1, 10, { size: 128 });
+  generator.dispose();
+  parts.forEach((part) => part.dispose());
+  return target;
+}
+
 export function buildModel(project) {
   const root = new THREE.Group(),
     objects = new Map(),
@@ -238,11 +271,9 @@ export async function createViewport(
   key.castShadow = true;
   key.shadow.mapSize.set(1024, 1024);
   key.shadow.bias = -0.0003;
-  scene.add(
-    new THREE.HemisphereLight(0xffffff, 0x657180, 1.8),
-    key,
-    key.target,
-  );
+  scene.add(key, key.target);
+  const environment = sky(renderer, 0xffffff, 0x657180, 1.8);
+  scene.environment = environment.texture;
   const grid = new THREE.GridHelper(20, 40, 0x77818a, 0xaab0b6);
   grid.material.transparent = true;
   grid.material.opacity = 0.4;
@@ -1568,6 +1599,7 @@ export async function createViewport(
       floor.material.dispose();
       clay.dispose();
       silhouette.dispose();
+      environment.dispose();
       renderer.dispose().catch(onError);
       boxOverlay.remove();
     },

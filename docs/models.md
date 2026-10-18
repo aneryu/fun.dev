@@ -142,7 +142,9 @@ cannot host it: it is DNS-only to the CN2 server ([edge](edge.md)), so Access do
   Tags that say nothing (`low-poly`, `static`, the type or kit again) are dropped; production
   jargon in names and descriptions is flagged.
 - Thumbnails come from the library's own viewer (one angle, light and background), so every one
-  matches the 3D view on model pages. The upload page renders them when the browser has WebGPU or WebGL 2
+  matches the 3D view on model pages. The light is a sun plus a warm sky over a dark ground as an
+  environment, so full metal and glass reflect it; a game without an environment shows full metal
+  (metalness 1) almost black. The upload page renders them when the browser has WebGPU or WebGL 2
   (15 s per model, stopping after two failures); otherwise it uploads without, and review renders
   them with `npm run models -- thumbnails`. An upload never waits on a thumbnail (an automated,
   GPU-less browser once could not upload at all). A maker's `preview.png` is optional and private.
