@@ -3,6 +3,8 @@
 fun.dev owns the page and the Three.js runtime. A game delivers an ES module and
 its assets. It does not create an HTML document, renderer, or animation loop.
 The lobby (`/games`) and the player (one page per game at `/games/<id>`) are shared across all games.
+The same bundle also runs on `fun`, the native runtime; what each host provides is in
+[hosts](hosts.md).
 
 Apart from Three.js and this container API, games must be self-contained. Keep
 game resources, UI copy, development tools and tests within their bundle.
@@ -163,6 +165,9 @@ ES modules are cached; restarting calls `createGame` again with a fresh context.
 | `viewport` | Live `{ width, height, pixelRatio, safeArea }` values, in CSS pixels; DPR capped at 1.5 on mobile/compact screens and 2 on desktop, and lowered further by `adaptiveResolution`. `safeArea` is `{ top, right, bottom, left }`: display cutouts plus the player's menu button. Keep HUD and controls inside it. Treat as read-only. |
 | `invalidate()` | Request a frame for an on-demand game after input or an asynchronous scene change. |
 | `asset(path)` | Resolves a path inside this bundle to its URL, e.g. `asset('assets/ball.webp')`; files under `assets/` resolve to their content-addressed blob. |
+| `readAsset(path)` | The bytes of a bundle file as a `Uint8Array`, cancelled with `signal`. The runtime kit reads through this, so a game that does too runs on every host ([hosts](hosts.md)). |
+| `decodeImage(bytes, { mime, ...options })` | Decodes PNG/JPEG/WebP bytes to a texture source: an `ImageBitmap` on the web (`options` are `createImageBitmap`'s), `{ width, height, data }` pixels on hosts without one. `kit/assets.js` exports `textureFromImage(THREE, image)` for either. |
+| `createCanvas2D(width, height)` | A canvas with a 2D context for drawing text or procedural textures: an `OffscreenCanvas` on the web. Pass it to `createText(options, { createCanvas2D })` on hosts without `OffscreenCanvas`. |
 | `signal` | Aborted when leaving, restarting, timing out, or failing. Use for fetches and DOM listeners. |
 | `track(resource)` | Registers a resource with `dispose()`, returns it, disposes it once at teardown. |
 | `onCleanup(fn)` | Registers synchronous cleanup for timers, audio, custom objects, etc. |
@@ -305,10 +310,10 @@ inside a game would resolve against the game origin instead.
 
 | Module | Purpose |
 | --- | --- |
-| `kit/text.js` | `createText()` draws text with system fonts (Chinese and emoji included) into a `CanvasTexture` on a plane or sprite; `createHudLayer(camera)` maps CSS pixels and safe-area corners onto a camera-attached layer. |
+| `kit/text.js` | `createText(options, { createCanvas2D })` draws text with system fonts (Chinese and emoji included) into a `CanvasTexture` on a plane or sprite (the second argument is for hosts without `OffscreenCanvas`); `createHudLayer(camera)` maps CSS pixels and safe-area corners onto a camera-attached layer. |
 | `kit/input.js` | `createPointer()` (viewport pixels, tap/drag/long press, multi-touch), `createActions()` (keyboard, gamepad and virtual input mapped to named actions), `createVirtualControls()` (on-screen joystick and buttons). |
 | `kit/loop.js` | `createFixedStep()` for fixed-step simulation with an interpolation `alpha`. |
-| `kit/assets.js` | `createAssets(context)` loads JSON, textures (PNG/JPEG/WebP or KTX2) and glTF/GLB (with Draco, meshopt and KTX2) with cancellation, `track` ownership and `reportLoading`. Prefer KTX2 for large textures: it stays compressed in GPU memory. |
+| `kit/assets.js` | `createAssets(context)` loads JSON, textures (PNG/JPEG/WebP or KTX2) and glTF/GLB (with Draco, meshopt and KTX2) with cancellation, `track` ownership and `reportLoading`. Textures are decoded with straight alpha, as Three.js expects. Prefer KTX2 for large textures: it stays compressed in GPU memory. |
 | `kit/post.js` | `createPost(context, { ao, bloom, grade })`: shared postprocessing scaled to the device tier; see [Postprocessing](#postprocessing). |
 | `kit/random.js` | `createRandom(seed)`, `hashString()` and `dailySeed({ timeZone })` (UTC days by default). |
 | `kit/vision.js` | MediaPipe Tasks Vision at the platform's pinned version: `load()` imports the library (`FaceLandmarker`, `ImageSegmenter`, …), `fileset` is its wasm, `model(name)` the URL of a platform model (`models`: `face_landmarker`, `hair_segmenter`, `selfie_segmenter`). About 17 MB, downloaded only when used. |

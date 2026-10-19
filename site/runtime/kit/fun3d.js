@@ -14,6 +14,7 @@
 import { ContainerError, packChunks, parseJSON, scanChunks, stripEditing, unpackChunks } from "./fun3d-container.js";
 import { CAPS, FORMATS, VERSION, skeletonHash, validateManifest } from "./fun3d-schema.js";
 import { createWriter } from "./fun3d-write.js";
+import { textureFromImage } from "./assets.js";
 
 export { CAPS, VERSION, packChunks, stripEditing, unpackChunks };
 
@@ -49,7 +50,12 @@ export function imageSize(bytes, mime) {
   return null;
 }
 
-export function createFun3d({ THREE, decoder = null, encoder = null, materials = null, ktx2 = null } = {}) {
+export function createFun3d({ THREE, decoder = null, encoder = null, materials = null, ktx2 = null, decodeImage = null } = {}) {
+  // Encoded images become textures through the host's decoder (docs/hosts.md); without one,
+  // browsers use createImageBitmap and other hosts get a texture that remembers its source.
+  decodeImage ??= typeof createImageBitmap === "function"
+    ? (bytes, { mime, ...options }) => createImageBitmap(new Blob([bytes], { type: mime }), options)
+    : null;
   if (!THREE) throw new TypeError("createFun3d needs THREE");
   const writer = createWriter({ THREE, encoder });
 
@@ -236,9 +242,9 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
       const buffer = image.bytes.buffer.slice(image.bytes.byteOffset, image.bytes.byteOffset + image.bytes.byteLength);
       return new Promise((resolve, reject) => ktx2.parse(buffer, resolve, reject));
     }
-    if (typeof createImageBitmap !== "function") { const t = new THREE.Texture(); t.userData.fun3dSource = { mime: image.mime, bytes: image.bytes }; return t; }
-    const bitmap = await createImageBitmap(new Blob([image.bytes], { type: image.mime }), { imageOrientation: "none", colorSpaceConversion: "none", premultiplyAlpha: "none" });
-    const texture = new THREE.Texture(bitmap);
+    if (!decodeImage) { const t = new THREE.Texture(); t.userData.fun3dSource = { mime: image.mime, bytes: image.bytes }; return t; }
+    const decoded = await decodeImage(image.bytes, { mime: image.mime, imageOrientation: "none", colorSpaceConversion: "none", premultiplyAlpha: "none" });
+    const texture = textureFromImage(THREE, decoded);
     texture.needsUpdate = true;
     return texture;
   }

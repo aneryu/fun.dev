@@ -294,6 +294,15 @@ export function createGameHost({
       emitOptions(session);
 
       const running = () => session === current && !scope.signal.aborted && session.paused === false;
+      const assetURL = (name) => {
+        const url = new URL(name, baseURL);
+        if (!url.href.startsWith(baseURL.href)) throw new Error("Assets must stay inside the game bundle.");
+        const path = url.pathname.slice(baseURL.pathname.length);
+        const blob = Object.hasOwn(blobs, path) ? blobs[path] : null;
+        if (blob === null) return url.href;
+        if (!/^[a-f0-9]{64}\.[a-z0-9]+$/.test(blob)) throw new Error(`Invalid blob for ${path}.`);
+        return new URL(blob, blobBase).href + url.search + url.hash;
+      };
       const game = await module.createGame(Object.freeze({
         apiVersion: API_VERSION,
         launchReason,
@@ -310,14 +319,20 @@ export function createGameHost({
         options: optionValues,
         get cheatsUsed() { return session.options.cheatsUsed; },
         invalidate() { session.invalidated = true; startLoop(session); },
-        asset(name) {
-          const url = new URL(name, baseURL);
-          if (!url.href.startsWith(baseURL.href)) throw new Error("Assets must stay inside the game bundle.");
-          const path = url.pathname.slice(baseURL.pathname.length);
-          const blob = Object.hasOwn(blobs, path) ? blobs[path] : null;
-          if (blob === null) return url.href;
-          if (!/^[a-f0-9]{64}\.[a-z0-9]+$/.test(blob)) throw new Error(`Invalid blob for ${path}.`);
-          return new URL(blob, blobBase).href + url.search + url.hash;
+        asset: assetURL,
+        // The host seams of docs/hosts.md: bytes, decoded images and 2D canvases come from the
+        // host, so the runtime kit never reaches for fetch, createImageBitmap or OffscreenCanvas.
+        async readAsset(name) {
+          const response = await fetch(assetURL(name), { signal: scope.signal });
+          if (!response.ok) throw new Error(`Asset unavailable: ${name}`);
+          return new Uint8Array(await response.arrayBuffer());
+        },
+        decodeImage: (bytes, { mime = "application/octet-stream", ...options } = {}) => createImageBitmap(new Blob([bytes], { type: mime }), options),
+        createCanvas2D(width, height) {
+          if (typeof OffscreenCanvas === "function") return new OffscreenCanvas(width, height);
+          const canvas = document.createElement("canvas");
+          canvas.width = width; canvas.height = height;
+          return canvas;
         },
         runtime(name) {
           if (typeof name !== "string" || !/^(?:kit|addons)\/[a-zA-Z0-9-]+\.js$/.test(name)) return Promise.reject(new TypeError("Unknown runtime module."));

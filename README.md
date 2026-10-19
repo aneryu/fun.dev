@@ -54,6 +54,7 @@ reference commands and operations. Requires Node.js 22+ and `tar`.
   ([docs/assets.md](docs/assets.md)).
 - `examples/spinning-cube/`: integration example, excluded from the build/catalog.
 - `docs/game-bundles.md`: bundle format, API, and publishing workflow.
+- `docs/hosts.md`: the two game hosts, the web player and `fun` (the native runtime), and what the runtime kit may depend on.
 - `docs/platform-roadmap.md`: planned shared platform capabilities and their order.
 - `docs/library-api.md`: the public, read-only CC0 model library (index, model files, blobs on `cdn.fun.dev`) for any site, tool or agent.
 

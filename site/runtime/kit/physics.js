@@ -23,9 +23,12 @@ const SUSPENSION = { min: 0.05, max: 0.25, frequency: 1.5, damping: 0.5 };
 const ENGINE = { maxTorque: 300, minRPM: 1000, maxRPM: 6000 };
 const GEARS = [2.66, 1.78, 1.3, 1.0, 0.74], REVERSE = [-2.9];
 
-/** Loads the platform's Jolt build (games) unless a module is given (tests, workers). */
-export async function createPhysics({ THREE, Jolt = null, scene = null, gravity = 9.81, step = 1 / 60, maxSteps = 4, warn = (message) => console.warn(message) } = {}) {
-  if (!Jolt) Jolt = await (await import(new URL(`../physics/${VERSION}/jolt-physics.wasm.js`, import.meta.url).href)).default();
+/** The platform's Jolt build, fetched by URL: the web host's loader. Other hosts pass `loadJolt` (docs/hosts.md). */
+const loadPlatformJolt = async () => (await import(new URL(`../physics/${VERSION}/jolt-physics.wasm.js`, import.meta.url).href)).default();
+
+/** Loads Jolt through `loadJolt` (the platform build by default) unless a module is given (tests, workers). */
+export async function createPhysics({ THREE, Jolt = null, loadJolt = loadPlatformJolt, scene = null, gravity = 9.81, step = 1 / 60, maxSteps = 4, warn = (message) => console.warn(message) } = {}) {
+  if (!Jolt) Jolt = await loadJolt();
   const settings = new Jolt.JoltSettings();
   const pairs = new Jolt.ObjectLayerPairFilterTable(4);
   for (const [a, b] of PAIRS) pairs.EnableCollision(LAYERS[a], LAYERS[b]);

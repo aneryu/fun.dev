@@ -21,6 +21,17 @@ show it. The decisions:
 - **Outputs, equal weight**: standard GLB that works in any engine, and a
   one-stop path of `.fun3d` plus the fun.dev runtime and player that publishes
   a playable work on fun.dev.
+- **Shipping runtime** (decided 2026-10-19): browsers are too limited for the
+  final product. Games ship as native Android, iOS and PC apps on `fun`, the
+  C++ + V8 TypeScript runtime in the sibling repository (`../fun`: Dawn WebGPU,
+  native Jolt, `fun:*` host modules). `fun` owns the host and may replace the
+  renderer behind a Three.js-compatible API; fun.dev owns what makes
+  large-scale content possible: content scale, level design, animation
+  systems and the toolchain. The Three.js API is the contract between them,
+  and the runtime kit is the shared JavaScript layer, so it must not depend on
+  the DOM. The web player stays as preview, share link, agent-facing path and
+  pixel reference; `fun` is never on the critical path of agent-facing tools. The
+  two-host contract, the kit's seams and the delivery to `fun` are in [hosts](hosts.md).
 - **Visual range**: not limited. The early phase concentrates on stylized
   low-poly (flat colours, PBR metal, glass and emission, faceted or smooth
   shading, no textures). Formats, project files and command schemas must leave
@@ -69,6 +80,7 @@ show it. The decisions:
 | Wooden Fish, Slap, Seal Carving | Retired: unpublished, archived |
 | Clock Out, Slap Puppet, Cyber Muyu branches | Retired: archived |
 | Workshop stage 4: skeletons and animation (low-poly characters) | Next after the early phase |
+| Animation runtime system (state machines, blending, IK) in the runtime kit, shared by the web player and `fun` | Next after the early phase, with stage 4 |
 | Workshop stage 3: UVs, textures, baking | Later |
 | Realistic humans, MetaHuman (archive branches) | Stay archived |
 | China access, monitor, cleanup Workers | Maintained, not extended |
@@ -105,6 +117,8 @@ need appears.
 4. Site redesign: toolchain homepage, `/workshop/`, agent docs (done
    2026-10-19).
 5. The outside-agent acceptance test (exit criterion 1).
+6. Two hosts ([hosts](hosts.md)): the runtime kit's platform seams, the `fun` host
+   adapter, the publisher's `fun` output, host conformance with 帝都 on `fun`.
 
 ## Scope
 

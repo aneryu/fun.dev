@@ -5,8 +5,13 @@ import * as THREE from "../three.js";
 // and for world-space labels (sprite: true, or a plane added to the scene).
 export const systemFont = 'system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif';
 
-function makeCanvas() {
-  return typeof OffscreenCanvas === "function" ? new OffscreenCanvas(1, 1) : document.createElement("canvas");
+// Browsers draw on an OffscreenCanvas; other hosts pass their own factory, for example the
+// fun host's `createCanvas2D` from the game context (docs/hosts.md).
+function makeCanvas(createCanvas2D) {
+  if (createCanvas2D) return createCanvas2D(1, 1);
+  if (typeof OffscreenCanvas === "function") return new OffscreenCanvas(1, 1);
+  if (typeof document === "object") return document.createElement("canvas");
+  throw new Error("createText needs a 2D canvas: pass { createCanvas2D } from the game context.");
 }
 
 // Breaks on spaces where possible, otherwise between characters (CJK has no spaces).
@@ -32,8 +37,8 @@ function wrap(context, text, maxWidth) {
   return lines;
 }
 
-export function createText(initial = {}) {
-  const canvas = makeCanvas();
+export function createText(initial = {}, { createCanvas2D = null } = {}) {
+  const canvas = makeCanvas(createCanvas2D);
   const context = canvas.getContext("2d");
   let options = {
     text: "", size: 24, weight: 400, font: systemFont, color: "#211f17", background: null, padding: 0,
@@ -98,7 +103,8 @@ export function createText(initial = {}) {
 
   result.setText = (text) => { if (String(text) !== String(options.text)) { options.text = text; draw(); } return result; };
   result.update = (changes) => { options = { ...options, ...changes }; draw(); return result; };
-  result.dispose = () => { texture?.dispose(); material.dispose(); geometry?.dispose(); object.removeFromParent(); };
+  // Hosts whose 2D context is a native view (fun's Skia canvas) release it here; browsers have nothing to release.
+  result.dispose = () => { texture?.dispose(); material.dispose(); geometry?.dispose(); object.removeFromParent(); context.dispose?.(); };
   draw();
   return result;
 }

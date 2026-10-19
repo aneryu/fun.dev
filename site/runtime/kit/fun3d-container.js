@@ -18,8 +18,18 @@ async function through(bytes, stream) {
   return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
 }
 
-/** Inflates `bytes`, refusing output that is not exactly `rawLength` long. */
+/**
+ * Inflates `bytes`, refusing output that is not exactly `rawLength` long. Hosts with
+ * DecompressionStream (browsers, Node) decode natively; others (fun's application profile)
+ * use the kit's own decoder, which allocates the declared length once (docs/hosts.md).
+ */
 export async function inflate(bytes, rawLength) {
+  if (typeof DecompressionStream !== "function") {
+    const { inflateRaw, InflateError } = await import("./inflate.js");
+    try { return inflateRaw(bytes, rawLength); } catch (error) {
+      throw error instanceof InflateError ? new ContainerError(`A chunk could not be inflated: ${error.message}`) : error;
+    }
+  }
   const out = await through(bytes, new DecompressionStream("deflate-raw"));
   if (out.length !== rawLength) throw new ContainerError(`A chunk inflated to ${out.length} bytes, not the declared ${rawLength}`);
   return out;
