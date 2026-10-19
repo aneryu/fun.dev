@@ -170,8 +170,10 @@ stream), baked by the workshop from the ground (terrains, grids, floors and road
 `ground`) less what stands on it, the water, grid cells no one walks, slopes beyond the
 agent's limit, grown by the agent's radius; `worldData(tile).walk(a, b)` is an A* over the
 cells pulled straight where the way is clear, `walkable(x, z)` the test. `fun3d.navmesh`
-(polygons with portals across tiles, Recast) stays planned for when the raster is not enough;
-walks stay within one tile for now. Vehicle routing needs no extra data: it runs on
+(polygons with portals across tiles, Recast) stays planned for when the raster is not enough.
+A world walks across tiles: `createWorld` stitches the near tiles' rasters into one (the same
+cell size, origins on the cell lattice) when a walk leaves its tile, rebuilt as the near set
+changes, so an agent crosses seams without portals. Vehicle routing needs no extra data: it runs on
 `fun3d.paths` edges with a `kind` and `lanes`. Grid pathing runs on `fun3d.grid`.
 
 **Tile record.** `fun3d.tile` names the world (`world`, the manifest's id), the tile's
@@ -468,8 +470,8 @@ from a script, reviewed like library models.
    are done, and navigation (built 2026-10-19 as the walkable raster `fun3d.navgrid`: a `nav`
    setting on the project bakes it into every tile, the audit reports markers no spawn can
    reach, the game walks over it; sample `examples/worlds/keep.mjs`); budgets measured on a
-   phone and 帝都 M1's block loaded from world data remain, polygon navmeshes with portals
-   across tiles are later.
+   phone and 帝都 M1's block loaded from world data remain; walks cross tiles over the near
+   tiles' rasters stitched into one (2026-10-19), polygon navmeshes are later.
 4. **Later** (appendix A).
 
 Step 1 fits the early phase and serves 帝都 M1. Whether step 3 precedes workshop stage 4

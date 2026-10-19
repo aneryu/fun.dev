@@ -10,7 +10,7 @@
 import { evaluateScatter } from "./scatter.js";
 import { evaluateAssembly } from "./assemble.js";
 import { evaluateLots } from "./lots.js";
-import { navPath, walkableAt } from "./nav.js";
+import { navPath, walkableAt, stitchNavgrids } from "./nav.js";
 import { heightAt, surfaceAt } from "./terrain.js";
 import { createHeap, cellAt, gridHeightAt, gridPath } from "./grid.js";
 
@@ -431,6 +431,7 @@ export async function createWorld(context, url, options = {}) {
   };
 
   const nearData = () => tiles.filter((t) => t.near).map((t) => t.near.data);
+  const stitched = { key: "", grid: null };
   const all = (pick) => [...(data ? pick(data) : []), ...nearData().flatMap(pick)];
   const first = (pick) => { for (const source of [data, ...nearData()]) { const found = source && pick(source); if (found) return found; } return null; };
   return {
@@ -452,8 +453,18 @@ export async function createWorld(context, url, options = {}) {
     gridPath(a, b, options) { for (const t of tiles) if (t.near) { const r = t.near.data.gridPath(a, b, options); if (r.found) return r; } return { found: false, cells: [], points: [], length: 0 }; },
     /** Whether an agent may stand at a world point, by the near tiles' rasters. */
     walkable(x, z) { for (const t of tiles) if (t.near && t.near.data.walkable(x, z)) return true; return false; },
-    /** A walk within one near tile's raster holding both points (across tiles: later). */
-    walk(a, b, options) { for (const t of tiles) if (t.near) { const r = t.near.data.walk(a, b, options); if (r.found) return r; } return { found: false, points: [], length: 0, cells: 0 }; },
+    /**
+     * A walk over the near tiles' rasters: within one tile when it holds both points, else
+     * over the tiles' rasters stitched into one (rebuilt when the near set changes).
+     */
+    walk(a, b, options = {}) {
+      for (const t of tiles) if (t.near) { const r = t.near.data.walk(a, b, options); if (r.found) return r; }
+      const near = tiles.filter((t) => t.near && t.near.data.navgrid());
+      const key = near.map((t) => `${t.x}_${t.z}`).join(",");
+      if (key !== stitched.key) { stitched.key = key; stitched.grid = stitchNavgrids(near.map((t) => t.near.data.navgrid())); }
+      if (!stitched.grid) return { found: false, points: [], length: 0, cells: 0 };
+      return navPath(stitched.grid, a, b, { climb: stitched.grid.climb, ...options });
+    },
     markers: (tag) => all((s) => s.markers(tag)),
     marker: (id) => first((s) => s.marker(id)),
     zones: (tag) => all((s) => s.zones(tag)),

@@ -1314,8 +1314,11 @@ await ws.load({ name: "Keep", tile: { size: [96, 96] }, nav: { cell: 1, radius: 
 - The audit, when `nav` is set and the scene has markers tagged `spawn`, reports `unwalkable`
   spawns and `unreachable` markers (none of the spawns reaches them over the raster).
 - The tile carries `fun3d.navgrid` (cells and heights as streams); a world bakes one per tile
-  over the tile's rectangle from the whole project. In the game `worldData(tile).walkable(x, z)`,
+  over the tile's rectangle (and whatever of the tile's own parts reaches beyond it, such as a
+  floor slab that was not cut) from the whole project; floors meant to span tiles are better
+  as terrains or grids, which are cut per tile. In the game `worldData(tile).walkable(x, z)`,
   `walk(a, b, { climb, costs })` (A* over eight neighbours with the areas' costs, the corners
   pulled straight where the line is clear; `{ found, points, length }`) and `navgrid()`; a
-  world walks within one near tile. Polygon navmeshes with portals across tiles are later.
+  world (`createWorld`) walks within the tile holding both points, else over the near tiles'
+  rasters stitched into one, so walks cross seams. Polygon navmeshes are later.
   Sample: `examples/worlds/keep.mjs`.

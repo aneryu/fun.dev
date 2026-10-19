@@ -215,9 +215,15 @@ export async function exportTile(project, { name = project.name, runtime = [], w
     const navSetting = (source ?? project).nav;
     let navgrid = null;
     if (navSetting && !world?.data && world?.level !== "far") {
+      // A world tile's raster covers its rectangle and whatever of its own reaches beyond it
+      // (a floor slab that was not cut), so the floor stays walkable to its edge.
+      const own = { min: [bounds.min[0], bounds.min[2]], max: [Math.max(bounds.max[0], bounds.min[0] + navSetting.cell), Math.max(bounds.max[2], bounds.min[2] + navSetting.cell)] };
       const rect = world && world.x !== undefined
-        ? { min: [world.x * world.size[0] - world.size[0] / 2, world.z * world.size[1] - world.size[1] / 2], max: [world.x * world.size[0] + world.size[0] / 2, world.z * world.size[1] + world.size[1] / 2] }
-        : { min: [bounds.min[0], bounds.min[2]], max: [Math.max(bounds.max[0], bounds.min[0] + navSetting.cell), Math.max(bounds.max[2], bounds.min[2] + navSetting.cell)] };
+        ? (() => {
+            const x0 = world.x * world.size[0] - world.size[0] / 2, z0 = world.z * world.size[1] - world.size[1] / 2, x1 = x0 + world.size[0], z1 = z0 + world.size[1];
+            return { min: [Math.min(x0, own.min[0]), Math.min(z0, own.min[1])], max: [Math.max(x1, own.max[0]), Math.max(z1, own.max[1])] };
+          })()
+        : own;
       const built = buildNavgrid(source ?? project, navSetting, rect);
       if (built.stats.walkable)
         navgrid = {

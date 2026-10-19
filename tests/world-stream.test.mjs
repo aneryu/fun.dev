@@ -34,7 +34,14 @@ const field = (node, cx, cz, level, samples, cell) => ({
   heights: { stream: Float32Array.from({ length: samples * samples }, () => level), format: "float32" },
   surfaceTable: [{ id: "grass", color: "#6b8f3a" }],
 });
-async function tile(x, z, { far = null, ref = false, terrain = null, level = null } = {}) {
+// A walkable raster over the tile (10 × 10 cells of 1 m), with a wall along x = 5 … 6 in
+// tile 0_0 leaving a gap at the south end, so a walk east must go round through z > 3.
+const navgridOf = (x, z, wall) => {
+  const cells = new Uint8Array(100), heights = new Float32Array(100);
+  for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) cells[r * 10 + c] = wall && c === 7 && r < 8 ? 0 : 1;
+  return { cell: 1, origin: [x * 10 - 5, 0, z * 10 - 5], size: [10, 10], radius: 0.4, climb: 0.5, areas: [{ id: "ground", cost: 1 }], cells: { stream: cells, format: "uint8" }, heights: { stream: heights, format: "float32" } };
+};
+async function tile(x, z, { far = null, ref = false, terrain = null, level = null, nav = false } = {}) {
   const root = new THREE.Group();
   root.name = "scene";
   const block = new THREE.Mesh(new THREE.BoxGeometry(2, 1, 2), material);
@@ -63,6 +70,7 @@ async function tile(x, z, { far = null, ref = false, terrain = null, level = nul
     root.add(ground);
     extensions["fun3d.terrain"] = [terrain];
   }
+  if (nav) extensions["fun3d.navgrid"] = navgridOf(x, z, x === 0);
   return fun3d.write(root, { refs: ref ? [{ id: "m0", model: "bench_01@v002" }] : [], extensions });
 }
 async function data() {
@@ -82,8 +90,8 @@ async function data() {
     },
   });
 }
-files.set("w/tiles/0_0.fun3d", await tile(0, 0));
-files.set("w/tiles/1_0.fun3d", await tile(1, 0, { far: "tiles/1_0.far.fun3d", terrain: field("ground", 10, 0, 3, 11, 1) }));
+files.set("w/tiles/0_0.fun3d", await tile(0, 0, { nav: true }));
+files.set("w/tiles/1_0.fun3d", await tile(1, 0, { far: "tiles/1_0.far.fun3d", terrain: field("ground", 10, 0, 3, 11, 1), nav: true }));
 files.set("w/tiles/1_0.far.fun3d", await tile(1, 0, { level: "far", terrain: field("ground", 10, 0, 2.5, 3, 5) }));
 files.set("w/tiles/3_0.fun3d", await tile(3, 0, { ref: true }));
 files.set("w/world.fun3d", await data());
@@ -125,6 +133,15 @@ test("a world streams tiles by distance, swaps far files for near ones, and merg
   world.focus([10, 0, 0]);
   await world.settle();
   assert.deepEqual(states(), { "0_0": "near", "1_0": "near", "3_0": "none", "5_0": "none" }, "hysteresis keeps 0_0 near at 5 m; 1_0 comes near");
+  // A walk from tile 0_0 into tile 1_0 crosses the seam over the stitched rasters, round the
+  // wall's south end; within one tile the tile's own raster answers.
+  assert.equal(world.walkable(1.5, -4.5), true);
+  assert.equal(world.walkable(2.5, 0.5), false, "the wall at x = 2 … 3");
+  const across = world.walk([-4.5, 0, -4.5], [12.5, 0, -4.5]);
+  assert.ok(across.found && across.points.some((p) => p[0] > 5) && across.points.some((p) => p[2] > 2.5), JSON.stringify(across));
+  assert.ok(across.length > 20 && across.length < 32, `round the wall and across the seam: ${across.length}`);
+  const within = world.walk([6.5, 0, -4.5], [12.5, 0, 3.5]);
+  assert.ok(within.found && within.length < 12, "inside tile 1_0 alone");
   assert.equal(world.height(10, 0), 3, "the near tile's field replaces the far one");
   assert.equal(world.tile(1, 0).farCopy, null, "the far copy left once the near tile stood");
   assert.equal(world.markers("spot").length, 2);

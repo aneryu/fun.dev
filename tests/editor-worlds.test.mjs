@@ -824,7 +824,8 @@ test("a project with nav bakes a walkable raster into its tiles; the audit finds
   );
   assert.deepEqual(api.inspect().nav, { cell: 1, radius: 0.5, slope: 40, climb: 0.5, clearance: 1.8 });
   api.apply([
-    { op: "create", id: "slab", kind: "box", material: "wood", position: [0, -0.05, 0], options: { size: [40, 0.1, 40] }, tags: ["ground"] },
+    // The yard's floor is a grid (cut per tile in a world), so every tile gets its own raster.
+    { op: "create", id: "slab", kind: "grid", position: [-20, 0, -20], tags: ["ground"], grid: { cell: 2, size: [20, 20], types: [{ id: "yard", color: "#b8a98a" }] } },
     // A wall across the yard with a gap at the south end, and a walled pen with no door.
     { op: "create", id: "wall", kind: "box", material: "wood", position: [0, 1, -3], options: { size: [0.4, 2, 34] } },
     { op: "create", id: "pen_n", kind: "box", material: "wood", position: [12, 1, 6], options: { size: [8, 2, 0.4] } },
@@ -840,7 +841,7 @@ test("a project with nav bakes a walkable raster into its tiles; the audit finds
   assert.deepEqual(findings.map((f) => f.node).sort(), ["in_wall", "penned"], JSON.stringify(findings));
   // Budgets beyond triangles: draw calls, bodies and copies, estimated for the whole scene.
   const numbers = api.audit().budget;
-  assert.deepEqual([numbers.drawCalls, numbers.bodies, numbers.copies], [6, 1, 0], "six boxes by material; the slab's body alone");
+  assert.deepEqual([numbers.drawCalls, numbers.bodies, numbers.copies], [6, 1, 0], "five boxes by material and the grid; the grid's body alone");
   const tight = api.audit({ budget: { drawCalls: 2 } });
   assert.ok(tight.findings.some((f) => f.code === "budget" && f.metric === "drawCalls" && f.actual === 6 && f.limit === 2), JSON.stringify(tight.findings.map((f) => f.code)));
   // The map can show the raster.
@@ -853,6 +854,7 @@ test("a project with nav bakes a walkable raster into its tiles; the audit finds
   const nav = model.extensions["fun3d.navgrid"];
   assert.deepEqual([nav.cell, nav.size], [1, [40, 40]]);
   const data = worldData(model);
+  assert.equal(data.navgrid().areas[0].id, "yard", "a grid type names the area");
   assert.equal(data.walkable(-15, -15), true);
   assert.equal(data.walkable(0, -3), false, "the wall, grown by the radius");
   assert.equal(data.walkable(12, 10), true, "inside the pen is walkable, just not reachable");
@@ -863,7 +865,22 @@ test("a project with nav bakes a walkable raster into its tiles; the audit finds
   api.loadProject({ ...api.getProject(), tile: { size: [20, 20], span: [3, 3] } }, { ifRevision: api.inspect().revision });
   const world = await api.exportWorld({ name: "Yard" });
   const t = await fun3d.load(Buffer.from(world.files.find((f) => f.path === "tiles/0_0.fun3d").data, "base64"));
-  assert.deepEqual(t.extensions["fun3d.navgrid"].origin, [-10, 0, -10]);
+  const origin = t.extensions["fun3d.navgrid"].origin;
+  assert.ok(origin[0] === -10 && origin[2] === -20, `the centre tile's raster covers its rectangle and the wall that reaches out of it: ${origin}`);
+  assert.equal(world.manifest.tiles.length, 9, "the grid floor is cut into every tile");
   assert.equal(worldData(t).walkable(-9.5, -9.5), true);
   assert.equal(worldData(t).walkable(0.2, 0), false, "the wall blocks the centre tile's raster");
+  // Streamed: a walk from the west tiles to the east ones crosses the seams over the stitched rasters.
+  const files = new Map(world.files.map((f) => [`yard/${f.path}`, new Uint8Array(Buffer.from(f.data, "base64"))]));
+  const read = async (path) => { const b = files.get(path); if (!b) throw new Error(`missing ${path}`); return b; };
+  const scene = new THREE.Scene(), models = createModels({ THREE, scene });
+  const live = await createWorld({ fun3d, models, read, json: async (path) => JSON.parse(new TextDecoder().decode(await read(path))) }, "yard/world.json");
+  live.focus([0, 0, 0]);
+  await live.settle();
+  assert.ok(live.tiles().every((tile) => tile.state === "near"), "every tile within a tile size of the centre");
+  const across = live.walk([-15, 0, -15], [15, 0, -15]);
+  assert.ok(across.found && across.points.some((p) => p[2] > 14) && across.length > 40, `round the wall's south end across three tiles: ${JSON.stringify(across)}`);
+  assert.equal(live.walk([-15, 0, -15], [12, 0, 10]).found, false, "still no way into the pen");
+  live.dispose();
+  models.dispose();
 });

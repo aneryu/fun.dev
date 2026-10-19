@@ -107,7 +107,7 @@ const roads = data.network("road");                     // paths of one kind (or
 roads.route(car.position, goal);                        // { found, points, length, edges }
 data.cell(x, z);                                        // a grid's cell: { col, row, type: { id, walkable, buildable, tags }, level, height }
 data.gridPath(spawn, keep, { diagonal: true });         // A* over walkable cells: { found, cells, points, length }
-data.walkable(x, z); data.walk(spawn, goal);            // the baked walkable raster (fun3d.navgrid): { found, points, length }
+data.walkable(x, z); data.walk(spawn, goal);            // the baked walkable raster (fun3d.navgrid): { found, points, length }; world.walk crosses tiles
 ```
 
 `data.height(x, z)` and `data.surface(x, z)` read the tile's terrains (`fun3d.terrain`: the

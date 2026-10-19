@@ -119,3 +119,35 @@ export function reachable(nav, from, { climb = 0.6 } = {}) {
   }
   return mask;
 }
+
+/**
+ * One raster over several tiles' rasters (the same cell size, origins on the cell lattice):
+ * the union of their rectangles, each tile's cells copied in, areas merged by id. Cells no
+ * tile covers stay blocked. Returns null when the rasters disagree on the cell size.
+ */
+export function stitchNavgrids(list) {
+  const grids = list.filter(Boolean);
+  if (!grids.length) return null;
+  if (grids.length === 1) return grids[0];
+  const cell = grids[0].cell;
+  if (grids.some((g) => Math.abs(g.cell - cell) > 1e-9)) return null;
+  const minX = Math.min(...grids.map((g) => g.origin[0])), minZ = Math.min(...grids.map((g) => g.origin[2]));
+  const maxX = Math.max(...grids.map((g) => g.origin[0] + g.size[0] * g.cell)), maxZ = Math.max(...grids.map((g) => g.origin[2] + g.size[1] * g.cell));
+  const cols = Math.round((maxX - minX) / cell), rows = Math.round((maxZ - minZ) / cell);
+  const cells = new Uint8Array(cols * rows), heights = new Float32Array(cols * rows), areas = [];
+  const areaIndex = (id, cost) => { let i = areas.findIndex((a) => a.id === id); if (i < 0) i = areas.push({ id, cost: cost ?? 1 }) - 1; return i + 1; };
+  for (const g of grids) {
+    const c0 = Math.round((g.origin[0] - minX) / cell), r0 = Math.round((g.origin[2] - minZ) / cell);
+    const map = (g.areas ?? []).map((a) => areaIndex(a.id, a.cost));
+    for (let r = 0; r < g.size[1]; r++)
+      for (let c = 0; c < g.size[0]; c++) {
+        const from = r * g.size[0] + c, to = (r0 + r) * cols + c0 + c;
+        if (to < 0 || to >= cells.length || c0 + c >= cols) continue;
+        const area = g.cells[from];
+        if (!area) continue;
+        cells[to] = map[area - 1] ?? areaIndex("ground");
+        heights[to] = g.heights ? g.heights[from] : g.origin[1];
+      }
+  }
+  return { cell, origin: [minX, 0, minZ], size: [cols, rows], radius: grids[0].radius ?? 0, climb: grids[0].climb ?? 0.5, areas, cells, heights, tiles: grids.length };
+}
