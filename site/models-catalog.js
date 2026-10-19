@@ -17,8 +17,8 @@ export function modelPath(id) {
   return `/models/${id}`;
 }
 
-async function fetchJSON(path, signal) {
-  const response = await fetch(`${gameOrigin}/library/${path}`, { credentials: "omit", redirect: "error", signal });
+async function fetchJSON(path, signal, origin = gameOrigin) {
+  const response = await fetch(`${origin}/library/${path}`, { credentials: "omit", redirect: "error", signal });
   // Nothing has been listed yet, or no such model.
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`Model library request failed: ${response.status}`);
@@ -26,8 +26,8 @@ async function fetchJSON(path, signal) {
 }
 
 /** The listed models in one language: { kits: { id: text }, models: [{ id, name, description, type, kit, tags, size, version, thumbnail }] }. */
-export async function loadIndex(locale, signal) {
-  const data = await fetchJSON(`index.${locale}.json`, signal);
+export async function loadIndex(locale, signal, origin) {
+  const data = await fetchJSON(`index.${locale}.json`, signal, origin);
   if (!data) return { kits: {}, models: [] };
   if (!Array.isArray(data.fields) || !Array.isArray(data.models)) throw new Error("Invalid model index.");
   const at = Object.fromEntries(data.fields.map((field, index) => [field, index]));
@@ -42,9 +42,9 @@ export async function loadIndex(locale, signal) {
 }
 
 /** One model's page data in both languages with every approved version, or null. */
-export async function loadModel(id, signal) {
+export async function loadModel(id, signal, origin) {
   if (!ID.test(id)) return null;
-  const model = await fetchJSON(`${id}.json`, signal);
+  const model = await fetchJSON(`${id}.json`, signal, origin);
   if (!model) return null;
   const text = (value) => ["zh", "en"].every((locale) => typeof value?.[locale] === "string");
   const valid = model.id === id && MODEL_TYPES.includes(model.type) && text(model.name) && Array.isArray(model.versions) && model.versions.length &&

@@ -28,6 +28,7 @@ import { describeChanges } from "./changes.js";
 import { hollowBoxRecipe } from "./recipe.js";
 import { exportReport, exportAsset } from "./viewport.js";
 import { importModel } from "./import-glb.js";
+import { searchLibrary, libraryModel, importLibraryModel } from "./library.js";
 import { fromBase64, toBase64 } from "./glb.js";
 import { projectFile, projectFilename } from "./project-file.js";
 import { materialUsage } from "./materials.js";
@@ -634,6 +635,40 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
         afterReplace();
         return {
           ...result,
+          nodes: imported.nodes,
+          warnings: imported.warnings,
+          container: imported.container,
+          persistence: draft.persistence,
+        };
+      } finally {
+        action = null;
+      }
+    },
+    // The public model library (docs/library-api.md).
+    librarySearch: (options) => searchLibrary(options),
+    libraryModel: (options) => libraryModel(options),
+    async openLibraryModel({ id, version, mode = "replace", parent, name } = {}, options = {}) {
+      commitPending();
+      check(options);
+      const revision = store.revision;
+      const imported = await importLibraryModel({
+        id,
+        version,
+        mode,
+        parent: parent ?? null,
+        current: store.snapshot(),
+        name,
+      });
+      // The download took time: refuse if the project changed meanwhile.
+      check({ ifRevision: options.ifRevision ?? revision });
+      commitPending();
+      action = t(imported.container ? "edOpenedProject" : "edImported");
+      try {
+        const result = store.replace(imported.project, options);
+        afterReplace();
+        return {
+          ...result,
+          source: imported.source,
           nodes: imported.nodes,
           warnings: imported.warnings,
           container: imported.container,

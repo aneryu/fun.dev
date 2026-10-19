@@ -445,6 +445,7 @@ export function normalizeProject(input) {
   };
   nodes.forEach((n) => visit(n.id));
   validateMaterialReferences({ materials, nodes });
+  const sources = normalizeSources(input.sources);
   return {
     format: FORMAT,
     version: VERSION,
@@ -455,7 +456,27 @@ export function normalizeProject(input) {
     ),
     materials,
     nodes,
+    ...(sources.length ? { sources } : {}),
   };
+}
+
+// Where a project's parts came from (docs/library-api.md): library models opened or added.
+// Kinds this version does not know are dropped, so later kinds never stop a project opening.
+function normalizeSources(input) {
+  if (input === undefined) return [];
+  if (!Array.isArray(input) || input.length > 64) fail("Expected up to 64 sources", "sources");
+  return input
+    .filter((s) => s?.kind === "library")
+    .map((s, i) => {
+      if (
+        !/^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(s.id) ||
+        !/^v\d{3}$/.test(s.version) ||
+        !["source.funmodel.glb", "model.glb"].includes(s.file) ||
+        !/^[a-f0-9]{64}$/.test(s.sha256)
+      )
+        fail("Invalid library source", `sources.${i}`);
+      return { kind: "library", id: s.id, version: s.version, file: s.file, sha256: s.sha256 };
+    });
 }
 
 export function statistics(project) {

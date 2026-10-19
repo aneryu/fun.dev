@@ -159,6 +159,17 @@ export function scriptApi(invoke, base) {
       revision = result.revision;
       return { revision, nodes: result.nodes, warnings: result.warnings };
     },
+    librarySearch: (args = {}) => call("librarySearch", args),
+    libraryModel: (id) => call("libraryModel", { id }),
+    async openLibraryModel(id, options = {}) {
+      const result = await call("openLibraryModel", {
+        id,
+        ...options,
+        ifRevision: await current(),
+      });
+      revision = result.revision;
+      return { revision, source: result.source, nodes: result.nodes, warnings: result.warnings };
+    },
     async setReference({ file, ...options }) {
       return call("setReference", { ...options, path: path(file) });
     },

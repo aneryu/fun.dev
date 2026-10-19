@@ -199,6 +199,33 @@ const file = await funEditor.exportGLB({ encoding: "base64" });</pre
             </td>
           </tr>
           <tr>
+            <td><code>librarySearch({query?,type?,kit?,tags?,limit?,offset?,locale?})</code></td>
+            <td>
+              Search the public CC0 model library: listed models matching every
+              word of query (id and name first, then tags, then descriptions)
+              with size in metres, newest version, thumbnail and page
+              addresses, and the agreement of each kit in the results.
+            </td>
+          </tr>
+          <tr>
+            <td><code>libraryModel({id})</code></td>
+            <td>
+              A library model in both languages with every version: stats,
+              editable (has a workshop project), file addresses and the derived
+              .fun3d.
+            </td>
+          </tr>
+          <tr>
+            <td><code>openLibraryModel({id,version?,mode?,parent?,name?}, {ifRevision})</code></td>
+            <td>
+              Open a library model to edit or derive from: its workshop project
+              when it has one, else model.glb as parts; mode "add" adds its
+              parts to assemble a scene. One undoable change. The project
+              records it in sources (kind, id, version, file, sha256). See
+              docs/library-api.md in the repository.
+            </td>
+          </tr>
+          <tr>
             <td><code>exportProject()</code></td>
             <td>
               The project file: a GLB of the model (all parts, world origin)

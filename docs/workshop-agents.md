@@ -55,6 +55,11 @@ export default async function (ws) {
   `file`; several: `file` with `-<view>` added). `ws.exportGLB({ file, … })` returns the
   export report. Also `ws.importGLB({ file })`, `ws.exportProject({ file })`,
   `ws.setReference({ view, file, width, center })`, `ws.call(method, args)` for anything else.
+- The public CC0 model library: `ws.librarySearch({ query, type, tags })` finds models (ids,
+  sizes in metres, versions); `ws.openLibraryModel(id)` opens one to edit or derive from (its
+  workshop project when it has one), `ws.openLibraryModel(id, { mode: "add" })` adds its parts
+  to assemble a scene; `ws.libraryModel(id)` lists versions and file addresses. The project
+  records them in `sources`. Details: [library API](library-api.md).
 
 ## Conventions
 

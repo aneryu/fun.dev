@@ -294,6 +294,42 @@ const definitions = [
     false,
   ],
   [
+    "librarySearch",
+    "Search the public CC0 model library (fun.dev/models): listed models matching every word of query in id, name, tags or description, best first, with size in metres, newest version, thumbnail and page addresses, and the fitting agreement of each kit in the results. Chinese queries search Chinese text.",
+    object({
+      query: str,
+      type: { enum: ["prop", "piece", "vehicle", "character", "creature", "animation", "scene", "world"] },
+      kit: str,
+      tags: { type: "array", items: str, maxItems: 8 },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+      offset: { type: "integer", minimum: 0 },
+      locale: { enum: ["en", "zh"] },
+    }),
+    true,
+  ],
+  [
+    "libraryModel",
+    "One library model: text in both languages, kit, every approved version with its stats (size, bounds, triangles), whether it has a workshop project (editable) and the address, SHA-256 and size of each file (model.glb, source.funmodel.glb, thumbnail.png, model.fun3d …).",
+    object({ id: str }, ["id"]),
+    true,
+  ],
+  [
+    "openLibraryModel",
+    "Open a library model to edit or derive from: its workshop project when the version has one (editable) or its model.glb as parts. mode replace (default, undoable) or add its parts under parent, e.g. to assemble a scene. version defaults to the newest. The project records the model in sources (kind, id, version, file, sha256).",
+    object(
+      {
+        id: str,
+        version: { type: "string", pattern: "^v\\d{3}$" },
+        mode: { enum: ["replace", "add"] },
+        parent: str,
+        name: str,
+        ifRevision: revision,
+      },
+      ["id", "ifRevision"],
+    ),
+    false,
+  ],
+  [
     "clearReference",
     "Remove the reference image of one view, or all without view.",
     object({ view: { enum: ["front", "back", "left", "right", "top"] } }),
@@ -317,7 +353,7 @@ const validationTools = definitions.map(
     annotations: {
       readOnlyHint,
       destructiveHint: method === "removeCheckpoint",
-      openWorldHint: false,
+      openWorldHint: method.startsWith("library") || method === "openLibraryModel",
     },
   }),
 );
@@ -398,6 +434,10 @@ export function toolInvocation(name, args = {}) {
     return { method, args: [id, { ifRevision }] };
   if (method === "exportGLB")
     return { method, args: [{ ...args, encoding: "base64" }] };
+  if (method === "openLibraryModel") {
+    const { ifRevision: expected, ...options } = args;
+    return { method, args: [options, { ifRevision: expected }] };
+  }
   if (method === "importGLB") {
     const { ifRevision: expected, path, ...options } = args;
     if (path !== undefined || options.data === undefined)

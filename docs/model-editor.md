@@ -260,6 +260,10 @@ that project; otherwise its `model.glb` is imported as parts. Uploads may includ
 `source.funmodel.glb` beside `model.glb`: like `source.blend` it is public and fixed once the
 version is approved, and the page offers it for download ([models](models.md)).
 
+Agents reach the same library through `librarySearch`, `libraryModel` and `openLibraryModel`
+(replace, or add its parts to assemble a scene), in the page and in the Node tool; projects
+record what they were made from in `sources`. See [library API](library-api.md#in-the-workshop).
+
 ## Agent contract
 
 The page exposes `window.funEditor.version === 3`. The complete API, command fields,

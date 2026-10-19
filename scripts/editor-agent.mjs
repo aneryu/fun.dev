@@ -27,6 +27,7 @@ const MUTATING = [
   "apply",
   "loadProject",
   "importGLB",
+  "openLibraryModel",
   "undo",
   "redo",
   "checkpoint",

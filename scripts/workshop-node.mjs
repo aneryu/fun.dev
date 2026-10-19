@@ -110,6 +110,9 @@ export async function openWorkshop({ record, kernel = {}, width = 1440, height =
     import("../site/editor/draft.js"),
   ]);
   const { createEngine, normalizeSelection, followRenames } = engineModule;
+  // Node has no site: the model library comes from its public origin.
+  const library = await import("../site/editor/library.js");
+  library.setLibraryOrigin(process.env.FUNDEV_LIBRARY_ORIGIN || library.PUBLIC_LIBRARY);
   await loadKernel(kernel);
   const createError = (message, code) => new document.ModelError(message, code);
   const draft = memoryDraft(record ?? { project: document.duckProject(), revision: 0 }, { createError, readMetadata });

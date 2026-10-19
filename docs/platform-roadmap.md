@@ -82,7 +82,10 @@ need appears.
 
 0. Rewrite `AGENTS.md` and this roadmap for the direction (done 2026-10-19).
 1. Pure Node workshop runtime, published as an npm package with an MCP mode.
-2. Public read-only library API; search, open and derive in the workshop.
+2. Public read-only library API; search, open and derive in the workshop (done 2026-10-19:
+   `cdn.fun.dev` became the R2 content origin with CORS for every site, platform files moved to
+   `static.fun.dev`; [library API](library-api.md); `librarySearch`, `libraryModel`,
+   `openLibraryModel` and project `sources` in the workshop).
 3. Versioned platform API with the compatibility window; games move to
    `fundev-games`; the publisher becomes a CLI; `games/` leaves this repository.
 4. Site redesign: toolchain homepage, `/workshop/`, agent docs (after the

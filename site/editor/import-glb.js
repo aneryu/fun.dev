@@ -594,5 +594,10 @@ export function mergeProjects(current, incoming, { parent = null } = {}) {
     ...(project.assemblies ?? []),
     ...remap(add.assemblies ?? []),
   ];
+  // The added file's own library sources come with its parts.
+  const sources = [...(project.sources ?? []), ...(incoming.sources ?? [])].filter(
+    (s, i, all) => all.findIndex((o) => o.kind === s.kind && o.id === s.id && o.version === s.version) === i,
+  );
+  if (sources.length) project.sources = sources;
   return { project, nodes: add.nodes.map((n) => n.id) };
 }

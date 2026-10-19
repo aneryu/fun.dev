@@ -203,8 +203,10 @@ listed thumbnail), so no client step can leave it behind:
 - `library/<id>.json`: a model's page data in both languages with every approved version and its
   public files, written for unlisted models too (games that pinned them still resolve).
 
-A public query API would do the same with more moving parts; it waits until the library is far
-larger (see Later).
+These files are the library's public API, documented for outside sites and agents in
+[library API](library-api.md); the workshop searches and opens models through them. A query
+API would do the same with more moving parts; it waits until the library is far larger (see
+Later).
 
 ## Pages
 
