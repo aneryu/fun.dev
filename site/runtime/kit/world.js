@@ -48,7 +48,7 @@ function zoneOf(z) {
   return { id: z.id, tags: [...(z.tags ?? [])], params: z.params ?? {}, shape, contains };
 }
 
-function pathOf(edge, points) {
+function pathOf(edge, points, profile = null) {
   const list = edge.points.map((i) => [points[i * 3], points[i * 3 + 1], points[i * 3 + 2]]);
   if (edge.closed && list.length > 1) list.push([...list[0]]);
   const cumulative = [0];
@@ -58,8 +58,15 @@ function pathOf(edge, points) {
   }
   const length = cumulative[cumulative.length - 1];
   const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-  return {
+  const path = {
     id: edge.id, kind: edge.kind ?? "data", tags: [...(edge.tags ?? [])], params: edge.params ?? {}, closed: !!edge.closed, points: list.map((p) => [...p]), length,
+    profile, lanes: edge.lanes ?? profile?.lanes ?? null, width: profile?.width ?? null, oneway: !!edge.oneway, speed: edge.speed ?? null,
+    /** The frame at a fraction of the length: position, tangent, right (horizontal) and up. */
+    frame(t) {
+      const { position, direction, segment } = path.at(t);
+      const h = Math.hypot(direction[0], direction[2]) || 1, tangent = [direction[0] / h, 0, direction[2] / h];
+      return { position, tangent, right: [-tangent[2], 0, tangent[0]], up: [0, 1, 0], segment };
+    },
     /** The point at a fraction of the length (0–1), and the segment's direction. */
     at(t) {
       const target = Math.min(1, Math.max(0, t)) * length;
@@ -81,6 +88,89 @@ function pathOf(edge, points) {
         if (distance < best.distance) best = { distance, position: q, t: length ? (cumulative[i - 1] + u * (cumulative[i] - cumulative[i - 1])) / length : 0, segment: i - 1 };
       }
       return best;
+    },
+  };
+  return path;
+}
+
+// A binary heap of [priority, value] for routing.
+function createHeap() {
+  const items = [];
+  const swap = (i, j) => { const t = items[i]; items[i] = items[j]; items[j] = t; };
+  return {
+    get size() { return items.length; },
+    push(priority, value) {
+      items.push([priority, value]);
+      for (let i = items.length - 1; i > 0; ) { const p = (i - 1) >> 1; if (items[p][0] <= items[i][0]) break; swap(i, p); i = p; }
+    },
+    pop() {
+      const top = items[0], last = items.pop();
+      if (items.length) {
+        items[0] = last;
+        for (let i = 0; ; ) {
+          const l = 2 * i + 1, r = l + 1;
+          let m = i;
+          if (l < items.length && items[l][0] < items[m][0]) m = l;
+          if (r < items.length && items[r][0] < items[m][0]) m = r;
+          if (m === i) break;
+          swap(i, m);
+          i = m;
+        }
+      }
+      return top;
+    },
+  };
+}
+
+/**
+ * A network of the paths of one kind (or carrying one tag; every non-data path when none is
+ * given): edges welded where their points coincide, one-way edges directed. `route(a, b)`
+ * finds the shortest way between the network points nearest to a and b.
+ */
+export function buildNetwork(paths, kind) {
+  const edges = paths.filter((p) => (kind === undefined ? p.kind !== "data" : p.kind === kind || p.tags.includes(kind)));
+  const key = (p) => `${Math.round(p[0] * 1000)}|${Math.round(p[1] * 1000)}|${Math.round(p[2] * 1000)}`;
+  const nodes = new Map();
+  const nodeOf = (p) => { const k = key(p); if (!nodes.has(k)) nodes.set(k, { key: k, position: [...p], links: [] }); return nodes.get(k); };
+  for (const e of edges)
+    for (let i = 1; i < e.points.length; i++) {
+      const a = nodeOf(e.points[i - 1]), b = nodeOf(e.points[i]), d = Math.hypot(b.position[0] - a.position[0], b.position[1] - a.position[1], b.position[2] - a.position[2]);
+      a.links.push({ to: b, length: d, edge: e.id });
+      if (!e.oneway) b.links.push({ to: a, length: d, edge: e.id });
+    }
+  const nearest = (p) => {
+    let best = null, bestD = Infinity;
+    for (const n of nodes.values()) { const d = Math.hypot(n.position[0] - p[0], n.position[1] - p[1], n.position[2] - p[2]); if (d < bestD) { bestD = d; best = n; } }
+    return best;
+  };
+  return {
+    kind: kind ?? null,
+    edges: edges.map((e) => e.id),
+    size: nodes.size,
+    /** The network point nearest to p. */
+    nearest: (p) => nearest(p)?.position ?? null,
+    route(from, to) {
+      const start = nearest(from), goal = nearest(to);
+      if (!start || !goal) return { found: false, points: [], length: 0, edges: [] };
+      const dist = new Map([[start.key, 0]]), came = new Map(), heap = createHeap();
+      heap.push(0, start);
+      while (heap.size) {
+        const [d, n] = heap.pop();
+        if (n === goal) break;
+        if (d > dist.get(n.key)) continue;
+        for (const link of n.links) {
+          const nd = d + link.length;
+          if (nd < (dist.get(link.to.key) ?? Infinity)) { dist.set(link.to.key, nd); came.set(link.to.key, { from: n, edge: link.edge }); heap.push(nd, link.to); }
+        }
+      }
+      if (!dist.has(goal.key)) return { found: false, points: [], length: 0, edges: [] };
+      const points = [], used = [];
+      for (let n = goal; n; n = came.get(n.key)?.from) {
+        points.push([...n.position]);
+        const step = came.get(n.key);
+        if (step && used[used.length - 1] !== step.edge) used.push(step.edge);
+      }
+      return { found: true, points: points.reverse(), length: dist.get(goal.key), edges: used.reverse() };
     },
   };
 }
@@ -122,9 +212,10 @@ export function worldData(model, { height: worldHeight = null, surface: worldSur
   const zones = (extensions[ZONES] ?? []).map(zoneOf);
   const paths = [];
   const table = extensions[PATHS];
+  const profiles = table?.profiles ?? [];
   if (table?.points?.stream !== undefined && streams) {
     const points = streams.of(table.points);
-    for (const edge of table.edges ?? []) paths.push(pathOf(edge, points));
+    for (const edge of table.edges ?? []) paths.push(pathOf(edge, points, profiles.find((p) => p.id === edge.profile) ?? null));
   }
   const byTag = (list, tag) => (tag === undefined ? [...list] : list.filter((x) => x.tags.includes(tag)));
   // Terrains: the fields as typed arrays, asked by world x and z.
@@ -195,6 +286,9 @@ export function worldData(model, { height: worldHeight = null, surface: worldSur
     zonesAt: (p) => zones.filter((z) => z.contains(p)),
     paths: (tag) => byTag(paths, tag),
     path: (id) => paths.find((p) => p.id === id) ?? null,
+    profiles: () => profiles.map((p) => ({ ...p })),
+    /** The paths of one kind (or tag) as a routable network; every non-data path when none is given. */
+    network: (kind) => buildNetwork(paths, kind),
     tile: extensions["fun3d.tile"] ?? null,
   };
 }
@@ -349,6 +443,8 @@ export async function createWorld(context, url, options = {}) {
     zonesAt: (p) => all((s) => s.zonesAt(p)),
     paths: (tag) => all((s) => s.paths(tag)),
     path: (id) => first((s) => s.path(id)),
+    /** A routable network over the data file's and the near tiles' paths; build it once the tiles you need are in. */
+    network: (kind) => buildNetwork(all((s) => s.paths()), kind),
     rules: () => (data ? data.rules() : []),
     run(id, options) { if (!data) throw new Error("the world has no data file, so no rules"); return data.run(id, options); },
     dispose() {

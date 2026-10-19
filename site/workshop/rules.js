@@ -9,6 +9,7 @@ import { hashString } from "../runtime/kit/random.js";
 import { solidBounds } from "./audit.js";
 import { ModelError } from "./mesh.js";
 import { heightAt, surfaceAt } from "../runtime/kit/terrain.js";
+import { sweepPath, resolveProfile } from "../runtime/kit/sweep.js";
 
 /** The project's terrains in world space, with a cheap digest for staleness. */
 export function terrainFields(project) {
@@ -78,7 +79,10 @@ export function ruleInputs(project, rule) {
     inputs.terrains = fields.map((t) => [t.node, t.digest]);
     Object.defineProperties(inputs, { height: { value: groundQueries(fields).height, enumerable: false }, surface: { value: groundQueries(fields).surface, enumerable: false } });
   }
-  if (rule.kind === "assemble") {
+  if (rule.kind === "sweep") {
+    for (const id of sweepPaths(project, rule)) inputs.paths[id] = pathOf(id);
+    if (!Object.keys(inputs.paths).length) throw dependency(`no path carries the tag ${rule.on.tag}`, "on.tag");
+  } else if (rule.kind === "assemble") {
     if (rule.bounds) inputs.polygons[rule.bounds] = zoneOf(rule.bounds).polygon;
   } else {
     if (rule.on.path !== undefined) inputs.paths[rule.on.path] = pathOf(rule.on.path);
@@ -101,8 +105,27 @@ export function ruleInputs(project, rule) {
   return inputs;
 }
 
-/** The models a rule places: scatter candidates or assembly pieces. */
-export const ruleModels = (rule) => (rule.kind === "assemble" ? rule.pieces : rule.candidates).map((c) => c.model);
+/** The models a rule places: scatter candidates or assembly pieces; a sweep places none. */
+export const ruleModels = (rule) => (rule.kind === "sweep" ? [] : (rule.kind === "assemble" ? rule.pieces : rule.candidates).map((c) => c.model));
+
+/** The ids of the paths a sweep rule covers: named, or every path carrying its tag. */
+export const sweepPaths = (project, rule) => rule.on.paths ?? project.nodes.filter((n) => n.path && n.tags?.includes(rule.on.tag)).map((n) => n.id);
+
+/** The materials a sweep rule's profile paints with. */
+export function sweepMaterials(rule) {
+  const p = resolveProfile(rule.profile);
+  return [...new Set([...p.strips.map((s) => s.material), ...p.marks.flatMap((m) => m.materials ?? [m.material]), ...(p.below ? [p.below] : [])])];
+}
+
+/** Profile summaries for the tile's path table: one per sweep rule, with the paths it covers. */
+export function sweepProfiles(project) {
+  return (project.rules ?? [])
+    .filter((r) => r.kind === "sweep")
+    .map((rule) => {
+      const p = resolveProfile(rule.profile);
+      return { id: rule.id, width: p.width, lanes: p.lanes, kind: p.kind, paths: sweepPaths(project, rule) };
+    });
+}
 
 /** A piece for the assembler: the library's bounds and the socket frames the rule gives it. */
 export function assemblyPiece(piece, record, index) {
@@ -130,6 +153,7 @@ export function ruleHash(rule, inputs) {
  * copies in that parent's space (the derived part itself sits at the origin).
  */
 export function deriveNodes(project, rule, records, inputs = ruleInputs(project, rule)) {
+  if (rule.kind === "sweep") return sweepNodes(project, rule, inputs);
   let rows, tints, candidates, report = null;
   if (rule.kind === "assemble") {
     const pieces = rule.pieces.map((piece, i) => assemblyPiece(piece, records[i], i));
@@ -176,6 +200,50 @@ export function deriveNodes(project, rule, records, inputs = ruleInputs(project,
     });
   });
   if (report) nodes.report = report;
+  return nodes;
+}
+
+/**
+ * The mesh parts a sweep derives: a ribbon per path in chunks of `chunk` metres (the tile
+ * size by default), each tagged ground, vertices in the parent's space.
+ */
+function sweepNodes(project, rule, inputs) {
+  const hash = ruleHash(rule, inputs);
+  const parentWorld = rule.parent ? worldMatrix(project, rule.parent) : identity();
+  const toParent = inverse(parentWorld);
+  const atOrigin = parentWorld.every((v, i) => Math.abs(v - identity()[i]) < 1e-12);
+  const chunk = rule.chunk ?? (project.tile ? Math.min(...project.tile.size) : 200);
+  const ids = Object.keys(inputs.paths), nodes = [];
+  let index = 0, triangles = 0;
+  const tags = [...new Set(["ground", ...(rule.tags ?? [])])];
+  for (const id of ids) {
+    const { points, closed } = inputs.paths[id];
+    const result = sweepPath(points, {
+      closed,
+      profile: rule.profile,
+      step: rule.step,
+      height: rule.ground ? inputs.height : null,
+      rise: rule.rise,
+      bank: rule.bank === null ? { max: 0 } : rule.bank,
+      chunk,
+    });
+    result.chunks.forEach((part, c) => {
+      index++;
+      triangles += part.faces.length;
+      nodes.push({
+        id: ids.length === 1 && result.chunks.length === 1 ? rule.target : `${rule.target}_${index}`,
+        name: `${rule.target} ${id}${result.chunks.length > 1 ? ` ${c + 1}` : ""}`,
+        parent: rule.parent ?? null,
+        mesh: {
+          vertices: atOrigin ? part.vertices : part.vertices.map((v) => point(toParent, v).map(round)),
+          faces: part.faces.map((f, k) => ({ id: `f${k}`, vertices: f.vertices, material: f.material })),
+        },
+        tags,
+        derived: { rule: rule.id, hash },
+      });
+    });
+  }
+  nodes.report = { paths: ids.length, chunks: nodes.length, triangles };
   return nodes;
 }
 

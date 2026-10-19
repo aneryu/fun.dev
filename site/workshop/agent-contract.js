@@ -196,12 +196,18 @@ const props = {
     properties: { polygon: { type: "array", items: pair, minItems: 3, maxItems: 256 }, y: pair, size: vector, radius: number },
     additionalProperties: false,
   },
+  // A path: its kind says what it is for a game; profile, lanes, oneway and speed ride into
+  // the tile's edge for routing. resample { id, spacing, smooth } spaces its points evenly.
   path: {
     type: "object",
     properties: {
-      points: { type: "array", items: vector, minItems: 2, maxItems: 1024 },
+      points: { type: "array", items: vector, minItems: 2, maxItems: 4096 },
       closed: boolean,
-      kind: { const: "data" },
+      kind: { enum: ["data", "road", "track", "rail", "river", "walk"] },
+      profile: string,
+      lanes: { type: "integer", minimum: 1, maximum: 8 },
+      oneway: boolean,
+      speed: number,
     },
     required: ["points"],
     additionalProperties: false,
@@ -238,6 +244,8 @@ const props = {
   surfaces: { type: "array", items: { type: "object", properties: { surface: { oneOf: [string, { type: "integer" }] }, slope: pair, height: pair }, required: ["surface"], additionalProperties: false }, maxItems: 16 },
   water: { oneOf: [{ type: "object", properties: { level: number, color: string }, additionalProperties: false }, { type: "null" }] },
   seed: { oneOf: [number, string] },
+  spacing: { type: "number", minimum: 0.1, maximum: 10000 },
+  ground: boolean,
   place: {
     type: "object",
     properties: {
@@ -457,6 +465,7 @@ const specs = {
   renameProject: ["name", ""],
   set: ["id", "name parent position rotation scale keepWorld smooth tags params variants tint area path copies tints sockets terrain"],
   terrain: ["id", "ops surfaces water seed"],
+  resample: ["id", "spacing smooth ground"],
   socket: ["id socket", "position rotation tags"],
   removeSocket: ["id socket", ""],
   snap: ["id socket target", ""],
@@ -758,9 +767,17 @@ const socketFrames = {
 modelDefinitions.rule = obj(
   {
     id: string,
-    kind: { enum: ["scatter", "assemble"] },
+    kind: { enum: ["scatter", "assemble", "sweep"] },
     // false: the rule rides in the tile for the game to run at play time.
     bake: boolean,
+    // Sweep: a profile (preset name, { preset, …options } or { strips, marks, thickness }) carried
+    // along on.path | on.paths | on.tag; ground follows the terrain plus rise; step samples;
+    // bank by curvature; chunk metres per mesh part.
+    profile: { oneOf: [string, object] },
+    rise: number,
+    step: number,
+    bank: { oneOf: [number, { type: "null" }, obj({ max: number, radius: number })] },
+    chunk: number,
     // Assembly: pieces with sockets grown from a start piece.
     pieces: {
       type: "array",
@@ -786,6 +803,8 @@ modelDefinitions.rule = obj(
       type: "object",
       properties: {
         path: string,
+        paths: { type: "array", items: string, minItems: 1, maxItems: 64 },
+        tag: string,
         zone: string,
         grid: obj({ cells: { type: "array", items: { type: "integer" }, minItems: 2, maxItems: 2 }, spacing: number, origin: vector }, ["cells"]),
         spacing: number,
@@ -1036,6 +1055,7 @@ export function capabilities({ detail = "full", command } = {}) {
       "sockets",
       "terrain",
       "worldTiles",
+      "sweeps",
     ],
     unsupported: [
       "UV textures",

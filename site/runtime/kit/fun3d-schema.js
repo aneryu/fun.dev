@@ -592,7 +592,26 @@ function validateSceneExtensions(manifest, { uses, streams, nodes, caps, out }) 
           tagsAndParams(e, path);
           if (!Array.isArray(e.points) || e.points.length < 2 || e.points.some((k) => !Number.isInteger(k) || k < 0 || (points && k >= points.count))) out.push(`${path}.points indexes at least two of the table's points`);
           if (e.kind !== undefined && typeof e.kind !== "string") out.push(`${path}.kind is a string`);
+          if (e.profile !== undefined && !(paths.profiles ?? []).some((p) => p?.id === e.profile)) out.push(`${path}.profile names a profile of the table`);
+          if (e.lanes !== undefined && !(Number.isInteger(e.lanes) && e.lanes >= 1 && e.lanes <= 64)) out.push(`${path}.lanes is an integer from 1 to 64`);
+          if (e.oneway !== undefined && typeof e.oneway !== "boolean") out.push(`${path}.oneway is a boolean`);
+          if (e.speed !== undefined && !(typeof e.speed === "number" && e.speed > 0)) out.push(`${path}.speed is a positive number`);
         });
+      }
+      if (paths.profiles !== undefined) {
+        if (!Array.isArray(paths.profiles) || paths.profiles.length > 256) out.push(`extensions["fun3d.paths"].profiles is an array of up to 256 profiles`);
+        else {
+          const ids = new Set();
+          paths.profiles.forEach((p, i) => {
+            const path = `extensions["fun3d.paths"].profiles[${i}]`;
+            if (!p || typeof p !== "object" || !isId(p.id)) { out.push(`${path} needs an id`); return; }
+            if (ids.has(p.id)) out.push(`${path} repeats the id "${p.id}"`);
+            ids.add(p.id);
+            if (!(typeof p.width === "number" && p.width > 0)) out.push(`${path}.width is a positive number`);
+            if (p.lanes !== undefined && !(Number.isInteger(p.lanes) && p.lanes >= 1)) out.push(`${path}.lanes is a positive integer`);
+            if (p.kind !== undefined && typeof p.kind !== "string") out.push(`${path}.kind is a string`);
+          });
+        }
       }
     }
   }

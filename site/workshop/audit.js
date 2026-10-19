@@ -54,6 +54,9 @@ export function auditProject(project, { ground: plane = 0, budget = {} } = {}) {
       const a = singles[i],
         b = singles[j];
       if (related(a.id, b.id)) continue;
+      // Chunks of one sweep share their seams by design.
+      const ra = byId.get(a.id)?.derived?.rule, rb = byId.get(b.id)?.derived?.rule;
+      if (ra && ra === rb) continue;
       const depth = [0, 1, 2].map((k) => Math.min(a.max[k], b.max[k]) - Math.max(a.min[k], b.min[k]));
       if (depth.every((d) => d > 0.05))
         findings.push({

@@ -134,7 +134,13 @@ share points.
 ```
 
 `kind: "data"` edges generate nothing; the others are what the sweep generators turned into
-geometry, kept so the kit can route vehicles along them and games can follow them.
+geometry, kept so the kit can route vehicles along them and games can follow them. Built
+2026-10-19: a path part carries `kind` (road, track, rail, river, walk), `lanes`, `oneway` and
+`speed`; the `sweep` rule (section 5) turns it into geometry and the tile's `profiles` table
+summarises each sweep (`id`, `width`, `lanes`, `kind`) with the edge naming the profile that
+swept it; `worldData(tile).network(kind).route(a, b)` routes over edges welded at shared
+points, one-way edges directed; `path.frame(t)` gives position, tangent and right. Per-point
+attributes (`width`, `bank`) stay planned: banking comes from curvature for now.
 
 **Zones and markers.**
 
@@ -244,7 +250,7 @@ through `world.assemble`).
 | `assemble` | a `kit`; adjacency rules (which socket tags mate, weights); `bounds` as a zone or grid; `start` sockets; `count` or `length`; `seed` | placed pieces (rooms and corridors, runner segments, fence runs) |
 | `lots` | an edge or network; lot depth and width ranges; a `blueprint` per lot type with parameter ranges; setbacks; `seed` | placed blueprint results along a path (a street of houses) |
 | `terrain` | an ordered list of ops: `noise` (octaves, amplitude, scale), `stamp` (shape, position, height), `erode` (passes), `flatten` along edges by width and blend, `level` inside a zone, `water` level; `surfaces` by slope and height bands | `fun3d.terrain` streams |
-| `sweep` | edges with a `profile`: lanes, sidewalks, shoulders, markings, barriers; junction style; bridges and cuts where the terrain demands | road, track, rail and river geometry; path edges keep their profile |
+| `sweep` | `on` a path, paths or a tag; a `profile` (preset `road`, `track`, `rail`, `river`, `walk` with options, or explicit `strips` side by side with offsets for kerbs, `marks` laid over them dashed by length, a `thickness` slab); `ground` follows the terrain plus `rise`; `step`; `bank` by curvature; `chunk` metres per mesh (the tile size by default) | mesh parts tagged `ground` with static bodies; path edges keep their kind and profile. Built 2026-10-19; junctions, shoulders cut into terrain and bridges are later: crossing ribbons overlap, so grids come from kits |
 | `blueprint` | as today ([blueprints](model-editor.md#blueprints-and-derivation)) | a parametric model in place |
 
 Determinism: the same source, generator stamp, parameters and seed give the same bytes; the
@@ -309,12 +315,13 @@ world.dispose();
 Built 2026-10-19 (`kit/world.js`): `createWorld` with `read` and `json` taking paths joined to
 the manifest's directory (fetch by default), `focus`, `update`, `settle`, `tiles`, `tile`,
 `height`, `surface`, `markers`, `marker`, `zones`, `zone`, `zonesAt`, `paths`, `path`, `rules`,
-`run`, `dispose`; options `radius` (the tile size by default), `far` (four tile sizes),
-`hysteresis`, `concurrency`, `onTile`. A tile is near within `radius` of its rectangle, far
-within `far` (its far file, if it has one), gone beyond; a near file replaces the far copy only
-once it has loaded, and the reverse; a tile whose file fails is reported once and left. Queries
-merge the data file with the near tiles; terrain queries ask the near tiles first, then the far
-ones. Still sketches: `normal`, zone events, networks, navmesh, grid, environment time.
+`run`, `network`, `dispose`; options `radius` (the tile size by default), `far` (four tile
+sizes), `hysteresis`, `concurrency`, `onTile`. A tile is near within `radius` of its rectangle,
+far within `far` (its far file, if it has one), gone beyond; a near file replaces the far copy
+only once it has loaded, and the reverse; a tile whose file fails is reported once and left.
+Queries merge the data file with the near tiles; terrain queries ask the near tiles first, then
+the far ones; `network(kind)` builds a routable graph over the paths in reach. Still sketches:
+`normal`, zone events, lane offsets on routes, navmesh, grid, environment time.
 A single tile needs none of this: `fun3d.load` and `models.place` as today, with
 `worldData(tile)` to read its markers, zones and paths.
 
@@ -425,9 +432,15 @@ from a script, reviewed like library models.
    `tile.size` as section 3.2 describes (parts by bounds, copies by row, terrains at their
    cells, data in `world.fun3d`, far files, the source), the audit checks `tile.span` and a
    triangle budget per tile (`tile-budget`), and `createWorld` streams the result (section 7).
-   Sample: `examples/worlds/island.mjs`, a 3 × 3 world of 96 m tiles. Still to come in this
-   step: `fun3d.grid`, `sweep` for roads and tracks, `lots`, `fun3d.navmesh`, the tile grid on
-   the map, `sample`, budgets measured on a phone, and 帝都 M1's block loaded from world data.
+   Sample: `examples/worlds/island.mjs`, a 3 × 3 world of 96 m tiles. Sweeps are built
+   (2026-10-19): the `sweep` rule carries a profile along paths (section 5) into mesh parts
+   tagged `ground` with static bodies, `resample` spaces a path's points along a smooth curve,
+   path parts carry `kind`, `lanes`, `oneway` and `speed` into the tile's edges with the
+   profiles that swept them, and the runtime routes over them (`network(kind).route`).
+   Samples: `examples/worlds/circuit.mjs` (a banked track from a resampled lap, lamps and
+   trees), the island's road. Still to come in this step: `fun3d.grid`, `lots`, junctions,
+   `fun3d.navmesh`, the tile grid on the map, `sample`, budgets measured on a phone, and
+   帝都 M1's block loaded from world data.
 4. **Later** (appendix A).
 
 Step 1 fits the early phase and serves 帝都 M1. Whether step 3 precedes workshop stage 4

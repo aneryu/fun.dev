@@ -33,7 +33,8 @@ import { auditProject } from "./audit.js";
 import { exportTile } from "./tile.js";
 import { exportWorld } from "./world-export.js";
 import { resolvePlacement, ensurePlaced } from "./placed.js";
-import { ruleInputs, deriveNodes, ruleModels, runtimeRule } from "./rules.js";
+import { ruleInputs, deriveNodes, ruleModels, runtimeRule, sweepMaterials } from "./rules.js";
+import { SWEEP_MATERIALS } from "../runtime/kit/sweep.js";
 import { fromBase64, toBase64 } from "./glb.js";
 import { projectFile, projectFilename } from "./project-file.js";
 import { materialUsage } from "./materials.js";
@@ -769,12 +770,26 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
         rule: rule.id,
         nodes: deriveNodes(project, rule, ruleModels(rule).map((model) => records.get(model)), ruleInputs(project, rule)),
       }));
+      // Sweep presets paint with materials the project may lack: they are added first.
+      const have = new Set(project.materials.map((m) => m.id)), missing = new Map();
+      for (const rule of rules)
+        if (rule.kind === "sweep")
+          for (const id of sweepMaterials(rule)) if (!have.has(id) && SWEEP_MATERIALS[id] && !missing.has(id)) missing.set(id, { op: "material", id, ...SWEEP_MATERIALS[id] });
+      commands.unshift(...missing.values());
       action = options.label ?? `Agent · derive ${rules.map((r) => r.id).join(", ")}`;
       try {
         const result = store.apply(commands, { ...options, ifRevision: options.ifRevision ?? revision, strictComponents: true });
         return {
           ...result,
-          derived: commands.map((c) => ({ rule: c.rule, nodes: c.nodes.map((n) => n.id), copies: c.nodes.reduce((sum, n) => sum + n.copies.length, 0), ...(c.nodes.report ? { assembly: c.nodes.report } : {}) })),
+          derived: commands
+            .filter((c) => c.op === "derived")
+            .map((c) => ({
+              rule: c.rule,
+              nodes: c.nodes.map((n) => n.id),
+              copies: c.nodes.reduce((sum, n) => sum + (n.copies?.length ?? 0), 0),
+              ...(c.nodes.some((n) => n.mesh) ? { triangles: c.nodes.reduce((sum, n) => sum + (n.mesh?.faces.length ?? 0), 0) } : {}),
+              ...(c.nodes.report ? (c.nodes.some((n) => n.mesh) ? { sweep: c.nodes.report } : { assembly: c.nodes.report }) : {}),
+            })),
           persistence: draft.persistence,
         };
       } finally {

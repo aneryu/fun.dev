@@ -56,3 +56,17 @@ test("heights are read on the triangles the mesh draws, surfaces per cell", () =
   assert.deepEqual([bounds.max[0], bounds.max[2]], [16, 16]);
   assert.ok(bounds.min[1] <= Math.min(...heights) && bounds.max[1] >= Math.max(...heights));
 });
+
+test("flatten with height terrain follows the land along the path and stays flat across", () => {
+  const hill = [{ noise: { amplitude: 4, scale: 10 } }, { stamp: { shape: "circle", center: [0, 0], radius: 4, height: 8, falloff: 4 } }];
+  const land = generateHeights(field, hill, 7);
+  const road = generateHeights(field, [...hill, { flatten: { points: [[-8, 0, 0], [8, 0, 0]], width: 4, blend: 2, height: "terrain" } }], 7);
+  const t = { ...field, heights: road }, before = { ...field, heights: land };
+  // On the centreline the band keeps the land's shape (smoothed), not the path's height.
+  for (const x of [-6, -2, 0, 2, 6]) {
+    const h = heightAt(t, x, 0), ground = heightAt(before, x, 0);
+    assert.ok(Math.abs(h - ground) < 2.5 && Math.abs(h) > 0.5, `at x = ${x}: band ${h.toFixed(2)}, land ${ground.toFixed(2)}`);
+  }
+  // Across the band the two edges match the centre: flat across.
+  for (const x of [-4, 0, 4]) assert.ok(Math.abs(heightAt(t, x, -1.5) - heightAt(t, x, 1.5)) < 0.2, `flat across at x = ${x}`);
+});

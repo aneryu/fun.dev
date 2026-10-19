@@ -1140,7 +1140,8 @@ the ops on the part:
   value noise of world x and z, so neighbouring terrains continue), `{ stamp: { shape: "circle"
   | "box", center, radius | size, height, falloff, mode: "add" | "set" | "max" | "min" } }`,
   `{ flatten: { path, width, blend, height } }` (a path part; the height follows the path
-  unless given), `{ level: { zone, height, blend } }` (a zone part), `{ smooth: { passes } }`,
+  unless given: a number, or `"terrain"` for a bed that follows the land along the path,
+  smoothed over the blend), `{ level: { zone, height, blend } }` (a zone part), `{ smooth: { passes } }`,
   `{ clamp: { min, max } }`, `{ add: { height } }`.
 - `surfaces`: rules in order, the last that matches a cell wins: `{ surface, slope: [min, max]
   degrees, height: [min, max] }`; cells no rule matches take the first surface.
@@ -1152,3 +1153,53 @@ ground under what stands on it. `inspect` reports `stats.terrains` and `terrainT
 (two per cell). A tile carries the mesh (vertex colours, one material), a static mesh body and
 the field itself in `fun3d.terrain`; `worldData(tile).height(x, z)`, `surface(x, z)` and
 `terrains()` read it in the game, and runtime rules with `ground` sit on it.
+
+### Sweeps: roads, tracks, rails and rivers
+
+A `sweep` rule carries a cross-section along path parts and derives mesh parts from it
+(`kit/sweep.js`, shared with the runtime), tagged `ground` so the audit treats them as floors
+and the tile gives them static mesh bodies:
+
+```js
+await ws.apply([
+  { op: "create", id: "lap", kind: "path", tags: ["lap"], path: { points: [[-60, 0, -40], [60, 0, -40], [60, 0, 40], [-60, 0, 40]], closed: true, kind: "track", lanes: 2 } },
+  { op: "resample", id: "lap", spacing: 3 },      // points about 3 m apart along a smooth (centripetal Catmull-Rom) curve through them
+]);
+await ws.rule({ id: "track", kind: "sweep", on: { path: "lap" }, profile: { preset: "track", width: 12 }, ground: true, rise: 0.1, step: 3, bank: { max: 8, radius: 60 } });
+await ws.rule({ id: "streets", kind: "sweep", on: { tag: "road" }, profile: { preset: "road", lanes: 2, sidewalks: true } });
+await ws.derive();
+```
+
+- `on`: `{ path }`, `{ paths: [ids] }` (up to 64) or `{ tag }` (every path carrying it).
+- `profile`: a preset name or `{ preset, …options }`: `road` (`lanes`, `laneWidth`,
+  `sidewalks`, `sidewalkWidth`, `lines`: asphalt, white edge lines, a yellow centre line for
+  two lanes or dashed lane lines, sidewalks 15 cm up with kerb faces), `track` (`width`,
+  `kerbs`: asphalt, edge lines, red and white kerbs, banking by default), `rail` (`gauge`,
+  `bed`: gravel, two raised rails, sleepers), `river` (`width`), `walk` (`width`); or explicit
+  `{ strips, marks, thickness, lanes, kind }`: `strips` side by side from left to right
+  (`{ width, material, offset }`; a step between offsets makes a vertical kerb face), `marks`
+  laid 1 cm over them (`{ at, width, material | materials: [a, b], dash: [on, off], offset }`:
+  `dash` with one material leaves gaps, with two alternates them), `thickness` a slab below.
+  Materials are project ids; the presets' (`mat_asphalt`, `mat_line_white`, `mat_kerb_red`…)
+  are added to the project when missing.
+- `ground: true` puts each sample on the terrain under it plus `rise` (5 cm by default);
+  without it the path's own heights are used. `step` (4 m) is the sampling along the path;
+  corners are mitred. The ribbon is flat across, so prepare the bed first: `flatten` the
+  terrain along the path at least as wide as the profile (plus a blend), after any `smooth`
+  pass, or the edges of a road on a slope sit under the ground. `flatten` with
+  `height: "terrain"` makes the bed follow the land (a road over a hill rather than a cutting),
+  and `resample` with `ground: true` puts the path's own points on the ground, so the game's
+  `path.at(t)` runs where the asphalt is.
+- `bank`: degrees, `{ max, radius }` (full bank at that radius, scaled by curvature smoothed
+  over 12 m, the outer edge rising) or `null` to switch a preset's banking off.
+- `chunk`: metres per mesh part (the tile size by default, 200 m without one), so a long road
+  streams tile by tile; chunks share their seam vertices. Parts are `<target>` for one chunk of
+  one path, else `<target>_<n>`; `derive` reports `triangles` and `sweep: { paths, chunks }`.
+
+Path parts carry `kind` (`data`, `road`, `track`, `rail`, `river`, `walk`), `lanes`, `oneway`
+and `speed`; the tile's edges keep them and name the sweep's profile (`profiles` table with
+`width`, `lanes`, `kind`), so `worldData(tile).path(id)` reports `kind`, `lanes`, `width` and
+`frame(t)`, and `network(kind).route(a, b)` routes over paths welded at shared points, one-way
+edges directed. Sweeps bake only (`bake: false` is refused). Crossing sweeps overlap at the
+same height: cut junctions are later; street grids come from kits. Sample:
+`examples/worlds/circuit.mjs`.

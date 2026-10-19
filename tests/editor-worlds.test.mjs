@@ -8,6 +8,7 @@ import { createFun3d } from "../site/runtime/kit/fun3d.js";
 import { worldData, createWorld } from "../site/runtime/kit/world.js";
 import { createModels } from "../site/runtime/kit/models.js";
 import { decodePNG } from "../scripts/png.mjs";
+import { heightAt } from "../site/runtime/kit/terrain.js";
 
 // Scenes in the workshop (docs/worlds.md, step 1): library models placed by reference,
 // markers, zones and paths, the audit, the map, the tile and the one-tile world, against a
@@ -581,4 +582,89 @@ test("a world of several tiles: cut by tile.size, terrain split at its cells, co
   assert.ok(scene.getObjectByName("tower"));
   live.dispose();
   models.dispose();
+});
+
+test("a sweep rule turns paths into track and road meshes on the terrain, with bodies, profiles and a routable network", async () => {
+  fresh("circuit", { size: [200, 200] });
+  api.apply([
+    { op: "create", id: "ground", kind: "terrain", position: [-100, 0, -100], tags: ["ground"], terrain: { cell: 4, samples: [51, 51] } },
+    { op: "terrain", id: "ground", seed: 2, ops: [{ noise: { amplitude: 3, scale: 40 } }] },
+    { op: "create", id: "lap", kind: "path", tags: ["lap"], path: { points: [[-60, 0, -40], [60, 0, -40], [60, 0, 40], [-60, 0, 40]], closed: true, kind: "track", lanes: 2 } },
+    { op: "resample", id: "lap", spacing: 4 },
+    { op: "create", id: "main", kind: "path", tags: ["road"], path: { points: [[-90, 1, 0], [0, 1, 0], [90, 1, 0]], kind: "road", lanes: 2, speed: 50 } },
+    { op: "create", id: "side", kind: "path", tags: ["road"], path: { points: [[0, 1, 0], [0, 1, 80]], kind: "road", lanes: 1, oneway: true } },
+  ]);
+  const lap = api.inspect({ id: "lap" }).node.path;
+  assert.ok(lap.points.length > 60 && lap.points.length < 130, `the lap resampled at 4 m: ${lap.points.length} points`);
+  assert.equal(lap.kind, "track");
+  // With ground, the resampled points take the terrain's heights.
+  api.apply([{ op: "resample", id: "lap", spacing: 4, ground: true }]);
+  const grounded = api.inspect({ id: "lap" }).node.path.points, terrain = { ...api.inspect({ id: "ground" }).node.terrain, origin: [-100, 0, -100] };
+  assert.ok(grounded.every(([x, y, z]) => Math.abs(y - heightAt(terrain, x, z)) < 1e-3), "every point sits on the terrain");
+  assert.ok(grounded.some(([, y]) => Math.abs(y) > 0.5), "the terrain is not flat there");
+  assert.throws(() => api.apply([{ op: "create", id: "bad", kind: "path", path: { points: [[0, 0, 0], [1, 0, 0]], kind: "canal" } }]), /one of data, road/);
+  assert.throws(() => api.apply([{ op: "rule", definition: { id: "x", kind: "sweep", on: { path: "lap" }, profile: "nope" } }]), /unknown profile preset/);
+  assert.throws(() => api.apply([{ op: "rule", definition: { id: "x", kind: "sweep", bake: false, on: { path: "lap" } } }]), /bake in the workshop/);
+  api.apply([
+    { op: "rule", definition: { id: "track", kind: "sweep", on: { path: "lap" }, profile: { preset: "track", width: 10 }, ground: true, rise: 0.1, step: 4, chunk: 150 } },
+    { op: "rule", definition: { id: "roads", kind: "sweep", on: { tag: "road" }, profile: { preset: "road", lanes: 2, sidewalks: true }, step: 10, bank: null } },
+  ]);
+  const derived = await api.derive({}, { ifRevision: api.inspect().revision });
+  const track = derived.derived.find((d) => d.rule === "track");
+  assert.ok(track.nodes.length >= 2 && track.nodes.length <= 4, `the 400 m lap in 150 m chunks: ${track.nodes}`);
+  assert.ok(track.triangles > 100 && track.sweep.paths === 1);
+  const chunk = api.getProject().nodes.find((n) => n.id === track.nodes[0]);
+  assert.ok(chunk.mesh.faces.length > 10 && chunk.tags.includes("ground") && chunk.derived.rule === "track");
+  const materials = api.getProject().materials.map((m) => m.id);
+  assert.ok(materials.includes("mat_asphalt") && materials.includes("mat_kerb_red") && materials.includes("mat_sidewalk"), `preset materials were added: ${materials}`);
+  // The track rides on the terrain: its asphalt sits about the rise above the field.
+  const field = { ...api.inspect({ id: "ground" }).node.terrain, origin: [-100, 0, -100] };
+  const asphalt = new Set(chunk.mesh.faces.filter((f) => f.material === "mat_asphalt").flatMap((f) => f.vertices));
+  for (const i of [...asphalt].slice(0, 20)) {
+    const [x, y, z] = chunk.mesh.vertices[i];
+    assert.ok(Math.abs(y - (heightAt(field, x, z) + 0.1)) < 1.5, `vertex ${x}, ${z} at ${y} over ${heightAt(field, x, z)}`);
+  }
+  const roads = derived.derived.find((d) => d.rule === "roads");
+  assert.deepEqual(roads.nodes, ["roads_1", "roads_2"], "one mesh per road, each shorter than a chunk");
+  const audit = api.audit();
+  assert.ok(!audit.findings.some((f) => f.code === "stale-rule" || f.code === "floating"), JSON.stringify(audit.findings.map((f) => f.code)));
+  // Moving a road leaves its sweep stale; deriving the rule alone replaces its meshes.
+  api.apply([{ op: "set", id: "side", path: { points: [[0, 1, 0], [0, 1, 90]], kind: "road", lanes: 1, oneway: true } }]);
+  assert.ok(api.audit().findings.some((f) => f.code === "stale-rule"), "a moved path makes the sweep stale");
+  await api.derive({ id: "roads" }, { ifRevision: api.inspect().revision });
+  assert.ok(!api.audit().findings.some((f) => f.code === "stale-rule"));
+  assert.ok(api.inspect({ id: "roads_2" }).bounds.max[2] > 89, "the new side road reaches z = 90");
+  // The tile: edges with kinds, lanes and the profiles that swept them; bodies for the swept
+  // floors; a network over the roads that respects one-way edges.
+  const tile = await api.exportTile({ encoding: "buffer" });
+  assert.deepEqual(await fun3d.validate(tile), []);
+  const model = await fun3d.load(tile);
+  const data = worldData(model);
+  const main = data.path("main");
+  assert.equal(main.kind, "road");
+  assert.equal(main.lanes, 2);
+  assert.equal(main.speed, 50);
+  assert.equal(main.profile.id, "roads");
+  assert.equal(main.width, 11);
+  assert.equal(data.path("side").oneway, true);
+  assert.equal(data.path("lap").profile.id, "track");
+  assert.equal(data.path("lap").width, 12);
+  assert.deepEqual(data.profiles().map((p) => p.id).sort(), ["roads", "track"]);
+  const bodies = model.manifest.physics.bodies.map((b) => b.node);
+  assert.ok(bodies.includes("ground") && bodies.includes(track.nodes[0]) && bodies.includes("roads_1"), bodies.join());
+  const net = data.network("road");
+  assert.equal(net.edges.length, 2);
+  const route = net.route([-90, 1, 0], [0, 1, 90]);
+  assert.ok(route.found && Math.abs(route.length - 180) < 1e-6 && route.edges.join() === "main,side", JSON.stringify(route));
+  assert.deepEqual(route.points[0], [-90, 1, 0]);
+  assert.equal(net.route([0, 1, 90], [-90, 1, 0]).found, false, "the side road is one way");
+  assert.equal(data.network().edges.length, 3, "every non-data path without a kind given");
+  const frame = main.frame(0.5);
+  assert.deepEqual(frame.tangent.map((v) => Math.round(v) + 0), [1, 0, 0]);
+  assert.deepEqual(frame.right.map((v) => Math.round(v) + 0), [0, 0, 1]);
+  // A world's data file carries the same edges and profiles.
+  const world = await api.exportWorld({ name: "Circuit" });
+  const dataFile = worldData(await fun3d.load(Buffer.from(world.files.find((f) => f.path === "world.fun3d").data, "base64")));
+  assert.equal(dataFile.path("lap").profile.id, "track");
+  assert.ok(dataFile.network("road").route([-90, 1, 0], [0, 1, 90]).found);
 });

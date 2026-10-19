@@ -9,7 +9,7 @@ import { buildModel } from "./viewport.js";
 import { worldMatrix, point } from "./spatial.js";
 import { solidBounds } from "./audit.js";
 import { statistics } from "./document.js";
-import { runtimeRule } from "./rules.js";
+import { runtimeRule, sweepProfiles } from "./rules.js";
 import { terrainMesh } from "../runtime/kit/terrain.js";
 
 const round = (v) => Math.round(v * 1e6) / 1e6;
@@ -84,6 +84,10 @@ export async function exportTile(project, { name = project.name, runtime = [], w
     const position = new THREE.Vector3(),
       quaternion = new THREE.Quaternion(),
       scale = new THREE.Vector3();
+    // Profiles come from the sweep rules; an edge names the one that swept it.
+    const profiles = tables ? sweepProfiles(source ?? project) : [];
+    const profileFor = (id) => profiles.find((p) => p.paths.includes(id))?.id ?? null;
+    const used = new Set();
     for (const node of project.nodes) {
       if (!tables || !(node.zone || node.path)) continue;
       const m = worldMatrix(project, node.id),
@@ -114,7 +118,18 @@ export async function exportTile(project, { name = project.name, runtime = [], w
       } else {
         const start = points.length / 3;
         for (const p of node.path.points) points.push(...point(m, p).map(round));
-        edges.push({ ...common, points: node.path.points.map((_, i) => start + i), closed: node.path.closed, kind: "data" });
+        const profile = node.path.profile ?? profileFor(node.id);
+        if (profile) used.add(profile);
+        edges.push({
+          ...common,
+          points: node.path.points.map((_, i) => start + i),
+          closed: node.path.closed,
+          kind: node.path.kind ?? "data",
+          ...(profile ? { profile } : {}),
+          ...(node.path.lanes ? { lanes: node.path.lanes } : {}),
+          ...(node.path.oneway ? { oneway: true } : {}),
+          ...(node.path.speed ? { speed: node.path.speed } : {}),
+        });
       }
     }
     // Terrains: a flat-shaded mesh per terrain under its node, the field as data, a static body.
@@ -150,6 +165,15 @@ export async function exportTile(project, { name = project.name, runtime = [], w
         physics.bodies.push({ id: `body_${id}`, node: id, shape: `shape_${id}`, motion: "static", friction: t.surfaceTable[0].friction ?? 0.8 });
       }
     }
+    // The project's own floors (parts tagged ground: slabs, swept roads and tracks) get a
+    // static mesh body, so a game stands and drives on them.
+    if (wantPhysics)
+      for (const node of project.nodes) {
+        if (!node.mesh || !node.tags?.includes("ground")) continue;
+        const id = await idFromName(node.id);
+        physics.shapes.push({ id: `shape_${id}`, type: "mesh", geometry: id });
+        physics.bodies.push({ id: `body_${id}`, node: id, shape: `shape_${id}`, motion: "static", friction: 0.8 });
+      }
     const bounds = sceneBounds(project);
     const record = world
       ? {
@@ -164,7 +188,11 @@ export async function exportTile(project, { name = project.name, runtime = [], w
     const extensions = { "fun3d.tile": record };
     if (terrains.length) extensions["fun3d.terrain"] = terrains;
     if (zones.length) extensions["fun3d.zones"] = zones;
-    if (edges.length) extensions["fun3d.paths"] = { points: { stream: Float32Array.from(points), format: "float32x3" }, edges };
+    if (edges.length) {
+      extensions["fun3d.paths"] = { points: { stream: Float32Array.from(points), format: "float32x3" }, edges };
+      const table = profiles.filter((p) => used.has(p.id)).map(({ id, width, lanes, kind }) => ({ id, width, lanes, kind }));
+      if (table.length) extensions["fun3d.paths"].profiles = table;
+    }
     // Rules the game runs: pinned models (also among the refs, so a build fetches them),
     // ids as the tables name them, keep-outs from the whole project.
     if (runtime.length) {

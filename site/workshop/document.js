@@ -34,9 +34,10 @@ import {
 import { meshEdges, bevelEdges, cutPlane, loopCut } from "./topology.js";
 import { surfaceDiagnostics } from "./diagnostics.js";
 import { booleanMesh } from "./booleans.js";
+import { resamplePath, resolveProfile } from "../runtime/kit/sweep.js";
 import { arrayStep, stepMatrix, arrayMesh } from "./arrays.js";
 import { blueprintCommands } from "./blueprints.js";
-import { generateHeights, classifySurfaces } from "../runtime/kit/terrain.js";
+import { generateHeights, classifySurfaces, heightAt } from "../runtime/kit/terrain.js";
 import { hashString } from "../runtime/kit/random.js";
 import {
   MESH_EDITS,
@@ -618,12 +619,26 @@ export function normalizeZone(value, path = "area") {
     return { kind: "sphere", radius: number(value.radius, 1e-6, 100000, `${path}.radius`) };
   fail("A zone is a polygon with y, a box size or a sphere radius", path);
 }
+// A path's kind says what it is for a game (road, track, rail, river, walk; data for anything
+// else); profile, lanes, oneway and speed ride into the tile's edge for routing (kit/world.js).
+export const PATH_KINDS = ["data", "road", "track", "rail", "river", "walk"];
+export const PATH_POINTS = 4096;
 export function normalizePath(value, path = "path") {
-  if (!value || typeof value !== "object" || !Array.isArray(value.points) || value.points.length < 2 || value.points.length > 1024)
-    fail("A path has 2–1024 points", `${path}.points`);
-  if (value.kind !== undefined && value.kind !== "data")
-    fail("Only data paths exist in this release", `${path}.kind`);
-  return { points: value.points.map((p, i) => vector(p, `${path}.points.${i}`)), closed: !!value.closed };
+  if (!value || typeof value !== "object" || !Array.isArray(value.points) || value.points.length < 2 || value.points.length > PATH_POINTS)
+    fail(`A path has 2–${PATH_POINTS} points`, `${path}.points`);
+  const out = { points: value.points.map((p, i) => vector(p, `${path}.points.${i}`)), closed: !!value.closed };
+  if (value.kind !== undefined && value.kind !== null) {
+    if (!PATH_KINDS.includes(value.kind)) fail(`kind is one of ${PATH_KINDS.join(", ")}`, `${path}.kind`);
+    if (value.kind !== "data") out.kind = value.kind;
+  }
+  if (value.profile !== undefined && value.profile !== null) out.profile = identifier(value.profile, `${path}.profile`);
+  if (value.lanes !== undefined && value.lanes !== null) {
+    if (!Number.isInteger(value.lanes) || value.lanes < 1 || value.lanes > 8) fail("lanes is 1–8", `${path}.lanes`);
+    out.lanes = value.lanes;
+  }
+  if (value.oneway) out.oneway = true;
+  if (value.speed !== undefined && value.speed !== null) out.speed = number(value.speed, 1, 400, `${path}.speed`);
+  return out;
 }
 // tile.size cuts a world into tiles centred on multiples of it (tiles.js); tile.span is how
 // many tiles across and deep the world may use, centred on tile 0_0 (odd numbers; 1 by default).
@@ -755,7 +770,7 @@ function normalizeAssembleRule(value, rule, path) {
 export function normalizeRule(value, path = "definition") {
   if (!value || typeof value !== "object") fail("Invalid rule", path);
   const id = identifier(value.id, `${path}.id`);
-  if (!["scatter", "assemble"].includes(value.kind)) fail("Rule kinds: scatter, assemble", `${path}.kind`);
+  if (!["scatter", "assemble", "sweep"].includes(value.kind)) fail("Rule kinds: scatter, assemble, sweep", `${path}.kind`);
   const rule = { id, kind: value.kind };
   if (typeof value.seed === "string") {
     if (!value.seed.length || value.seed.length > 64) fail("A seed is a number or a short string", `${path}.seed`);
@@ -767,6 +782,10 @@ export function normalizeRule(value, path = "definition") {
   if (tags.length) rule.tags = tags;
   // bake false: the rule rides in the tile for the game to run at play time (kit/world.js).
   if (value.bake === false) rule.bake = false;
+  if (rule.kind === "sweep") {
+    normalizeSweepRule(value, rule, path);
+    return rule;
+  }
   if (rule.kind === "assemble") {
     normalizeAssembleRule(value, rule, path);
     if (value.avoid !== undefined && value.avoid !== null) rule.avoid = normalizeAvoid(value.avoid, path);
@@ -833,6 +852,48 @@ export function normalizeRule(value, path = "definition") {
   });
   if (value.avoid !== undefined && value.avoid !== null) rule.avoid = normalizeAvoid(value.avoid, path);
   return rule;
+}
+// Sweep (docs/worlds.md §5): a profile carried along paths becomes mesh parts tagged ground.
+const SWEEP_LIMITS = { paths: 64, strips: 16, marks: 16 };
+function normalizeSweepRule(value, rule, path) {
+  if (value.bake === false) fail("Sweep rules bake in the workshop; bake: false is for scatter and assembly", `${path}.bake`);
+  const on = value.on;
+  if (!on || typeof on !== "object") fail("A sweep rule needs on: { path } | { paths: [ids] } | { tag }", `${path}.on`);
+  if (on.path !== undefined && on.path !== null) rule.on = { paths: [identifier(on.path, `${path}.on.path`)] };
+  else if (Array.isArray(on.paths) && on.paths.length && on.paths.length <= SWEEP_LIMITS.paths) rule.on = { paths: on.paths.map((p, i) => identifier(p, `${path}.on.paths.${i}`)) };
+  else if (typeof on.tag === "string") rule.on = { tag: normalizeTags([on.tag], `${path}.on.tag`)[0] };
+  else fail(`on is { path } | { paths: [up to ${SWEEP_LIMITS.paths} ids] } | { tag }`, `${path}.on`);
+  const given = value.profile === undefined || value.profile === null ? "road" : value.profile;
+  let profile;
+  try {
+    profile = resolveProfile(given);
+  } catch (e) {
+    fail(e.message, `${path}.profile`);
+  }
+  if (profile.strips.length > SWEEP_LIMITS.strips || profile.marks.length > SWEEP_LIMITS.marks) fail(`A profile has up to ${SWEEP_LIMITS.strips} strips and ${SWEEP_LIMITS.marks} marks`, `${path}.profile`);
+  profile.strips.forEach((s, i) => {
+    number(s.width, 0.01, 100, `${path}.profile.strips.${i}.width`);
+    number(s.offset ?? 0, -10, 10, `${path}.profile.strips.${i}.offset`);
+    identifier(s.material, `${path}.profile.strips.${i}.material`);
+  });
+  profile.marks.forEach((m, i) => {
+    number(m.at, -100, 100, `${path}.profile.marks.${i}.at`);
+    number(m.width, 0.01, 100, `${path}.profile.marks.${i}.width`);
+    for (const id of m.materials ?? [m.material]) identifier(id, `${path}.profile.marks.${i}.material`);
+    if (m.dash !== undefined && m.dash !== null && (!Array.isArray(m.dash) || m.dash.length !== 2 || m.dash.some((v) => !(v > 0 && v <= 1000)))) fail("dash is [on, off] metres", `${path}.profile.marks.${i}.dash`);
+  });
+  if (profile.thickness !== undefined) number(profile.thickness, 0, 10, `${path}.profile.thickness`);
+  rule.profile = typeof given === "string" ? given : JSON.parse(JSON.stringify(given));
+  if (value.ground) rule.ground = true;
+  rule.rise = number(value.rise ?? 0.05, -10, 10, `${path}.rise`);
+  rule.step = number(value.step ?? 4, 0.25, 100, `${path}.step`);
+  if (value.bank === null) rule.bank = null;
+  else if (typeof value.bank === "number") rule.bank = { max: number(value.bank, 0, 45, `${path}.bank`), radius: 40 };
+  else if (value.bank !== undefined) {
+    if (typeof value.bank !== "object") fail("bank is degrees, { max, radius } or null", `${path}.bank`);
+    rule.bank = { max: number(value.bank.max ?? 0, 0, 45, `${path}.bank.max`), radius: number(value.bank.radius ?? 40, 1, 10000, `${path}.bank.radius`) };
+  }
+  if (value.chunk !== undefined && value.chunk !== null) rule.chunk = number(value.chunk, 1, 100000, `${path}.chunk`);
 }
 function normalizeAvoid(value, path) {
   if (!Array.isArray(value) || value.length > COPY_LIMITS.avoid) fail(`avoid lists up to ${COPY_LIMITS.avoid} entries`, `${path}.avoid`);
@@ -1056,7 +1117,8 @@ export function validateProject(input, budget = {}) {
       const nonmanifold = [...edges.values()].filter(
         (e) => e.count > 2 || (e.count === 2 && e.balance !== 0),
       ).length;
-      if (boundary)
+      // Derived sweeps are open ribbons by design.
+      if (boundary && !node.derived)
         warnings.push({ code: "open-edges", node: node.id, count: boundary });
       if (nonmanifold)
         warnings.push({
@@ -1073,7 +1135,7 @@ export function validateProject(input, budget = {}) {
     interObjectIntersections: false,
     minimumWallThickness: false,
   };
-  for (const node of project.nodes.filter((n) => n.mesh)) {
+  for (const node of project.nodes.filter((n) => n.mesh && !n.derived)) {
     const result = surfaces(node.mesh);
     warnings.push(
       ...result.issues.map((issue) => ({ ...issue, node: node.id })),
@@ -1805,10 +1867,12 @@ function run(project, command) {
         rotation: vector(node.rotation ?? [0, 0, 0], `${at}.rotation`),
         scale: vector(node.scale ?? [1, 1, 1], `${at}.scale`),
         mesh: null,
-        place: normalizePlace(node.place, `${at}.place`),
         derived: { rule: command.rule, hash: normalizeDerived({ rule: command.rule, hash: node.derived?.hash ?? node.hash ?? "" }, `${at}.derived`).hash },
       };
-      if (node.copies !== undefined && node.copies !== null) {
+      // A sweep derives meshes (validated with the project); the others place library models.
+      if (node.mesh) result.mesh = copy(node.mesh);
+      else result.place = normalizePlace(node.place, `${at}.place`);
+      if (result.place && node.copies !== undefined && node.copies !== null) {
         result.copies = normalizeCopies(node.copies, `${at}.copies`);
         if (node.tints !== undefined && node.tints !== null) result.tints = normalizeTints(node.tints, result.copies.length, `${at}.tints`);
       }
@@ -2052,7 +2116,7 @@ function run(project, command) {
     !["unlink", "delete", "duplicate", "rename"].includes(command.op)
   )
     fail("Unlink the mirrored part before editing it");
-  if (dataKind(node) && !["set", "delete", "duplicate", "rename", "socket", "removeSocket", "terrain"].includes(command.op))
+  if (dataKind(node) && !["set", "delete", "duplicate", "rename", "socket", "removeSocket", "terrain", "resample"].includes(command.op))
     fail("Placed models, markers, zones and paths take set, delete, duplicate and rename only");
   switch (command.op) {
     case "rename": {
@@ -2235,6 +2299,31 @@ function run(project, command) {
       }
       delete node.generator;
       node.recipe = recipe;
+      break;
+    }
+    case "resample": {
+      // Points about `spacing` apart along a smooth curve through the path's points; with
+      // ground, each point's height is the terrain's under it.
+      if (!node.path) fail("resample takes a path part", "id");
+      const spacing = number(command.spacing ?? 2, 0.1, 10000, "spacing");
+      const points = resamplePath(node.path.points, { closed: node.path.closed, spacing, smooth: command.smooth !== false });
+      if (points.length > PATH_POINTS) fail(`Resampling at ${spacing} m gives ${points.length} points; the cap is ${PATH_POINTS}`, "spacing");
+      if (command.ground) {
+        const fields = project.nodes.filter((n) => n.terrain).map((n) => {
+          const origin = point(worldMatrix(project, n.id), [0, 0, 0]);
+          return { cell: n.terrain.cell, samples: n.terrain.samples, origin, heights: n.terrain.heights.map((h) => h + origin[1]) };
+        });
+        if (!fields.length) fail("ground needs a terrain part", "ground");
+        const m = worldMatrix(project, node.id);
+        for (const p of points) {
+          const w = point(m, p);
+          for (const f of fields) {
+            const h = heightAt(f, w[0], w[2]);
+            if (h !== null) { p[1] = Math.round((p[1] + h - w[1]) * 1000) / 1000; break; }
+          }
+        }
+      }
+      node.path = { ...node.path, points };
       break;
     }
     case "terrain": {
@@ -2918,7 +3007,7 @@ export function evaluateTransaction(
         const old = before.nodes.find((v) => v.id === n.id),
           previous = topologyToken(old?.mesh),
           topology = topologyToken(n.mesh);
-        if (topology === previous) continue;
+        if (topology === previous || n.derived) continue;
         // Only faults this edit adds block it: an imported mesh may already carry some.
         // Separate shells passing through each other, and checks too large to finish,
         // are warnings.

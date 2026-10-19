@@ -520,7 +520,9 @@ them draws the scene and ignores the data.
                     "shape": { "polygon": [[-3, -3], [3, -3], [3, 0], [-3, 0]], "y": [0, 2.5] } }],    // or { "box": { center, halfExtents, rotation } } | { "sphere": { center, radius } }, in tile space
   "fun3d.paths": { "points": { "stream": "s50", "format": "float32x3" },
                    "attributes": { "width": { "stream": "s51", "format": "float32" } },               // optional, one value per point
-                   "edges": [{ "id": "lap", "points": [0, 1, 2], "closed": true, "kind": "data", "tags": ["lap"], "params": {} }] },
+                   "edges": [{ "id": "lap", "points": [0, 1, 2], "closed": true, "kind": "track", "profile": "track", "lanes": 2, "tags": ["lap"], "params": {} },
+                             { "id": "r1", "points": [3, 4], "kind": "road", "profile": "streets", "lanes": 2, "oneway": false, "speed": 50 }],   // kind: data | road | track | rail | river | walk
+                   "profiles": [{ "id": "track", "width": 12, "lanes": 2, "kind": "track" }] },      // what swept the edges that name it
   "fun3d.tile": { "bounds": { "min": [-6, 0, -6], "max": [6, 7.4, 6] }, "size": [12, 12],
                   "world": "island", "x": 1, "z": 0, "far": "tiles/1_0.far.fun3d" }                 // world, x, z, far, level: "far" only in a world's tiles (worlds 3.2)
 }

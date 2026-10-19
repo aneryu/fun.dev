@@ -199,6 +199,19 @@ await ws.rule({ id: "green", kind: "scatter", seed: "spring", on: { zone: "verge
 await ws.derive();                        // placed parts with copies, stamped with their rule
 ```
 
+Roads, tracks, rails and rivers are sweeps: a profile carried along a path into a mesh part
+tagged `ground` (with a static body in the tile); the path keeps its kind for the game:
+
+```js
+await ws.apply([
+  { op: "create", id: "lap", kind: "path", tags: ["lap"], path: { points: [[-60, 0, -40], [60, 0, -40], [60, 0, 40], [-60, 0, 40]], closed: true, kind: "track", lanes: 2 } },
+  { op: "resample", id: "lap", spacing: 3 },                                  // a smooth curve through the points, 3 m apart
+]);
+await ws.rule({ id: "track", kind: "sweep", on: { path: "lap" }, profile: { preset: "track", width: 12 }, ground: true, bank: { max: 8, radius: 60 } });
+await ws.rule({ id: "streets", kind: "sweep", on: { tag: "road" }, profile: { preset: "road", lanes: 2, sidewalks: true } });   // presets: road, track, rail, river, walk; or { strips, marks }
+await ws.derive();                        // mesh parts per path (in chunks of the tile size), preset materials added
+```
+
 `on` is `{ path, spacing, offset, sides }`, `{ zone, spacing, jitter, margin }` or `{ grid: { cells,
 spacing, origin } }`; the audit says when a rule is stale or not yet derived.
 

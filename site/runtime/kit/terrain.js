@@ -52,7 +52,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
  * Heights from ops, in world metres (origin is the terrain's corner in the world; heights are
  * absolute): noise { amplitude, scale, octaves, persistence, seed, mode: add | set }, stamp
  * { shape: circle | box, center, radius | size, height, falloff, mode: add | set | max | min },
- * flatten { points (a world polyline), width, blend, height: "path" | number }, level
+ * flatten { points (a world polyline), width, blend, height: "path" | "terrain" | number }, level
  * { polygon, height, blend }, smooth { passes }, clamp { min, max }, add { height }.
  */
 export function generateHeights({ cell, samples: [nx, nz], origin = [0, 0, 0] }, ops = [], seed = 1) {
@@ -81,8 +81,28 @@ export function generateHeights({ cell, samples: [nx, nz], origin = [0, 0, 0] },
         else if (mode === "min") heights[index] = lerp(heights[index], Math.min(heights[index], target), weight);
       }
     } else if (op.flatten) {
-      const f = op.flatten, points = f.points ?? [], width = f.width ?? 4, blend = f.blend ?? 2;
+      const f = op.flatten, width = f.width ?? 4, blend = f.blend ?? 2;
+      let points = f.points ?? [];
       if (points.length < 2) continue;
+      // height "terrain": the band follows the land. Its centreline takes the field's own
+      // heights as they are now, smoothed along the path over the blend, so a road climbs a
+      // hill instead of cutting through it; the band is still flat across.
+      if (f.height === "terrain") {
+        const before = { cell, samples: [nx, nz], origin, heights: Float32Array.from(heights) };
+        const dense = [];
+        for (let p = 1; p < points.length; p++) {
+          const a = points[p - 1], b = points[p], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[2] - a[2]) / cell));
+          for (let s = 0; s < n; s++) dense.push([lerp(a[0], b[0], s / n), lerp(a[1], b[1], s / n), lerp(a[2], b[2], s / n)]);
+        }
+        dense.push([...points[points.length - 1]]);
+        const sampled = dense.map((p) => heightAt(before, p[0], p[2]) ?? p[1]);
+        const window = Math.max(1, Math.round(blend / cell));
+        points = dense.map((p, i) => {
+          let sum = 0, count = 0;
+          for (let k = -window; k <= window; k++) if (i + k >= 0 && i + k < dense.length) { sum += sampled[i + k]; count++; }
+          return [p[0], sum / count, p[2]];
+        });
+      }
       for (let k = 0; k < nz; k++) for (let i = 0; i < nx; i++) {
         const [x, z] = world(i, k);
         let best = { distance: Infinity, y: 0 };

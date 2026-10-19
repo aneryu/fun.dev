@@ -765,7 +765,9 @@ await ws.rule({ id: "streets", kind: "assemble", bounds: "block", count: 60, pie
   { model: "city_street_straight_01", sockets: { e: "road", w: "road" }, weight: 6 },
   { model: "city_street_endcap_01", sockets: { n: "road" }, closer: true } ] });  // a kit grown through mating sockets
 await ws.apply([{ op: "create", id: "ground", kind: "terrain", position: [-64, 0, -64], terrain: { cell: 4, samples: [33, 33] } },
-  { op: "terrain", id: "ground", ops: [{ noise: { amplitude: 12, scale: 60 } }, { flatten: { path: "road", width: 8 } }] }]);  // a height field, shaped</pre
+  { op: "terrain", id: "ground", ops: [{ noise: { amplitude: 12, scale: 60 } }, { flatten: { path: "road", width: 8 } }] }]);  // a height field, shaped
+await ws.apply([{ op: "resample", id: "road", spacing: 3 }]);                                   // a smooth curve through the path's points
+await ws.rule({ id: "asphalt", kind: "sweep", on: { path: "road" }, profile: { preset: "road", lanes: 2 }, ground: true });   // road, track, rail, river, walk, or { strips, marks }</pre
       >
       <p>
         A placed model keeps the library's bounds and files, never its geometry; markers,
@@ -776,7 +778,9 @@ await ws.apply([{ op: "create", id: "ground", kind: "terrain", position: [-64, 0
         data; derive runs them (apply op rule | removeRule). Parts take sockets (socket,
         removeSocket, snap); GLBs carry them as socket_&lt;name&gt; empties. A terrain part is a
         height field shaped by ops and classified into surfaces; scatter rules sit on it with
-        ground and where. 地形：高度场按噪声、印章、沿路径压平、区域抬平来造型，按高度和坡度分表面。 MCP: fun_editor_place, fun_editor_derive, fun_editor_map,
+        ground and where. A sweep rule carries a profile along paths into road, track, rail or
+        river meshes tagged ground (banked by curvature, in chunks of the tile size); paths keep
+        kind, lanes, oneway and speed for the game's routing. 地形：高度场按噪声、印章、沿路径压平、区域抬平来造型，按高度和坡度分表面。道路和赛道由 sweep 规则沿路径扫出。 MCP: fun_editor_place, fun_editor_derive, fun_editor_map,
         fun_editor_audit, fun_editor_exportTile, fun_editor_exportWorld. 场景：按引用放置库模型，
         标记、区域、路径带标签和参数；散布规则是数据，derive 生成副本；audit 列出问题，map 画俯视图。
       </p>
