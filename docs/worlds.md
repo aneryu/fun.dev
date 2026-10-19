@@ -367,8 +367,18 @@ from a script, reviewed like library models.
    nodes, load as one instanced mesh per part of the referenced model, offer the model's lamps
    to the light slots once per copy, and read as one marker per copy. Sample:
    `examples/worlds/avenue.mjs` (grass tiles on grids, lamps and benches along the road,
-   trees and shrubs over the verges). Still to come in this step: kits with socket rules,
-   `assemble`, runtime `assemble`, and the dungeon, runner and arena samples.
+   trees and shrubs over the verges). Kits and assembly are built too (2026-10-19): parts carry
+   `sockets` (frames with tags; `socket`, `removeSocket`, `snap` commands; exported to GLB as
+   `socket_<name>` empties with tags in the extras, read back by the importer, the converter
+   and the placed-model templates, so a library piece made in the workshop keeps them);
+   `assemble` rules grow a kit from a start piece through mating sockets (`kit/assemble.js`,
+   the same code a game may run): pieces are library models with sockets from the model or a
+   box-side shorthand, mating by tag or a `[open, new]` table, growth from any open socket or
+   a chain with a `sequence`, kept inside a zone and clear of what stands, adjacency-consistent
+   (no road into a wall), dead ends capped by closers. Samples: `examples/worlds/street-grid.mjs`
+   (the city_streets kit grown from a crossing) and `examples/worlds/walled-garden.mjs`
+   (retaining walls chained around a lawn by sequence). Still to come: `assemble` at run time
+   through the kit, and the library's kit records as structured agreements.
 3. **Ground, sweeps, navigation, tiles.** `fun3d.terrain` and `fun3d.grid`, terrain ops, `sweep`
    for roads and tracks (帝都's generator generalised), `lots`, `fun3d.navmesh`, the manifest with
    streaming and far files, `sample`, full budgets. Samples: a racing track, an island, 帝都 M1's

@@ -4,6 +4,7 @@
 // of what it was derived from, so the audit can tell when a rule has gone stale.
 import { worldMatrix, point, inverse, multiply, decompose, matrix, identity } from "./spatial.js";
 import { evaluateScatter } from "../runtime/kit/scatter.js";
+import { evaluateAssembly, boxSockets } from "../runtime/kit/assemble.js";
 import { hashString } from "../runtime/kit/random.js";
 import { solidBounds } from "./audit.js";
 import { ModelError } from "./mesh.js";
@@ -56,11 +57,15 @@ export function ruleInputs(project, rule) {
     return { polygon, y: [point(m, [0, -z.radius, 0])[1], point(m, [0, z.radius, 0])[1]].sort((a, b) => a - b).map(round) };
   };
   const inputs = { paths: {}, polygons: {}, zoneY: {}, avoid: { paths: [], polygons: [], boxes: [] } };
-  if (rule.on.path !== undefined) inputs.paths[rule.on.path] = pathOf(rule.on.path);
-  if (rule.on.zone !== undefined) {
-    const zone = zoneOf(rule.on.zone);
-    inputs.polygons[rule.on.zone] = zone.polygon;
-    inputs.zoneY[rule.on.zone] = zone.y;
+  if (rule.kind === "assemble") {
+    if (rule.bounds) inputs.polygons[rule.bounds] = zoneOf(rule.bounds).polygon;
+  } else {
+    if (rule.on.path !== undefined) inputs.paths[rule.on.path] = pathOf(rule.on.path);
+    if (rule.on.zone !== undefined) {
+      const zone = zoneOf(rule.on.zone);
+      inputs.polygons[rule.on.zone] = zone.polygon;
+      inputs.zoneY[rule.on.zone] = zone.y;
+    }
   }
   let solids = null;
   for (const a of rule.avoid ?? []) {
@@ -75,9 +80,27 @@ export function ruleInputs(project, rule) {
   return inputs;
 }
 
-/** What a derivation depends on: the rule, its inputs and the models' pinned files. */
-export function ruleHash(rule, inputs, records) {
-  const text = JSON.stringify({ rule, inputs, models: records.map((r) => [r.model, r.sha256]) });
+/** The models a rule places: scatter candidates or assembly pieces. */
+export const ruleModels = (rule) => (rule.kind === "assemble" ? rule.pieces : rule.candidates).map((c) => c.model);
+
+/** A piece for the assembler: the library's bounds and the socket frames the rule gives it. */
+export function assemblyPiece(piece, record, index) {
+  let sockets;
+  if (piece.sockets === "model") {
+    if (!record.sockets || !Object.keys(record.sockets).length)
+      throw new ModelError(`Piece ${index} (${piece.model}) has no sockets in the library; give the rule sockets for it`, "dependency", `pieces.${index}.sockets`);
+    sockets = record.sockets;
+  } else {
+    const sides = Object.fromEntries(Object.entries(piece.sockets).filter(([, s]) => s.side).map(([name, s]) => [name, s.tags[0]]));
+    sockets = { ...(Object.keys(sides).length ? boxSockets(record.bounds, sides) : {}) };
+    for (const [name, s] of Object.entries(piece.sockets)) if (!s.side) sockets[name] = { position: s.position, rotation: s.rotation, tags: s.tags };
+  }
+  return { bounds: record.bounds, sockets, weight: piece.weight, closer: !!piece.closer, start: !!piece.start };
+}
+
+/** What a derivation depends on: the rule and its inputs (models are pinned on the parts). */
+export function ruleHash(rule, inputs) {
+  const text = JSON.stringify({ rule, inputs });
   return hashString(text).toString(16).padStart(8, "0") + hashString(`${text}#`).toString(16).padStart(8, "0");
 }
 
@@ -86,16 +109,30 @@ export function ruleHash(rule, inputs, records) {
  * copies in that parent's space (the derived part itself sits at the origin).
  */
 export function deriveNodes(project, rule, records, inputs = ruleInputs(project, rule)) {
-  const { rows, tints } = evaluateScatter(rule, inputs);
+  let rows, tints, candidates, report = null;
+  if (rule.kind === "assemble") {
+    const pieces = rule.pieces.map((piece, i) => assemblyPiece(piece, records[i], i));
+    const result = evaluateAssembly(
+      { ...rule, bounds: rule.bounds ? inputs.polygons[rule.bounds] : undefined, avoid: inputs.avoid },
+      pieces,
+    );
+    rows = result.rows;
+    tints = pieces.map(() => null);
+    candidates = rule.pieces;
+    report = { placed: result.placed, open: result.open.length, stuck: result.stuck };
+  } else {
+    ({ rows, tints } = evaluateScatter(rule, inputs));
+    candidates = rule.candidates;
+  }
   const parentWorld = rule.parent ? worldMatrix(project, rule.parent) : identity();
   const parentFrame = decompose(parentWorld);
   if (!parentFrame || Math.abs(parentFrame.scale[0] - parentFrame.scale[1]) > 1e-6 || Math.abs(parentFrame.scale[0] - parentFrame.scale[2]) > 1e-6)
     throw new ModelError(`Rule ${rule.id}: the parent must be uniformly scaled and not sheared`, "dependency", rule.parent);
   const toParent = inverse(parentWorld);
   const atOrigin = parentWorld.every((v, i) => Math.abs(v - identity()[i]) < 1e-12);
-  const hash = ruleHash(rule, inputs, records);
+  const hash = ruleHash(rule, inputs);
   const nodes = [];
-  rule.candidates.forEach((candidate, i) => {
+  candidates.forEach((candidate, i) => {
     if (!rows[i].length) return;
     const record = records[i];
     // Rows are world space; under a transformed parent they move into its space.
@@ -107,7 +144,7 @@ export function deriveNodes(project, rule, records, inputs = ruleInputs(project,
     });
     const { name, type, ...place } = record;
     nodes.push({
-      id: rule.candidates.length > 1 ? `${rule.target}_${i + 1}` : rule.target,
+      id: candidates.length > 1 ? `${rule.target}_${i + 1}` : rule.target,
       name: `${name} × ${copies.length}`,
       parent: rule.parent ?? null,
       place,
@@ -117,6 +154,7 @@ export function deriveNodes(project, rule, records, inputs = ruleInputs(project,
       derived: { rule: rule.id, hash },
     });
   });
+  if (report) nodes.report = report;
   return nodes;
 }
 
@@ -135,12 +173,8 @@ export function ruleStatus(project) {
     } catch {
       return { id: rule.id, state: "stale", parts: parts.map((n) => n.id) };
     }
-    const records = rule.candidates.map((c, i) => {
-      const part = project.nodes.find((n) => n.derived?.rule === rule.id && n.id === (rule.candidates.length > 1 ? `${rule.target}_${i + 1}` : rule.target));
-      return part ? { model: part.place.model, sha256: part.place.sha256 } : null;
-    });
-    const hash = records.every(Boolean) ? ruleHash(rule, inputs, records) : null;
-    const current = hash !== null && parts.every((n) => n.derived.hash === hash);
+    const hash = ruleHash(rule, inputs);
+    const current = parts.every((n) => n.derived.hash === hash);
     return { id: rule.id, state: current ? "current" : "stale", parts: parts.map((n) => n.id) };
   });
 }

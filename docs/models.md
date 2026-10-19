@@ -103,6 +103,10 @@ once, render as instances, and stay identifiable in games:
   kit, tags and listing may change at any time; its type is fixed once a version is approved.
 - Every model has a bilingual `description`: what it is, how it looks, where it fits. Agents
   choose by reading descriptions, so they matter more than tags; tags are free and optional.
+- A piece may carry sockets: empties named `socket_<name>` under the part, +Z pointing out,
+  `tags` in the extras saying what may meet them ([worlds](worlds.md) §4). The workshop writes
+  and reads them, the converter keeps them in `.fun3d`, and assembly rules mate pieces by them;
+  pieces without sockets are given box-side ones by the rule that uses them.
 - A `kit` means "built to one set of dimensions, so these fit together" (a modular sofa, wall
   and floor modules on a 3 m grid with 2.8 m storeys). Each kit has a description of that
   agreement. Models that are merely related share no kit; their descriptions say so. There are

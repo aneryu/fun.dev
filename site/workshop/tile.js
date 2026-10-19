@@ -32,6 +32,13 @@ export async function exportTile(project, { name = project.name } = {}) {
       const o = model.objects.get(node.id);
       if (node.tags?.length) o.userData.tags = [...node.tags];
       if (node.params) o.userData.params = structuredClone(node.params);
+      if (node.sockets)
+        o.userData.sockets = Object.fromEntries(
+          Object.entries(node.sockets).map(([name, f]) => [
+            name,
+            { position: [...f.position], rotation: new THREE.Quaternion().setFromEuler(new THREE.Euler(...f.rotation.map(THREE.MathUtils.degToRad), "XYZ")).toArray().map((v) => Math.round(v * 1e7) / 1e7) },
+          ]),
+        );
       if (node.place) {
         if (!refs.has(node.place.model)) refs.set(node.place.model, `m${refs.size}`);
         o.userData.fun3dModel = {

@@ -1072,3 +1072,41 @@ read have changed since) and counts every copy's triangles in the budget; copies
 the overlap and floating checks. In the viewport copies draw instanced; `exportTile` writes
 them as `placements` of the model node, and a game gets one instanced mesh per part, the
 model's lamps once per copy, and one marker per copy for the part's tags.
+
+### Sockets and assembly rules
+
+A socket is an attachment frame on a part, in the part's space, with tags that say what may
+meet it; its +Z points out of the part. `create`/`set` take `sockets: { name: { position,
+rotation, tags } }`, `{ op: "socket", id, socket, position, rotation, tags }` adds one and
+`removeSocket` drops it. `{ op: "snap", id, socket, target: { id, socket } }` moves a part so
+that its socket meets the target's, facing it (the part keeps its scale). Exported GLBs carry
+sockets as empties named `socket_<name>` under their part with the tags in the extras; the
+importer, the library converter and placed-model templates read them back, so a kit piece made
+in the workshop keeps its sockets through the library and a placed model offers them for
+`snap` and for assembly.
+
+An assembly rule grows a kit from a start piece through mating sockets:
+
+```js
+funEditor.rule({ id: "streets", kind: "assemble", seed: 7, target: "streets", bounds: "block", count: 60,
+  pieces: [
+    { model: "city_street_cross_01", sockets: { n: "road", s: "road", e: "road", w: "road" }, start: true },
+    { model: "city_street_straight_01", sockets: { e: "road", w: "road" }, weight: 6 },
+    { model: "city_street_endcap_01", sockets: { n: "road" }, closer: true },
+  ] }, { ifRevision });
+await funEditor.derive({ id: "streets" }, { ifRevision });
+```
+
+- `pieces` are library models; `sockets` is the box-side shorthand (`n`, `s`, `e`, `w`, `up`,
+  `down` on the piece's bounds, at its base, each with a tag), explicit frames, or `"model"`
+  for the sockets the library model carries (the default when it has any).
+- Sockets mate when their tags are equal, or as the `mates` table lists `[open, new]` pairs.
+  A piece never overlaps what stands (by more than `tolerance`, 5 cm), stays inside the
+  `bounds` zone, and never puts a socket into a neighbour that offers no mating socket there.
+- `frontier: "any"` grows from a random open socket (networks); `"last"` continues from the
+  piece placed last (chains), `from` names the start piece's socket to grow from and
+  `sequence` the pieces that follow it in order. `count` caps the pieces; `closers` cap the
+  sockets left open when `close` is not false. `start`, `at` and `yaw` place the first piece.
+
+The result is one placed part with copies per piece model, stamped like a scatter rule's;
+`derive` reports the pieces placed, the sockets left open and the ones nothing could fill.

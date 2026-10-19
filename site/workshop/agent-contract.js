@@ -212,6 +212,13 @@ const props = {
   derived: { type: "object", properties: { rule: string, hash: string }, required: ["rule", "hash"], additionalProperties: false },
   rule: string,
   nodes: { type: "array", items: object, maxItems: 64 },
+  // Sockets: attachment frames on a part (docs/worlds.md §4), explicit in its space.
+  socket: string,
+  sockets: {
+    type: "object",
+    additionalProperties: { type: "object", properties: { position: vector, rotation: vector, tags: { type: "array", items: string, maxItems: 16 } }, additionalProperties: false },
+  },
+  target: { type: "object", properties: { id: string, socket: string }, required: ["id", "socket"], additionalProperties: false },
   place: {
     type: "object",
     properties: {
@@ -222,6 +229,7 @@ const props = {
       triangles: { type: "integer", minimum: 0 },
       variants: { type: "object", additionalProperties: string },
       tint: vector,
+      sockets: { type: "object" },
     },
     required: ["model", "bounds"],
     additionalProperties: false,
@@ -418,7 +426,7 @@ props.shape = {
 const specs = {
   create: [
     "id kind",
-    "name parent position rotation scale material options mesh smooth tags params place variants tint area path copies tints derived",
+    "name parent position rotation scale material options mesh smooth tags params place variants tint area path copies tints derived sockets",
   ],
   material: [
     "id",
@@ -427,7 +435,10 @@ const specs = {
   removeMaterial: ["id", "replacement"],
   purgeMaterials: ["", ""],
   renameProject: ["name", ""],
-  set: ["id", "name parent position rotation scale keepWorld smooth tags params variants tint area path copies tints"],
+  set: ["id", "name parent position rotation scale keepWorld smooth tags params variants tint area path copies tints sockets"],
+  socket: ["id socket", "position rotation tags"],
+  removeSocket: ["id socket", ""],
+  snap: ["id socket target", ""],
   rule: ["definition", ""],
   removeRule: ["id", ""],
   derived: ["rule nodes", ""],
@@ -717,10 +728,33 @@ export const modelDefinitions = {
     ["parameters", "bindings"],
   ),
 };
+const socketFrames = {
+  oneOf: [
+    { const: "model" },
+    { type: "object", additionalProperties: { oneOf: [string, obj({ position: vector, rotation: vector, tags: { type: "array", items: string, maxItems: 16 } })] } },
+  ],
+};
 modelDefinitions.rule = obj(
   {
     id: string,
-    kind: { const: "scatter" },
+    kind: { enum: ["scatter", "assemble"] },
+    // Assembly: pieces with sockets grown from a start piece.
+    pieces: {
+      type: "array",
+      minItems: 1,
+      maxItems: 16,
+      items: obj({ model: string, weight: number, sockets: socketFrames, closer: boolean, start: boolean }, ["model"]),
+    },
+    mates: { type: "array", maxItems: 64, items: { type: "array", items: string, minItems: 2, maxItems: 2 } },
+    start: { type: "integer" },
+    at: vector,
+    count: { type: "integer" },
+    frontier: { enum: ["any", "last"] },
+    from: string,
+    sequence: { type: "array", items: { type: "integer" }, minItems: 1, maxItems: 1024 },
+    bounds: string,
+    close: boolean,
+    tolerance: number,
     seed: { oneOf: [number, string] },
     target: string,
     parent: { oneOf: [string, { type: "null" }] },
@@ -757,7 +791,7 @@ modelDefinitions.rule = obj(
       items: { oneOf: [obj({ path: string, width: number }, ["path"]), obj({ zone: string }, ["zone"]), obj({ nodes: { type: "array", items: string, minItems: 1, maxItems: 64 } }, ["nodes"])] },
     },
   },
-  ["id", "kind", "on", "candidates"],
+  ["id", "kind"],
 );
 for (const c of commandSchema.oneOf) {
   if (c.properties.op.const === "rule")
@@ -973,6 +1007,8 @@ export function capabilities({ detail = "full", command } = {}) {
       "tileExport",
       "scatterRules",
       "placementCopies",
+      "assemblyRules",
+      "sockets",
     ],
     unsupported: [
       "UV textures",

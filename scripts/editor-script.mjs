@@ -66,6 +66,8 @@ export function scriptApi(invoke, base) {
     call,
     // A fresh project; materials need only id and color.
     async load({ name = "Model", materials = [], nodes = [], ...rest } = {}) {
+      // A project needs one material; scenes of placed models rarely name any.
+      if (!materials.length) materials = [{ id: "mat_default", color: "#c8c8c8" }];
       const project = {
         format: "fun.dev/model",
         version: 1,

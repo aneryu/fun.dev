@@ -33,7 +33,7 @@ import { auditProject } from "./audit.js";
 import { exportTile } from "./tile.js";
 import { exportWorld } from "./world-export.js";
 import { resolvePlacement, ensurePlaced } from "./placed.js";
-import { ruleInputs, deriveNodes } from "./rules.js";
+import { ruleInputs, deriveNodes, ruleModels } from "./rules.js";
 import { fromBase64, toBase64 } from "./glb.js";
 import { projectFile, projectFilename } from "./project-file.js";
 import { materialUsage } from "./materials.js";
@@ -698,7 +698,8 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
       // shows the model's bounds until it arrives.
       const warnings = [];
       try {
-        await ensurePlaced(record);
+        const template = await ensurePlaced(record);
+        if (template?.sockets && Object.keys(template.sockets).length) record.sockets = template.sockets;
       } catch (e) {
         warnings.push(e.message);
       }
@@ -751,21 +752,26 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
       if (!rules.length) throw new ModelError("The project has no rules to derive", "not_found", "rules");
       const records = new Map();
       for (const rule of rules)
-        for (const c of rule.candidates) if (!records.has(c.model)) records.set(c.model, await resolvePlacement({ model: c.model }));
-      await Promise.allSettled([...records.values()].map((record) => ensurePlaced(record)));
+        for (const model of ruleModels(rule)) if (!records.has(model)) records.set(model, await resolvePlacement({ model }));
+      // Templates give the display, and the sockets a library model carries.
+      const templates = await Promise.allSettled([...records.values()].map((record) => ensurePlaced(record)));
+      [...records.values()].forEach((record, i) => {
+        const template = templates[i].status === "fulfilled" ? templates[i].value : null;
+        if (template?.sockets && Object.keys(template.sockets).length) record.sockets = template.sockets;
+      });
       check({ ifRevision: options.ifRevision ?? revision });
       commitPending();
       const commands = rules.map((rule) => ({
         op: "derived",
         rule: rule.id,
-        nodes: deriveNodes(project, rule, rule.candidates.map((c) => records.get(c.model)), ruleInputs(project, rule)),
+        nodes: deriveNodes(project, rule, ruleModels(rule).map((model) => records.get(model)), ruleInputs(project, rule)),
       }));
       action = options.label ?? `Agent · derive ${rules.map((r) => r.id).join(", ")}`;
       try {
         const result = store.apply(commands, { ...options, ifRevision: options.ifRevision ?? revision, strictComponents: true });
         return {
           ...result,
-          derived: commands.map((c) => ({ rule: c.rule, nodes: c.nodes.map((n) => n.id), copies: c.nodes.reduce((sum, n) => sum + n.copies.length, 0) })),
+          derived: commands.map((c) => ({ rule: c.rule, nodes: c.nodes.map((n) => n.id), copies: c.nodes.reduce((sum, n) => sum + n.copies.length, 0), ...(c.nodes.report ? { assembly: c.nodes.report } : {}) })),
           persistence: draft.persistence,
         };
       } finally {

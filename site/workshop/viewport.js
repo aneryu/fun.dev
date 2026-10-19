@@ -1837,6 +1837,16 @@ function exportModel(
     model = buildModel(scoped),
     nodes = new Map(scoped.nodes.map((n) => [n.id, n]));
   const included = (id) => !!nodes.get(id)?.mesh;
+  // Sockets travel as empties named socket_<name> under their part, tags in the extras.
+  for (const node of scoped.nodes)
+    for (const [name, frame] of Object.entries(node.sockets ?? {})) {
+      const empty = new THREE.Object3D();
+      empty.name = `socket_${name}`;
+      empty.position.fromArray(frame.position);
+      empty.rotation.set(...frame.rotation.map(THREE.MathUtils.degToRad));
+      if (frame.tags?.length) empty.userData = { tags: [...frame.tags] };
+      model.objects.get(node.id).add(empty);
+    }
   model.root.updateMatrixWorld(true);
   const anchor = new THREE.Vector3();
   if (origin === "asset-root")

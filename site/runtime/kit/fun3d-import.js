@@ -268,6 +268,15 @@ export function createImporter({ THREE, loader, fun3d, encoder = null }) {
       for (const mesh of skinned) if (![mesh.material].flat().some(textured)) mesh.geometry.deleteAttribute("uv");
       for (const mesh of skinned) { mesh.geometry.deleteAttribute("uv1"); mesh.geometry.deleteAttribute("uv2"); }
     }
+    // Attachment frames (docs/worlds.md §4): an empty named socket_<name> under a part is the
+    // part's socket; its extras may carry tags.
+    const socketEmpties = [];
+    root.traverse((o) => { if (o !== root && /^socket_/.test(o.name) && !o.isMesh && !o.children.length) socketEmpties.push(o); });
+    for (const o of socketEmpties) {
+      const name = o.name.slice(7);
+      o.parent.userData.sockets = { ...(o.parent.userData.sockets ?? {}), [name]: { position: o.position.toArray().map((v) => Math.round(v * 1e6) / 1e6), rotation: o.quaternion.toArray().map((v) => Math.round(v * 1e7) / 1e7) } };
+      o.parent.remove(o);
+    }
     root.updateMatrixWorld(true);
     // Names without a stable id (empty) get one from their place.
     let unnamed = 0;

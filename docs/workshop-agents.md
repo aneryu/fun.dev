@@ -201,3 +201,17 @@ await ws.derive();                        // placed parts with copies, stamped w
 
 `on` is `{ path, spacing, offset, sides }`, `{ zone, spacing, jitter, margin }` or `{ grid: { cells,
 spacing, origin } }`; the audit says when a rule is stale or not yet derived.
+
+Kits grow by assembly rules: pieces with sockets (a box-side shorthand or the model's own) mate
+by tag from a start piece, inside a zone, never overlapping, dead ends capped by closers:
+
+```js
+await ws.rule({ id: "streets", kind: "assemble", seed: 7, target: "streets", bounds: "block", count: 60,
+  pieces: [{ model: "city_street_cross_01", sockets: { n: "road", s: "road", e: "road", w: "road" }, start: true },
+           { model: "city_street_straight_01", sockets: { e: "road", w: "road" }, weight: 6 },
+           { model: "city_street_endcap_01", sockets: { n: "road" }, closer: true }] });
+await ws.derive({ id: "streets" });
+```
+
+Parts take sockets too (`sockets` on create/set, `socket`, `removeSocket`), `snap` mates two
+sockets, and GLBs carry them as `socket_<name>` empties.

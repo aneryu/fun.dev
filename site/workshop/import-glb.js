@@ -4,7 +4,7 @@
 // animations and textures are reported, not imported: the workshop edits static models.
 import { ModelError, sub, cross, dot } from "./mesh.js";
 import { polygonize } from "./solid.js";
-import { setMatrix, determinant } from "./spatial.js";
+import { setMatrix, determinant, decompose } from "./spatial.js";
 import { normalizeMaterial, visitMaterials } from "./materials.js";
 import { FORMAT, VERSION, LIMITS, emptyProject } from "./document.js";
 import { remapRecipeReferences } from "./recipe.js";
@@ -449,11 +449,22 @@ function projectFromGLTF(json, buffers, { name } = {}) {
     order = [],
     matrices = new Map(),
     sources = new Map();
+  const sockets = new Map();
   const visit = (index, parent, path) => {
     if (path.has(index)) fail("The node hierarchy has a cycle");
     const g = json.nodes?.[index] ?? fail(`Missing node ${index}`),
-      raw = g.name ?? json.meshes?.[g.mesh]?.name,
-      id = uniqueId(raw, used, `node_${index}`),
+      raw = g.name ?? json.meshes?.[g.mesh]?.name;
+    // An empty named socket_<name> is its parent's socket (docs/worlds.md §4), not a part.
+    if (parent && typeof raw === "string" && /^socket_[A-Za-z0-9_-]{1,64}$/.test(raw) && g.mesh === undefined && !(g.children ?? []).length) {
+      const frame = decompose(localMatrix(g));
+      if (frame) {
+        const list = sockets.get(parent) ?? {};
+        list[raw.slice(7)] = { position: frame.position, rotation: frame.rotation, tags: Array.isArray(g.extras?.tags) ? g.extras.tags.filter((t) => typeof t === "string").slice(0, 16) : [] };
+        sockets.set(parent, list);
+      }
+      return;
+    }
+    const id = uniqueId(raw, used, `node_${index}`),
       node = {
         id,
         name: label(raw, id),
@@ -503,6 +514,10 @@ function projectFromGLTF(json, buffers, { name } = {}) {
       continue;
     }
     setMatrix(project, node, m);
+  }
+  for (const [id, frames] of sockets) {
+    const node = nodes.find((n) => n.id === id);
+    if (node) node.sockets = frames;
   }
 
   let triangleCount = 0,
@@ -594,6 +609,7 @@ export function glbToObject(bytes, { THREE, material: makeMaterial }) {
   };
   const root = new THREE.Group();
   const visited = new Set();
+  const socketEmpties = [];
   const build = (index, parent) => {
     if (visited.has(index)) fail("Node cycle");
     visited.add(index);
@@ -602,6 +618,10 @@ export function glbToObject(bytes, { THREE, material: makeMaterial }) {
     object.name = typeof node.name === "string" && node.name ? node.name : `node_${index}`;
     object.applyMatrix4(new THREE.Matrix4().fromArray(localMatrix(node)));
     parent.add(object);
+    if (/^socket_[A-Za-z0-9_-]{1,64}$/.test(object.name) && node.mesh === undefined && !(node.children ?? []).length) {
+      socketEmpties.push({ object, tags: Array.isArray(node.extras?.tags) ? node.extras.tags.filter((t) => typeof t === "string").slice(0, 16) : [] });
+      return;
+    }
     if (node.mesh !== undefined)
       for (const part of meshFor(node.mesh)) {
         const m = new THREE.Mesh(part.geometry, part.material);
@@ -613,10 +633,24 @@ export function glbToObject(bytes, { THREE, material: makeMaterial }) {
   const scene = json.scenes?.[json.scene ?? 0];
   for (const index of scene?.nodes ?? []) build(index, root);
   root.updateMatrixWorld(true);
+  // Sockets in the model's space, as the workshop keeps them (degrees).
+  const sockets = {};
+  for (const { object, tags } of socketEmpties) {
+    const position = new THREE.Vector3(), quaternion = new THREE.Quaternion(), scale = new THREE.Vector3();
+    object.matrixWorld.decompose(position, quaternion, scale);
+    const euler = new THREE.Euler().setFromQuaternion(quaternion, "XYZ");
+    sockets[object.name.slice(7)] = {
+      position: position.toArray().map((v) => Math.round(v * 1e6) / 1e6),
+      rotation: [euler.x, euler.y, euler.z].map((v) => Math.round(THREE.MathUtils.radToDeg(v) * 1e4) / 1e4),
+      tags,
+    };
+    object.removeFromParent();
+  }
   const box = new THREE.Box3().setFromObject(root, true);
   return {
     root,
     triangles,
+    sockets,
     bounds: box.isEmpty() ? null : { min: box.min.toArray(), max: box.max.toArray() },
     dispose() {
       for (const parts of meshes.values()) for (const part of parts) part.geometry.dispose();

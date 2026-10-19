@@ -29,6 +29,7 @@ import {
   nodeInfo,
   reflection,
   nodePoints,
+  decompose,
 } from "./spatial.js";
 import { meshEdges, bevelEdges, cutPlane, loopCut } from "./topology.js";
 import { surfaceDiagnostics } from "./diagnostics.js";
@@ -383,6 +384,10 @@ export function normalizeProject(input) {
         result.tints = normalizeTints(node.tints, result.copies.length, `nodes.${node.id}.tints`);
     }
     if (node.derived) result.derived = normalizeDerived(node.derived, `nodes.${node.id}.derived`);
+    if (node.sockets !== undefined && node.sockets !== null) {
+      if (dataKind(result)) fail("Sockets belong to mesh and group parts; a placed model carries its own", `nodes.${node.id}.sockets`);
+      result.sockets = normalizeFrames(node.sockets, `nodes.${node.id}.sockets`);
+    }
     return result;
   });
   unique(
@@ -579,6 +584,8 @@ export function normalizePlace(value, path = "place") {
     if (tint.some((v) => v < 0 || v > 1)) fail("Tint components are 0–1", `${path}.tint`);
     result.tint = tint;
   }
+  if (value.sockets !== undefined && value.sockets !== null && Object.keys(value.sockets).length)
+    result.sockets = normalizeFrames(value.sockets, `${path}.sockets`);
   return result;
 }
 export function normalizeZone(value, path = "area") {
@@ -665,11 +672,77 @@ function normalizeYaw(value, path) {
   }
   fail("yaw is path, random, a number, or { mode, value, jitter }", path);
 }
+const SOCKET_ID = /^[A-Za-z0-9_-]{1,64}$/,
+  BOX_SIDES = ["n", "s", "e", "w", "up", "down"];
+// Socket frames in a piece's space: a box-side shorthand ({ e: "road" }), explicit frames, or
+// "model" for the sockets the library model carries.
+export function normalizeSockets(value, path = "sockets") {
+  if (value === "model") return "model";
+  if (!value || typeof value !== "object" || Array.isArray(value)) fail("Sockets are { side: tag }, { name: { position, rotation, tags } } or \"model\"", path);
+  const entries = Object.entries(value);
+  if (!entries.length || entries.length > 32) fail("Up to 32 sockets", path);
+  const out = {};
+  for (const [name, spec] of entries) {
+    if (!SOCKET_ID.test(name)) fail("Socket names use letters, digits, _ -", `${path}.${name}`);
+    // A side shorthand, as written ({ e: "road" }) or as already normalized ({ side, tags }).
+    if (typeof spec === "string" || (spec && typeof spec === "object" && typeof spec.side === "string")) {
+      const tag = typeof spec === "string" ? spec : spec.tags?.[0];
+      if (!BOX_SIDES.includes(name) || (typeof spec !== "string" && spec.side !== name)) fail(`A side shorthand names n, s, e, w, up or down`, `${path}.${name}`);
+      if (typeof tag !== "string" || !tag || tag.length > 64) fail("A socket tag is 1–64 characters", `${path}.${name}`);
+      out[name] = { side: name, tags: [tag] };
+    } else {
+      if (!spec || typeof spec !== "object") fail("A socket is { position, rotation, tags }", `${path}.${name}`);
+      const tags = normalizeTags(spec.tags, `${path}.${name}.tags`);
+      out[name] = { position: vector(spec.position ?? [0, 0, 0], `${path}.${name}.position`), rotation: vector(spec.rotation ?? [0, 0, 0], `${path}.${name}.rotation`), tags };
+    }
+  }
+  return out;
+}
+/** Socket frames given explicitly: { name: { position, rotation (degrees), tags } }. */
+export function normalizeFrames(value, path = "sockets") {
+  const frames = normalizeSockets(value, path);
+  if (frames === "model" || Object.values(frames).some((f) => f.side)) fail("Give sockets as { name: { position, rotation, tags } }", path);
+  return frames;
+}
+function normalizeAssembleRule(value, rule, path) {
+  if (!Array.isArray(value.pieces) || !value.pieces.length || value.pieces.length > COPY_LIMITS.candidates)
+    fail(`pieces are 1–${COPY_LIMITS.candidates} library models`, `${path}.pieces`);
+  rule.pieces = value.pieces.map((c, i) => {
+    const at = `${path}.pieces.${i}`;
+    if (!c || typeof c !== "object" || typeof c.model !== "string" || !RULE_MODEL.test(c.model)) fail("A piece names a library model (id or id@vNNN)", `${at}.model`);
+    const out = { model: c.model, weight: number(c.weight ?? 1, 0, 1000, `${at}.weight`), sockets: normalizeSockets(c.sockets ?? "model", `${at}.sockets`) };
+    if (c.closer) out.closer = true;
+    if (c.start) out.start = true;
+    return out;
+  });
+  if (value.mates !== undefined && value.mates !== null) {
+    if (!Array.isArray(value.mates) || value.mates.length > 64 || value.mates.some((m) => !Array.isArray(m) || m.length !== 2 || m.some((t) => typeof t !== "string" || !t || t.length > 64)))
+      fail("mates are pairs of socket tags", `${path}.mates`);
+    rule.mates = value.mates.map((m) => [...m]);
+  }
+  if (value.start !== undefined && value.start !== null) rule.start = number(value.start, 0, rule.pieces.length - 1, `${path}.start`);
+  if (value.at !== undefined && value.at !== null) rule.at = vector(value.at, `${path}.at`);
+  if (value.yaw !== undefined && value.yaw !== null) rule.yaw = number(value.yaw, -10000, 10000, `${path}.yaw`);
+  rule.count = number(value.count ?? 64, 1, COPY_LIMITS.perNode, `${path}.count`);
+  rule.frontier = value.frontier === "last" ? "last" : "any";
+  if (value.from !== undefined && value.from !== null) {
+    if (typeof value.from !== "string" || !SOCKET_ID.test(value.from)) fail("from names a socket of the start piece", `${path}.from`);
+    rule.from = value.from;
+  }
+  if (value.sequence !== undefined && value.sequence !== null) {
+    if (!Array.isArray(value.sequence) || !value.sequence.length || value.sequence.length > 1024 || value.sequence.some((v) => !Number.isInteger(v) || v < 0 || v >= rule.pieces.length))
+      fail("sequence lists piece indices", `${path}.sequence`);
+    rule.sequence = [...value.sequence];
+  }
+  if (value.bounds !== undefined && value.bounds !== null) rule.bounds = identifier(value.bounds, `${path}.bounds`);
+  if (value.close === false) rule.close = false;
+  if (value.tolerance !== undefined && value.tolerance !== null) rule.tolerance = number(value.tolerance, 0, 10, `${path}.tolerance`);
+}
 export function normalizeRule(value, path = "definition") {
   if (!value || typeof value !== "object") fail("Invalid rule", path);
   const id = identifier(value.id, `${path}.id`);
-  if (value.kind !== "scatter") fail("Rule kinds: scatter", `${path}.kind`);
-  const rule = { id, kind: "scatter" };
+  if (!["scatter", "assemble"].includes(value.kind)) fail("Rule kinds: scatter, assemble", `${path}.kind`);
+  const rule = { id, kind: value.kind };
   if (typeof value.seed === "string") {
     if (!value.seed.length || value.seed.length > 64) fail("A seed is a number or a short string", `${path}.seed`);
     rule.seed = value.seed;
@@ -678,6 +751,11 @@ export function normalizeRule(value, path = "definition") {
   if (value.parent !== undefined && value.parent !== null) rule.parent = identifier(value.parent, `${path}.parent`);
   const tags = normalizeTags(value.tags, `${path}.tags`);
   if (tags.length) rule.tags = tags;
+  if (rule.kind === "assemble") {
+    normalizeAssembleRule(value, rule, path);
+    if (value.avoid !== undefined && value.avoid !== null) rule.avoid = normalizeAvoid(value.avoid, path);
+    return rule;
+  }
   const on = value.on;
   if (!on || typeof on !== "object") fail("A scatter rule needs on: { path } | { zone } | { grid }", `${path}.on`);
   const modes = ["path", "zone", "grid"].filter((k) => on[k] !== undefined && on[k] !== null);
@@ -731,18 +809,19 @@ export function normalizeRule(value, path = "definition") {
     }
     return out;
   });
-  if (value.avoid !== undefined && value.avoid !== null) {
-    if (!Array.isArray(value.avoid) || value.avoid.length > COPY_LIMITS.avoid) fail(`avoid lists up to ${COPY_LIMITS.avoid} entries`, `${path}.avoid`);
-    rule.avoid = value.avoid.map((a, i) => {
-      const at = `${path}.avoid.${i}`;
-      if (!a || typeof a !== "object") fail("avoid entries are { path, width } | { zone } | { nodes }", at);
-      if (a.path !== undefined) return { path: identifier(a.path, `${at}.path`), width: number(a.width ?? 1, 0, 10000, `${at}.width`) };
-      if (a.zone !== undefined) return { zone: identifier(a.zone, `${at}.zone`) };
-      if (Array.isArray(a.nodes) && a.nodes.length && a.nodes.length <= 64) return { nodes: a.nodes.map((n, k) => identifier(n, `${at}.nodes.${k}`)) };
-      fail("avoid entries are { path, width } | { zone } | { nodes }", at);
-    });
-  }
+  if (value.avoid !== undefined && value.avoid !== null) rule.avoid = normalizeAvoid(value.avoid, path);
   return rule;
+}
+function normalizeAvoid(value, path) {
+  if (!Array.isArray(value) || value.length > COPY_LIMITS.avoid) fail(`avoid lists up to ${COPY_LIMITS.avoid} entries`, `${path}.avoid`);
+  return value.map((a, i) => {
+    const at = `${path}.avoid.${i}`;
+    if (!a || typeof a !== "object") fail("avoid entries are { path, width } | { zone } | { nodes }", at);
+    if (a.path !== undefined) return { path: identifier(a.path, `${at}.path`), width: number(a.width ?? 1, 0, 10000, `${at}.width`) };
+    if (a.zone !== undefined) return { zone: identifier(a.zone, `${at}.zone`) };
+    if (Array.isArray(a.nodes) && a.nodes.length && a.nodes.length <= 64) return { nodes: a.nodes.map((n, k) => identifier(n, `${at}.nodes.${k}`)) };
+    fail("avoid entries are { path, width } | { zone } | { nodes }", at);
+  });
 }
 function normalizeRules(input) {
   if (input === undefined || input === null) return [];
@@ -1647,6 +1726,44 @@ function run(project, command) {
     }
     return;
   }
+  if (command.op === "snap") {
+    // Moves a part so that one of its sockets meets a socket of another part, facing it.
+    const part = project.nodes.find((n) => n.id === command.id);
+    if (!part) fail(`Unknown node: ${command.id}`);
+    const target = project.nodes.find((n) => n.id === command.target?.id);
+    if (!target) fail(`Unknown node: ${command.target?.id}`, "target");
+    if (descendants(project, part.id).has(target.id)) fail("A part cannot snap to its own descendant", "target");
+    const frameOf = (node, name, path) => {
+      const frames = node.sockets ?? node.place?.sockets ?? {};
+      const frame = frames[name];
+      if (!frame) fail(`${node.id} has no socket ${name}`, path);
+      return matrix({ position: frame.position, rotation: frame.rotation, scale: [1, 1, 1] });
+    };
+    const world = multiply(worldMatrix(project, target.id), frameOf(target, command.target.socket, "target.socket"));
+    const local = frameOf(part, command.socket, "socket");
+    const flip = [-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1];
+    // The part keeps its scale: its rotation follows from the mated frames, and its origin
+    // sits at −(R S p) from the frame's, with R that rotation and p the socket's local position.
+    const current = decompose(worldMatrix(project, part.id));
+    if (!current) fail("Snap needs a part without shear");
+    const scale = current.scale;
+    const frame = multiply(world, flip);
+    const R = [frame[0], frame[1], frame[2], 0, frame[4], frame[5], frame[6], 0, frame[8], frame[9], frame[10], 0, 0, 0, 0, 1];
+    const localRotation = [local[0], local[1], local[2], 0, local[4], local[5], local[6], 0, local[8], local[9], local[10], 0, 0, 0, 0, 1];
+    const partRotation = multiply(R, inverse(localRotation));
+    const offset = point(partRotation, [local[12] * scale[0], local[13] * scale[1], local[14] * scale[2]]);
+    const placed = multiply(
+      [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, frame[12] - offset[0], frame[13] - offset[1], frame[14] - offset[2], 1],
+      multiply(partRotation, [scale[0], 0, 0, 0, 0, scale[1], 0, 0, 0, 0, scale[2], 0, 0, 0, 0, 1]),
+    );
+    setMatrix(project, part, part.parent ? multiply(inverse(worldMatrix(project, part.parent)), placed) : placed);
+    // Mated frames give exact values; the trigonometry's dust is swept off.
+    const tidy = (v) => Math.round(v * 1e7) / 1e7 || 0;
+    part.position = part.position.map(tidy);
+    part.rotation = part.rotation.map(tidy);
+    part.scale = part.scale.map(tidy);
+    return;
+  }
   if (command.op === "create") {
     const {
       id,
@@ -1664,6 +1781,10 @@ function run(project, command) {
     if (tags.length) base.tags = tags;
     if (command.params !== undefined && command.params !== null)
       base.params = normalizeParams(command.params, "params");
+    if (command.sockets !== undefined && command.sockets !== null) {
+      if (DATA_KINDS.includes(kind)) fail("Sockets belong to mesh and group parts", "sockets");
+      base.sockets = normalizeFrames(command.sockets, "sockets");
+    }
     if (kind === "place") {
       if (!command.place) {
         const error = new ModelError(
@@ -1833,7 +1954,7 @@ function run(project, command) {
     !["unlink", "delete", "duplicate", "rename"].includes(command.op)
   )
     fail("Unlink the mirrored part before editing it");
-  if (dataKind(node) && !["set", "delete", "duplicate", "rename"].includes(command.op))
+  if (dataKind(node) && !["set", "delete", "duplicate", "rename", "socket", "removeSocket"].includes(command.op))
     fail("Placed models, markers, zones and paths take set, delete, duplicate and rename only");
   switch (command.op) {
     case "rename": {
@@ -2018,6 +2139,19 @@ function run(project, command) {
       node.recipe = recipe;
       break;
     }
+    case "socket": {
+      if (dataKind(node)) fail("Sockets belong to mesh and group parts");
+      const frames = normalizeFrames({ [command.socket]: { position: command.position ?? [0, 0, 0], rotation: command.rotation ?? [0, 0, 0], tags: command.tags ?? [] } }, "socket");
+      node.sockets = { ...(node.sockets ?? {}), ...frames };
+      if (Object.keys(node.sockets).length > 32) fail("Up to 32 sockets per part");
+      break;
+    }
+    case "removeSocket": {
+      if (!node.sockets?.[command.socket]) fail(`${node.id} has no socket ${command.socket}`, "socket");
+      delete node.sockets[command.socket];
+      if (!Object.keys(node.sockets).length) delete node.sockets;
+      break;
+    }
     case "set": {
       if (command.parent !== undefined && command.parent !== node.parent) {
         if (descendants(project, node.id).has(command.parent))
@@ -2080,6 +2214,11 @@ function run(project, command) {
       if (command.path !== undefined) {
         if (!node.path) fail("path belongs to paths", "path");
         node.path = normalizePath(command.path, "path");
+      }
+      if (command.sockets !== undefined) {
+        if (dataKind(node)) fail("Sockets belong to mesh and group parts", "sockets");
+        if (command.sockets === null) delete node.sockets;
+        else node.sockets = normalizeFrames(command.sockets, "sockets");
       }
       break;
     }

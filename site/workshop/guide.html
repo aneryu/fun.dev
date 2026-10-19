@@ -759,14 +759,20 @@ await ws.map({ file: "map.png" });             // the top view with the overlays
 await ws.exportTile({ file: "park.fun3d" });   // the scene as one .fun3d tile
 await ws.exportWorld({ dir: "park-world" });   // world.json + tile + the placed models' files
 await ws.rule({ id: "lamps", kind: "scatter", on: { path: "road", spacing: 12, offset: 5, sides: "both" }, candidates: [{ model: "street_lamp_01" }] });
-await ws.derive();                             // rules → placed parts with many copies, instanced</pre
+await ws.derive();                             // rules → placed parts with many copies, instanced
+await ws.rule({ id: "streets", kind: "assemble", bounds: "block", count: 60, pieces: [
+  { model: "city_street_cross_01", sockets: { n: "road", s: "road", e: "road", w: "road" }, start: true },
+  { model: "city_street_straight_01", sockets: { e: "road", w: "road" }, weight: 6 },
+  { model: "city_street_endcap_01", sockets: { n: "road" }, closer: true } ] });  // a kit grown through mating sockets</pre
       >
       <p>
         A placed model keeps the library's bounds and files, never its geometry; markers,
         zones and paths carry tags and the game's parameters. Zones draw blue, paths orange,
         markers green. Tag the floor <code>ground</code>. Scatter rules (along a path, in a zone, on a
-        grid; seed, yaw, scale, weighted candidates, keep-out) stay on the project as data;
-        derive runs them (apply op rule | removeRule). MCP: fun_editor_place, fun_editor_derive, fun_editor_map,
+        grid; seed, yaw, scale, weighted candidates, keep-out) and assembly rules (pieces with
+        sockets grown from a start piece, chains by sequence, closers) stay on the project as
+        data; derive runs them (apply op rule | removeRule). Parts take sockets (socket,
+        removeSocket, snap); GLBs carry them as socket_&lt;name&gt; empties. MCP: fun_editor_place, fun_editor_derive, fun_editor_map,
         fun_editor_audit, fun_editor_exportTile, fun_editor_exportWorld. 场景：按引用放置库模型，
         标记、区域、路径带标签和参数；散布规则是数据，derive 生成副本；audit 列出问题，map 画俯视图。
       </p>

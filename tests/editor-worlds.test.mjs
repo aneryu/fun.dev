@@ -305,6 +305,70 @@ test("scatter rules derive many copies of a placed model, go stale, and leave wi
   assert.equal(api.inspect({ id: "lamp_row" }).node.copies.length, 12);
 });
 
+test("sockets on parts: set, snap, GLB round trip; placed models bring the library's sockets", async () => {
+  fresh("sockets");
+  api.apply([
+    { op: "create", id: "block_a", kind: "box", material: "wood", position: [0, 0.5, 0], options: { size: [2, 1, 1] }, sockets: { e: { position: [1, 0, 0], rotation: [0, 90, 0], tags: ["joint"] } } },
+    { op: "create", id: "block_b", kind: "box", material: "wood", position: [5, 0.5, 5], options: { size: [2, 1, 1] } },
+    { op: "socket", id: "block_b", socket: "w", position: [-1, 0, 0], rotation: [0, -90, 0], tags: ["joint"] },
+    { op: "snap", id: "block_b", socket: "w", target: { id: "block_a", socket: "e" } },
+  ]);
+  assert.deepEqual(api.inspect({ id: "block_b" }).node.position, [2, 0.5, 0], "block_b's west socket meets block_a's east socket");
+  assert.deepEqual(api.inspect({ id: "block_b" }).node.sockets.w.tags, ["joint"]);
+  api.apply([{ op: "set", id: "block_b", rotation: [0, 0, 0], position: [0, 0, 0] }, { op: "set", id: "block_b", scale: [2, 2, 2] }, { op: "snap", id: "block_b", socket: "w", target: { id: "block_a", socket: "e" } }]);
+  assert.deepEqual(api.inspect({ id: "block_b" }).node.position.map((v) => Math.round(v * 1000) / 1000), [3, 0.5, 0], "a scaled part snaps by its scaled socket");
+  assert.throws(() => api.apply([{ op: "snap", id: "block_b", socket: "nope", target: { id: "block_a", socket: "e" } }]), /no socket nope/);
+  api.apply([{ op: "removeSocket", id: "block_b", socket: "w" }]);
+  assert.equal(api.inspect({ id: "block_b" }).node.sockets, undefined);
+  // The GLB carries sockets as socket_<name> empties with their tags, and reads them back.
+  const glb = await api.exportGLB({ encoding: "base64" });
+  const bytes = new Uint8Array(Buffer.from(glb.data, "base64"));
+  const { json } = (await import("../site/editor/glb.js")).parseModelFile(bytes);
+  const empty = json.nodes.find((n) => n.name === "socket_e");
+  assert.ok(empty && empty.mesh === undefined, "an empty per socket");
+  assert.deepEqual(empty.extras?.tags, ["joint"]);
+  api.importGLB({ data: glb.data, mode: "replace" });
+  const back = api.inspect({ id: "block_a" }).node;
+  assert.deepEqual(back.sockets.e.position, [1, 0, 0]);
+  assert.deepEqual(back.sockets.e.rotation.map((v) => Math.round(v)), [0, 90, 0]);
+  assert.deepEqual(back.sockets.e.tags, ["joint"]);
+  assert.ok(!api.getProject().nodes.some((n) => /^socket_/.test(n.id)), "socket empties are not parts");
+  // A library model with sockets places them on the record; a tile keeps authored sockets.
+  const tile = await api.exportTile({ encoding: "buffer" });
+  const model = await fun3d.load(tile);
+  assert.deepEqual(Object.keys(model.node("block_a").userData.sockets), ["e"]);
+});
+
+test("an assembly rule grows a kit inside a zone from the library's pieces", async () => {
+  fresh("kit", { size: [40, 40] });
+  api.apply([{ op: "create", id: "lot", kind: "zone", area: { polygon: [[-9, -9], [9, -9], [9, 9], [-9, 9]], y: [0, 3] } }]);
+  // The stand-in lamp stands in for 3 × 3 m tiles: a cross, a straight and an end cap.
+  const tile = (sides, extra = {}) => ({ model: "test_lamp_01", sockets: sides, ...extra });
+  api.apply([
+    {
+      op: "rule",
+      definition: {
+        id: "roads", kind: "assemble", seed: 3, target: "roads", tags: ["road"], bounds: "lot", count: 20,
+        pieces: [tile({ n: "road", s: "road", e: "road", w: "road" }, { start: true }), tile({ n: "road", s: "road" }, { weight: 3 }), tile({ n: "road" }, { closer: true })],
+      },
+    },
+  ]);
+  const derived = await api.derive({ id: "roads" }, { ifRevision: api.inspect().revision });
+  const result = derived.derived[0];
+  // Growth stops at count; closers cap what stays open after that.
+  assert.ok(result.copies >= 6 && result.copies <= 20 + 16, `pieces placed: ${result.copies}`);
+  assert.ok(result.assembly.placed === result.copies && result.assembly.open <= 4, JSON.stringify(result.assembly));
+  const parts = api.getProject().nodes.filter((n) => n.derived?.rule === "roads");
+  assert.ok(parts.length >= 2 && parts.every((n) => n.copies.length), "one part per piece model that was used");
+  const all = parts.flatMap((n) => n.copies);
+  // The lamp record is 0.3 m wide: pieces mate edge to edge at 0.3 m steps, never overlapping.
+  const cells = new Set(all.map(([x, , z]) => `${Math.round(x * 100)},${Math.round(z * 100)}`));
+  assert.equal(cells.size, all.length);
+  assert.ok(all.every(([x, , z]) => Math.abs(x) < 9 && Math.abs(z) < 9), "inside the lot");
+  assert.deepEqual(api.audit().findings.filter((f) => /rule/.test(f.code)), []);
+  assert.throws(() => api.apply([{ op: "rule", definition: { id: "bad", kind: "assemble", pieces: [{ model: "test_lamp_01", sockets: { x: "road" } }] } }]), /side shorthand/);
+});
+
 test("unknown models and stale revisions are refused", async () => {
   await assert.rejects(api.place({ model: "no_such_model", id: "x" }), /not in the model library/);
   await assert.rejects(api.place({ model: "test_lamp_01", id: "x" }, { ifRevision: 1 }), /Project changed/);
