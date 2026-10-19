@@ -20,6 +20,7 @@ import { createSoftRenderer } from "./soft-renderer.js";
 import { nodePoints } from "./spatial.js";
 import { placedTemplate, ensurePlaced } from "./placed.js";
 import { terrainMesh, terrainBounds, hexToLinear } from "../runtime/kit/terrain.js";
+import { gridMesh } from "../runtime/kit/grid.js";
 
 function indexAttributes(positions, normals) {
   const uniquePositions = [],
@@ -213,6 +214,18 @@ function terrainObjects(node) {
   }
   return { mesh, water };
 }
+// A grid draws as one flat-shaded mesh coloured by type, with walls where levels change.
+function gridObject(node) {
+  const { positions, normals, colors } = gridMesh(node.grid);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geometry.computeBoundingSphere();
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 }));
+  mesh.castShadow = mesh.receiveShadow = true;
+  return mesh;
+}
 function placeholderCopies(node) {
   const { min, max } = node.place.bounds,
     size = max.map((v, i) => Math.max(0.01, v - min[i])),
@@ -348,6 +361,12 @@ export function buildModel(project, { display = false } = {}) {
           object.add(mesh);
           placedMeshes.set(node.id, [mesh]);
           if (water) overlay = water;
+        } else if (node.grid) {
+          const mesh = gridObject(node);
+          mesh.name = node.id;
+          mesh.userData = { placed: true };
+          object.add(mesh);
+          placedMeshes.set(node.id, [mesh]);
         }
         if (overlay) {
           object.add(overlay);
@@ -381,7 +400,7 @@ export function buildModel(project, { display = false } = {}) {
         o.material.dispose();
       }
       for (const [id, meshes] of placedMeshes)
-        if (project.nodes.find((n) => n.id === id)?.terrain)
+        if (project.nodes.find((n) => n.id === id)?.terrain || project.nodes.find((n) => n.id === id)?.grid)
           for (const m of meshes) {
             m.geometry.dispose();
             m.material.dispose();

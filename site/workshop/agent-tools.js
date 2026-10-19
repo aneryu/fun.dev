@@ -28,11 +28,10 @@ const render = {
     minItems: 1,
     maxItems: 6,
   },
+  // The same as views (an alias); the engine checks the names.
   names: {
     type: "array",
-    items: {
-      enum: ["current", "front", "back", "left", "right", "top", "perspective"],
-    },
+    items: str,
     minItems: 1,
     maxItems: 6,
   },
@@ -75,7 +74,7 @@ const render = {
 const definitions = [
   [
     "blueprints",
-    "List the parametric blueprints (id, version, title, parameter schema). Build one with apply [{op:'blueprint', id, params?, root?}]; live parameters then follow assemblyParameters, structural ones need the blueprint again.",
+    "List the parametric blueprints (id, version, title, parameter schema). Build one with apply [{op:'blueprint', id, params?, root?}]; live parameters follow assemblyParameters, structural ones need the blueprint again.",
     object(),
     true,
   ],
@@ -133,13 +132,13 @@ const definitions = [
   ],
   [
     "query",
-    "Find faces, edges or vertices by geometry. For another page pass offset=nextOffset, topology and ifRevision=revision from the first page.",
+    "Find faces, edges or vertices by geometry. For another page pass offset=nextOffset, topology and ifRevision from the first page.",
     querySchema,
     true,
   ],
   [
     "preview",
-    "Evaluate without changing the draft. Returns compact proposed nodes/bounds, materials, results and validation; optional views render the proposal. detail:'full' also returns the complete project mesh.",
+    "Evaluate without changing the draft: compact proposed nodes/bounds, materials, results and validation; optional views render the proposal; detail:'full' adds the complete project mesh.",
     object(
       {
         commands: { ...commandsSchema, $defs: undefined },
@@ -169,8 +168,8 @@ const definitions = [
   ],
   [
     "observe",
-    "Render reproducible views, selection/wire overlays or color-coded object IDs.",
-    object(render),
+    "Render reproducible views, selection/wire overlays or color-coded object IDs; along walks a path instead: a frame every few metres.",
+    object({ ...render, along: object({ path: str, every: num, start: num, end: num, height: num, look: { oneOf: [{ enum: ["ahead", "back", "left", "right"] }, vector] }, limit: { type: "integer" } }, ["path"]) }),
     true,
   ],
   [
@@ -205,7 +204,7 @@ const definitions = [
   ],
   [
     "getRecipe",
-    "Read a recipe or a primitive's implicit recipe. index reads one step. recipeStep append promotes primitives; patch edits fields (null removes). Stage 0 queries the original shape.",
+    "Read a recipe or a primitive's implicit recipe; index reads one step. recipeStep append promotes primitives, patch edits fields (null removes). Stage 0 queries the original shape.",
     object(
       {
         id: str,
@@ -218,7 +217,7 @@ const definitions = [
   ],
   [
     "recipeStage",
-    "Inspect input before a recipe step (index=step count for append). Query references/coordinates are before bakes; optional views show placed geometry and query matches. Never changes the draft.",
+    "Inspect input before a recipe step (index=step count for append): query references and coordinates before bakes; optional views show placed geometry and query matches. Never changes the draft.",
     object(
       {
         id: str,
@@ -263,7 +262,7 @@ const definitions = [
   ["activity", "Read recent changes and structured failures.", object(), true],
   [
     "setReference",
-    "Put a reference image (data URL; the CLI also accepts path) behind the model in one orthographic view. center is [horizontal, vertical] metres along the view's screen axes from the origin; width in metres. Kept with the draft, never exported. observe({references:true}) renders it.",
+    "Put a reference image (data URL; the CLI takes path) behind the model in one orthographic view: center [horizontal, vertical] metres along the view's screen axes, width in metres. Kept with the draft, never exported; observe({references:true}) renders it.",
     object(
       {
         view: { enum: ["front", "back", "left", "right", "top"] },
@@ -279,7 +278,7 @@ const definitions = [
   ],
   [
     "importGLB",
-    "Open a GLB. A workshop project file (.funmodel.glb) restores its editable project; any other GLB becomes editable parts (hierarchy, names, flat PBR materials, polygons; skins, animations, textures reported, not imported). mode replace (default, undoable) or add under parent. data is base64; the local adapter also accepts path.",
+    "Open a GLB: a workshop project file (.funmodel.glb) restores its editable project; any other GLB becomes editable parts (hierarchy, names, flat PBR materials, polygons; skins, animations, textures reported, not imported). mode replace (default) or add under parent. data is base64; the local adapter takes path.",
     object(
       {
         data: str,
@@ -295,7 +294,7 @@ const definitions = [
   ],
   [
     "librarySearch",
-    "Search the public CC0 model library (fun.dev/models): listed models matching every word of query in id, name, tags or description, best first, with size in metres, newest version, thumbnail and page addresses, and each kit's fitting agreement. Chinese queries search Chinese text.",
+    "Search the public CC0 model library: listed models matching every word of query (id, name, tags, description; Chinese too), best first, with size in metres, newest version, thumbnail and page addresses, and each kit's fitting agreement.",
     object({
       query: str,
       type: { enum: ["prop", "piece", "vehicle", "character", "creature", "animation", "scene", "world"] },
@@ -309,13 +308,13 @@ const definitions = [
   ],
   [
     "libraryModel",
-    "One library model: text in both languages, kit, every approved version with stats (size, bounds, triangles), whether it has a workshop project (editable), and each file's address, SHA-256 and size (model.glb, source.funmodel.glb, thumbnail.png, model.fun3d …).",
+    "One library model: text in both languages, kit, every approved version with stats (size, bounds, triangles), whether it has a workshop project, and each file's address, SHA-256 and size (model.glb, source.funmodel.glb, thumbnail.png, model.fun3d).",
     object({ id: str }, ["id"]),
     true,
   ],
   [
     "openLibraryModel",
-    "Open a library model to edit or derive from: its workshop project when the version has one (editable) or its model.glb as parts. mode replace (default, undoable) or add under parent. version defaults to the newest. The project records it in sources (kind, id, version, file, sha256).",
+    "Open a library model to edit or derive from: its workshop project when the version has one, else its model.glb as parts. mode replace (default) or add under parent; version defaults to the newest; recorded in sources (kind, id, version, file, sha256).",
     object(
       {
         id: str,
@@ -331,7 +330,7 @@ const definitions = [
   ],
   [
     "place",
-    "Place a library model by reference (docs/worlds.md): model is an id or id@vNNN, id names the part; parent, position, rotation, scale, tags, params, variants, tint as for create; the part keeps the library's bounds, never the geometry. Markers, zones, paths and rules: apply (create kind marker | zone | path; op rule | removeRule).",
+    "Place a library model by reference: model is an id or id@vNNN, id names the part; parent, position, rotation, scale, tags, params, variants, tint as for create; the part keeps the library's bounds, never the geometry.",
     object(
       {
         model: str,
@@ -355,31 +354,31 @@ const definitions = [
   ],
   [
     "derive",
-    "Run rules (one with id, some with ids, else all): resolves their models in the library, evaluates each from its seed and replaces what it derived before with placed parts carrying many copies.",
+    "Run rules (one with id, some with ids, else all): resolves their models in the library, evaluates each from its seed and replaces what it derived before.",
     object({ id: str, ids: { type: "array", items: str, minItems: 1 }, label: str, ifRevision: revision }, ["ifRevision"]),
     false,
   ],
   [
     "map",
-    "A top-down map: every part with zones (blue), paths (orange) and markers (green) over it; returns the image, metres per pixel and the bounds.",
+    "A top-down map with zones (blue), paths (orange) and markers (green); returns the image, metres per pixel and the bounds.",
     object({ size: render.size, ids, shading: render.shading, helpers: bool, visibility: render.visibility }),
     true,
   ],
   [
     "audit",
-    "What a picture cannot show: overlaps, floating or buried parts, parts outside the tile(s), unconverted placed models, stale or underived rules, triangle budgets (per tile in a world). Findings carry suggestions.",
+    "What a picture cannot show: overlaps, floating or buried parts, parts outside the tile(s), unconverted models, stale rules, triangle budgets (per tile in a world). Findings carry suggestions.",
     object({ ground: num, budget: object({ triangles: num }) }),
     true,
   ],
   [
     "exportTile",
-    "The scene as one .fun3d tile: parts as geometry, placed models as references, markers, zones, paths and terrain as data, the project in the editing section. Written to --artifacts when set.",
+    "The scene as one .fun3d tile: parts as geometry, placed models as references, markers, zones, paths, terrain and grids as data, the project in the editing section. Under --artifacts when set.",
     object({ name: str }),
     true,
   ],
   [
     "exportWorld",
-    "A world: world.json, tiles cut by tile.size (+ far files), world.fun3d (markers, zones, paths, runtime rules), the source project, placed models' .fun3d (converted versions only). far: { minSize, step } | false. Under --artifacts when set.",
+    "A world: world.json, tiles cut by tile.size (+ far files), world.fun3d (markers, zones, paths, rules), the source project, placed models' .fun3d. far: { minSize, step } | false. Under --artifacts when set.",
     object({ name: str, far: { oneOf: [object({ minSize: num, step: num }), bool] } }),
     true,
   ],

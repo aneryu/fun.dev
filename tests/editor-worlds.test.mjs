@@ -668,3 +668,79 @@ test("a sweep rule turns paths into track and road meshes on the terrain, with b
   assert.equal(dataFile.path("lap").profile.id, "track");
   assert.ok(dataFile.network("road").route([-90, 1, 0], [0, 1, 90]).found);
 });
+
+test("a grid part: painted by rect, cells and zone, walls at level steps, the audit's ground, scatter by type, exported with a body, routed in the game, and walked through", async () => {
+  fresh("keep", { size: [40, 40] });
+  api.apply([
+    { op: "create", id: "board", kind: "grid", position: [-16, 0, -16], tags: ["ground"], grid: {
+      cell: 2, size: [16, 16], step: 0.5,
+      types: [{ id: "plain", color: "#9fb66b" }, { id: "rock", color: "#6f6a62", walkable: false, buildable: false }, { id: "road", color: "#a9a49a", buildable: false, tags: ["lane"] }, { id: "water", color: "#4ba3c7", walkable: false }],
+    } },
+    { op: "create", id: "pond", kind: "zone", area: { polygon: [[2, 2], [10, 2], [10, 10], [2, 10]], y: [0, 2] } },
+    { op: "grid", id: "board", paint: [
+      { type: "rock", rect: [6, 0, 6, 10] },
+      { type: "road", cells: [[0, 12], [1, 12], [2, 12], [3, 12], [4, 12], [5, 12], [6, 12], [7, 12]] },
+      { type: "water", zone: "pond" },
+      { level: 2, rect: [10, 12, 15, 15] },
+    ] },
+    { op: "create", id: "crate", kind: "box", material: "wood", position: [11, 1.5, 11], options: { size: [1, 1, 1] } },
+    { op: "create", id: "lane", kind: "path", tags: ["lane"], path: { points: [[-15, 0.1, 9], [-1, 0.1, 9]] } },
+  ]);
+  assert.throws(() => api.apply([{ op: "set", id: "board", rotation: [0, 30, 0] }]), /never rotated/);
+  assert.throws(() => api.apply([{ op: "grid", id: "board", paint: [{ type: "lava", all: true }] }]), /not a type/);
+  const g = api.inspect({ id: "board" }).node.grid;
+  assert.equal(g.cells[0 * 16 + 6], 1, "rock painted by rect");
+  assert.equal(g.cells[12 * 16 + 3], 2, "road painted by cells");
+  assert.equal(g.cells[(9 * 16) + 9], 3, "water painted inside the zone (cell centre 3, 3 → 2..10)");
+  assert.equal(g.cells[(0 * 16) + 0], 0);
+  assert.equal(g.levels[12 * 16 + 10], 2, "levels painted by rect");
+  assert.equal(api.inspect().stats.grids, 1);
+  assert.ok(api.inspect().stats.gridTriangles > 512, "walls add triangles");
+  assert.deepEqual(api.inspect({ id: "board" }).bounds.max, [16, 1, 16]);
+  // The grid is the ground: a crate on the raised corner rests at level 2 (1 m up).
+  const audit = api.audit();
+  assert.ok(!audit.findings.some((f) => f.code === "floating" || f.code === "overlap"), JSON.stringify(audit.findings));
+  api.apply([{ op: "set", id: "crate", position: [11, 1.6, 11] }]);
+  assert.ok(api.audit().findings.some((f) => f.code === "floating" && f.node === "crate"), "a crate above the raised cells floats");
+  api.apply([{ op: "set", id: "crate", position: [11, 1.5, 11] }]);
+  // Scatter on the grid by type, on the ground.
+  api.apply([{ op: "rule", definition: { id: "props", kind: "scatter", seed: 1, on: { grid: { cells: [16, 16], spacing: 2, origin: [0, 0, 0] } }, ground: true, where: { types: ["plain"] }, candidates: [{ model: "test_lamp_01" }] } }]);
+  await api.derive({}, { ifRevision: api.inspect().revision });
+  const props = api.inspect({ id: "props" }).node;
+  assert.ok(props.copies.length > 150 && props.copies.length < 256, `lamps on plain cells only: ${props.copies.length}`);
+  assert.ok(props.copies.every(([x, , z]) => !(x > -4 && x < -2 && z < 6)), "none on the rock column");
+  assert.ok(props.copies.filter(([x, y, z]) => x > 4 && z > 8).every(([, y]) => Math.abs(y - 1) < 1e-6), "copies on the raised corner sit a metre up");
+  // The tile: the mesh with a body, the grid as data; the runtime answers cells and paths.
+  const tile = await api.exportTile({ encoding: "buffer" });
+  assert.deepEqual(await fun3d.validate(tile), []);
+  const model = await fun3d.load(tile, { resolve: () => fun3d.load(lampFun3d) });
+  assert.ok(model.node("board").userData.mesh?.isMesh);
+  assert.ok(model.manifest.physics.bodies.some((b) => b.node === "board"));
+  const data = worldData(model);
+  assert.equal(data.grids().length, 1);
+  assert.equal(data.cell(-15, -15).type.id, "plain");
+  assert.equal(data.cell(-3, -15).type.id, "rock");
+  assert.equal(data.cell(5, 9).level, 2);
+  assert.equal(data.height(5, 9), 1);
+  assert.equal(data.height(-15, -15), 0);
+  assert.equal(data.cell(100, 0), null);
+  const route = data.gridPath([-15, 0, -15], [15, 0, -15]);
+  assert.ok(route.found && route.cells.some(([c, r]) => c === 6 && r > 10), "around the rock column through its gap");
+  assert.ok(route.points.every(([, y]) => y === 0));
+  assert.equal(data.gridPath([-15, 0, -15], [-3, 0, -15]).found, false, "rock is no goal");
+  // A walkthrough along the lane: frames every 5 m, looking ahead.
+  const walk = api.sample({ path: "lane", every: 5, height: 1.5, size: 96 });
+  assert.equal(walk.frames.length, 3);
+  assert.deepEqual(walk.frames.map((f) => f.distance), [0, 5, 10]);
+  assert.ok(walk.frames.every((f) => f.dataUrl.startsWith("data:image/png") && f.view.startsWith("walk@")));
+  assert.equal(api.renderViews(["perspective"], { size: 96, along: { path: "lane", every: 7, limit: 2 } }).length, 2, "observe with along walks the path and keeps to the limit");
+  assert.throws(() => api.sample({ path: "crate" }), /not a path/);
+  // Worlds cut a grid at its cells like a terrain.
+  api.loadProject({ ...api.getProject(), tile: { size: [20, 20], span: [3, 3] } }, { ifRevision: api.inspect().revision });
+  const world = await api.exportWorld({ name: "Keep" });
+  assert.equal(world.manifest.tiles.length, 9, "the 32 m board reaches into the ring of 20 m tiles around 0_0");
+  const t = await fun3d.load(Buffer.from(world.files.find((f) => f.path === "tiles/0_0.fun3d").data, "base64"), { resolve: () => fun3d.load(lampFun3d) });
+  const cut = t.extensions["fun3d.grid"][0];
+  assert.deepEqual([cut.origin, cut.size], [[-10, 0, -10], [10, 10]], "cells whose centres fall in the tile");
+  assert.equal(worldData(t).cell(5, 9).level, 2);
+});

@@ -105,6 +105,8 @@ const lap = data.path("lap"); lap.at(0.5).position; lap.nearest(position).distan
 lap.kind; lap.lanes; lap.width; lap.frame(0.5).right;   // what the workshop swept: kind, lanes, the profile's width; a frame along it
 const roads = data.network("road");                     // paths of one kind (or tag) welded at shared points, one-way edges directed
 roads.route(car.position, goal);                        // { found, points, length, edges }
+data.cell(x, z);                                        // a grid's cell: { col, row, type: { id, walkable, buildable, tags }, level, height }
+data.gridPath(spawn, keep, { diagonal: true });         // A* over walkable cells: { found, cells, points, length }
 ```
 
 `data.height(x, z)` and `data.surface(x, z)` read the tile's terrains (`fun3d.terrain`: the

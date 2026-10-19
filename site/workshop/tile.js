@@ -11,6 +11,7 @@ import { solidBounds } from "./audit.js";
 import { statistics } from "./document.js";
 import { runtimeRule, sweepProfiles } from "./rules.js";
 import { terrainMesh } from "../runtime/kit/terrain.js";
+import { gridMesh } from "../runtime/kit/grid.js";
 
 const round = (v) => Math.round(v * 1e6) / 1e6;
 
@@ -165,6 +166,38 @@ export async function exportTile(project, { name = project.name, runtime = [], w
         physics.bodies.push({ id: `body_${id}`, node: id, shape: `shape_${id}`, motion: "static", friction: t.surfaceTable[0].friction ?? 0.8 });
       }
     }
+    // Grids: a flat-shaded mesh per grid under its node, the cell map as data, a static body.
+    const grids = [];
+    const gridMaterial = new THREE.MeshStandardMaterial({ name: "mat_grid", color: "#ffffff", roughness: 0.9, metalness: 0 });
+    for (const node of project.nodes) {
+      if (!node.grid) continue;
+      const o = model.objects.get(node.id), g = node.grid;
+      const { positions, normals, colors } = gridMesh(g);
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+      geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+      geometry.name = node.id;
+      const mesh = new THREE.Mesh(geometry, gridMaterial);
+      mesh.castShadow = mesh.receiveShadow = true;
+      o.add(mesh);
+      o.userData.mesh = mesh;
+      const id = await idFromName(node.id), origin = point(worldMatrix(project, node.id), [0, 0, 0]).map(round);
+      grids.push({
+        node: id,
+        origin,
+        cell: g.cell,
+        size: [...g.size],
+        step: g.step,
+        cells: { stream: Uint8Array.from(g.cells), format: "uint8" },
+        ...(g.levels ? { levels: { stream: Uint8Array.from(g.levels), format: "uint8" } } : {}),
+        types: g.types.map((t) => ({ ...t })),
+      });
+      if (wantPhysics) {
+        physics.shapes.push({ id: `shape_${id}`, type: "mesh", geometry: id });
+        physics.bodies.push({ id: `body_${id}`, node: id, shape: `shape_${id}`, motion: "static", friction: 0.8 });
+      }
+    }
     // The project's own floors (parts tagged ground: slabs, swept roads and tracks) get a
     // static mesh body, so a game stands and drives on them.
     if (wantPhysics)
@@ -187,6 +220,7 @@ export async function exportTile(project, { name = project.name, runtime = [], w
       : { bounds, ...(project.tile ? { size: [...project.tile.size] } : {}) };
     const extensions = { "fun3d.tile": record };
     if (terrains.length) extensions["fun3d.terrain"] = terrains;
+    if (grids.length) extensions["fun3d.grid"] = grids;
     if (zones.length) extensions["fun3d.zones"] = zones;
     if (edges.length) {
       extensions["fun3d.paths"] = { points: { stream: Float32Array.from(points), format: "float32x3" }, edges };
@@ -230,6 +264,8 @@ export async function exportTile(project, { name = project.name, runtime = [], w
         rules: runtime.length,
         terrains: terrains.length,
         terrainTriangles: stats.terrainTriangles,
+        grids: grids.length,
+        gridTriangles: stats.gridTriangles,
         meshes: stats.meshes,
         triangles: stats.triangles,
       },

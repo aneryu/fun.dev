@@ -116,6 +116,13 @@ A flat floor needs no extension: it is a placed piece or a box. The baked ground
 ordinary geometry (flat-shaded, one colour per face from its surface or type); the extension is
 what the kit queries (`height`, `surface`, `normal`, `cell`) and what physics cooks: a height
 field shape, planned in the format's appendix A and made core by the step that ships terrain.
+Built 2026-10-19: `fun3d.grid` is an array of cell maps (`node`, `origin`, `cell`, `size`
+[columns, rows], `step` metres per level, `cells` and optional `levels` as uint8 streams,
+`types` with `walkable`, `buildable`, `color`, `tags`); the workshop's `grid` part draws it as a
+mesh with walls where levels change and paints it by rectangle, cell list, zone or all; the
+runtime answers `cell(x, z)` and `gridPath(a, b, { walkable, diagonal, climb, types })` (A*
+over four or eight neighbours), `height` falls back to a cell's floor, scatter takes
+`where: { types }`.
 
 **Paths.** One table holds every curve and network: a path is an edge; a network is edges that
 share points.
@@ -354,8 +361,9 @@ row gets in the first release are voxel ground, floating origin and baked lighti
 - **`map({ layers, size })`**: a top-down orthographic render with any of ground (surfaces or
   grid types), heights (shaded or contours), paths (by kind), zones, markers (by tag),
   placements, navmesh, tile grid and budgets; the picture agents reason about.
-- **`sample({ along, every, height, look })`**: perspective renders at intervals along a path
-  (a drive down the lap, a walk through the corridor), the agent's walkthrough.
+- **`sample({ path, every, height, look, limit })`**: perspective renders at intervals along a
+  path (a drive down the lap, a walk through the corridor), the agent's walkthrough. Built
+  2026-10-19 as `observe` with `along` (`ws.sample` writes the frames).
 - **`audit()`**: structured findings `{ code, severity, node, position, message, suggestion }`:
   overlapping bodies, floating or buried copies against the ground, out of bounds, unresolved
   references, path networks with more than one component, slopes above a kind's limit, markers
@@ -438,9 +446,13 @@ from a script, reviewed like library models.
    path parts carry `kind`, `lanes`, `oneway` and `speed` into the tile's edges with the
    profiles that swept them, and the runtime routes over them (`network(kind).route`).
    Samples: `examples/worlds/circuit.mjs` (a banked track from a resampled lap, lamps and
-   trees), the island's road. Still to come in this step: `fun3d.grid`, `lots`, junctions,
-   `fun3d.navmesh`, the tile grid on the map, `sample`, budgets measured on a phone, and
-   帝都 M1's block loaded from world data.
+   trees), the island's road. Grids and the walkthrough are built (2026-10-19): a `grid` part
+   (section 4) painted by the `grid` command, the audit's ground and scatter's `where.types`,
+   cut into tiles like a terrain, `cell` and `gridPath` in the game; `observe({ along })` /
+   `ws.sample` renders frames along a path. Sample: `examples/worlds/keep.mjs` (a tower-defence
+   board with a lane, a river ford, a plateau and build spots). Still to come in this step:
+   `lots`, junctions, `fun3d.navmesh`, the tile grid on the map, budgets measured on a phone,
+   and 帝都 M1's block loaded from world data.
 4. **Later** (appendix A).
 
 Step 1 fits the early phase and serves 帝都 M1. Whether step 3 precedes workshop stage 4

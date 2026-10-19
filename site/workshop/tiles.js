@@ -74,6 +74,45 @@ function terrainCuts(project, node, index) {
   return cuts;
 }
 
+/** A grid's sub-grids, one per tile its cells fall in (cells by their centres). */
+function gridCuts(project, node, index) {
+  const g = node.grid, o = point(worldMatrix(project, node.id), [0, 0, 0]), [cols, rows] = g.size, c = g.cell;
+  const ranges = (n, origin, axis) => {
+    const out = [];
+    let start = 0, current = null;
+    for (let j = 0; j < n; j++) {
+      const centre = origin + (j + 0.5) * c, idx = index(axis === 0 ? centre : 0, axis === 0 ? 0 : centre)[axis === 0 ? 0 : 1];
+      if (current === null) current = idx;
+      else if (idx !== current) { out.push({ tile: current, from: start, to: j }); start = j; current = idx; }
+    }
+    out.push({ tile: current, from: start, to: n });
+    return out;
+  };
+  const cuts = [];
+  for (const rz of ranges(rows, o[2], 2))
+    for (const rx of ranges(cols, o[0], 0)) {
+      const w = rx.to - rx.from, h = rz.to - rz.from, cells = new Array(w * h), levels = g.levels ? new Array(w * h) : null;
+      for (let k = 0; k < h; k++) for (let j = 0; j < w; j++) {
+        cells[k * w + j] = g.cells[(rz.from + k) * cols + rx.from + j];
+        if (levels) levels[k * w + j] = g.levels[(rz.from + k) * cols + rx.from + j];
+      }
+      cuts.push({
+        tile: [rx.tile, rz.tile],
+        node: {
+          ...pivotOf(node),
+          id: `${node.id}__${tag(rx.tile)}_${tag(rz.tile)}`,
+          parent: null,
+          position: [o[0] + rx.from * c, o[1], o[2] + rz.from * c],
+          rotation: [0, 0, 0],
+          scale: [1, 1, 1],
+          ...(node.tags ? { tags: [...node.tags] } : {}),
+          grid: { cell: c, size: [w, h], step: g.step, types: g.types, cells, ...(levels ? { levels } : {}) },
+        },
+      });
+    }
+  return cuts;
+}
+
 /**
  * The project cut into tiles: `tiles` (sorted by z then x) each with a sub-project of what
  * stands in it, and `data`, the sub-project of markers, zones and paths (with their pivots)
@@ -100,8 +139,8 @@ export function cutTiles(project) {
   const data = { members: new Map() };
   for (const node of project.nodes) {
     if (node.zone || node.path || node.marker) { member(data, node, node); continue; }
-    if (node.terrain) {
-      const cuts = terrainCuts(project, node, index);
+    if (node.terrain || node.grid) {
+      const cuts = node.terrain ? terrainCuts(project, node, index) : gridCuts(project, node, index);
       if (cuts.length === 1) member(tileFor(...cuts[0].tile), node, node);
       else for (const cut of cuts) tileFor(...cut.tile).extra.push(cut.node);
       continue;
@@ -164,6 +203,7 @@ export function farProject(sub, { minSize = 8, step = 4 } = {}) {
   };
   for (const node of sub.nodes) {
     if (node.terrain) { mark(node, { ...node, terrain: coarsenTerrain(node.terrain, step) }); continue; }
+    if (node.grid) { mark(node, node); continue; }
     if (!(node.mesh || node.place)) continue;
     const bounds = partBounds(sub, node);
     if (node.copies) {
@@ -188,7 +228,7 @@ export function auditTiles(project, { triangles: limit = 300000 } = {}) {
   const { tiles } = cutTiles(project);
   const report = tiles.map((t) => {
     const s = statistics(t.project);
-    return { x: t.x, z: t.z, triangles: s.triangles + s.placedTriangles + s.terrainTriangles, placed: s.placed, copies: s.copies, terrains: s.terrains, parts: t.project.nodes.length };
+    return { x: t.x, z: t.z, triangles: s.triangles + s.placedTriangles + s.terrainTriangles + s.gridTriangles, placed: s.placed, copies: s.copies, terrains: s.terrains, grids: s.grids, parts: t.project.nodes.length };
   });
   for (const t of report)
       if (t.triangles > limit)

@@ -212,6 +212,17 @@ await ws.rule({ id: "streets", kind: "sweep", on: { tag: "road" }, profile: { pr
 await ws.derive();                        // mesh parts per path (in chunks of the tile size), preset materials added
 ```
 
+A cell map for strategy, builder and dungeon games is a `grid` part, painted by rectangle,
+cell list or zone; a walkthrough renders frames along a path:
+
+```js
+await ws.apply([
+  { op: "create", id: "board", kind: "grid", position: [-40, 0, -30], tags: ["ground"], grid: { cell: 2, size: [40, 30], step: 0.5, types: [{ id: "plain", color: "#9fb66b" }, { id: "rock", color: "#6f6a62", walkable: false, buildable: false }] } },
+  { op: "grid", id: "board", paint: [{ type: "rock", rect: [8, 0, 11, 7] }, { level: 2, rect: [30, 0, 39, 9] }] },
+]);
+await ws.sample({ path: "lane", every: 25, height: 2, file: "walk.png" });   // walk-01.png, walk-02.png … looking ahead along the lane
+```
+
 `on` is `{ path, spacing, offset, sides }`, `{ zone, spacing, jitter, margin }` or `{ grid: { cells,
 spacing, origin } }`; the audit says when a rule is stale or not yet derived.
 

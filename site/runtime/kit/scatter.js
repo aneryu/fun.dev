@@ -113,6 +113,7 @@ export function evaluateScatter(rule, inputs, seed = rule.seed ?? 1) {
   if (rule.ground && inputs.height) stations = stations.filter((s) => { const h = inputs.height(s.position[0], s.position[2]); if (h === null) return false; s.position[1] = h; return true; });
   // Only on some surfaces.
   if (rule.where?.surfaces?.length && inputs.surface) stations = stations.filter((s) => rule.where.surfaces.includes(inputs.surface(s.position[0], s.position[2])));
+  if (rule.where?.types?.length && inputs.cellType) stations = stations.filter((s) => rule.where.types.includes(inputs.cellType(s.position[0], s.position[2])));
   // Keep-out: other paths by width, zones, and the footprints of solids.
   const avoid = inputs.avoid ?? {};
   stations = stations.filter((s) => {

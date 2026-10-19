@@ -35,6 +35,8 @@ import { exportWorld } from "./world-export.js";
 import { resolvePlacement, ensurePlaced } from "./placed.js";
 import { ruleInputs, deriveNodes, ruleModels, runtimeRule, sweepMaterials } from "./rules.js";
 import { SWEEP_MATERIALS } from "../runtime/kit/sweep.js";
+import { alongPath } from "../runtime/kit/scatter.js";
+import { worldMatrix, point } from "./spatial.js";
 import { fromBase64, toBase64 } from "./glb.js";
 import { projectFile, projectFilename } from "./project-file.js";
 import { materialUsage } from "./materials.js";
@@ -293,11 +295,31 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
     },
     view: (name, options) => viewport.view(name, options),
     focus: () => viewport.focus(),
-    renderViews(views, { size = 512, ...options } = {}) {
+    renderViews(views, { size = 512, along = null, ...options } = {}) {
       const revision = store.revision;
+      if (along) return api.sample({ ...(typeof along === "string" ? { path: along } : along), size, ...options }).frames;
       return viewport
         .renderViews(views, size, options)
         .map((shot) => ({ ...shot, revision, draftId: draft.id }));
+    },
+    // A walkthrough (docs/worlds.md §9): perspective views from points along a path, the
+    // camera at `height` over the path looking ahead (or back, left, right), `every` metres.
+    sample({ path, every = 20, start = 0, end = null, height = 1.6, look = "ahead", limit = 12, size = 512, ...options } = {}) {
+      const p = store.snapshot(), node = p.nodes.find((n) => n.id === path);
+      if (!node?.path) throw new ModelError(`${path} is not a path`, "not_found", "path");
+      if (!(every > 0)) throw new ModelError("every is metres along the path", "invalid", "every");
+      const m = worldMatrix(p, node.id), points = node.path.points.map((pt) => point(m, pt));
+      let stations = alongPath(points, { closed: node.path.closed, spacing: every, start, end });
+      const cap = Math.max(1, Math.min(64, Math.floor(limit)));
+      if (stations.length > cap) { const stride = Math.ceil(stations.length / cap); stations = stations.filter((_, i) => i % stride === 0).slice(0, cap); }
+      const frames = stations.map((s) => {
+        const d = s.direction, dir = look === "back" ? [-d[0], 0, -d[2]] : look === "left" ? [d[2], 0, -d[0]] : look === "right" ? [-d[2], 0, d[0]] : Array.isArray(look) ? null : [d[0], 0, d[2]];
+        const eye = [s.position[0], s.position[1] + height, s.position[2]];
+        const target = dir ? [eye[0] + dir[0] * 10, eye[1] - 0.6, eye[2] + dir[2] * 10] : look;
+        const [shot] = viewport.renderViews(["perspective"], size, { ...options, camera: { position: eye, target } });
+        return { ...shot, view: `walk@${Math.round(s.distance)}`, distance: Math.round(s.distance * 100) / 100, position: s.position.map((v) => Math.round(v * 100) / 100), revision: store.revision, draftId: draft.id };
+      });
+      return { revision: store.revision, path, length: Math.round((stations.length ? Math.max(...stations.map((s) => s.distance)) : 0) * 100) / 100, frames };
     },
     validate: (budget) => ({
       revision: store.revision,

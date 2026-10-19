@@ -1014,6 +1014,11 @@ them out. The map and the audit are for agents:
 
 - `funEditor.map({ size })` renders the top view with the overlays and returns `metresPerPixel`
   and the scene's bounds (`ws.map({ file })`).
+- `funEditor.sample({ path, every, start, end, height, look, limit, size })` renders a
+  walkthrough: a perspective frame every `every` metres along a path part, the camera `height`
+  (1.6 m) above it looking `ahead`, `back`, `left`, `right` or at a point, up to `limit` (12)
+  frames; `observe(views, { along: { path, … } })` is the same through the MCP tool, and
+  `ws.sample({ path, every, file })` writes `file-01.png`, `file-02.png`…
 - `funEditor.audit({ ground, budget })` lists findings with suggestions: `overlap` (bounds
   interpenetrating by more than 5 cm on every axis), `floating` (a solid touching nothing,
   with the gap below it), `buried` (below the ground plane), `out-of-bounds` (outside
@@ -1203,3 +1208,37 @@ and `speed`; the tile's edges keep them and name the sweep's profile (`profiles`
 edges directed. Sweeps bake only (`bake: false` is refused). Crossing sweeps overlap at the
 same height: cut junctions are later; street grids come from kits. Sample:
 `examples/worlds/circuit.mjs`.
+
+### Grids: cell maps
+
+A `grid` part is a cell map for strategy, builder, tower-defence and dungeon games: a type per
+cell and an optional level per cell, its corner at the part's position, never rotated or scaled
+(`kit/grid.js`, shared with the runtime):
+
+```js
+await ws.apply([
+  { op: "create", id: "board", kind: "grid", position: [-40, 0, -30], tags: ["ground"], grid: {
+    cell: 2, size: [40, 30], step: 0.5,
+    types: [{ id: "plain", color: "#9fb66b" }, { id: "lane", color: "#c2b280", buildable: false }, { id: "rock", color: "#6f6a62", walkable: false, buildable: false }, { id: "water", color: "#4ba3c7", walkable: false }],
+  } },
+  { op: "grid", id: "board", paint: [
+    { type: "water", zone: "river" },               // cells whose centres fall in a zone part
+    { type: "rock", rect: [8, 0, 11, 7] },           // [column0, row0, column1, row1], inclusive
+    { type: "lane", cells: [[0, 15], [1, 15]] },     // a list of [column, row]
+    { level: 2, rect: [30, 0, 39, 9] },              // a plateau: level × step metres up, walls on the mesh
+  ], fill: "plain" },                                // fill sets every cell's type first
+]);
+```
+
+- `grid`: `cell` metres, `size` [columns, rows] (up to 1024 each, 65 536 cells), `step` metres
+  per level (1), `types` (1–32: `id`, `color`, `walkable` and `buildable` true unless `false`,
+  `tags`), `cells` (type indices, all 0 unless given), `levels` (0–255 per cell, optional).
+- The grid draws as one flat-shaded mesh coloured by type with vertical walls where levels
+  change; `inspect` reports `stats.grids` and `gridTriangles`. It is the audit's ground (a
+  part on a raised cell rests at that level), scatter rules with `ground: true` stand on it
+  and `where: { types: [ids] }` keeps to cell types, `resample` with `ground` reads it too.
+- A tile carries the mesh, a static mesh body and the map in `fun3d.grid`; worlds cut it at
+  its cells like a terrain. In the game `worldData(tile).cell(x, z)` gives `{ col, row, type,
+  level, height }`, `gridPath(a, b, { walkable, diagonal, climb, types })` an A* route over the
+  cells (four neighbours, or eight; level steps up to `climb`, 1), `grids()` the maps, and
+  `height(x, z)` falls back to a cell's floor. Sample: `examples/worlds/keep.mjs`.

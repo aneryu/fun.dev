@@ -115,12 +115,20 @@ export function scriptApi(invoke, base) {
     query: (args) => call("query", args),
     validate: async (budget = {}) => summary(await call("validate", budget)),
     // One view writes `file`; several write `file` with -<view> before the extension.
+    // A walkthrough: frames every few metres along a path, written as file-01.png, file-02.png …
+    async sample({ path: along, file = "walk.png", ...options } = {}) {
+      const result = await call("observe", { names: ["perspective"], along: { path: along, ...options } });
+      const written = [];
+      for (const [i, shot] of result.observations.entries())
+        written.push(await write(resolve(dirname(path(file)), `${basename(file, extname(file))}-${String(i + 1).padStart(2, "0")}${extname(file) || ".png"}`), Buffer.from(shot.dataUrl.split(",")[1], "base64")));
+      return { files: written, frames: result.observations.map((s) => ({ view: s.view, distance: s.distance, position: s.position })) };
+    },
     async observe(names = ["perspective"], { file = "view.png", ...options } = {}) {
       const result = await call("observe", { names, ...options });
       const written = [];
       for (const shot of result.observations) {
         const name =
-          names.length === 1
+          names.length === 1 && result.observations.length === 1
             ? file
             : `${basename(file, extname(file))}-${shot.view}${extname(file) || ".png"}`;
         written.push(

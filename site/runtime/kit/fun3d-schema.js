@@ -631,6 +631,23 @@ function validateSceneExtensions(manifest, { uses, streams, nodes, caps, out }) 
       if (!Array.isArray(t.surfaceTable) || !t.surfaceTable.length || t.surfaceTable.length > 16 || t.surfaceTable.some((s) => !s || typeof s.id !== "string")) out.push(`${path}.surfaceTable has 1–16 surfaces with ids`);
     });
   }
+  const grids = extensions["fun3d.grid"];
+  if (grids !== undefined) {
+    if (!Array.isArray(grids) || grids.length > 16) out.push(`extensions["fun3d.grid"] is an array of up to 16 grids`);
+    else grids.forEach((g, i) => {
+      const path = `extensions["fun3d.grid"][${i}]`;
+      if (!g || typeof g !== "object" || !isId(g.node) || !nodes.has(g.node)) { out.push(`${path} names a node`); return; }
+      if (!vector3(g.origin) || !(g.cell > 0) || !Array.isArray(g.size) || g.size.length !== 2 || g.size.some((v) => !Number.isInteger(v) || v < 1 || v > 1024)) out.push(`${path} needs origin, cell and size [columns, rows] up to 1024`);
+      if (g.step !== undefined && !(g.step > 0)) out.push(`${path}.step is a positive number`);
+      const cells = streamRef(g.cells, `${path}.cells`, ["uint8"]);
+      if (cells && Array.isArray(g.size) && cells.count !== g.size[0] * g.size[1]) out.push(`${path}.cells has ${cells.count} values for ${g.size[0]} × ${g.size[1]} cells`);
+      if (g.levels !== undefined) {
+        const levels = streamRef(g.levels, `${path}.levels`, ["uint8"]);
+        if (levels && Array.isArray(g.size) && levels.count !== g.size[0] * g.size[1]) out.push(`${path}.levels has one value per cell`);
+      }
+      if (!Array.isArray(g.types) || !g.types.length || g.types.length > 32 || g.types.some((t) => !t || typeof t.id !== "string")) out.push(`${path}.types has 1–32 types with ids`);
+    });
+  }
   const rules = extensions["fun3d.rules"];
   if (rules !== undefined) {
     if (!Array.isArray(rules) || rules.length > 64) out.push(`extensions["fun3d.rules"] is an array of up to 64 rules`);

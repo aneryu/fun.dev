@@ -240,6 +240,21 @@ const props = {
     },
     additionalProperties: false,
   },
+  // Grid: a cell map; paint entries set a type and/or a level by rect, cells, zone or all.
+  grid: {
+    type: "object",
+    properties: {
+      cell: number,
+      size: { type: "array", items: { type: "integer" }, minItems: 2, maxItems: 2 },
+      step: number,
+      types: { type: "array", items: { type: "object", properties: { id: string, color: string, walkable: boolean, buildable: boolean, tags: { type: "array", items: string } }, required: ["id", "color"], additionalProperties: false }, minItems: 1, maxItems: 32 },
+      cells: { type: "array", items: { type: "integer" } },
+      levels: { type: "array", items: { type: "integer" } },
+    },
+    additionalProperties: false,
+  },
+  paint: { type: "array", items: object, maxItems: 256 },
+  fill: { oneOf: [string, { type: "integer" }] },
   ops: { type: "array", items: object, maxItems: 32 },
   surfaces: { type: "array", items: { type: "object", properties: { surface: { oneOf: [string, { type: "integer" }] }, slope: pair, height: pair }, required: ["surface"], additionalProperties: false }, maxItems: 16 },
   water: { oneOf: [{ type: "object", properties: { level: number, color: string }, additionalProperties: false }, { type: "null" }] },
@@ -277,6 +292,7 @@ const props = {
       "capsule",
       "mesh",
       "group",
+      "grid",
       "place",
       "marker",
       "zone",
@@ -454,7 +470,7 @@ props.shape = {
 const specs = {
   create: [
     "id kind",
-    "name parent position rotation scale material options mesh smooth tags params place variants tint area path copies tints derived sockets terrain",
+    "name parent position rotation scale material options mesh smooth tags params place variants tint area path copies tints derived sockets terrain grid",
   ],
   material: [
     "id",
@@ -463,8 +479,9 @@ const specs = {
   removeMaterial: ["id", "replacement"],
   purgeMaterials: ["", ""],
   renameProject: ["name", ""],
-  set: ["id", "name parent position rotation scale keepWorld smooth tags params variants tint area path copies tints sockets terrain"],
+  set: ["id", "name parent position rotation scale keepWorld smooth tags params variants tint area path copies tints sockets terrain grid"],
   terrain: ["id", "ops surfaces water seed"],
+  grid: ["id", "paint fill"],
   resample: ["id", "spacing smooth ground"],
   socket: ["id socket", "position rotation tags"],
   removeSocket: ["id socket", ""],
@@ -820,7 +837,7 @@ modelDefinitions.rule = obj(
     },
     y: { oneOf: [number, { type: "null" }] },
     ground: boolean,
-    where: obj({ surfaces: { type: "array", items: string, minItems: 1, maxItems: 16 } }, ["surfaces"]),
+    where: obj({ surfaces: { type: "array", items: string, minItems: 1, maxItems: 16 }, types: { type: "array", items: string, minItems: 1, maxItems: 16 } }),
     yaw: { oneOf: [number, { enum: ["path", "random"] }, obj({ mode: { enum: ["path", "random", "fixed"] }, value: number, jitter: number })] },
     scale: pair,
     candidates: {
@@ -1056,6 +1073,8 @@ export function capabilities({ detail = "full", command } = {}) {
       "terrain",
       "worldTiles",
       "sweeps",
+      "grids",
+      "sampleAlongPaths",
     ],
     unsupported: [
       "UV textures",

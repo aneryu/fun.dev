@@ -10,6 +10,7 @@ import { solidBounds } from "./audit.js";
 import { ModelError } from "./mesh.js";
 import { heightAt, surfaceAt } from "../runtime/kit/terrain.js";
 import { sweepPath, resolveProfile } from "../runtime/kit/sweep.js";
+import { gridHeightAt, cellAt } from "../runtime/kit/grid.js";
 
 /** The project's terrains in world space, with a cheap digest for staleness. */
 export function terrainFields(project) {
@@ -21,9 +22,23 @@ export function terrainFields(project) {
     return { node: n.id, origin, cell: t.cell, samples: t.samples, heights: t.heights.map((h) => h + origin[1]), surfaces: t.surfaces ?? null, surfaceTable: t.surfaceTable, digest };
   });
 }
-const groundQueries = (fields) => ({
-  height: (x, z) => { for (const t of fields) { const h = heightAt(t, x, z); if (h !== null) return h; } return null; },
+/** The project's grids in world space, with a cheap digest for staleness. */
+export function gridFields(project) {
+  return project.nodes.filter((n) => n.grid).map((n) => {
+    const origin = point(worldMatrix(project, n.id), [0, 0, 0]), g = n.grid;
+    let digest = 0;
+    for (let i = 0; i < g.cells.length; i += 3) digest = (digest * 31 + g.cells[i] * 7 + (g.levels ? g.levels[i] : 0)) % 1000000007;
+    return { node: n.id, origin, cell: g.cell, size: g.size, step: g.step, types: g.types, cells: g.cells, levels: g.levels ?? null, digest };
+  });
+}
+const groundQueries = (fields, grids = []) => ({
+  height: (x, z) => {
+    for (const t of fields) { const h = heightAt(t, x, z); if (h !== null) return h; }
+    for (const g of grids) { const h = gridHeightAt(g, x, z); if (h !== null) return h; }
+    return null;
+  },
   surface: (x, z) => { for (const t of fields) { const s = surfaceAt(t, x, z); if (s) return s.id; } return null; },
+  cellType: (x, z) => { for (const g of grids) { const c = cellAt(g, x, z); if (c) return c.type.id; } return null; },
 });
 
 const round = (v) => Math.round(v * 10000) / 10000;
@@ -75,9 +90,10 @@ export function ruleInputs(project, rule) {
   };
   const inputs = { paths: {}, polygons: {}, zoneY: {}, avoid: { paths: [], polygons: [], boxes: [] } };
   if (rule.ground || rule.where) {
-    const fields = terrainFields(project);
+    const fields = terrainFields(project), grids = gridFields(project), queries = groundQueries(fields, grids);
     inputs.terrains = fields.map((t) => [t.node, t.digest]);
-    Object.defineProperties(inputs, { height: { value: groundQueries(fields).height, enumerable: false }, surface: { value: groundQueries(fields).surface, enumerable: false } });
+    if (grids.length) inputs.grids = grids.map((g) => [g.node, g.digest]);
+    Object.defineProperties(inputs, { height: { value: queries.height, enumerable: false }, surface: { value: queries.surface, enumerable: false }, cellType: { value: queries.cellType, enumerable: false } });
   }
   if (rule.kind === "sweep") {
     for (const id of sweepPaths(project, rule)) inputs.paths[id] = pathOf(id);

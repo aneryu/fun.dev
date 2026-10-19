@@ -10,6 +10,7 @@
 import { evaluateScatter } from "./scatter.js";
 import { evaluateAssembly } from "./assemble.js";
 import { heightAt, surfaceAt } from "./terrain.js";
+import { createHeap, cellAt, gridHeightAt, gridPath } from "./grid.js";
 
 const ZONES = "fun3d.zones", PATHS = "fun3d.paths", PARAMS = "fun3d.params", RULES = "fun3d.rules";
 
@@ -91,35 +92,6 @@ function pathOf(edge, points, profile = null) {
     },
   };
   return path;
-}
-
-// A binary heap of [priority, value] for routing.
-function createHeap() {
-  const items = [];
-  const swap = (i, j) => { const t = items[i]; items[i] = items[j]; items[j] = t; };
-  return {
-    get size() { return items.length; },
-    push(priority, value) {
-      items.push([priority, value]);
-      for (let i = items.length - 1; i > 0; ) { const p = (i - 1) >> 1; if (items[p][0] <= items[i][0]) break; swap(i, p); i = p; }
-    },
-    pop() {
-      const top = items[0], last = items.pop();
-      if (items.length) {
-        items[0] = last;
-        for (let i = 0; ; ) {
-          const l = 2 * i + 1, r = l + 1;
-          let m = i;
-          if (l < items.length && items[l][0] < items[m][0]) m = l;
-          if (r < items.length && items[r][0] < items[m][0]) m = r;
-          if (m === i) break;
-          swap(i, m);
-          i = m;
-        }
-      }
-      return top;
-    },
-  };
 }
 
 /**
@@ -224,8 +196,22 @@ export function worldData(model, { height: worldHeight = null, surface: worldSur
     heights: streams ? streams.of(t.heights) : new Float32Array(t.samples[0] * t.samples[1]),
     surfaces: t.surfaces && streams ? streams.of(t.surfaces) : null,
   }));
-  const height = (x, z) => { for (const t of terrains) { const h = heightAt(t, x, z); if (h !== null) return h; } return null; };
+  // Grids: cell maps with types and levels, asked by world x and z.
+  const grids = (extensions["fun3d.grid"] ?? []).map((g) => ({
+    node: g.node, origin: g.origin, cell: g.cell, size: g.size, step: g.step ?? 1, types: g.types,
+    cells: streams ? streams.of(g.cells) : new Uint8Array(g.size[0] * g.size[1]),
+    levels: g.levels && streams ? streams.of(g.levels) : null,
+  }));
+  const height = (x, z) => {
+    for (const t of terrains) { const h = heightAt(t, x, z); if (h !== null) return h; }
+    for (const g of grids) { const h = gridHeightAt(g, x, z); if (h !== null) return h; }
+    return null;
+  };
   const surface = (x, z) => { for (const t of terrains) { const s = surfaceAt(t, x, z); if (s) return s; } return null; };
+  /** The grid cell under a world point ({ col, row, type, level, height, grid }), null off every grid. */
+  const cell = (x, z) => { for (const g of grids) { const c = cellAt(g, x, z); if (c) return { ...c, grid: g.node }; } return null; };
+  /** A path over the grid holding both points: { found, cells, points, length }. */
+  const gridRoute = (a, b, options) => { for (const g of grids) if (cellAt(g, a[0], a[2]) && cellAt(g, b[0], b[2])) return gridPath(g, a, b, options); return { found: false, cells: [], points: [], length: 0 }; };
   // Rules sit on this file's terrains, then on the world's (other tiles) when it gave them.
   const ruleHeight = worldHeight ? (x, z) => height(x, z) ?? worldHeight(x, z) : height;
   const ruleSurface = worldSurface ? (x, z) => surface(x, z) ?? worldSurface(x, z) : surface;
@@ -243,7 +229,7 @@ export function worldData(model, { height: worldHeight = null, surface: worldSur
     return [];
   };
   const inputsOf = (rule) => {
-    const inputs = { paths: {}, polygons: {}, zoneY: {}, avoid: { paths: [], polygons: [], boxes: [...(rule.avoid?.boxes ?? [])] }, height: ruleHeight, surface: (x, z) => ruleSurface(x, z)?.id ?? null };
+    const inputs = { paths: {}, polygons: {}, zoneY: {}, avoid: { paths: [], polygons: [], boxes: [...(rule.avoid?.boxes ?? [])] }, height: ruleHeight, surface: (x, z) => ruleSurface(x, z)?.id ?? null, cellType: (x, z) => cell(x, z)?.type?.id ?? null };
     const path = (id) => { const p = paths.find((x) => x.id === id); if (!p) throw new Error(`rule ${rule.id}: the tile has no path ${id}`); return { points: p.points.slice(0, p.closed ? -1 : undefined), closed: p.closed }; };
     const zone = (id) => { const z = zones.find((x) => x.id === id); if (!z) throw new Error(`rule ${rule.id}: the tile has no zone ${id}`); return z; };
     if (rule.kind === "assemble") { if (rule.bounds) inputs.polygons[rule.bounds] = polygonOf(zone(rule.bounds)); }
@@ -274,6 +260,9 @@ export function worldData(model, { height: worldHeight = null, surface: worldSur
     rules: () => rules.map((r) => ({ id: r.id, kind: r.kind, tags: [...(r.tags ?? [])], models: (r.kind === "assemble" ? r.pieces : r.candidates).map((m) => m.model) })),
     run,
     terrains: () => terrains.map((t) => ({ node: t.node, origin: t.origin, cell: t.cell, samples: t.samples, surfaceTable: t.surfaceTable, water: t.water })),
+    grids: () => grids.map((g) => ({ node: g.node, origin: g.origin, cell: g.cell, size: g.size, step: g.step, types: g.types })),
+    cell,
+    gridPath: gridRoute,
     /** The terrain's height under a world point, null off every terrain. */
     height,
     /** The terrain surface under a world point ({ id, color, friction, tags }), null off every terrain. */
@@ -436,6 +425,10 @@ export async function createWorld(context, url, options = {}) {
     /** A tile's status and, when shown, its near or far copy and data. */
     tile(x, z) { const t = byKey.get(`${x}_${z}`); return t ? { ...status(t), near: t.near ? { copy: t.near.copy, data: t.near.data } : null, farCopy: t.far ? { copy: t.far.copy, data: t.far.data } : null } : null; },
     height, surface,
+    /** The grid cell under a world point, from the near tiles first. */
+    cell(x, z) { for (const t of tiles) if (t.near) { const c = t.near.data.cell(x, z); if (c) return c; } for (const t of tiles) if (t.far && !t.near) { const c = t.far.data.cell(x, z); if (c) return c; } return null; },
+    /** A grid path within one near tile's grid holding both points. */
+    gridPath(a, b, options) { for (const t of tiles) if (t.near) { const r = t.near.data.gridPath(a, b, options); if (r.found) return r; } return { found: false, cells: [], points: [], length: 0 }; },
     markers: (tag) => all((s) => s.markers(tag)),
     marker: (id) => first((s) => s.marker(id)),
     zones: (tag) => all((s) => s.zones(tag)),

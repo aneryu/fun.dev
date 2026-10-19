@@ -35,6 +35,8 @@ import { meshEdges, bevelEdges, cutPlane, loopCut } from "./topology.js";
 import { surfaceDiagnostics } from "./diagnostics.js";
 import { booleanMesh } from "./booleans.js";
 import { resamplePath, resolveProfile } from "../runtime/kit/sweep.js";
+import { cellAt as gridCellAt, gridHeightAt } from "../runtime/kit/grid.js";
+import { insidePolygon } from "../runtime/kit/scatter.js";
 import { arrayStep, stepMatrix, arrayMesh } from "./arrays.js";
 import { blueprintCommands } from "./blueprints.js";
 import { generateHeights, classifySurfaces, heightAt } from "../runtime/kit/terrain.js";
@@ -373,7 +375,7 @@ export function normalizeProject(input) {
       (data.length &&
         (result.mesh || result.generator || result.recipe || result.symmetry || result.instanceOf))
     )
-      fail("A part is one of: mesh, placed model, marker, zone or path", `nodes.${node.id}`);
+      fail("A part is one of: mesh, placed model, marker, zone, path, terrain or grid", `nodes.${node.id}`);
     if (node.place) result.place = normalizePlace(node.place, `nodes.${node.id}.place`);
     if (node.marker) result.marker = true;
     if (node.zone) result.zone = normalizeZone(node.zone, `nodes.${node.id}.zone`);
@@ -381,6 +383,10 @@ export function normalizeProject(input) {
     if (node.terrain) {
       result.terrain = normalizeTerrain(node.terrain, `nodes.${node.id}.terrain`);
       if (result.rotation.some((v) => v !== 0) || result.scale.some((v) => v !== 1)) fail("A terrain is placed, never rotated or scaled", `nodes.${node.id}`);
+    }
+    if (node.grid) {
+      result.grid = normalizeGrid(node.grid, `nodes.${node.id}.grid`);
+      if (result.rotation.some((v) => v !== 0) || result.scale.some((v) => v !== 1)) fail("A grid is placed, never rotated or scaled", `nodes.${node.id}`);
     }
     if (node.copies !== undefined && node.copies !== null) {
       if (!result.place) fail("copies belong to a placed model", `nodes.${node.id}.copies`);
@@ -826,9 +832,16 @@ export function normalizeRule(value, path = "definition") {
   if (value.y !== undefined && value.y !== null) rule.y = number(value.y, -100000, 100000, `${path}.y`);
   if (value.ground) rule.ground = true;
   if (value.where !== undefined && value.where !== null) {
-    if (typeof value.where !== "object" || !Array.isArray(value.where.surfaces) || !value.where.surfaces.length || value.where.surfaces.length > 16 || value.where.surfaces.some((v) => typeof v !== "string" || !SHORT_ID.test(v)))
-      fail("where is { surfaces: [ids] }", `${path}.where`);
-    rule.where = { surfaces: [...value.where.surfaces] };
+    const list = (key) => {
+      const v = value.where[key];
+      if (v === undefined || v === null) return null;
+      if (!Array.isArray(v) || !v.length || v.length > 16 || v.some((x) => typeof x !== "string" || !SHORT_ID.test(x))) fail("where is { surfaces: [ids], types: [ids] }", `${path}.where.${key}`);
+      return [...v];
+    };
+    if (typeof value.where !== "object") fail("where is { surfaces: [ids], types: [ids] }", `${path}.where`);
+    const surfaces = list("surfaces"), types = list("types");
+    if (!surfaces && !types) fail("where names surfaces (terrain) or types (grid)", `${path}.where`);
+    rule.where = { ...(surfaces ? { surfaces } : {}), ...(types ? { types } : {}) };
   }
   const yaw = normalizeYaw(value.yaw, `${path}.yaw`);
   if (yaw) rule.yaw = yaw;
@@ -913,6 +926,50 @@ function normalizeRules(input) {
   unique(rules.map((r) => r.id), "rules");
   return rules;
 }
+// Grid (docs/worlds.md §4): a cell map in the part's space, its corner at the origin: a type per
+// cell (walkable, buildable, colour, tags) and a level per cell (step metres each).
+export const GRID_LIMITS = { cells: 65536, side: 1024, types: 32 };
+export function normalizeGrid(value, path = "grid") {
+  if (!value || typeof value !== "object") fail("Invalid grid", path);
+  const cell = number(value.cell ?? 2, 0.1, 100, `${path}.cell`);
+  const size = value.size;
+  if (!Array.isArray(size) || size.length !== 2 || size.some((v) => !Number.isInteger(v) || v < 1 || v > GRID_LIMITS.side) || size[0] * size[1] > GRID_LIMITS.cells)
+    fail(`size is [columns, rows], up to ${GRID_LIMITS.side} each and ${GRID_LIMITS.cells} cells`, `${path}.size`);
+  const n = size[0] * size[1];
+  const step = number(value.step ?? 1, 0.01, 100, `${path}.step`);
+  const table = value.types ?? [{ id: "plain", color: "#9fb66b" }];
+  if (!Array.isArray(table) || !table.length || table.length > GRID_LIMITS.types) fail(`types has 1–${GRID_LIMITS.types} entries`, `${path}.types`);
+  const types = table.map((t, i) => {
+    if (!t || typeof t !== "object" || !SHORT_ID.test(t.id ?? "") || !HEX.test(t.color ?? "")) fail("A type is { id, color, walkable, buildable, tags }", `${path}.types.${i}`);
+    const out = { id: t.id, color: t.color.toLowerCase() };
+    if (t.walkable === false) out.walkable = false;
+    if (t.buildable === false) out.buildable = false;
+    const tags = normalizeTags(t.tags, `${path}.types.${i}.tags`);
+    if (tags.length) out.tags = tags;
+    return out;
+  });
+  unique(types.map((t) => t.id), `${path}.types`);
+  let cells = value.cells;
+  if (cells === undefined || cells === null) cells = new Array(n).fill(0);
+  else {
+    if ((!Array.isArray(cells) && !ArrayBuffer.isView(cells)) || cells.length !== n) fail(`cells are ${n} type indices`, `${path}.cells`);
+    cells = Array.from(cells, (v, i) => {
+      if (!Number.isInteger(v) || v < 0 || v >= types.length) fail("A cell names an entry of types by index", `${path}.cells.${i}`);
+      return v;
+    });
+  }
+  const result = { cell, size: [size[0], size[1]], step, types, cells };
+  if (value.levels !== undefined && value.levels !== null) {
+    const levels = value.levels;
+    if ((!Array.isArray(levels) && !ArrayBuffer.isView(levels)) || levels.length !== n) fail(`levels are ${n} integers from 0 to 255`, `${path}.levels`);
+    result.levels = Array.from(levels, (v, i) => {
+      if (!Number.isInteger(v) || v < 0 || v > 255) fail("A level is an integer from 0 to 255", `${path}.levels.${i}`);
+      return v;
+    });
+    if (result.levels.every((v) => v === 0)) delete result.levels;
+  }
+  return result;
+}
 // Terrain (docs/worlds.md §4): a height field in the part's space, its corner at the origin,
 // samples row by row along +z of columns along +x; never rotated or scaled.
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -978,7 +1035,7 @@ export function normalizeTerrain(value, path = "terrain") {
   }
   return result;
 }
-export const DATA_KINDS = ["place", "marker", "zone", "path", "terrain"];
+export const DATA_KINDS = ["place", "marker", "zone", "path", "terrain", "grid"];
 export const dataKind = (node) => DATA_KINDS.find((k) => node?.[k]) ?? null;
 
 export function statistics(project) {
@@ -992,7 +1049,19 @@ export function statistics(project) {
       } else if (node.marker) s.markers++;
       else if (node.zone) s.zones++;
       else if (node.path) s.paths++;
-      else if (node.terrain) {
+      else if (node.grid) {
+        s.grids++;
+        const g = node.grid, [cols, rows] = g.size;
+        let walls = 0;
+        if (g.levels)
+          for (let r = 0; r < rows; r++)
+            for (let c = 0; c < cols; c++) {
+              const i = r * cols + c;
+              if (c + 1 < cols && g.levels[i] !== g.levels[i + 1]) walls++;
+              if (r + 1 < rows && g.levels[i] !== g.levels[i + cols]) walls++;
+            }
+        s.gridTriangles += (cols * rows + walls) * 2;
+      } else if (node.terrain) {
         s.terrains++;
         s.terrainTriangles += (node.terrain.samples[0] - 1) * (node.terrain.samples[1] - 1) * 2;
       }
@@ -1022,6 +1091,8 @@ export function statistics(project) {
       paths: 0,
       terrains: 0,
       terrainTriangles: 0,
+      grids: 0,
+      gridTriangles: 0,
     },
   );
 }
@@ -1977,6 +2048,11 @@ function run(project, command) {
       project.nodes.push({ ...base, terrain: normalizeTerrain(command.terrain ?? options, "terrain") });
       return;
     }
+    if (kind === "grid") {
+      if (rotation.some((v) => v !== 0) || scale.some((v) => v !== 1)) fail("A grid is placed, never rotated or scaled", "rotation");
+      project.nodes.push({ ...base, grid: normalizeGrid(command.grid ?? options, "grid") });
+      return;
+    }
     project.nodes.push({
       ...base,
       mesh:
@@ -2116,7 +2192,7 @@ function run(project, command) {
     !["unlink", "delete", "duplicate", "rename"].includes(command.op)
   )
     fail("Unlink the mirrored part before editing it");
-  if (dataKind(node) && !["set", "delete", "duplicate", "rename", "socket", "removeSocket", "terrain", "resample"].includes(command.op))
+  if (dataKind(node) && !["set", "delete", "duplicate", "rename", "socket", "removeSocket", "terrain", "resample", "grid"].includes(command.op))
     fail("Placed models, markers, zones and paths take set, delete, duplicate and rename only");
   switch (command.op) {
     case "rename": {
@@ -2313,17 +2389,71 @@ function run(project, command) {
           const origin = point(worldMatrix(project, n.id), [0, 0, 0]);
           return { cell: n.terrain.cell, samples: n.terrain.samples, origin, heights: n.terrain.heights.map((h) => h + origin[1]) };
         });
-        if (!fields.length) fail("ground needs a terrain part", "ground");
+        const grids = project.nodes.filter((n) => n.grid).map((n) => ({ ...n.grid, origin: point(worldMatrix(project, n.id), [0, 0, 0]) }));
+        if (!fields.length && !grids.length) fail("ground needs a terrain or grid part", "ground");
+        const under = (x, z) => { for (const f of fields) { const h = heightAt(f, x, z); if (h !== null) return h; } for (const g of grids) { const h = gridHeightAt(g, x, z); if (h !== null) return h; } return null; };
         const m = worldMatrix(project, node.id);
         for (const p of points) {
-          const w = point(m, p);
-          for (const f of fields) {
-            const h = heightAt(f, w[0], w[2]);
-            if (h !== null) { p[1] = Math.round((p[1] + h - w[1]) * 1000) / 1000; break; }
-          }
+          const w = point(m, p), h = under(w[0], w[2]);
+          if (h !== null) p[1] = Math.round((p[1] + h - w[1]) * 1000) / 1000;
         }
       }
       node.path = { ...node.path, points };
+      break;
+    }
+    case "grid": {
+      // Paints cells: by rectangle [c0, r0, c1, r1], by a list of [column, row], inside a zone
+      // part, or all; each entry sets a type and/or a level. fill sets every cell's type.
+      if (!node.grid) fail("grid paints a grid part", "id");
+      const g = node.grid, [cols, rows] = g.size, cells = [...g.cells];
+      let levels = g.levels ? [...g.levels] : null;
+      const typeIndex = (t, at) => {
+        const i = typeof t === "number" ? t : g.types.findIndex((x) => x.id === t);
+        if (!Number.isInteger(i) || i < 0 || i >= g.types.length) fail(`${t} is not a type of ${node.id}`, at);
+        return i;
+      };
+      if (command.fill !== undefined && command.fill !== null) cells.fill(typeIndex(command.fill, "fill"));
+      const paint = command.paint ?? [];
+      if (!Array.isArray(paint) || paint.length > 256) fail("paint lists up to 256 entries", "paint");
+      const origin = point(worldMatrix(project, node.id), [0, 0, 0]);
+      paint.forEach((entry, k) => {
+        const at = `paint.${k}`;
+        if (!entry || typeof entry !== "object") fail("A paint entry is { type, level, rect | cells | zone | all }", at);
+        const targets = [];
+        if (entry.rect) {
+          const r = entry.rect;
+          if (!Array.isArray(r) || r.length !== 4 || r.some((v) => !Number.isInteger(v))) fail("rect is [c0, r0, c1, r1]", `${at}.rect`);
+          for (let row = Math.max(0, Math.min(r[1], r[3])); row <= Math.min(rows - 1, Math.max(r[1], r[3])); row++)
+            for (let col = Math.max(0, Math.min(r[0], r[2])); col <= Math.min(cols - 1, Math.max(r[0], r[2])); col++) targets.push(row * cols + col);
+        } else if (entry.cells) {
+          if (!Array.isArray(entry.cells) || entry.cells.length > GRID_LIMITS.cells) fail("cells is a list of [column, row]", `${at}.cells`);
+          for (const c of entry.cells) {
+            if (!Array.isArray(c) || c.length !== 2 || !Number.isInteger(c[0]) || !Number.isInteger(c[1]) || c[0] < 0 || c[1] < 0 || c[0] >= cols || c[1] >= rows) fail("A cell is [column, row] inside the grid", `${at}.cells`);
+            targets.push(c[1] * cols + c[0]);
+          }
+        } else if (entry.zone) {
+          const source = project.nodes.find((n) => n.id === entry.zone);
+          if (!source?.zone) fail(`${entry.zone} is not a zone`, `${at}.zone`);
+          const z = source.zone, m = worldMatrix(project, source.id);
+          const polygon =
+            z.kind === "polygon"
+              ? z.polygon.map(([x, zz]) => { const w = point(m, [x, z.y[0], zz]); return [w[0], w[2]]; })
+              : z.kind === "box"
+                ? [[-z.size[0] / 2, -z.size[2] / 2], [z.size[0] / 2, -z.size[2] / 2], [z.size[0] / 2, z.size[2] / 2], [-z.size[0] / 2, z.size[2] / 2]].map(([x, zz]) => { const w = point(m, [x, 0, zz]); return [w[0], w[2]]; })
+                : Array.from({ length: 32 }, (_, i) => { const w = point(m, [z.radius * Math.cos((i / 32) * Math.PI * 2), 0, z.radius * Math.sin((i / 32) * Math.PI * 2)]); return [w[0], w[2]]; });
+          for (let row = 0; row < rows; row++)
+            for (let col = 0; col < cols; col++)
+              if (insidePolygon(polygon, origin[0] + (col + 0.5) * g.cell, origin[2] + (row + 0.5) * g.cell)) targets.push(row * cols + col);
+        } else if (entry.all) for (let i = 0; i < cells.length; i++) targets.push(i);
+        else fail("A paint entry needs rect, cells, zone or all", at);
+        if (entry.type !== undefined && entry.type !== null) { const t = typeIndex(entry.type, `${at}.type`); for (const i of targets) cells[i] = t; }
+        if (entry.level !== undefined && entry.level !== null) {
+          if (!Number.isInteger(entry.level) || entry.level < 0 || entry.level > 255) fail("level is an integer from 0 to 255", `${at}.level`);
+          levels ??= new Array(cells.length).fill(0);
+          for (const i of targets) levels[i] = entry.level;
+        }
+      });
+      node.grid = normalizeGrid({ ...g, cells, levels }, "grid");
       break;
     }
     case "terrain": {
@@ -2453,6 +2583,12 @@ function run(project, command) {
         if (!node.terrain) fail("terrain belongs to terrains", "terrain");
         node.terrain = normalizeTerrain({ ...node.terrain, ...command.terrain }, "terrain");
       }
+      if (command.grid !== undefined) {
+        if (!node.grid) fail("grid belongs to grids", "grid");
+        node.grid = normalizeGrid({ ...node.grid, ...command.grid }, "grid");
+      }
+      if (node.grid && ((command.rotation && command.rotation.some((v) => v !== 0)) || (command.scale && command.scale.some((v) => v !== 1))))
+        fail("A grid is placed, never rotated or scaled", "rotation");
       if (node.terrain && ((command.rotation && command.rotation.some((v) => v !== 0)) || (command.scale && command.scale.some((v) => v !== 1))))
         fail("A terrain is placed, never rotated or scaled", "rotation");
       if (command.sockets !== undefined) {

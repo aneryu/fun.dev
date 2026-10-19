@@ -3,9 +3,10 @@
 // what the audit flags (a lamp standing in a planter overlaps it).
 import { worldMatrix, point, nodePoints } from "./spatial.js";
 import { statistics } from "./document.js";
-import { ruleStatus, terrainFields } from "./rules.js";
+import { ruleStatus, terrainFields, gridFields } from "./rules.js";
 import { auditTiles, tileGrid } from "./tiles.js";
 import { heightAt } from "../runtime/kit/terrain.js";
+import { gridHeightAt } from "../runtime/kit/grid.js";
 
 const EPS = 0.02; // 2 cm: resting on something, or on the ground
 const round = (v) => Math.round(v * 1000) / 1000;
@@ -14,12 +15,12 @@ const round = (v) => Math.round(v * 1000) / 1000;
 export function solidBounds(project) {
   const solids = [];
   for (const node of project.nodes) {
-    if (!(node.mesh || node.place || node.terrain)) continue;
+    if (!(node.mesh || node.place || node.terrain || node.grid)) continue;
     const m = worldMatrix(project, node.id);
     const points = (node.mesh?.vertices ?? nodePoints(node)).map((v) => point(m, v));
     const min = [0, 1, 2].map((i) => Math.min(...points.map((p) => p[i]))),
       max = [0, 1, 2].map((i) => Math.max(...points.map((p) => p[i])));
-    solids.push({ id: node.id, min, max, kind: node.place ? "place" : node.terrain ? "terrain" : "mesh", copies: node.copies?.length ?? 0 });
+    solids.push({ id: node.id, min, max, kind: node.place ? "place" : node.terrain ? "terrain" : node.grid ? "grid" : "mesh", copies: node.copies?.length ?? 0 });
   }
   return solids;
 }
@@ -48,7 +49,7 @@ export function auditProject(project, { ground: plane = 0, budget = {} } = {}) {
 
   // Overlaps: bounds that interpenetrate by more than 5 cm on every axis. Parts with many
   // copies are one wide box and stay out of this (their rules keep them off paths and solids).
-  const singles = solids.filter((s) => !s.copies && s.kind !== "terrain");
+  const singles = solids.filter((s) => !s.copies && s.kind !== "terrain" && s.kind !== "grid");
   for (let i = 0; i < singles.length; i++)
     for (let j = i + 1; j < singles.length; j++) {
       const a = singles[i],
@@ -73,9 +74,13 @@ export function auditProject(project, { ground: plane = 0, budget = {} } = {}) {
   // ground plane), rests on another solid under its footprint, or touches one on a side (a
   // clock on a wall, a shelf against it).
   const touch = (a, b) => [0, 1, 2].every((k) => Math.max(a.min[k], b.min[k]) - Math.min(a.max[k], b.max[k]) <= EPS);
-  const fields = terrainFields(project);
-  const groundAt = (x, z) => { for (const t of fields) { const h = heightAt(t, x, z); if (h !== null) return h; } return ground; };
-  const terrainIds = new Set(fields.map((t) => t.node));
+  const fields = terrainFields(project), grids = gridFields(project);
+  const groundAt = (x, z) => {
+    for (const t of fields) { const h = heightAt(t, x, z); if (h !== null) return h; }
+    for (const g of grids) { const h = gridHeightAt(g, x, z); if (h !== null) return h; }
+    return ground;
+  };
+  const terrainIds = new Set([...fields.map((t) => t.node), ...grids.map((g) => g.node)]);
   for (const s of singles) {
     if (grounds.has(s.id) || terrainIds.has(s.id)) continue;
     const bottom = s.min[1], ground = groundAt((s.min[0] + s.max[0]) / 2, (s.min[2] + s.max[2]) / 2);

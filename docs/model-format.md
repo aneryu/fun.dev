@@ -530,7 +530,10 @@ them draws the scene and ignores the data.
 
 `fun3d.terrain` is an array of height fields (`node`, `origin`, `cell`, `samples`, `heights`
 as a float32 stream, `surfaces` as a uint8 stream per cell, `surfaceTable`, `water`); the node
-carries the field's flat-shaded mesh and a static mesh body. Markers are nodes with `tags` and
+carries the field's flat-shaded mesh and a static mesh body. `fun3d.grid` is an array of cell
+maps (`node`, `origin`, `cell`, `size` [columns, rows], `step` metres per level, `cells` and
+optional `levels` as uint8 streams, `types` with `walkable`, `buildable`, `color`, `tags`),
+the node carrying the map's mesh and body likewise. Markers are nodes with `tags` and
 `fun3d.params`; `kit/world.js` reads markers, zones, paths and terrains from a loaded file
 (`worldData(model)`). `fun3d.rules` carries up to 64 scatter or
 assembly rules for play time, their models pinned (and among the refs), evaluated by

@@ -192,6 +192,10 @@ export function nodePoints(node) {
     return [[-r, 0, 0], [r, 0, 0], [0, -r, 0], [0, r, 0], [0, 0, -r], [0, 0, r]];
   }
   if (node.path) return node.path.points.map((p) => [...p]);
+  if (node.grid) {
+    const g = node.grid, top = g.levels ? Math.max(...g.levels) * g.step : 0, w = g.size[0] * g.cell, d = g.size[1] * g.cell;
+    return [[0, 0, 0], [w, 0, 0], [w, 0, d], [0, 0, d], [0, top, 0], [w, top, 0], [w, top, d], [0, top, d]];
+  }
   if (node.terrain) {
     const t = node.terrain;
     let lo = Infinity, hi = -Infinity;
