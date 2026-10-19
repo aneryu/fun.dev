@@ -408,6 +408,8 @@ const props = {
   reference: string,
   keepWorld: boolean,
   linked: boolean,
+  enabled: boolean,
+  side: { enum: [1, -1] },
   distance: number,
   ratio: { type: "number", minimum: 0.01, maximum: 0.99 },
   changes: list({
@@ -507,6 +509,7 @@ const specs = {
   rename: ["id newId", ""],
   duplicate: ["id newId", "name offset linked assetMode idMap replace"],
   symmetry: ["id newId axis", "name offset space linked idMap replace"],
+  vertexSymmetry: ["id", "axis offset side enabled"],
   unlink: ["id", ""],
   vertices: ["id changes", "topology"],
   extrude: ["id distance", "faces face select topology space"],

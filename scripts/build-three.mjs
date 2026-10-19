@@ -59,5 +59,6 @@ export async function buildThree(root, output) {
   // .fun3d writers (the workshop, the converter page) compress geometry with meshopt's encoder, an
   // ES module with its WebAssembly inlined; games only decode, so it lives with the editor.
   await cp(new URL("node_modules/meshoptimizer/meshopt_encoder.js", root), new URL("meshopt_encoder.js", kernel));
+  await cp(new URL("node_modules/meshoptimizer/meshopt_simplifier.js", root), new URL("meshopt_simplifier.js", kernel));
   await cp(new URL("node_modules/meshoptimizer/LICENSE.md", root), new URL("meshoptimizer-LICENSE.txt", kernel));
 }

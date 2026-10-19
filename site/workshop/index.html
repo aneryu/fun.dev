@@ -583,6 +583,14 @@
             </button>
           </details>
           <details>
+            <summary data-i18n="edVertexSymmetry">网格内自动镜像</summary>
+            <p data-i18n="edVertexSymmetryHint">使用上方对称轴与偏移，坐标为部件局部空间。网格须先左右对齐。</p>
+            <select id="vertex-symmetry-side" aria-label="Source side"><option value="1" data-i18n="edPositiveSide">正侧为基准</option><option value="-1" data-i18n="edNegativeSide">负侧为基准</option></select>
+            <button id="vertex-symmetry-enable" data-i18n="edEnableVertexSymmetry">开启顶点联动</button>
+            <button id="vertex-symmetry-disable" data-i18n="edDisableVertexSymmetry">关闭顶点联动</button>
+            <p id="vertex-symmetry-status" role="status"></p>
+          </details>
+          <details>
             <summary data-i18n="edPivot">枢轴</summary>
             <p class="muted small" data-i18n="edPivotHint">
               新原点在当前局部坐标的位置；外形保持不动。

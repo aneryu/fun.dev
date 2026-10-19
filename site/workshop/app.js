@@ -24,7 +24,8 @@ import { createViewport, exportAsset, exportReport } from "./viewport.js";
 import { openDraft } from "./draft.js";
 import { loadKernel } from "./kernel.js";
 import { referenceDialog } from "./references.js";
-import { importModel } from "./import-glb.js";
+import { createAgentConnection } from "./agent-connection.js";
+import { importInBrowser } from "./import-browser.js";
 import { isGLB } from "./glb.js";
 import { projectFile, projectFilename } from "./project-file.js";
 import { meshEdges, edgeKey } from "./topology.js";
@@ -706,6 +707,9 @@ async function start() {
       input.disabled = !!n.symmetry || !draft.writable || selectionLocked;
       input.title = "";
     }
+    $("#vertex-symmetry-status").textContent = n.vertexSymmetry ? `${n.vertexSymmetry.axis.toUpperCase()} · ${n.vertexSymmetry.side > 0 ? "+" : "−"} → ${n.vertexSymmetry.side > 0 ? "−" : "+"}` : "";
+    $("#vertex-symmetry-enable").disabled = !n.mesh || linked || !draft.writable;
+    $("#vertex-symmetry-disable").disabled = !n.vertexSymmetry || !draft.writable;
     $("#apply-scale").disabled = linked || !draft.writable;
     $("#ground").disabled = !!n.symmetry || !draft.writable;
     $("#set-dimensions").disabled = !!n.symmetry || !draft.writable;
@@ -1025,7 +1029,8 @@ async function start() {
       // Project files restore everything; other GLBs become editable parts.
       if (isGLB(bytes)) {
         if (bytes.length > 64 * 1024 * 1024) throw new Error(t("edFileLarge"));
-        const imported = importModel(bytes, {
+        status(t("edBusy"));
+        const imported = await importInBrowser(bytes, {
           name: file.name.replace(/(\.funmodel)?\.glb$/i, ""),
         });
         p = imported.project;
@@ -1596,6 +1601,8 @@ async function start() {
   $("#unlink").onclick = () => apply([{ op: "unlink", id: selection.id }]);
   $("#select-source").onclick = () =>
     selectPart(node().symmetry?.source ?? node().instanceOf);
+  $("#vertex-symmetry-enable").onclick = () => apply([{op:"vertexSymmetry",id:selection.id,axis:$("#symmetry-axis").value,offset:distanceValue("symmetry-offset"),side:Number($("#vertex-symmetry-side").value)}]);
+  $("#vertex-symmetry-disable").onclick = () => apply([{op:"vertexSymmetry",id:selection.id,enabled:false}]);
   $("#symmetry").onclick = () => {
     const id = newId("mirror");
     if (
@@ -2190,20 +2197,51 @@ async function start() {
     elements.push(text("pre", JSON.stringify(result, null, 2)));
     info(t("edCheck"), elements);
   };
-  $("#agent").onclick = () => {
+  let agentConnection, agentState = { state: "disconnected" }, connectionCode = "";
+  const connectionParams = new URLSearchParams(location.hash.slice(1));
+  if (connectionParams.has("agent")) {
+    connectionCode = connectionParams.get("agent");
+    connectionParams.delete("agent");
+    history.replaceState(null, "", location.pathname + location.search + (connectionParams.size ? "#" + connectionParams : ""));
+  }
+  function agentPanel() {
     const guide = text("a", t("edDocs"));
     guide.href = "/workshop/guide";
     guide.target = "_blank";
     guide.rel = "noopener";
+    const state = text("p", agentState.error ?? (agentConnection.connected
+      ? `${t("edAgentConnected")} · ${store.snapshot().name}` : t("edAgentDisconnected")));
+    state.setAttribute("role", "status");
+    const label = text("label", t("edAgentCode"));
+    label.htmlFor = "agent-connection-code";
+    const input = document.createElement("input");
+    input.id = "agent-connection-code";
+    input.type = "text";
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.value = connectionCode || agentConnection.saved();
+    input.placeholder = "http://127.0.0.1:…/#…";
+    input.oninput = () => { connectionCode = input.value; };
+    const connect = text("button", t("edAgentConnect"));
+    connect.disabled = agentConnection.connected || agentState.state === "connecting";
+    connect.onclick = async () => {
+      connect.disabled = true;
+      try { await agentConnection.connect(input.value); }
+      catch { /* connection state displays the error */ }
+      if ($("#info-dialog").open) agentPanel();
+    };
+    const disconnect = text("button", t("edAgentDisconnect"));
+    disconnect.disabled = !agentConnection.connected;
+    disconnect.onclick = () => { agentConnection.disconnect(); connectionCode = ""; agentPanel(); };
     info(t("edAgent"), [
-      text("p", t("edAgentHint")),
-      text(
-        "pre",
-        'const state = funEditor.inspect();\nfunEditor.apply([{ op: "ground", ids: [state.selection.id] }],\n  { ifRevision: state.revision });\nfunEditor.renderViews(["front", "left"]);',
-      ),
-      guide,
+      text("p", t("edAgentDirectHint")),
+      text("pre", "npx -y fundev-workshop --serve"),
+      label, input, connect, disconnect, state,
+      text("p", t("edAgentCallHint")),
+      text("pre", "npx -y fundev-workshop --connect --mcp"), guide,
     ]);
-  };
+  }
+  $("#agent").onclick = agentPanel;
   window.addEventListener("keydown", (e) => {
     if ($("dialog[open]")) return;
     const input = e.target.closest("input,textarea,select");
@@ -2385,6 +2423,15 @@ async function start() {
   });
   workbench.renderRecipe();
   window.funEditor = Object.freeze(engine.api);
+  agentConnection = createAgentConnection({ api: window.funEditor, onChange: (state) => {
+    agentState = state;
+    $("#agent").textContent = state.state === "connected" ? t("edAgentConnected") : t("edAgent");
+    $("#agent").title = state.error ?? state.project;
+    if (state.state === "error") status(t("edError") + state.error, true);
+  } });
+  window.addEventListener("pagehide", () => agentConnection.disconnect({ forget: false }));
+  if (connectionCode) agentPanel();
+  else if (agentConnection.saved()) void agentConnection.connect(agentConnection.saved()).catch(() => {});
   // Last, so the restore and first updates do not hide it.
   if (viewport.rendererInfo().backend === "software") status(t("edSoftwareNotice"));
 }

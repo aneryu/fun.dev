@@ -294,3 +294,34 @@ test("adding parts keeps existing ones: clashing IDs and materials get suffixes,
   assert.ok(added.mesh.faces.every((f) => f.material === "mat_sage-2"));
   assert.throws(() => importModel(bytes, { mode: "add", parent: "nope", current: current.snapshot() }), /Unknown parent/);
 });
+
+test('high-poly import reduces geometry while retaining materials, parts and instances', async () => {
+  const { MeshoptSimplifier } = await import('meshoptimizer');
+  const { SphereGeometry } = await import('three');
+  await MeshoptSimplifier.ready;
+  const low = gltf({ nodes: [{ mesh: 0 }], meshes: [{ primitives: [{
+    positions: [[0, 0, 0], [1, 0, 0], [0, 1, 0]], indices: [0, 1, 2],
+  }] }] });
+  assert.deepEqual(importModel(low, { simplifier: MeshoptSimplifier }), importModel(low));
+  const sphere = new SphereGeometry(1, 180, 160);
+  const p = sphere.attributes.position.array;
+  const positions = Array.from({ length: p.length / 3 }, (_, i) => Array.from(p.slice(i * 3, i * 3 + 3)));
+  const bytes = gltf({
+    nodes: [{ name: 'assembly', children: [1, 2] }, { name: 'head', mesh: 0 }, { name: 'copy', mesh: 0, translation: [3, 0, 0] }],
+    meshes: [{ primitives: [{ positions, indices: Array.from(sphere.index.array), material: 0 }] }],
+    materials: [{ name: 'gold', pbrMetallicRoughness: { baseColorFactor: [1, .5, 0, 1] } }],
+  });
+  assert.throws(() => importModel(bytes), { code: 'budget' });
+  const { project, warnings } = importModel(bytes, { simplifier: MeshoptSimplifier });
+  assert.equal(project.nodes.length, 3);
+  assert.equal(project.nodes[1].parent, 'assembly');
+  assert.equal(project.nodes[2].instanceOf, 'head');
+  assert.deepEqual(project.nodes[2].position, [3, 0, 0]);
+  const mesh = project.nodes[1].mesh;
+  assert.ok(mesh.faces.length > 100 && mesh.faces.length < 4501);
+  assert.ok(mesh.faces.every(f => f.material === 'gold'));
+  assert.ok(mesh.vertices.every(p => Math.abs(Math.hypot(...p) - 1) < .02));
+  assert.ok(warnings.some(w => w.code === 'simplified'));
+  const stored = withWorkshopProject(bytes, project);
+  assert.deepEqual(importModel(stored, { simplifier: MeshoptSimplifier }).project, JSON.parse(JSON.stringify(project)));
+});

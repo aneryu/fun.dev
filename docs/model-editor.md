@@ -216,6 +216,17 @@ editable parts:
   lights, line and point primitives. Refused: compressed files (Draco, meshopt, KTX2, WebP,
   AVIF), other unknown required extensions, and models beyond the limits.
 
+The browser's **Open** runs GLB conversion in a worker. Raw GLBs over the editable
+triangle or vertex budget are automatically reduced with the pinned meshoptimizer
+simplifier, targeting 9,000 triangles across parts and instances. Names, hierarchy,
+material boundaries and linked copies remain; the status reports the before/after counts.
+Each small part receives a minimum share of the budget. Reduction stops at meshoptimizer's
+0.01 relative error threshold and refuses a file that still cannot fit, rather than
+silently dropping parts. This is a lossy geometry conversion, not an exact visual match;
+the original file is untouched. Saved workshop projects restore without reduction.
+The synchronous `importModel` and agent import retain their existing limits unless given
+an initialized simplifier; automatic reduction is currently the browser Open workflow.
+
 Imports replace the project as one undoable change, or `mode:"add"` adds the parts (under
 `parent`, if given); clashing node and material IDs get suffixes. Merged meshes whose parts
 pass through each other (the library's `static__mat_*` nodes, for example) are separate
@@ -674,6 +685,27 @@ only the exported scene, retaining orientation, scale, ancestors and hinge motio
 Reports include `origin:{mode,point,up,front}` (point is in project coordinates),
 and bounds reflect the exported coordinates. The Export GLB dialog previews scope,
 origin, dimensions and bounds before downloading; the editable draft is unchanged.
+
+## Direct connection to an open workshop
+
+Run `node scripts/editor-agent.mjs --serve` and paste its connection code into the page's
+**Agent** panel. The service binds only to `127.0.0.1` on a random port, checks the selected
+page origin and an ephemeral token, and records discovery information in a mode-0600
+file under the user's temporary directory. The page explicitly connects; pairing URLs
+use a fragment (removed on load), not a credential in the HTTP query. The default allowed
+origin is `https://fun.dev`; `--serve --url <workshop-url>` permits a local preview instead.
+The workshop CSP permits loopback connections for this feature. Chrome may ask for local
+network access when connecting from the production HTTPS site.
+
+`--connect --mcp`, JSON lines with `--connect`, and `--connect --run edit.mjs` use the same
+commands and results as the existing adapter. They discover the service without CDP or
+Playwright. Use `--connection-file <path>` on both processes for a separate connection.
+The browser pulls structured, allowlisted method calls and serializes their execution;
+no arbitrary code is evaluated. Results acknowledge durable draft persistence. Existing
+single-writer ownership and revision guards still apply. A different tab cannot take over
+an active connection. Disconnects and in-flight timeouts are reported without replaying
+the command: inspect or use the existing operation-ID recovery before retrying a write.
+The connection stays local, requires no server deployment, and does not publish the model.
 
 ## Model scripts (start here as an agent)
 

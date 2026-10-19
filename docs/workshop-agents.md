@@ -25,6 +25,33 @@ The run prints one JSON line: the validation summary, statistics and files writt
 error it prints `{ ok: false, error }` (code, message, commandIndex, path, suggestion) and
 exits with 1.
 
+## Edit the current browser tab
+
+For a user working in Chrome, connect the existing workshop instead of opening DevTools
+or starting a second model:
+
+```sh
+node scripts/editor-agent.mjs --serve       # keep running; prints a connection code
+# Workshop → Agent → paste code → Connect this project
+node scripts/editor-agent.mjs --connect --run edit.mjs
+# Or use these as the MCP server arguments:
+node scripts/editor-agent.mjs --connect --mcp
+```
+
+The npm tool uses the same `--serve` and `--connect` flags. `--serve --url <workshop-url>`
+selects the permitted webpage origin (default `https://fun.dev/workshop/`); use the local
+preview URL during development. A private temporary connection file lets `--connect`
+discover the running service; `--connection-file <path>` selects another independent
+service. Only one tab connects to each service. The Agent button shows connection status
+and can disconnect. A previously connected tab reconnects on reload while the service runs.
+
+`edit.mjs` receives the same `ws` API, now operating on the visible tab. Start with
+`ws.inspect()` and `ws.apply()`; **do not call `ws.load()` unless replacing the user's
+project is intended**. `observe` captures the page's renderer and export writes local files.
+Writes keep revision checks and wait for the browser's durable save. On a lost response,
+inspect before retrying: a timed-out operation may already have applied. No Chrome debug
+port, Playwright installation, or console code is needed for this connection.
+
 ## A model script
 
 ```js
@@ -167,6 +194,19 @@ library upload folder. A new blueprint is a module in `site/workshop/blueprints.
 - Look at the preview; check the export report's triangles, bounds and merge groups.
 
 Full reference: [model editor](model-editor.md) and the workshop's `/workshop/guide`.
+
+### Automatic local vertex symmetry
+
+For an already symmetric independent mesh, enable persistent vertex pairs with
+`{op:"vertexSymmetry",id:"head",axis:"z",offset:0,side:1}`. Positive local Z is
+the source (`side:-1` chooses negative). Source vertex edits automatically update
+the opposite side and pin seam vertices to the plane. The setting survives project
+export/import and undo/redo. Destination vertex edits are rejected. Disable with
+`{op:"vertexSymmetry",id:"head",enabled:false}` before topology changes; re-enable
+after restoring symmetric topology. This links positions, not face colors.
+
+Separate eyes, wings or feet use the existing `symmetry` command with
+`space:"parent",axis:"z",linked:true` to link geometry and transforms.
 
 ## Scenes
 

@@ -1,3 +1,4 @@
+import { vertexSymmetry, synchronizeVertices } from './vertex-symmetry.js';
 import {
   ModelError,
   fail,
@@ -346,6 +347,10 @@ export function normalizeProject(input) {
       // This also upgrades older painted primitives when opening a project.
       result.recipe = recipeFor(result);
       delete result.generator;
+    }
+    if (node.vertexSymmetry) {
+      result.vertexSymmetry = copy(node.vertexSymmetry);
+      synchronizeVertices(result);
     }
     if (node.symmetry) {
       const s = node.symmetry;
@@ -1711,6 +1716,7 @@ function selectionTransform(project, command) {
   } else worldTransform(project, ids, m);
 }
 function synchronize(project) {
+  for (const node of project.nodes) synchronizeVertices(node);
   for (const node of project.nodes.filter((n) => n.instanceOf)) {
     const source = project.nodes.find((n) => n.id === node.instanceOf);
     node.mesh = copy(source.mesh);
@@ -2260,6 +2266,7 @@ function run(project, command) {
       "parameters",
       "convert",
       "vertices",
+      "vertexSymmetry",
       "extrude",
       "inset",
       "bevel",
@@ -2766,6 +2773,7 @@ function run(project, command) {
           if (dataKind(n)) fail("Linked copies need mesh parts; duplicate placed models, markers, zones and paths without linked");
           const source = project.nodes.find((s) => map.get(s.id) === n.id);
           n.instanceOf = source.instanceOf ?? source.id;
+          delete n.vertexSymmetry;
           delete n.generator;
         }
       root.name = command.name ?? `${node.name} copy`;
@@ -2872,6 +2880,7 @@ function run(project, command) {
         delete n.generator;
         delete n.instanceOf;
         delete n.instanceBasis;
+        delete n.vertexSymmetry;
       });
       project.nodes.push(...clones);
       synchronize(project);
@@ -2886,6 +2895,10 @@ function run(project, command) {
         delete n.instanceOf;
       }
       break;
+    case "vertexSymmetry":
+      if (command.enabled === false) delete node.vertexSymmetry;
+      else { node.vertexSymmetry = vertexSymmetry(node, command); delete node.generator; delete node.recipe; }
+      break;
     case "vertices":
       if (
         !node.mesh ||
@@ -2896,6 +2909,7 @@ function run(project, command) {
       delete node.generator;
       delete node.recipe;
       for (const { index, position } of command.changes) {
+        if (node.vertexSymmetry?.pairs.some(pair => pair[1] === index)) fail("Edit the source side or disable vertex symmetry first");
         if (!Number.isInteger(index) || !node.mesh.vertices[index])
           fail("Unknown vertex index");
         node.mesh.vertices[index] = vector(position);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { watch } from "./harness.mjs";
+import { watch, local } from "./harness.mjs";
+import { addOriginToPolicy, assetDirectives } from "../csp.mjs";
 import { parseModelFile, workshopProject } from "../../site/workshop/glb.js";
 
 // Project files, GLB import and "Open in workshop" from the model library.
@@ -108,6 +109,24 @@ export async function editorImportChecks({ browser, base }) {
       files.nodes,
     );
     assert.match(await page.locator("#status").textContent(), /recipes and links/);
+    // Production serves JS on a separate origin. Module workers still need a
+    // same-origin entry; exercise the actual import with that deployment split.
+    const workerContext = await browser.newContext({ serviceWorkers: 'block' });
+    try {
+      await workerContext.route('https://static.fun.dev/**', local(base));
+      await workerContext.route(`${base}/worker-check`, route => route.fulfill({
+        contentType: 'text/html', body: '<!doctype html><title>Worker import</title>',
+        headers: { 'Content-Security-Policy': addOriginToPolicy("default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; worker-src 'self' blob:", 'https://static.fun.dev', assetDirectives) },
+      }));
+      const workerPage = watch(await workerContext.newPage(), errors);
+      await workerPage.goto(`${base}/worker-check`);
+      const imported = await workerPage.evaluate(async data => {
+        const { importInBrowser } = await import('https://static.fun.dev/workshop/import-browser.js');
+        return importInBrowser(Uint8Array.from(atob(data), c => c.charCodeAt(0)));
+      }, files.project);
+      assert.equal(imported.container, true);
+      assert.equal(imported.project.nodes.length, files.nodes);
+    } finally { await workerContext.close(); }
     const [download] = await Promise.all([
       page.waitForEvent("download"),
       page.locator("#save").click(),

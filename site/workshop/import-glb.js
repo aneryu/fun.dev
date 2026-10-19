@@ -43,7 +43,7 @@ const UNDERSTOOD = new Set([
  */
 export function importModel(
   bytes,
-  { mode = "replace", parent = null, current = null, name } = {},
+  { mode = "replace", parent = null, current = null, name, simplifier } = {},
 ) {
   if (!["replace", "add"].includes(mode))
     fail("Expected replace or add mode", "schema", "mode");
@@ -51,7 +51,7 @@ export function importModel(
   const stored = workshopProject(json);
   const { project: incoming, warnings } = stored
     ? { project: stored, warnings: [] }
-    : projectFromGLTF(json, buffers, { name });
+    : projectFromGLTF(json, buffers, { name, simplifier });
   if (mode === "replace")
     return {
       project: incoming,
@@ -324,7 +324,7 @@ export function importedSmoothing(positions, triangles, normals) {
   return Math.min(180, Math.ceil(smooth[Math.floor(0.95 * (smooth.length - 1))]) + 1);
 }
 
-function projectFromGLTF(json, buffers, { name } = {}) {
+function projectFromGLTF(json, buffers, { name, simplifier } = {}) {
   const warnings = new Map(),
     warn = (code, message) => {
       if (!warnings.has(code)) warnings.set(code, { code, message });
@@ -374,6 +374,26 @@ function projectFromGLTF(json, buffers, { name } = {}) {
     return id;
   };
 
+  // Include instances in the budget, just as the final project budget does. Counting
+  // unused nodes is conservative; their geometry is still never imported.
+  const primitiveCount = (p) => {
+    const count = json.accessors?.[p.indices ?? p.attributes?.POSITION]?.count ?? 0;
+    return (p.mode ?? 4) === 4 ? Math.floor(count / 3) : [5, 6].includes(p.mode) ? Math.max(0, count - 2) : 0;
+  };
+  let sourceTriangles = 0, sourceVertices = 0;
+  const primitiveCounts = [];
+  for (const node of json.nodes ?? []) {
+    for (const p of json.meshes?.[node.mesh]?.primitives ?? []) {
+      sourceTriangles += primitiveCount(p);
+      if (primitiveCount(p)) primitiveCounts.push(primitiveCount(p));
+      sourceVertices += json.accessors?.[p.attributes?.POSITION]?.count ?? 0;
+    }
+  }
+  const reduce = simplifier && (sourceTriangles > LIMITS.triangles || sourceVertices > LIMITS.vertices);
+  // Even fully disconnected triangles fit the editable vertex budget.
+  const targetTriangles = Math.floor(LIMITS.vertices / 3 * .9);
+  const minimum = Math.min(128, Math.floor(targetTriangles / Math.max(1, primitiveCounts.length)));
+  const reserved = primitiveCounts.reduce((sum, n) => sum + Math.min(minimum, n), 0);
   const meshes = new Map();
   const meshFor = (index) => {
     if (meshes.has(index)) return meshes.get(index);
@@ -393,36 +413,62 @@ function projectFromGLTF(json, buffers, { name } = {}) {
         fail("Compressed files are not supported yet; export the model uncompressed", "unsupported");
       if (primitive.targets?.length) warn("morphs", "Morph targets were not imported");
       if (primitive.attributes?.POSITION === undefined) continue;
-      const p = read(primitive.attributes.POSITION),
-        base = positions.length,
-        count = p.length / 3;
-      for (let i = 0; i < count; i++) positions.push([p[i * 3], p[i * 3 + 1], p[i * 3 + 2]]);
-      if (primitive.attributes.NORMAL !== undefined) {
-        const n = read(primitive.attributes.NORMAL);
-        for (let i = 0; i < count; i++) {
-          const v = [n[i * 3], n[i * 3 + 1], n[i * 3 + 2]],
-            length = Math.hypot(...v) || 1;
+      let p = read(primitive.attributes.POSITION);
+      const count = p.length / 3;
+      if (!Number.isInteger(count) || count > 4_000_000)
+        fail("A source primitive exceeds the import vertex budget", "budget");
+      let n = primitive.attributes.NORMAL !== undefined ? read(primitive.attributes.NORMAL) : null;
+      if (n && n.length !== p.length) fail("Normal and position counts differ");
+      const rawIndices = primitive.indices !== undefined
+        ? read(primitive.indices)
+        : Float64Array.from({ length: count }, (_, i) => i);
+      if (rawIndices.some((i) => !Number.isInteger(i) || i < 0 || i >= count))
+        fail(`Mesh ${index} has an index outside its vertices`);
+      let indices;
+      if (mode === 4) indices = Uint32Array.from(rawIndices.slice(0, Math.floor(rawIndices.length / 3) * 3));
+      else {
+        indices = new Uint32Array(Math.max(0, rawIndices.length - 2) * 3);
+        for (let i = 0; i + 2 < rawIndices.length; i++)
+          indices.set(mode === 6 ? [rawIndices[0], rawIndices[i + 1], rawIndices[i + 2]]
+            : i % 2 ? [rawIndices[i + 1], rawIndices[i], rawIndices[i + 2]]
+            : [rawIndices[i], rawIndices[i + 1], rawIndices[i + 2]], i * 3);
+      }
+      if (reduce && indices.length) {
+        const budget = Math.max(1, Math.min(minimum, indices.length / 3) + Math.floor((targetTriangles - reserved) * (indices.length / 3) / sourceTriangles)) * 3;
+        const flat = Float32Array.from(p);
+        // Weld position seams before reduction; each material primitive stays separate.
+        const remap = simplifier.generatePositionRemap(flat, 3);
+        indices = Uint32Array.from(indices, (i) => remap[i]);
+        if (indices.length > budget) {
+          [indices] = simplifier.simplify(indices, flat, 3, budget, .01);
+          if (indices.length > budget)
+            fail(`Cannot fit mesh ${index} (${indices.length / 3} triangles, target ${budget / 3}) into the workshop within 1% geometric error; simplify or split the source model`, "budget");
+        }
+        const compact = new Map(), positionsOut = [], normalsOut = [];
+        indices = Uint32Array.from(indices, (i) => {
+          if (!compact.has(i)) {
+            compact.set(i, compact.size);
+            positionsOut.push(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
+            if (n) normalsOut.push(n[i * 3], n[i * 3 + 1], n[i * 3 + 2]);
+          }
+          return compact.get(i);
+        });
+        p = positionsOut;
+        n = n ? normalsOut : null;
+      }
+      const base = positions.length;
+      for (let i = 0; i < p.length; i += 3) positions.push([p[i], p[i + 1], p[i + 2]]);
+      if (n) {
+        for (let i = 0; i < n.length; i += 3) {
+          const v = [n[i], n[i + 1], n[i + 2]], length = Math.hypot(...v) || 1;
           normals.push(v.map((x) => x / length));
         }
       } else withNormals = false;
-      const indices =
-        primitive.indices !== undefined
-          ? read(primitive.indices)
-          : Float64Array.from({ length: count }, (_, i) => i);
-      if (indices.some((i) => !Number.isInteger(i) || i < 0 || i >= count))
-        fail(`Mesh ${index} has an index outside its vertices`);
-      const material = materialFor(primitive.material),
-        push = (a, b, c) => {
-          triangles.push([base + a, base + b, base + c]);
-          triangleMaterials.push(material);
-        };
-      if (mode === 4)
-        for (let i = 0; i + 2 < indices.length; i += 3) push(indices[i], indices[i + 1], indices[i + 2]);
-      else if (mode === 5)
-        for (let i = 0; i + 2 < indices.length; i++)
-          if (i % 2) push(indices[i + 1], indices[i], indices[i + 2]);
-          else push(indices[i], indices[i + 1], indices[i + 2]);
-      else for (let i = 1; i + 1 < indices.length; i++) push(indices[0], indices[i], indices[i + 1]);
+      const material = materialFor(primitive.material);
+      for (let i = 0; i < indices.length; i += 3) {
+        triangles.push([base + indices[i], base + indices[i + 1], base + indices[i + 2]]);
+        triangleMaterials.push(material);
+      }
     }
     // Merging into polygons rarely removes more than a few triangles: far larger meshes are
     // refused before the work.
@@ -533,6 +579,7 @@ function projectFromGLTF(json, buffers, { name } = {}) {
       `This model has ${triangleCount} triangles and ${vertexCount} editable vertices; the workshop keeps at most ${LIMITS.triangles} and ${LIMITS.vertices}`,
       "budget",
     );
+  if (reduce) warn("simplified", `High-poly model reduced for editing: ${sourceTriangles} source triangles → ${triangleCount} editable triangles. Original file unchanged.`);
   const title =
     name ??
     json.scenes?.[sceneIndex]?.name ??

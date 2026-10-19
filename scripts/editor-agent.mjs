@@ -23,19 +23,9 @@ import { openWorkshop } from "./workshop-node.mjs";
 import { kernel } from "./workshop-kernel.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const MUTATING = [
-  "apply",
-  "place",
-  "derive",
-  "loadProject",
-  "importGLB",
-  "openLibraryModel",
-  "undo",
-  "redo",
-  "checkpoint",
-  "restoreCheckpoint",
-  "removeCheckpoint",
-];
+import { MUTATING, executeAgentCall } from "../site/workshop/agent-call.js";
+import { serveBridge, readConnection, bridgeRequest } from "./workshop-bridge.mjs";
+
 
 /** The workshop tool: --run, the JSON line CLI or MCP over stdio (docs/model-editor.md). */
 export async function main(args = process.argv.slice(2)) {
@@ -44,13 +34,15 @@ const config = {};
 // default URL: it drives the live workshop and needs no repository, only Playwright.
 const defaultUrl = process.env.FUNDEV_WORKSHOP_URL || undefined;
 for (let i = 0; i < args.length; i++) {
-  if (args[i] === "--mcp") config.mcp = true;
+  if (args[i] === "--serve") config.serve = true;
+  else if (args[i] === "--connect") config.connect = true;
+  else if (args[i] === "--mcp") config.mcp = true;
   else if (args[i] === "--gpu") config.gpu = true;
   else if (args[i] === "--software") config.software = true;
   else if (args[i] === "--browser") config.browser = true;
   else if (args[i] === "--guide") config.guide = true;
   else if (
-    ["--session", "--project", "--artifacts", "--cdp", "--url", "--run"].includes(
+    ["--session", "--project", "--artifacts", "--cdp", "--url", "--run", "--connection-file"].includes(
       args[i],
     )
   ) {
@@ -63,6 +55,8 @@ for (let i = 0; i < args.length; i++) {
     const tool = defaultUrl ? "npx -y fundev-workshop" : "node scripts/editor-agent.mjs";
     console.log(
       [
+        `${tool} --serve [--url <workshop-url>]  connect a visible workshop tab`,
+        `${tool} --connect [--mcp|--run model.mjs] use the connected tab, no CDP`,
         `${tool} --run model.mjs        build a model from a script (--guide prints the quick reference)`,
         `${tool} [--mcp] [--session state.json] [--project model.funmodel.glb|.json] [--artifacts directory]`,
         "The workshop runs in Node: no browser, GPU or WebGL; views draw in software.",
@@ -79,6 +73,19 @@ if (config.guide) {
   process.stdout.write(await guideText(root));
   process.exit(0);
 }
+if (config.serve) {
+  if (config.connect || config.run || config.mcp || config.session || config.project || config.cdp || config.browser || config.gpu || config.software)
+    throw new Error("--serve runs only the local bridge; use --connect in another process");
+  const bridge = await serveBridge({ file: config['connection-file'], pageURL: config.url });
+  process.stderr.write(`Workshop bridge ready. In the workshop's Agent panel, paste:\n${bridge.code}\nOr open: ${bridge.pageURL}\nThen use --connect (or --connect --mcp).\n`);
+  process.stdout.write(JSON.stringify({ ready: true, connectionFile: bridge.file, pageURL: bridge.pageURL }) + "\n");
+  await new Promise(resolve => { process.once('SIGINT', resolve); process.once('SIGTERM', resolve); });
+  await bridge.close();
+  return;
+}
+if (config.connect && (config.session || config.project || config.cdp || config.url || config.browser || config.gpu || config.software))
+  throw new Error("--connect uses the current tab; do not pass browser, project or session options");
+let bridgeConnection;
 // The workshop runs in Node unless a browser is asked for: --browser, --gpu, --software,
 // --url or --cdp drive a real page (the published workshop by default).
 config.node = !(config.browser || config.gpu || config.software || config.url || config.cdp);
@@ -163,6 +170,15 @@ async function sessionRecord() {
   return record;
 }
 async function connect() {
+  if (config.connect) {
+    if (bridgeConnection) return;
+    bridgeConnection = await readConnection(config['connection-file']);
+    const status = await bridgeRequest(bridgeConnection, '/status');
+    if (!status.connected) throw new Error("Connect the workshop tab using its Agent button first");
+    ready = true;
+    process.stderr.write(`Workshop connected: ${status.page?.title ?? 'current tab'} (revision ${status.page?.revision}).\n`);
+    return;
+  }
   if (page) return;
   if (config.session && !sessionLock) {
     const path = resolve(config.session) + ".lock";
@@ -295,51 +311,19 @@ async function localFiles(name, arguments_) {
 // Calls a method of the workshop API: in this process (Node) or in the page. Mutating calls
 // are flushed; the result travels as data either way.
 async function callEditor(call) {
-  if (editor) {
-    let applied = false;
-    try {
-      let value = await editor[call.method](...call.args);
-      if (MUTATING.includes(call.method)) {
-        applied = true;
-        const persistence = await editor.flush();
-        if (value && !Array.isArray(value) && typeof value === "object")
-          value.persistence = persistence;
-      }
-      if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) value = undefined;
-      return { ok: true, result: value === undefined ? value : structuredClone(value) };
-    } catch (e) {
-      return {
-        ok: false,
-        error: { ...errorInfo(e), applied, revision: editor.inspect().revision },
-      };
-    }
+  if (bridgeConnection) {
+    try { return await bridgeRequest(bridgeConnection, '/call', call); }
+    catch (error) { return { ok: false, error: { ...errorInfo(error), applied: 'unknown', suggestion: 'Inspect the current tab before retrying; the operation may have completed.' } }; }
   }
-  return page.evaluate(async ({ method, args, mutating }) => {
-    let value,
-      applied = false;
-    try {
-      value = await window.funEditor[method](...args);
-      if (mutating.includes(method)) {
-        applied = true;
-        const persistence = await window.funEditor.flush();
-        if (value && !Array.isArray(value) && typeof value === "object")
-          value.persistence = persistence;
-      }
-      return { ok: true, result: value };
-    } catch (e) {
-      const { errorInfo } = await import("/workshop/agent-contract.js");
-      return {
-        ok: false,
-        error: {
-          ...errorInfo(e),
-          applied,
-          revision: window.funEditor.inspect().revision,
-        },
-      };
-    }
-  }, { ...call, mutating: MUTATING });
+  if (editor) return executeAgentCall(editor, call);
+  return page.evaluate(async (call) => {
+    const { executeAgentCall } = await import('/workshop/agent-call.js');
+    return executeAgentCall(window.funEditor, call);
+  }, call);
 }
+
 async function editorState() {
+  if (bridgeConnection) { const result = await callEditor({ method: "inspect", args: [] }); if (!result.ok) throw new Error(result.error.message); return { revision: result.result.revision, draft: result.result.persistence }; }
   if (editor) return { revision: editor.inspect().revision, draft: editor.inspect().persistence };
   return page.evaluate(() => ({
     revision: funEditor.inspect().revision,
