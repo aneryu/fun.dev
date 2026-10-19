@@ -281,3 +281,44 @@ test("performance at about 258 000 triangles: strokes, edits and validation", ()
   // Generous bounds for slow machines; the measured numbers are printed above.
   assert.ok(stroke < 250 && grab < 250 && edit < 250 && check < 400 && undo < 50, JSON.stringify({ stroke, grab, edit, check, undo }));
 });
+
+test("files: project GLBs carry dense arrays as binary; the Node workshop draws, exports and reopens them", async () => {
+  const { withWorkshopProject, writeGLB, parseModelFile, workshopProject } = await import("../site/workshop/glb.js");
+  const { importModel } = await import("../site/workshop/import-glb.js");
+  const { evaluateProject } = await import("../site/workshop/document.js");
+  const store = fresh(ball("ball", { smooth: 180 }));
+  store.apply([{ op: "sculpt", id: "ball", brush: "inflate", radius: 0.2, points: [[0, 0.5, 0]] }]);
+  const project = store.snapshot();
+  const plain = writeGLB({ asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [] }], nodes: [] });
+  const file = withWorkshopProject(plain, project);
+  const { json, buffers } = parseModelFile(file);
+  const stored = json.extensions.FUNDEV_workshop.project.nodes[0].mesh.dense;
+  assert.ok(Number.isInteger(stored.positions.bufferView), "a buffer view, not base64");
+  assert.ok(new TextEncoder().encode(JSON.stringify(json)).length < 20000, "the JSON chunk stays small");
+  const back = evaluateProject(workshopProject(json, buffers));
+  assert.deepEqual(Array.from(back.nodes[0].mesh.dense.positions), Array.from(project.nodes[0].mesh.dense.positions));
+  const opened = importModel(file);
+  assert.deepEqual(Array.from(evaluateProject(opened.project).nodes[0].mesh.dense.indices), Array.from(project.nodes[0].mesh.dense.indices));
+  // The Node workshop (software renderer, the page's agent API) draws, exports and reopens it.
+  const { openWorkshop } = await import("../scripts/workshop-node.mjs");
+  const session = await openWorkshop({ width: 320, height: 240 });
+  try {
+    const api = session.api;
+    api.loadProject(project, { ifRevision: api.inspect().revision });
+    const shot = api.renderViews(["front"], { size: 160 })[0];
+    assert.ok(shot.dataUrl.length > 2000, "drawn");
+    const exported = await api.exportGLB({ encoding: "base64" });
+    const glb = parseModelFile(new Uint8Array(Buffer.from(exported.data, "base64")));
+    const triangles = glb.json.meshes.flatMap((m) => m.primitives).reduce((n, p) => n + glb.json.accessors[p.indices].count / 3, 0);
+    assert.equal(triangles, 20480);
+    const projectFile = await api.exportProject();
+    const reopened = importModel(new Uint8Array(Buffer.from(projectFile.data, "base64")));
+    assert.ok(reopened.project.nodes[0].mesh.dense, "the project file keeps the dense mesh");
+    // A read is a copy: changing it leaves the document alone.
+    const read = api.getProject();
+    read.nodes[0].mesh.dense.positions[0] = 99;
+    assert.notEqual(api.getProject().nodes[0].mesh.dense.positions[0], 99);
+  } finally {
+    session.dispose();
+  }
+});

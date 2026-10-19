@@ -409,39 +409,55 @@ export function mirrors(point, axes) {
   return out;
 }
 
+// A stroke fed point by point (the page's pointer) or all at once (the command): add(point,
+// pressure) lays the dabs the point completes, so both give the same positions.
+export class StrokeRunner {
+  constructor(sculptor, stroke) {
+    this.sculptor = sculptor;
+    this.stroke = stroke;
+    this.options = { radius: stroke.radius, strength: stroke.strength, falloff: stroke.falloff, invert: stroke.invert };
+    this.sampler = new DabSampler(stroke.spacing * stroke.radius);
+    this.last = null;
+    this.grabs = null;
+    this.dabs = 0;
+  }
+  add(point, pressure = 1) {
+    const { sculptor, stroke, options } = this;
+    if (stroke.brush === "grab") {
+      if (!this.last) {
+        // One grabbed region per mirror image; each follows the stroke's mirrored offsets.
+        this.grabs = mirrors(point, stroke.symmetry).map((from) => {
+          sculptor.grabStart(from, options);
+          return sculptor.grabbed;
+        });
+      } else {
+        const delta = [0, 1, 2].map((k) => point[k] - this.last[k]),
+          deltas = mirrors(delta, stroke.symmetry);
+        this.grabs.forEach((grab, m) => {
+          sculptor.grabbed = grab;
+          sculptor.grabMove(deltas[m], stroke.strength * pressure);
+        });
+        this.dabs++;
+      }
+      this.last = [...point];
+      return;
+    }
+    for (const dab of this.sampler.add(point, pressure))
+      for (const centre of mirrors(dab.at, stroke.symmetry)) {
+        sculptor.dab(stroke.brush, centre, { ...options, strength: stroke.strength * dab.pressure });
+        this.dabs++;
+      }
+  }
+  result() {
+    let vertices = 0;
+    for (let i = 0; i < this.sculptor.V; i++) vertices += this.sculptor.moved[i];
+    return { dabs: this.dabs, vertices };
+  }
+}
+
 // Runs a whole stroke on a working Sculptor; returns { dabs, vertices } (vertices moved).
 export function runStroke(sculptor, stroke) {
-  const { brush, points, radius, strength, spacing, falloff, invert, symmetry, pressure } = stroke;
-  const options = { radius, strength, falloff, invert };
-  let dabs = 0;
-  if (brush === "grab") {
-    // One grabbed region per mirror image; each follows the stroke's mirrored offsets.
-    const starts = mirrors(points[0], symmetry),
-      grabs = starts.map((from) => {
-        sculptor.grabStart(from, options);
-        return sculptor.grabbed;
-      });
-    for (let n = 1; n < points.length; n++) {
-      const delta = [0, 1, 2].map((k) => points[n][k] - points[n - 1][k]),
-        deltas = mirrors(delta, symmetry),
-        s = strength * (pressure ? pressure[n] : 1);
-      grabs.forEach((grab, m) => {
-        sculptor.grabbed = grab;
-        sculptor.grabMove(deltas[m], s);
-      });
-      dabs++;
-    }
-  } else {
-    const sampler = new DabSampler(spacing * radius);
-    points.forEach((point, n) => {
-      for (const dab of sampler.add(point, pressure ? pressure[n] : 1))
-        for (const centre of mirrors(dab.at, symmetry)) {
-          sculptor.dab(brush, centre, { ...options, strength: strength * dab.pressure });
-          dabs++;
-        }
-    });
-  }
-  let vertices = 0;
-  for (let i = 0; i < sculptor.V; i++) vertices += sculptor.moved[i];
-  return { dabs, vertices };
+  const runner = new StrokeRunner(sculptor, stroke);
+  stroke.points.forEach((point, n) => runner.add(point, stroke.pressure ? stroke.pressure[n] : 1));
+  return runner.result();
 }

@@ -415,5 +415,5 @@ test("geodesic spheres: an icosphere by level, cut by latitude and angle, beside
   // Without the option the old sphere is built as before (fingerprinted in editor-shapes).
   const lathe = primitive("sphere", { radius: 0.5, segments: 8, rings: 6 }, "m");
   assert.equal(lathe.faces.length, 48);
-  assert.throws(() => primitive("sphere", { radius: 0.5, geodesic: 6 }, "m"), /0 to 5/);
+  assert.throws(() => primitive("sphere", { radius: 0.5, geodesic: 8 }, "m"), /0 to 7/);
 });

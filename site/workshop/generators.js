@@ -885,7 +885,7 @@ export function alignOutlines(outlines) {
 // through the kernel, flat where cut, like the lathe sphere's domes, bowls and wedges.
 export function geodesicSphere(options, material) {
   const radius = number(options.radius ?? 0.5, 0.001, 1000, "radius"),
-    level = count(options.geodesic, 0, 5, "geodesic"),
+    level = count(options.geodesic, 0, 7, "geodesic"),
     angle = number(options.angle ?? 360, 1, 360, "angle"),
     latitude = options.latitude ?? [-90, 90];
   if (

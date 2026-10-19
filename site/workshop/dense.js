@@ -628,3 +628,199 @@ export function topologyArrays(faces) {
   for (let f = 0; f < faces.length; f++) indices.set(faces[f].vertices, offsets[f]);
   return { offsets, indices };
 }
+
+// Drawing data for a dense mesh: Float32 positions and normals, an index, material groups,
+// the face of each triangle (picking) and the mesh vertex behind each drawn vertex (live
+// sculpting updates). Flat parts get a vertex per face corner and the face's normal; smooth
+// parts (crease in degrees, 180 = fully smooth) share a vertex wherever the faces around a
+// point agree within the crease, each corner averaging (by area) the faces within it of its
+// own; fully smooth parts draw one vertex per mesh vertex. Kept for the last few meshes drawn.
+const geometryCache = new Map();
+export function denseGeometry(mesh, crease = 0) {
+  const d = denseData(mesh),
+    hit = geometryCache.get(d);
+  if (hit?.key === crease) {
+    geometryCache.delete(d);
+    geometryCache.set(d, hit);
+    return hit.result;
+  }
+  const result = buildGeometry(mesh, crease);
+  geometryCache.set(d, { key: crease, result });
+  while (geometryCache.size > 3) geometryCache.delete(geometryCache.keys().next().value);
+  return result;
+}
+// A geometry made elsewhere for this mesh (the page's live sculpting preview, whose positions
+// and normals already match it) is drawn without being rebuilt.
+export function adoptGeometry(mesh, crease, result) {
+  geometryCache.set(denseData(mesh), { key: crease, result });
+  while (geometryCache.size > 3) geometryCache.delete(geometryCache.keys().next().value);
+}
+function buildGeometry(mesh, crease) {
+  const d = denseData(mesh),
+    { triangles, faces: triFaces } = denseTriangles(mesh),
+    { offsets, indices, positions: p, faceMaterials } = d,
+    V = p.length / 3,
+    C = indices.length,
+    F = offsets.length - 1,
+    T = triFaces.length;
+  // Triangles ordered by material slot (stable), one draw group per slot.
+  const slots = d.materials.length,
+    counts = new Uint32Array(slots + 1);
+  for (let t = 0; t < T; t++) counts[faceMaterials[triFaces[t]] + 1]++;
+  for (let s = 0; s < slots; s++) counts[s + 1] += counts[s];
+  const order = new Uint32Array(T),
+    fill = counts.slice(0, slots);
+  for (let t = 0; t < T; t++) order[fill[faceMaterials[triFaces[t]]]++] = t;
+  const groups = [];
+  for (let s = 0; s < slots; s++) if (counts[s + 1] > counts[s]) groups.push({ start: counts[s] * 3, count: (counts[s + 1] - counts[s]) * 3, material: d.materials[s] });
+  const index = new Uint32Array(3 * T),
+    faces = new Uint32Array(T);
+  let out, normalsOut, vertexMap;
+  if (crease >= 180) {
+    // One drawn vertex per mesh vertex, area-weighted normals.
+    out = new Float32Array(p);
+    normalsOut = new Float32Array(denseVertexNormals(mesh));
+    vertexMap = new Uint32Array(V);
+    for (let v = 0; v < V; v++) vertexMap[v] = v;
+    for (let n = 0; n < T; n++) {
+      const t = order[n];
+      faces[n] = triFaces[t];
+      index[3 * n] = triangles[3 * t];
+      index[3 * n + 1] = triangles[3 * t + 1];
+      index[3 * n + 2] = triangles[3 * t + 2];
+    }
+    return { positions: out, normals: normalsOut, index, groups, faces, vertexMap, vertices: V };
+  }
+  const { normals: fn, areas } = denseFaceNormals(mesh),
+    cornerFace = new Uint32Array(C);
+  for (let f = 0; f < F; f++) for (let k = offsets[f]; k < offsets[f + 1]; k++) cornerFace[k] = f;
+  // Each face corner's drawn vertex.
+  const cornerVertex = new Uint32Array(C);
+  if (!crease) {
+    out = new Float32Array(3 * C);
+    normalsOut = new Float32Array(3 * C);
+    vertexMap = new Uint32Array(C);
+    for (let k = 0; k < C; k++) {
+      const v = indices[k],
+        f = cornerFace[k];
+      cornerVertex[k] = k;
+      out[3 * k] = p[3 * v];
+      out[3 * k + 1] = p[3 * v + 1];
+      out[3 * k + 2] = p[3 * v + 2];
+      normalsOut[3 * k] = fn[3 * f];
+      normalsOut[3 * k + 1] = fn[3 * f + 1];
+      normalsOut[3 * k + 2] = fn[3 * f + 2];
+      vertexMap[k] = v;
+    }
+  } else {
+    // Corners around each vertex (CSR).
+    const limit = Math.cos((crease * Math.PI) / 180) - 1e-9,
+      starts = new Uint32Array(V + 1);
+    for (let k = 0; k < C; k++) starts[indices[k] + 1]++;
+    for (let v = 0; v < V; v++) starts[v + 1] += starts[v];
+    const around = new Uint32Array(C),
+      put = starts.slice(0, V);
+    for (let k = 0; k < C; k++) around[put[indices[k]]++] = k;
+    const pos = new Float32Array(3 * C),
+      nor = new Float32Array(3 * C),
+      map = new Uint32Array(C);
+    let drawn = 0;
+    for (let v = 0; v < V; v++) {
+      const a0 = starts[v],
+        a1 = starts[v + 1],
+        first = drawn;
+      for (let a = a0; a < a1; a++) {
+        const k = around[a],
+          f = cornerFace[k];
+        let x = 0,
+          y = 0,
+          z = 0;
+        for (let b = a0; b < a1; b++) {
+          const g = cornerFace[around[b]];
+          if (fn[3 * f] * fn[3 * g] + fn[3 * f + 1] * fn[3 * g + 1] + fn[3 * f + 2] * fn[3 * g + 2] >= limit) {
+            x += fn[3 * g] * areas[g];
+            y += fn[3 * g + 1] * areas[g];
+            z += fn[3 * g + 2] * areas[g];
+          }
+        }
+        const l = Math.hypot(x, y, z) || 1;
+        x /= l;
+        y /= l;
+        z /= l;
+        let found = -1;
+        for (let i = first; i < drawn; i++)
+          if (Math.abs(nor[3 * i] - x) < 1e-6 && Math.abs(nor[3 * i + 1] - y) < 1e-6 && Math.abs(nor[3 * i + 2] - z) < 1e-6) {
+            found = i;
+            break;
+          }
+        if (found < 0) {
+          found = drawn++;
+          pos[3 * found] = p[3 * v];
+          pos[3 * found + 1] = p[3 * v + 1];
+          pos[3 * found + 2] = p[3 * v + 2];
+          nor[3 * found] = x;
+          nor[3 * found + 1] = y;
+          nor[3 * found + 2] = z;
+          map[found] = v;
+        }
+        cornerVertex[k] = found;
+      }
+    }
+    out = pos.slice(0, 3 * drawn);
+    normalsOut = nor.slice(0, 3 * drawn);
+    vertexMap = map.slice(0, drawn);
+  }
+  // Triangle corners → drawn vertices, through each triangle's face corner of that vertex.
+  for (let n = 0; n < T; n++) {
+    const t = order[n],
+      f = triFaces[t],
+      a = offsets[f],
+      b = offsets[f + 1];
+    faces[n] = f;
+    for (let c = 0; c < 3; c++) {
+      const v = triangles[3 * t + c];
+      let k = a;
+      while (k < b && indices[k] !== v) k++;
+      index[3 * n + c] = cornerVertex[k < b ? k : a];
+    }
+  }
+  return { positions: out, normals: normalsOut, index, groups, faces, vertexMap, vertices: V };
+}
+
+// Line segments of every face edge (each once), as Float32 x, y, z pairs, for wire overlays.
+export function denseWires(mesh) {
+  const d = denseData(mesh),
+    { offsets, indices, positions: p } = d,
+    V = p.length / 3,
+    seen = new Set(),
+    out = [];
+  for (let f = 0; f + 1 < offsets.length; f++) {
+    const a = offsets[f],
+      b = offsets[f + 1];
+    for (let k = a; k < b; k++) {
+      const i = indices[k],
+        j = indices[k + 1 < b ? k + 1 : a],
+        key = i < j ? i * V + j : j * V + i;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(p[3 * i], p[3 * i + 1], p[3 * i + 2], p[3 * j], p[3 * j + 1], p[3 * j + 2]);
+    }
+  }
+  return Float32Array.from(out);
+}
+
+// The JSON size of a value whose dense meshes count by their bytes, without encoding them:
+// objects holding a dense mesh (project nodes, also inside checkpoints) are measured with the
+// mesh left out.
+export function jsonBytes(value) {
+  let dense = 0;
+  const json = JSON.stringify(value, function (key, v) {
+    if (v && typeof v === "object" && !Array.isArray(v) && isDense(v.mesh)) {
+      const d = v.mesh.dense;
+      for (const k of ["positions", "offsets", "indices", "faceMaterials"]) dense += d?.[k]?.byteLength ?? 0;
+      return { ...v, mesh: null };
+    }
+    return v;
+  });
+  return new TextEncoder().encode(json ?? "").length + dense;
+}

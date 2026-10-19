@@ -8,6 +8,7 @@ import {
   normalizeProject,
   evaluateProject,
   statistics,
+  meshCounts,
   validateProject,
   measure,
   shapeGenerator,
@@ -22,6 +23,7 @@ import { createEngine, normalizeSelection, followRenames } from "./engine.js";
 import { topologyToken, componentRef } from "./components.js";
 import { createViewport, exportAsset, exportReport } from "./viewport.js";
 import { openDraft } from "./draft.js";
+import { isDense } from "./dense.js";
 import { loadKernel } from "./kernel.js";
 import { referenceDialog } from "./references.js";
 import { createAgentConnection } from "./agent-connection.js";
@@ -294,6 +296,8 @@ async function start() {
     onTransform: (command) => {
       if (flushPending()) apply([command]);
     },
+    // A sculpt stroke is one command and one undo step; false puts the part back.
+    onSculpt: (command) => !!(flushPending() && apply([command])),
     onGrid: (step) => {
       $("#grid-label").textContent =
         t("edGrid") +
@@ -636,9 +640,12 @@ async function start() {
       rendering = false;
       return;
     }
-    $("#selection-summary").textContent =
+    $("#selection-summary").textContent = selection.mode === "sculpt" ? `${t("edSculpt")} · ${n.id}` :
       `${selection.mode === "object" ? selection.ids.length : selection.mode === "face" ? selection.faces.length : selection.mode === "edge" ? selection.edges.length : selection.vertices.length} ${t(selection.mode === "object" ? "edParts" : selection.mode === "face" ? "edFaces" : selection.mode === "edge" ? "edEdges" : "edVertices")} · ${n.id}`;
-    $("#selection-tools").hidden = !component && selection.ids.length < 2;
+    // Sculpt mode has its own panel (brushes) and no selection transforms or component tools.
+    const sculpting = selection.mode === "sculpt";
+    $("#sculpt-tools").hidden = !sculpting;
+    $("#selection-tools").hidden = sculpting || (!component && selection.ids.length < 2);
     if (previousMode !== selection.mode)
       $("#object-properties").open = !component;
     if (previousMode !== selection.mode) {
@@ -664,6 +671,10 @@ async function start() {
     }
     $("#selection-help").textContent = selectionLocked
       ? t("edLockedHelp")
+      : sculpting
+        ? n?.mesh && !linked && draft.writable
+          ? ""
+          : t("edSculptPick")
       : component
         ? t("edComponentDeleteHelp")
         : selection.ids.some((id) => p.nodes.find((n) => n.id === id)?.symmetry)
@@ -772,9 +783,12 @@ async function start() {
         !geometryEditable ||
         component ||
         selection.ids.filter((id) => id !== selection.id).length === 0;
+      // Large meshes list only the selected components (pick the rest in the viewport): a
+      // list of every face, edge and vertex would cost more than the mesh is worth.
+      const listed = meshCounts(n.mesh).faces <= 2000;
       options(
         $("#edge"),
-        meshEdges(n.mesh).map((e) => [
+        (listed ? meshEdges(n.mesh) : selection.edges.map((id) => ({ id }))).map((e) => [
           e.id,
           `${selection.edges.includes(e.id) ? "✓ " : ""}${e.id}`,
         ]),
@@ -788,24 +802,25 @@ async function start() {
       $("#loop-cut").disabled ||= selection.edges.length !== 1;
       options(
         $("#face"),
-        n.mesh.faces.map((f) => [
-          f.id,
-          `${selection.faces.includes(f.id) ? "✓ " : ""}${f.id} · ${f.vertices.length}`,
-        ]),
-        selection.face ?? n.mesh.faces[0].id,
+        listed
+          ? n.mesh.faces.map((f) => [
+              f.id,
+              `${selection.faces.includes(f.id) ? "✓ " : ""}${f.id} · ${f.vertices.length}`,
+            ])
+          : selection.faces.map((id) => [id, `✓ ${id}`]),
+        selection.face ?? (listed ? n.mesh.faces[0].id : "f0"),
       );
       options(
         $("#vertex"),
-        n.mesh.vertices.map((_, i) => [
+        (listed ? n.mesh.vertices.map((_, i) => i) : selection.vertices).map((i) => [
           String(i),
           `${selection.vertices.includes(i) ? "✓ " : ""}${i}`,
         ]),
         String(selection.vertex),
       );
-      setVector(
-        "vertex",
-        n.mesh.vertices[selection.vertex] ?? n.mesh.vertices[0],
-      );
+      const p = isDense(n.mesh) ? n.mesh.dense.positions : null,
+        at = (i) => (p ? [p[3 * i], p[3 * i + 1], p[3 * i + 2]] : n.mesh.vertices[i]);
+      setVector("vertex", at(selection.vertex) ?? at(0));
       for (const id of [
         "extrude",
         "inset",
@@ -828,9 +843,16 @@ async function start() {
         input.disabled = !geometryEditable || !draft.writable;
     }
     if (paintTargets().length) {
+      // A dense part's face material comes from its slots (no polygon view).
+      const materialOf = (mesh, id) => {
+        if (!isDense(mesh)) return (mesh?.faces.find((f) => f.id === id) ?? null);
+        const f = /^f\d+$/.test(id ?? "") ? Number(id.slice(1)) : 0,
+          d = mesh.dense;
+        return f < d.faceMaterials.length ? { material: d.materials[d.faceMaterials[f]] } : null;
+      };
       const face =
-        n.mesh?.faces.find((f) => f.id === selection.face) ??
-        paintTargets()[0].mesh.faces[0];
+        materialOf(n.mesh, selection.face) ??
+        materialOf(paintTargets()[0].mesh, isDense(paintTargets()[0].mesh) ? "f0" : paintTargets()[0].mesh.faces[0].id);
       if (!p.materials.some((m) => m.id === materialId))
         materialId = face.material;
       options(
@@ -1359,7 +1381,44 @@ async function start() {
     selection.mode = $("#selection-mode").value;
     selection.ids = selection.id ? [selection.id] : [];
     updateSelection(true);
+    updateSculpt(true);
   };
+  // Sculpt mode: the brush settings go to the viewport, which runs the strokes (viewport.js).
+  let brushRadiusSet = false;
+  function brushSettings() {
+    return {
+      brush: $("[data-brush][aria-pressed=true]")?.dataset.brush ?? "clay",
+      radius: Math.max(0.0001, distanceValue("brush-radius")),
+      strength: Number($("#brush-strength").value),
+      falloff: $("#brush-falloff").value,
+      symmetry: ["x", "y", "z"].filter((axis) => $("#brush-mirror-" + axis).checked),
+      invert: $("#brush-invert").checked,
+    };
+  }
+  function updateSculpt(entering = false) {
+    if (selection.mode !== "sculpt") {
+      viewport.setSculpt(null);
+      return;
+    }
+    // A first radius of a tenth of the part's size.
+    const n = node();
+    if (entering && !brushRadiusSet && n?.mesh) {
+      const size = Math.max(...measure(store.snapshot(), n.id).bounds.size);
+      if (size > 0) $("#brush-radius").value = Number(((size / 10) / unitFactor()).toPrecision(3));
+    }
+    viewport.setSculpt(brushSettings());
+  }
+  for (const b of all("[data-brush]"))
+    b.onclick = () => {
+      all("[data-brush]").forEach((other) => other.setAttribute("aria-pressed", String(other === b)));
+      updateSculpt();
+    };
+  $("#brush-radius").addEventListener("change", () => {
+    brushRadiusSet = true;
+    updateSculpt();
+  });
+  for (const id of ["brush-strength", "brush-falloff", "brush-mirror-x", "brush-mirror-y", "brush-mirror-z", "brush-invert"])
+    $("#" + id).addEventListener("change", () => updateSculpt());
   for (const b of all("[data-transform]"))
     b.onclick = () => {
       if (!flushPending()) return;
@@ -2410,6 +2469,15 @@ async function start() {
     if (input) return;
     if (e.key === "Escape") {
       viewport.cancel();
+      return;
+    }
+    // Sculpt mode: [ and ] shrink and grow the brush.
+    if (selection.mode === "sculpt" && (e.key === "[" || e.key === "]")) {
+      e.preventDefault();
+      const field = $("#brush-radius");
+      field.value = Number((Number(field.value) * (e.key === "]" ? 1.25 : 0.8)).toPrecision(3));
+      brushRadiusSet = true;
+      updateSculpt();
       return;
     }
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {

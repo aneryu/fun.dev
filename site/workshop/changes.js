@@ -1,5 +1,6 @@
 // Human-sized field changes; mesh buffers stay out of the activity log.
 import { topologyToken } from "./components.js";
+import { same } from "./document.js";
 import { materialUsage } from "./materials.js";
 export function describeChanges(before, after) {
   const fields = [],
@@ -17,7 +18,7 @@ export function describeChanges(before, after) {
       affected.add(n.id);
       continue;
     }
-    if (JSON.stringify(n) !== JSON.stringify(old)) affected.add(n.id);
+    if (!same(n, old)) affected.add(n.id);
     for (const key of [
       "name",
       "parent",

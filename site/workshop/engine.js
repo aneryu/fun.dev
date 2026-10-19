@@ -21,6 +21,7 @@ import {
   inspectRecipeStage,
   measure,
   nodeSummary,
+  same,
 } from "./document.js";
 import { toolboxAssemblyCommands, assetFor } from "./assembly.js";
 import { listBlueprints } from "./blueprints.js";
@@ -28,6 +29,12 @@ import { describeChanges } from "./changes.js";
 import { hollowBoxRecipe } from "./recipe.js";
 import { exportReport, exportAsset } from "./viewport.js";
 import { importModel } from "./import-glb.js";
+import { isDense, isolate, denseCounts, denseEdgeExists } from "./dense.js";
+
+// Reads hand agents arrays of their own: the document's dense meshes are shared (dense.js),
+// so a read copies them, as it copies everything else.
+const isolatedNode = (n) => (isDense(n?.mesh) ? { ...n, mesh: isolate(n.mesh) } : n);
+const isolated = (p) => ({ ...p, nodes: p.nodes.map(isolatedNode) });
 import { searchLibrary, libraryModel, importLibraryModel } from "./library.js";
 import { auditProject } from "./audit.js";
 import { exportTile, sceneBounds } from "./tile.js";
@@ -63,13 +70,24 @@ export function normalizeSelection(project, selection, reset = false) {
       null;
   if (selection.id && !selection.ids.length) selection.ids = [selection.id];
   const n = project.nodes.find((v) => v.id === selection.id);
-  selection.faces = selection.faces.filter((id) => n?.mesh?.faces.some((f) => f.id === id));
-  selection.vertices = selection.vertices.filter((i) => n?.mesh?.vertices[i]);
-  selection.edges = (selection.edges ?? []).filter(
-    (id) => n?.mesh && meshEdges(n.mesh).some((e) => e.id === id),
-  );
+  if (isDense(n?.mesh)) {
+    // Dense parts check selections against their counts (faces are f0, f1, …).
+    const { faces, vertices } = denseCounts(n.mesh);
+    selection.faces = selection.faces.filter((id) => /^f\d+$/.test(id) && Number(id.slice(1)) < faces);
+    selection.vertices = selection.vertices.filter((i) => Number.isInteger(i) && i >= 0 && i < vertices);
+    selection.edges = (selection.edges ?? []).filter((id) => {
+      const [a, b] = String(id).split(":").map(Number);
+      return denseEdgeExists(n.mesh, a, b);
+    });
+  } else {
+    selection.faces = selection.faces.filter((id) => n?.mesh?.faces.some((f) => f.id === id));
+    selection.vertices = selection.vertices.filter((i) => n?.mesh?.vertices[i]);
+    selection.edges = (selection.edges ?? []).filter(
+      (id) => n?.mesh && meshEdges(n.mesh).some((e) => e.id === id),
+    );
+  }
   if (reset) {
-    selection.faces = n?.mesh ? [n.mesh.faces[0].id] : [];
+    selection.faces = n?.mesh ? [isDense(n.mesh) ? "f0" : n.mesh.faces[0].id] : [];
     selection.vertices = n?.mesh ? [0] : [];
     selection.edges = [];
   }
@@ -134,11 +152,7 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
     previous = after;
     comparison = { before, after, revision: store.revision };
     const changed = after.nodes
-        .filter(
-          (n) =>
-            JSON.stringify(n) !==
-            JSON.stringify(before.nodes.find((v) => v.id === n.id)),
-        )
+        .filter((n) => !same(n, before.nodes.find((v) => v.id === n.id)))
         .map((n) => n.id),
       removed = before.nodes
         .filter((n) => !after.nodes.some((v) => v.id === n.id))
@@ -213,7 +227,8 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
           pendingInput: !!pendingInput(),
         };
       if (id) {
-        return { ...common, ...inspectNode(p, id, { detail }) };
+        const result = inspectNode(p, id, { detail });
+        return { ...common, ...result, node: isolatedNode(result.node) };
       }
       return {
         ...common,
@@ -239,7 +254,7 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
         materials: materialUsage(p),
       };
     },
-    getProject: () => store.snapshot(),
+    getProject: () => isolated(store.snapshot()),
     loadProject(p, options) {
       if (!flushPending()) throw pendingError();
       const result = store.replace(p, options);

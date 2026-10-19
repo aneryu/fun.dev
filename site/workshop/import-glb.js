@@ -7,6 +7,7 @@ import { polygonize } from "./solid.js";
 import { setMatrix, determinant, decompose } from "./spatial.js";
 import { normalizeMaterial, visitMaterials } from "./materials.js";
 import { FORMAT, VERSION, LIMITS, emptyProject } from "./document.js";
+import { DENSE_FROM } from "./dense.js";
 import { remapRecipeReferences } from "./recipe.js";
 import { parseModelFile, workshopProject } from "./glb.js";
 
@@ -43,15 +44,15 @@ const UNDERSTOOD = new Set([
  */
 export function importModel(
   bytes,
-  { mode = "replace", parent = null, current = null, name, simplifier } = {},
+  { mode = "replace", parent = null, current = null, name, simplifier, budget } = {},
 ) {
   if (!["replace", "add"].includes(mode))
     fail("Expected replace or add mode", "schema", "mode");
   const { json, buffers } = parseModelFile(bytes);
-  const stored = workshopProject(json);
+  const stored = workshopProject(json, buffers);
   const { project: incoming, warnings } = stored
     ? { project: stored, warnings: [] }
-    : projectFromGLTF(json, buffers, { name, simplifier });
+    : projectFromGLTF(json, buffers, { name, simplifier, budget });
   if (mode === "replace")
     return {
       project: incoming,
@@ -324,7 +325,10 @@ export function importedSmoothing(positions, triangles, normals) {
   return Math.min(180, Math.ceil(smooth[Math.floor(0.95 * (smooth.length - 1))]) + 1);
 }
 
-function projectFromGLTF(json, buffers, { name, simplifier } = {}) {
+// budget: { triangles, vertices } a model may bring in unreduced; by default what dense meshes
+// may hold (document.js LIMITS), so scans and sculpts up to that size import as they are.
+function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
+  budget = { triangles: budget?.triangles ?? LIMITS.denseTriangles, vertices: budget?.vertices ?? LIMITS.denseVertices };
   const warnings = new Map(),
     warn = (code, message) => {
       if (!warnings.has(code)) warnings.set(code, { code, message });
@@ -389,9 +393,9 @@ function projectFromGLTF(json, buffers, { name, simplifier } = {}) {
       sourceVertices += json.accessors?.[p.attributes?.POSITION]?.count ?? 0;
     }
   }
-  const reduce = simplifier && (sourceTriangles > LIMITS.triangles || sourceVertices > LIMITS.vertices);
+  const reduce = simplifier && (sourceTriangles > budget.triangles || sourceVertices > budget.vertices);
   // Even fully disconnected triangles fit the editable vertex budget.
-  const targetTriangles = Math.floor(LIMITS.vertices / 3 * .9);
+  const targetTriangles = Math.floor(Math.min(budget.triangles, budget.vertices / 3) * .9);
   const minimum = Math.min(128, Math.floor(targetTriangles / Math.max(1, primitiveCounts.length)));
   const reserved = primitiveCounts.reduce((sum, n) => sum + Math.min(minimum, n), 0);
   const meshes = new Map();
@@ -472,9 +476,9 @@ function projectFromGLTF(json, buffers, { name, simplifier } = {}) {
     }
     // Merging into polygons rarely removes more than a few triangles: far larger meshes are
     // refused before the work.
-    if (triangles.length > LIMITS.triangles * 2)
+    if (triangles.length > budget.triangles * 2)
       fail(
-        `Mesh ${mesh.name ?? index} has ${triangles.length} triangles; the workshop keeps at most ${LIMITS.triangles}`,
+        `Mesh ${mesh.name ?? index} has ${triangles.length} triangles; the workshop keeps at most ${budget.triangles}`,
         "budget",
       );
     const result = triangles.length
@@ -567,18 +571,34 @@ function projectFromGLTF(json, buffers, { name, simplifier } = {}) {
   }
 
   let triangleCount = 0,
-    vertexCount = 0;
+    vertexCount = 0,
+    denseTriangles = 0,
+    denseVertices = 0;
+  // Meshes with more than DENSE_FROM faces or vertices become dense (their faces run f0, f1, …
+  // from polygonize) and count against the dense budget; the rest against the polygon one.
   for (const node of nodes) {
     const mesh = node.mesh ?? nodes.find((n) => n.id === node.instanceOf)?.mesh;
     if (!mesh) continue;
-    vertexCount += mesh.vertices.length;
-    triangleCount += mesh.faces.reduce((n, f) => n + f.vertices.length - 2, 0);
+    const triangles = mesh.faces.reduce((n, f) => n + f.vertices.length - 2, 0);
+    if (mesh.faces.length > DENSE_FROM || mesh.vertices.length > DENSE_FROM) {
+      denseVertices += mesh.vertices.length;
+      denseTriangles += triangles;
+    } else {
+      vertexCount += mesh.vertices.length;
+      triangleCount += triangles;
+    }
   }
   if (triangleCount > LIMITS.triangles || vertexCount > LIMITS.vertices)
     fail(
-      `This model has ${triangleCount} triangles and ${vertexCount} editable vertices; the workshop keeps at most ${LIMITS.triangles} and ${LIMITS.vertices}`,
+      `This model has ${triangleCount} triangles and ${vertexCount} editable vertices in its smaller parts; the workshop keeps at most ${LIMITS.triangles} and ${LIMITS.vertices} there`,
       "budget",
     );
+  if (denseTriangles + triangleCount > budget.triangles || denseVertices + vertexCount > budget.vertices)
+    fail(
+      `This model has ${denseTriangles + triangleCount} triangles and ${denseVertices + vertexCount} editable vertices; the workshop keeps at most ${budget.triangles} and ${budget.vertices}`,
+      "budget",
+    );
+  triangleCount += denseTriangles;
   if (reduce) warn("simplified", `High-poly model reduced for editing: ${sourceTriangles} source triangles → ${triangleCount} editable triangles. Original file unchanged.`);
   const title =
     name ??

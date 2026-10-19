@@ -271,7 +271,7 @@ const definitions = [
   ["activity", "Read recent changes and structured failures.", object(), true],
   [
     "setReference",
-    "Put a reference image (data URL; the CLI takes path) behind the model in one orthographic view: center [horizontal, vertical] metres on the view's axes, width in metres. Kept with the draft, never exported; observe({references:true}) renders it.",
+    "Put a reference image (data URL; the CLI takes path) behind the model in one orthographic view: center [horizontal, vertical] metres on its axes, width in metres. Kept with the draft, never exported; observe({references:true}) shows it.",
     object(
       {
         view: { enum: ["front", "back", "left", "right", "top"] },
@@ -287,7 +287,7 @@ const definitions = [
   ],
   [
     "importGLB",
-    "Open a GLB: a workshop project file (.funmodel.glb) restores its editable project; any other GLB becomes editable parts (hierarchy, names, flat PBR materials, polygons; skins, animations, textures reported, not imported). mode replace (default) or add under parent. data is base64; the local adapter takes path.",
+    "Open a GLB: a project file (.funmodel.glb) restores its project; any other GLB becomes editable parts (hierarchy, names, PBR materials, polygons; skins, animations, textures reported, not imported). mode replace (default) or add under parent. data is base64; the adapter takes path.",
     object(
       {
         data: str,
@@ -303,7 +303,7 @@ const definitions = [
   ],
   [
     "librarySearch",
-    "Search the public CC0 model library: listed models matching every word of query (id, name, tags, description; Chinese too), best first, with size in metres, newest version, thumbnail and page addresses, and each kit's fitting agreement.",
+    "Search the public CC0 model library: models matching every word of query (id, name, tags, description; Chinese too), best first, with size in metres, newest version, thumbnail and page addresses, kits' fitting agreements.",
     object({
       query: str,
       type: { enum: ["prop", "piece", "vehicle", "character", "creature", "animation", "scene", "world"] },

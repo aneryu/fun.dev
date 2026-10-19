@@ -311,8 +311,14 @@ test('high-poly import reduces geometry while retaining materials, parts and ins
     meshes: [{ primitives: [{ positions, indices: Array.from(sphere.index.array), material: 0 }] }],
     materials: [{ name: 'gold', pbrMetallicRoughness: { baseColorFactor: [1, .5, 0, 1] } }],
   });
-  assert.throws(() => importModel(bytes), { code: 'budget' });
-  const { project, warnings } = importModel(bytes, { simplifier: MeshoptSimplifier });
+  // Within the dense budget the sphere comes in as it is: a dense part, nothing reduced.
+  const whole = importModel(bytes);
+  assert.ok(evaluateProject(whole.project).nodes[1].mesh.dense, 'dense');
+  assert.ok(!whole.warnings.some(w => w.code === 'simplified'));
+  // Asked for a smaller budget, it is refused without a simplifier and reduced with one.
+  const budget = { triangles: 50000, vertices: 30000 };
+  assert.throws(() => importModel(bytes, { budget }), { code: 'budget' });
+  const { project, warnings } = importModel(bytes, { simplifier: MeshoptSimplifier, budget });
   assert.equal(project.nodes.length, 3);
   assert.equal(project.nodes[1].parent, 'assembly');
   assert.equal(project.nodes[2].instanceOf, 'head');
@@ -323,5 +329,5 @@ test('high-poly import reduces geometry while retaining materials, parts and ins
   assert.ok(mesh.vertices.every(p => Math.abs(Math.hypot(...p) - 1) < .02));
   assert.ok(warnings.some(w => w.code === 'simplified'));
   const stored = withWorkshopProject(bytes, project);
-  assert.deepEqual(importModel(stored, { simplifier: MeshoptSimplifier }).project, JSON.parse(JSON.stringify(project)));
+  assert.deepEqual(importModel(stored, { simplifier: MeshoptSimplifier, budget }).project, JSON.parse(JSON.stringify(project)));
 });

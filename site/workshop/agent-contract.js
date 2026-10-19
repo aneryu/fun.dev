@@ -332,7 +332,7 @@ const props = {
       // Spheres: [from, to] degrees of latitude (domes, bowls); geodesic: an icosphere with
       // that many splits instead of the lathe sphere.
       latitude: pair,
-      geodesic: { type: "integer", minimum: 0, maximum: 5 },
+      geodesic: { type: "integer", minimum: 0, maximum: 7 },
       // Tori: the tube's radius and its segments.
       tube: number,
       tubeSegments: segmentsValue,

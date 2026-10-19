@@ -1335,6 +1335,18 @@ export function statistics(project) {
 export function evaluationIssues(input, project) {
   const issues = [];
   const equal = (a, b) => {
+    if (a === b) return true;
+    // Dense meshes are compared by their arrays (shared when unchanged), then by content.
+    if (a instanceof DenseMesh || b instanceof DenseMesh) {
+      if (!(a instanceof DenseMesh && b instanceof DenseMesh)) return false;
+      return ["positions", "offsets", "indices", "faceMaterials"].every((k) => {
+        const x = a.dense[k], y = b.dense[k];
+        if (x === y) return true;
+        if (x.length !== y.length) return false;
+        for (let i = 0; i < x.length; i++) if (Math.abs(x[i] - y[i]) > 1e-8 * Math.max(1, Math.abs(x[i]))) return false;
+        return true;
+      }) && same(a.dense.materials, b.dense.materials);
+    }
     if (typeof a === "number" && typeof b === "number")
       return Math.abs(a - b) <= 1e-8 * Math.max(1, Math.abs(a), Math.abs(b));
     if (a && b && typeof a === "object" && typeof b === "object") {
@@ -1546,8 +1558,9 @@ export function nodeSummary(node) {
   }
   return {
     ...meta,
-    vertices: mesh?.vertices.length ?? 0,
-    faces: mesh?.faces.length ?? 0,
+    vertices: mesh ? meshCounts(mesh).vertices : 0,
+    faces: mesh ? meshCounts(mesh).faces : 0,
+    ...(isDense(mesh) ? { dense: true } : {}),
   };
 }
 export function inspectNode(project, id, { detail = "summary" } = {}) {

@@ -2,6 +2,9 @@
 // that also carries the editable document in a FUNDEV_workshop extension: any viewer shows
 // it, and the workshop restores every recipe, link and assembly from it.
 import { ModelError } from "./mesh.js";
+import { isDense, denseData } from "./dense.js";
+
+const DENSE_ARRAYS = ["positions", "offsets", "indices", "faceMaterials"];
 
 export const WORKSHOP_EXTENSION = "FUNDEV_workshop";
 const MAGIC = 0x46546c67,
@@ -83,31 +86,84 @@ export function writeGLB(json, bin = null) {
   return out;
 }
 
-// The editable project, or null for a plain model.
-export function workshopProject(json) {
+// The editable project, or null for a plain model. Dense meshes keep their arrays in the
+// file's binary chunk: { bufferView } refs, resolved from `buffers` (parseModelFile's).
+export function workshopProject(json, buffers = []) {
   const stored = json?.extensions?.[WORKSHOP_EXTENSION];
   if (stored === undefined) return null;
   if (!stored || typeof stored !== "object" || !stored.project)
     fail("The workshop project in this file is damaged", "invalid_project");
-  return structuredClone(stored.project);
+  const project = structuredClone(stored.project);
+  for (const node of Array.isArray(project.nodes) ? project.nodes : []) {
+    const d = node?.mesh?.dense;
+    if (!d || typeof d !== "object") continue;
+    for (const key of DENSE_ARRAYS) {
+      const ref = d[key];
+      if (!ref || typeof ref !== "object" || !Number.isInteger(ref.bufferView)) continue;
+      const view = json.bufferViews?.[ref.bufferView],
+        buffer = buffers[view?.buffer ?? 0];
+      if (!view || !buffer || (view.byteOffset ?? 0) + view.byteLength > buffer.byteLength)
+        fail("The workshop project's mesh data is missing from the file", "invalid_project");
+      d[key] = buffer.subarray(view.byteOffset ?? 0, (view.byteOffset ?? 0) + view.byteLength);
+    }
+  }
+  return project;
 }
 
 // Adds the editable project to a GLB of the model. Viewers ignore the extension; it is used,
 // never required.
 export function withWorkshopProject(glb, project) {
   const { json, buffers } = parseModelFile(glb);
+  // Dense meshes' arrays go into the binary chunk after the model's data (8-byte aligned),
+  // as buffer views no accessor uses; the extension refers to them.
+  const chunks = [buffers[0] ?? new Uint8Array(0)];
+  let length = chunks[0].byteLength;
+  const views = (json.bufferViews ??= []);
+  const stored = {
+    ...project,
+    nodes: (project.nodes ?? []).map((node) => {
+      if (!isDense(node.mesh)) return node;
+      const d = denseData(node.mesh),
+        dense = { materials: [...d.materials] };
+      for (const key of DENSE_ARRAYS) {
+        const pad = (8 - (length % 8)) % 8;
+        if (pad) {
+          chunks.push(new Uint8Array(pad));
+          length += pad;
+        }
+        const array = d[key];
+        views.push({ buffer: 0, byteOffset: length, byteLength: array.byteLength, name: `${node.id}.${key}` });
+        dense[key] = { bufferView: views.length - 1 };
+        chunks.push(new Uint8Array(array.buffer, array.byteOffset, array.byteLength));
+        length += array.byteLength;
+      }
+      return { ...node, mesh: { dense } };
+    }),
+  };
+  if (!views.length) delete json.bufferViews;
+  let bin = chunks[0];
+  if (chunks.length > 1) {
+    bin = new Uint8Array(length);
+    let at = 0;
+    for (const c of chunks) {
+      bin.set(c, at);
+      at += c.byteLength;
+    }
+    if (json.buffers?.length) json.buffers[0].byteLength = length;
+    else json.buffers = [{ byteLength: length }];
+  }
   json.extensions = {
     ...json.extensions,
     [WORKSHOP_EXTENSION]: {
-      format: project.format,
-      version: project.version,
-      project,
+      format: stored.format,
+      version: stored.version,
+      project: stored,
     },
   };
   json.extensionsUsed = [
     ...new Set([...(json.extensionsUsed ?? []), WORKSHOP_EXTENSION]),
   ];
-  return writeGLB(json, buffers[0] ?? null);
+  return writeGLB(json, bin.byteLength ? bin : null);
 }
 
 export function toBase64(bytes) {

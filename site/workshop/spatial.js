@@ -224,14 +224,18 @@ export function nodeInfo(project, id, { components = true } = {}) {
   const world = worldMatrix(project, id);
   if (isDense(node.mesh) && !components) {
     const p = denseData(node.mesh).positions,
-      corners = new Float64Array(p.length);
+      m = world,
+      min = [Infinity, Infinity, Infinity],
+      max = [-Infinity, -Infinity, -Infinity];
     for (let i = 0; i < p.length; i += 3) {
-      const [x, y, z] = point(world, [p[i], p[i + 1], p[i + 2]]);
-      corners[i] = x;
-      corners[i + 1] = y;
-      corners[i + 2] = z;
+      const x = p[i], y = p[i + 1], z = p[i + 2],
+        w = [m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]];
+      for (let k = 0; k < 3; k++) {
+        if (w[k] < min[k]) min[k] = w[k];
+        if (w[k] > max[k]) max[k] = w[k];
+      }
     }
-    return { worldMatrix: world, bounds: denseBounds(corners), origin: point(world, [0, 0, 0]) };
+    return { worldMatrix: world, bounds: { min, max, size: sub(max, min), center: mul(add(min, max), 0.5) }, origin: point(world, [0, 0, 0]) };
   }
   const vertices = (node.mesh?.vertices ?? nodePoints(node)).map((v) => point(world, v));
   return {

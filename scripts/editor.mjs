@@ -54,6 +54,7 @@ if (args.includes("--verify")) {
       "tests/workshop-bridge.test.mjs",
       "tests/editor-node.test.mjs",
       "tests/editor-soft-renderer.test.mjs",
+      "tests/editor-dense.test.mjs",
     ],
     { cwd: root, stdio: "inherit" },
   );
@@ -64,6 +65,8 @@ if (args.includes("--verify")) {
     browser = await launch();
   try {
     await editorChecks({ browser, base: server.base });
+    const { editorSculptChecks } = await import("./browser/editor-sculpt.mjs");
+    await editorSculptChecks({ browser, base: server.base });
     const { editorQualityChecks } = await import('./browser/editor-quality.mjs');
     await editorQualityChecks({ browser, base: server.base });
     await editorAdapterChecks();

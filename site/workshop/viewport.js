@@ -22,6 +22,8 @@ import { placedTemplate, ensurePlaced } from "./placed.js";
 import { terrainMesh, terrainBounds, hexToLinear } from "../runtime/kit/terrain.js";
 import { gridMesh } from "../runtime/kit/grid.js";
 import { STUDIO, previewQuality } from "./preview-quality.js";
+import { isDense, denseData, denseGeometry, denseWires, packMesh } from "./dense.js";
+import { Sculptor, StrokeRunner } from "./sculpt.js";
 
 function indexAttributes(positions, normals) {
   const uniquePositions = [],
@@ -253,6 +255,7 @@ export function buildModel(project, { display = false } = {}) {
     objects = new Map(),
     materials = new Map(),
     geometries = new Map(),
+    denseShared = new Map(),
     placedMeshes = new Map(),
     overlays = new Map(),
     missing = [];
@@ -260,7 +263,26 @@ export function buildModel(project, { display = false } = {}) {
   for (const m of project.materials) materials.set(m.id, createMaterial(m));
   for (const node of project.nodes) {
     let object;
-    if (node.mesh) {
+    if (node.mesh && isDense(node.mesh)) {
+      // Dense parts draw straight from their arrays (dense.js), cached per mesh; linked copies
+      // share one geometry, as polygon parts do.
+      const g = denseGeometry(node.mesh, node.smooth || 0);
+      let geometry = denseShared.get(g);
+      if (!geometry) {
+        geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.BufferAttribute(g.positions, 3));
+        geometry.setAttribute("normal", new THREE.BufferAttribute(g.normals, 3));
+        geometry.setIndex(new THREE.BufferAttribute(g.index, 1));
+        g.groups.forEach((group, i) => geometry.addGroup(group.start, group.count, i));
+        geometry.computeBoundingSphere();
+        denseShared.set(g, geometry);
+      }
+      object = new THREE.Mesh(geometry, g.groups.map((group) => materials.get(group.material)));
+      object.castShadow = true;
+      object.receiveShadow = true;
+      object.editorFaceAt = (t) => `f${g.faces[t]}`;
+      object.editorDense = g;
+    } else if (node.mesh) {
       const positions = [],
         normals = [],
         triangleFaces = [],
@@ -448,6 +470,7 @@ export async function createViewport(
   {
     onPick = () => {},
     onTransform = () => {},
+    onSculpt = () => true,
     onBoxEnd = () => {},
     onGrid = () => {},
     helpers = true,
@@ -965,6 +988,11 @@ export async function createViewport(
   function refreshSelection(attach = true) {
     clear(highlights);
     if (attach) transform.detach();
+    // Sculpt mode shows only the brush ring: no boxes, no gizmo.
+    if (selection.mode === "sculpt") {
+      render();
+      return;
+    }
     const object = model?.objects.get(selection.id),
       node = project?.nodes.find((n) => n.id === selection.id);
     if (!object || !shown(selection.id)) {
@@ -1113,6 +1141,17 @@ export async function createViewport(
     clear(wires);
     if (wireframe && model)
       for (const node of project.nodes.filter((n) => n.mesh && shown(n.id))) {
+        if (isDense(node.mesh)) {
+          const object = model.objects.get(node.id),
+            line = new THREE.LineSegments(
+              new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(denseWires(node.mesh), 3)),
+              new THREE.LineBasicMaterial({ color: 0x3c4852, transparent: true, opacity: 0.65, depthTest: !xray }),
+            );
+          line.matrixAutoUpdate = false;
+          line.matrix.copy(object.matrixWorld);
+          wires.add(line);
+          continue;
+        }
         const object = model.objects.get(node.id),
           seen = new Set(),
           positions = [];
@@ -1286,17 +1325,27 @@ export async function createViewport(
   }
   function objectInBox(id, rect) {
     const o = model.objects.get(id),
-      n = project.nodes.find((n) => n.id === id),
-      points = (n.mesh?.vertices ?? nodePoints(n))
-        .map((v) =>
-          projected(new THREE.Vector3(...v).applyMatrix4(o.matrixWorld)),
-        )
-        .filter((p) => p.z >= -1 && p.z <= 1);
+      n = project.nodes.find((n) => n.id === id);
+    // Dense parts test their drawn vertices; loops rather than Math.min(...): a few hundred
+    // thousand values would overflow the call.
+    const local = isDense(n.mesh)
+      ? Array.from({ length: denseData(n.mesh).positions.length / 3 }, (_, i) => denseData(n.mesh).positions.subarray(3 * i, 3 * i + 3))
+      : (n.mesh?.vertices ?? nodePoints(n));
+    const points = local
+      .map((v) => projected(new THREE.Vector3(v[0], v[1], v[2]).applyMatrix4(o.matrixWorld)))
+      .filter((p) => p.z >= -1 && p.z <= 1);
     if (!points.length) return false;
-    const left = Math.max(rect.left, Math.min(...points.map((p) => p.x))),
-      right = Math.min(rect.right, Math.max(...points.map((p) => p.x))),
-      top = Math.max(rect.top, Math.min(...points.map((p) => p.y))),
-      bottom = Math.min(rect.bottom, Math.max(...points.map((p) => p.y)));
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of points) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    const left = Math.max(rect.left, minX),
+      right = Math.min(rect.right, maxX),
+      top = Math.max(rect.top, minY),
+      bottom = Math.min(rect.bottom, maxY);
     if (left > right || top > bottom) return false;
     if (xray || !n.mesh) return true;
     const r = canvas.getBoundingClientRect();
@@ -1445,11 +1494,275 @@ export async function createViewport(
       hit && pickable(hit.object.name)
         ? {
             id: hit.object.name,
-            face: hit.object.editorFaces[hit.faceIndex],
+            face: hit.object.editorFaceAt ? hit.object.editorFaceAt(hit.faceIndex) : hit.object.editorFaces[hit.faceIndex],
             additive: e.shiftKey,
           }
         : { empty: true, additive: e.shiftKey },
     );
+  });
+  // ---- Sculpt mode (sculpt.js) ----
+  // A left drag on the selected mesh part paints a stroke with the brush settings; a drag
+  // elsewhere still orbits. The stroke runs live on a working copy of the part's positions
+  // through the StrokeRunner the sculpt command uses, drawn into a copy of the part's geometry;
+  // on release onSculpt gets the command (points and radius in the part's own space), so what
+  // is committed is what was shown. onSculpt returns false when the command was refused.
+  let sculpt = null,
+    stroke = null,
+    hoverFrame = 0,
+    drawFrame = 0;
+  const sculptGroup = new THREE.Group(),
+    // A closed line (the WebGPU renderer draws no LineLoop): the first point again at the end.
+    ring = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(
+        Array.from({ length: 65 }, (_, i) => new THREE.Vector3(Math.cos((i / 64) * Math.PI * 2), Math.sin((i / 64) * Math.PI * 2), 0)),
+      ),
+      new THREE.LineBasicMaterial({ color: 0xd45a00, depthTest: false, transparent: true, opacity: 0.9 }),
+    );
+  ring.renderOrder = 1000;
+  sculptGroup.add(ring);
+  sculptGroup.visible = false;
+  scene.add(sculptGroup);
+  const sculptTarget = () => {
+    const node = project?.nodes.find((n) => n.id === selection.id),
+      object = model?.objects.get(selection.id);
+    return node?.mesh && object?.isMesh && !node.symmetry && !node.instanceOf && !readonly ? { node, object } : null;
+  };
+  function pointerRay(e) {
+    const r = canvas.getBoundingClientRect();
+    raycaster.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, (-(e.clientY - r.top) / r.height) * 2 + 1), camera);
+    return raycaster.ray;
+  }
+  function surfaceHit(e, object) {
+    pointerRay(e);
+    const hit = raycaster.intersectObject(object, false)[0];
+    if (!hit) return null;
+    const normal = hit.face ? hit.face.normal.clone().transformDirection(object.matrixWorld) : new THREE.Vector3(0, 1, 0);
+    return { point: hit.point, normal };
+  }
+  function showRing(point, normal) {
+    if (!point) {
+      sculptGroup.visible = false;
+      return;
+    }
+    sculptGroup.visible = true;
+    ring.position.copy(point);
+    ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal.clone().normalize());
+    ring.scale.setScalar(sculpt.radius);
+  }
+  function startStroke(e) {
+    const target = sculptTarget();
+    if (!target) return false;
+    const { node, object } = target,
+      hit = surfaceHit(e, object);
+    if (!hit) return false;
+    object.updateMatrixWorld(true);
+    const back = object.matrixWorld.clone().invert(),
+      scale = Math.cbrt(Math.abs(back.determinant())),
+      radius = sculpt.radius * scale,
+      base = isDense(node.mesh) ? node.mesh : packMesh(node.mesh, { renumber: true }),
+      d = denseData(base),
+      positions = d.positions.slice(),
+      crease = node.smooth || 0,
+      g = denseGeometry(base, crease);
+    const settings = {
+      brush: sculpt.brush,
+      radius,
+      strength: sculpt.strength,
+      spacing: sculpt.spacing ?? 0.25,
+      falloff: sculpt.falloff ?? "smooth",
+      invert: !!sculpt.invert !== e.ctrlKey,
+      symmetry: [...(sculpt.symmetry ?? [])],
+    };
+    const runner = new StrokeRunner(new Sculptor({ positions, offsets: d.offsets, indices: d.indices }, { radius }), settings);
+    // The part draws a geometry of its own while the stroke runs.
+    const geometry = new THREE.BufferGeometry(),
+      position = new THREE.BufferAttribute(g.positions.slice(), 3),
+      normals = new THREE.BufferAttribute(g.normals.slice(), 3);
+    geometry.setAttribute("position", position);
+    geometry.setAttribute("normal", normals);
+    geometry.setIndex(new THREE.BufferAttribute(g.index, 1));
+    g.groups.forEach((group, i) => geometry.addGroup(group.start, group.count, i));
+    const cornerFace = new Uint32Array(d.indices.length);
+    for (let f = 0; f + 1 < d.offsets.length; f++) for (let k = d.offsets[f]; k < d.offsets[f + 1]; k++) cornerFace[k] = f;
+    stroke = {
+      id: node.id,
+      object,
+      original: object.geometry,
+      geometry,
+      position,
+      normals,
+      vertexMap: g.vertexMap,
+      d,
+      positions,
+      cornerFace,
+      crease,
+      back,
+      runner,
+      settings,
+      points: [],
+      pressures: [],
+      pen: e.pointerType === "pen",
+      plane: new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()), hit.point),
+    };
+    object.geometry = geometry;
+    orbit.enabled = false;
+    canvas.setPointerCapture(e.pointerId);
+    addPoint(hit.point, e);
+    return true;
+  }
+  function addPoint(world, e) {
+    const local = world.clone().applyMatrix4(stroke.back),
+      point = [local.x, local.y, local.z],
+      pressure = stroke.pen ? Math.max(0.05, Math.min(1, e.pressure || 0.5)) : 1;
+    stroke.points.push(point);
+    stroke.pressures.push(pressure);
+    stroke.runner.add(point, pressure);
+    if (!drawFrame) drawFrame = requestAnimationFrame(drawStroke);
+  }
+  // Positions and normals of the drawn copy from the working positions.
+  function drawStroke() {
+    drawFrame = 0;
+    if (!stroke) return;
+    const { positions: p, vertexMap, d, crease, cornerFace } = stroke,
+      out = stroke.position.array,
+      nor = stroke.normals.array,
+      F = d.offsets.length - 1,
+      fn = new Float64Array(3 * F);
+    for (let k = 0; k < vertexMap.length; k++) {
+      const v = vertexMap[k];
+      out[3 * k] = p[3 * v];
+      out[3 * k + 1] = p[3 * v + 1];
+      out[3 * k + 2] = p[3 * v + 2];
+    }
+    for (let f = 0; f < F; f++) {
+      let x = 0, y = 0, z = 0;
+      const a = d.offsets[f], b = d.offsets[f + 1];
+      for (let k = a; k < b; k++) {
+        const i = d.indices[k], j = d.indices[k + 1 < b ? k + 1 : a];
+        x += (p[3 * i + 1] - p[3 * j + 1]) * (p[3 * i + 2] + p[3 * j + 2]);
+        y += (p[3 * i + 2] - p[3 * j + 2]) * (p[3 * i] + p[3 * j]);
+        z += (p[3 * i] - p[3 * j]) * (p[3 * i + 1] + p[3 * j + 1]);
+      }
+      fn[3 * f] = x;
+      fn[3 * f + 1] = y;
+      fn[3 * f + 2] = z;
+    }
+    if (!crease) {
+      // Flat: a drawn vertex per face corner, the face's normal.
+      for (let k = 0; k < vertexMap.length; k++) {
+        const f = cornerFace[k], l = Math.hypot(fn[3 * f], fn[3 * f + 1], fn[3 * f + 2]) || 1;
+        nor[3 * k] = fn[3 * f] / l;
+        nor[3 * k + 1] = fn[3 * f + 1] / l;
+        nor[3 * k + 2] = fn[3 * f + 2] / l;
+      }
+    } else {
+      // Smooth (creases are restored when the stroke is committed): area-weighted normals.
+      const vn = new Float64Array(p.length);
+      for (let f = 0; f < F; f++)
+        for (let k = d.offsets[f]; k < d.offsets[f + 1]; k++) {
+          const v = d.indices[k];
+          vn[3 * v] += fn[3 * f];
+          vn[3 * v + 1] += fn[3 * f + 1];
+          vn[3 * v + 2] += fn[3 * f + 2];
+        }
+      for (let k = 0; k < vertexMap.length; k++) {
+        const v = vertexMap[k], l = Math.hypot(vn[3 * v], vn[3 * v + 1], vn[3 * v + 2]) || 1;
+        nor[3 * k] = vn[3 * v] / l;
+        nor[3 * k + 1] = vn[3 * v + 1] / l;
+        nor[3 * k + 2] = vn[3 * v + 2] / l;
+      }
+    }
+    stroke.position.needsUpdate = true;
+    stroke.normals.needsUpdate = true;
+    stroke.geometry.boundingSphere = null;
+    stroke.geometry.boundingBox = null;
+    render();
+  }
+  function endStroke(commit) {
+    const s = stroke;
+    stroke = null;
+    if (drawFrame) cancelAnimationFrame(drawFrame);
+    drawFrame = 0;
+    orbit.enabled = !boxMode;
+    if (!s) return;
+    const restore = () => {
+      s.object.geometry = s.original;
+      s.geometry.dispose();
+      render();
+    };
+    if (!commit) return restore();
+    const { brush, radius, strength, spacing, falloff, invert, symmetry } = s.settings;
+    const command = {
+      op: "sculpt",
+      id: s.id,
+      brush,
+      points: s.points,
+      radius,
+      strength,
+      spacing,
+      falloff,
+      ...(invert ? { invert } : {}),
+      ...(symmetry.length ? { symmetry } : {}),
+      ...(s.pen ? { pressure: s.pressures } : {}),
+    };
+    // The part's geometry is rebuilt from the committed project; the copy goes with the model.
+    if (!onSculpt(command)) restore();
+    else if (![...(model?.objects.values() ?? [])].some((o) => o.geometry === s.original)) s.original.dispose();
+  }
+  canvas.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (!sculpt || e.button !== 0 || stroke) return;
+      if (startStroke(e)) {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+      }
+    },
+    { capture: true },
+  );
+  canvas.addEventListener(
+    "pointermove",
+    (e) => {
+      if (!sculpt) return;
+      if (stroke) {
+        e.stopImmediatePropagation();
+        if (stroke.settings.brush === "grab") {
+          const point = pointerRay(e).intersectPlane(stroke.plane, new THREE.Vector3());
+          if (point) addPoint(point, e);
+          showRing(point, stroke.plane.normal.clone().negate());
+          return;
+        }
+        const hit = surfaceHit(e, stroke.object);
+        if (hit) addPoint(hit.point, e);
+        showRing(hit?.point, hit?.normal);
+        return;
+      }
+      // The ring follows the pointer over the part, once a frame.
+      if (hoverFrame) return;
+      hoverFrame = requestAnimationFrame(() => {
+        hoverFrame = 0;
+        const target = sculptTarget(),
+          hit = target && surfaceHit(e, target.object);
+        showRing(hit?.point, hit?.normal);
+        render();
+      });
+    },
+    { capture: true },
+  );
+  canvas.addEventListener(
+    "pointerup",
+    (e) => {
+      if (!stroke) return;
+      e.stopImmediatePropagation();
+      endStroke(true);
+    },
+    { capture: true },
+  );
+  canvas.addEventListener("pointerleave", () => {
+    if (sculpt && !stroke) {
+      sculptGroup.visible = false;
+      render();
+    }
   });
   const resize = () => {
     const { width, height } = canvas.getBoundingClientRect();
@@ -1600,7 +1913,18 @@ export async function createViewport(
       applyShading();
       render();
     },
+    // Sculpt mode on (brush settings: brush, radius in metres, strength, falloff, spacing,
+    // symmetry axes, invert) or off (null). Settings change between strokes.
+    setSculpt(settings) {
+      if (!settings && stroke) endStroke(false);
+      sculpt = settings ? { ...settings, symmetry: [...(settings.symmetry ?? [])] } : null;
+      if (!sculpt) sculptGroup.visible = false;
+      else if (sculptGroup.visible) ring.scale.setScalar(sculpt.radius);
+      render();
+    },
+    sculpting: () => !!stroke,
     cancel() {
+      if (stroke) endStroke(false);
       if (dragStart) {
         cancelled = true;
         transform.reset();
@@ -1685,6 +2009,7 @@ export async function createViewport(
         helper: transform.getHelper().visible,
         highlights: highlights.visible,
         wires: wires.visible,
+        sculpt: sculptGroup.visible,
         shadows: renderer.shadowMap.enabled,
         shadowIntensity: key.shadow.intensity,
         exposure: renderer.toneMappingExposure,
@@ -1780,6 +2105,7 @@ export async function createViewport(
         updateWires();
         refreshSelection();
         highlights.visible = !!options.overlays?.selection && shading !== "ids";
+        sculptGroup.visible = false;
         wires.visible = wireframe && shading !== "ids";
         transform.getHelper().visible = false;
         grid.visible = floor.visible =
@@ -1941,6 +2267,7 @@ export async function createViewport(
         floor.visible = previous.floor;
         highlights.visible = previous.highlights;
         wires.visible = previous.wires;
+        sculptGroup.visible = previous.sculpt;
         transform.getHelper().visible = previous.helper;
         showReferences();
         renderer.setPixelRatio(previous.ratio);

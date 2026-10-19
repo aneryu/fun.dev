@@ -1,3 +1,4 @@
+import { isDense, jsonBytes } from "./dense.js";
 import { ModelError, emptyProject } from "./document.js";
 
 const object = (v) => !!v && typeof v === "object" && !Array.isArray(v);
@@ -244,13 +245,20 @@ export async function openDraft(fallback, onState = () => {}) {
   function schedule() {
     if (recovery || !activated) return;
     generation++;
-    // The journal contains no checkpoints, activity or geometry-rich receipts.
+    // The journal contains no checkpoints, activity or geometry-rich receipts. A project with
+    // dense meshes (megabytes of arrays) skips it: IndexedDB alone keeps that draft, and an
+    // older journal is removed so it never stands in for it.
     try {
-      localStorage.setItem(
-        key,
-        JSON.stringify({ project: record.project, revision: record.revision }),
-      );
-      journalRevision = record.revision;
+      if (record.project?.nodes?.some((n) => isDense(n.mesh))) {
+        if (journalRevision !== null) localStorage.removeItem(key);
+        journalRevision = null;
+      } else {
+        localStorage.setItem(
+          key,
+          JSON.stringify({ project: record.project, revision: record.revision }),
+        );
+        journalRevision = record.revision;
+      }
     } catch {
       /* IndexedDB can still commit; its result is authoritative. */
     }
@@ -366,10 +374,8 @@ export async function openDraft(fallback, onState = () => {}) {
     setMetadata(metadata) {
       this.assert(record.revision);
       const next = { ...record, ...metadata };
-      if (
-        new TextEncoder().encode(JSON.stringify(next)).length >
-        96 * 1024 * 1024
-      )
+      // Dense meshes count by their bytes (encoding them would cost more than the check).
+      if (jsonBytes(next) > 96 * 1024 * 1024)
         throw new ModelError("Draft with checkpoints exceeds 96 MB", "budget");
       record = next;
       schedule();

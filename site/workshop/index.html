@@ -155,6 +155,7 @@
             <option value="face" data-i18n="edFace">面</option>
             <option value="edge" data-i18n="edEdge">边</option>
             <option value="vertex" data-i18n="edVertex">顶点</option>
+            <option value="sculpt" data-i18n="edSculptMode">雕刻</option>
           </select>
           <div class="transform-tools">
             <button
@@ -306,6 +307,52 @@
               编辑形状参数</button
             ><button id="convert" data-i18n="edConvert">转为网格</button>
           </div>
+          <section id="sculpt-tools" hidden>
+            <h3 data-i18n="edSculpt">雕刻</h3>
+            <div class="brushes" role="radiogroup" aria-label="Brush">
+              <button data-brush="grab" aria-pressed="false" data-i18n="edBrushGrab">抓取</button
+              ><button data-brush="smooth" aria-pressed="false" data-i18n="edBrushSmooth">平滑</button
+              ><button data-brush="inflate" aria-pressed="false" data-i18n="edBrushInflate">膨胀</button
+              ><button data-brush="clay" aria-pressed="true" data-i18n="edBrushClay">黏土</button
+              ><button data-brush="flatten" aria-pressed="false" data-i18n="edBrushFlatten">压平</button
+              ><button data-brush="crease" aria-pressed="false" data-i18n="edBrushCrease">折痕</button>
+            </div>
+            <div class="pair">
+              <label
+                ><span data-i18n="edBrushRadius">半径</span>
+                (<span data-length-unit>m</span>)<input id="brush-radius" type="number" min="0.0001" step="any" value="0.1"
+              /></label>
+              <label
+                ><span data-i18n="edBrushStrength">强度</span
+                ><input id="brush-strength" type="range" min="0.05" max="1" step="0.05" value="0.5"
+              /></label>
+            </div>
+            <div class="pair">
+              <label
+                ><span data-i18n="edBrushFalloff">衰减</span
+                ><select id="brush-falloff">
+                  <option value="smooth" data-i18n="edFalloffSmooth">平滑</option>
+                  <option value="sphere" data-i18n="edFalloffSphere">球形</option>
+                  <option value="root" data-i18n="edFalloffRoot">根式</option>
+                  <option value="sharp" data-i18n="edFalloffSharp">尖锐</option>
+                  <option value="linear" data-i18n="edFalloffLinear">线性</option>
+                  <option value="constant" data-i18n="edFalloffConstant">恒定</option>
+                </select></label
+              >
+              <fieldset class="axes">
+                <legend data-i18n="edBrushMirror">镜像</legend>
+                <label class="check"><input type="checkbox" id="brush-mirror-x" checked />X</label>
+                <label class="check"><input type="checkbox" id="brush-mirror-y" />Y</label>
+                <label class="check"><input type="checkbox" id="brush-mirror-z" />Z</label>
+              </fieldset>
+            </div>
+            <label class="check"
+              ><input type="checkbox" id="brush-invert" /><span data-i18n="edBrushInvert">反向（按住 Ctrl 也可）</span></label
+            >
+            <p class="small muted" data-i18n="edSculptHint">
+              在选中的部件上按住左键拖动来雕刻，在空白处拖动旋转视图；[ 和 ] 调整半径，Esc 取消这一笔。每一笔是一步撤销。
+            </p>
+          </section>
           <section id="selection-tools" hidden>
             <h3 data-i18n="edSelectionTransform">选区变换</h3>
             <div class="xyz" data-vector="selectionMove"></div>

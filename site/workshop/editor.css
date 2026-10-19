@@ -995,3 +995,23 @@ input[data-dirty="true"] {
 #asset-copy-mode {
   width: 100%;
 }
+
+/* Sculpt mode: six brushes in a row of toggles, mirror axes inline. */
+#sculpt-tools .brushes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin-bottom: 8px;
+}
+#sculpt-tools .axes {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+#sculpt-tools .axes legend {
+  float: left;
+  margin-right: 4px;
+}

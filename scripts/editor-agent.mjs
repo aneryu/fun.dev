@@ -149,7 +149,7 @@ async function sessionRecord() {
     // A project file (.funmodel.glb) carries its editable project; JSON projects still work.
     const bytes = await readFile(resolve(config.project)),
       project = /\.glb$/i.test(config.project)
-        ? workshopProject(parseModelFile(new Uint8Array(bytes)).json)
+        ? (({ json, buffers }) => workshopProject(json, buffers))(parseModelFile(new Uint8Array(bytes)))
         : JSON.parse(bytes.toString("utf8"));
     if (!project)
       throw new Error(
