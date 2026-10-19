@@ -746,6 +746,26 @@ node fundev-workshop.mjs --mcp --session model.json --artifacts out/</pre
         <code>--browser</code> drives a real page instead (<code>--url</code> to choose
         one, <code>--gpu</code> to draw on the GPU) and needs Playwright.
       </p>
+      <h2>Scenes · 场景</h2>
+      <pre>
+await ws.place({ id: "lamp_1", model: "street_lamp_01", position: [-5, 0, 0.5], tags: ["lamp"] });   // a library model by reference
+await ws.apply([
+  { op: "create", id: "spawn", kind: "marker", position: [0, 0, 5], tags: ["spawn"], params: { facing: "north" } },
+  { op: "create", id: "lawn", kind: "zone", area: { polygon: [[-6, -6], [6, -6], [6, 0], [-6, 0]], y: [0, 3] } },
+  { op: "create", id: "stroll", kind: "path", path: { points: [[-5, 0, 5], [0, 0, 2], [5, 0, 5]] } },
+]);
+await ws.audit();                              // overlap, floating, buried, out-of-bounds, unconverted-model, budget
+await ws.map({ file: "map.png" });             // the top view with the overlays
+await ws.exportTile({ file: "park.fun3d" });   // the scene as one .fun3d tile
+await ws.exportWorld({ dir: "park-world" });   // world.json + tile + the placed models' files</pre
+      >
+      <p>
+        A placed model keeps the library's bounds and files, never its geometry; markers,
+        zones and paths carry tags and the game's parameters. Zones draw blue, paths orange,
+        markers green. Tag the floor <code>ground</code>. MCP: fun_editor_place, fun_editor_map,
+        fun_editor_audit, fun_editor_exportTile, fun_editor_exportWorld. 场景：按引用放置库模型，
+        标记、区域、路径带标签和参数；audit 列出问题，map 画俯视图。
+      </p>
       <h2>Project · 工程</h2>
       <pre>
 {

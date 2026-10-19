@@ -167,3 +167,25 @@ library upload folder. A new blueprint is a module in `site/workshop/blueprints.
 - Look at the preview; check the export report's triangles, bounds and merge groups.
 
 Full reference: [model editor](model-editor.md) and the workshop's `/workshop/guide`.
+
+## Scenes
+
+Place library models by reference and add the data a game reads (docs/worlds.md):
+
+```js
+await ws.load({ name: "Park corner", tile: { size: [12, 12] }, materials: [] });
+await ws.place({ id: "lamp_1", model: "street_lamp_01", position: [-5, 0, 0.5], rotation: [0, 90, 0], tags: ["lamp"] });
+await ws.apply([
+  { op: "create", id: "spawn", kind: "marker", position: [0, 0, 5], tags: ["spawn"], params: { facing: "north" } },
+  { op: "create", id: "lawn", kind: "zone", tags: ["picnic"], area: { polygon: [[-6, -6], [6, -6], [6, 0], [-6, 0]], y: [0, 3] } },
+  { op: "create", id: "stroll", kind: "path", tags: ["stroll"], path: { points: [[-5, 0, 5], [0, 0, 2], [5, 0, 5]] } },
+]);
+const audit = await ws.audit();          // overlap, floating, buried, out-of-bounds, unconverted-model, budget
+await ws.map({ file: "map.png" });       // the top view with zones, paths and markers
+await ws.exportTile({ file: "park.fun3d" });
+await ws.exportWorld({ dir: "park-world" }); // world.json, the tile, the placed models' .fun3d files
+```
+
+`model` is a library id or `id@vNNN`; `ws.librarySearch({ query })` finds ids. A placed part
+keeps the library's bounds and files, never the geometry. Tag the floor `ground`. Fix what the
+audit lists before exporting; `--run` prints the audit for scene projects.

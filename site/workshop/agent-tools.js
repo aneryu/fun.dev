@@ -41,7 +41,7 @@ const render = {
   visibility: { enum: ["session", "all"] },
   shading: { enum: ["material", "clay", "silhouette", "ids"] },
   helpers: bool,
-  overlays: object({ wire: bool, selection: bool }),
+  overlays: object({ wire: bool, selection: bool, data: bool }),
   focus: bool,
   projection: { enum: ["perspective", "orthographic"] },
   references: bool,
@@ -330,6 +330,54 @@ const definitions = [
     false,
   ],
   [
+    "place",
+    "Place a library model by reference (docs/worlds.md): model is an id or id@vNNN (default: the newest approved version); id names the new part; parent, position, rotation (degrees), scale, tags, params (plain JSON up to 4 KB), variants and tint as for create. The library supplies the version's bounds, triangle count and files; the part keeps a reference, never the geometry. Markers, zones and paths are created with apply: create kind marker | zone (area) | path (path).",
+    object(
+      {
+        model: str,
+        id: str,
+        version: { type: "string", pattern: "^v\\d{3}$" },
+        parent: str,
+        name: str,
+        position: vector,
+        rotation: vector,
+        scale: vector,
+        tags: { type: "array", items: str, maxItems: 16 },
+        params: { type: "object" },
+        variants: { type: "object", additionalProperties: str },
+        tint: vector,
+        label: str,
+        ifRevision: revision,
+      },
+      ["model", "id", "ifRevision"],
+    ),
+    false,
+  ],
+  [
+    "map",
+    "A top-down map of the scene: every part, with zones (blue), paths (orange) and markers (green) drawn over it. Returns the image, its metres per pixel and the scene's bounds.",
+    object({ size: render.size, ids, shading: render.shading, helpers: bool, visibility: render.visibility }),
+    true,
+  ],
+  [
+    "audit",
+    "What a picture cannot show: overlapping solids, floating or buried parts, parts outside the tile, placed models without a .fun3d file, and the triangle budget (300 000 by default, a phone's). Every finding carries a suggestion.",
+    object({ ground: num, budget: object({ triangles: num }) }),
+    true,
+  ],
+  [
+    "exportTile",
+    "The scene as a .fun3d tile: the project's parts as geometry, placed models as references (refs and model nodes), markers as tagged nodes with fun3d.params, zones and paths in fun3d.zones and fun3d.paths, the project in the editing section. The adapter writes it to --artifacts when set.",
+    object({ name: str }),
+    true,
+  ],
+  [
+    "exportWorld",
+    "A one-tile world: world.json, tiles/0_0.fun3d and the .fun3d of every placed model, downloaded from the library (each placed model needs a converted version; audit reports those without). The adapter writes the files under --artifacts when set.",
+    object({ name: str }),
+    true,
+  ],
+  [
     "clearReference",
     "Remove the reference image of one view, or all without view.",
     object({ view: { enum: ["front", "back", "left", "right", "top"] } }),
@@ -353,7 +401,7 @@ const validationTools = definitions.map(
     annotations: {
       readOnlyHint,
       destructiveHint: method === "removeCheckpoint",
-      openWorldHint: method.startsWith("library") || method === "openLibraryModel",
+      openWorldHint: method.startsWith("library") || ["openLibraryModel", "place", "exportWorld"].includes(method),
     },
   }),
 );
@@ -432,8 +480,12 @@ export function toolInvocation(name, args = {}) {
   if (method === "checkpoint") return { method, args: [rest, { ifRevision }] };
   if (["restoreCheckpoint", "removeCheckpoint"].includes(method))
     return { method, args: [id, { ifRevision }] };
-  if (method === "exportGLB")
+  if (method === "exportGLB" || method === "exportTile")
     return { method, args: [{ ...args, encoding: "base64" }] };
+  if (method === "place") {
+    const { ifRevision: expected, label: title, ...options } = args;
+    return { method, args: [options, { ifRevision: expected, label: title }] };
+  }
   if (method === "openLibraryModel") {
     const { ifRevision: expected, ...options } = args;
     return { method, args: [options, { ifRevision: expected }] };

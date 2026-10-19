@@ -2,7 +2,7 @@
 // way a Blender script does. Revisions, file paths and compact results are handled here, so
 // one run is one call and its output stays short.
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { resolve, dirname, extname, basename } from "node:path";
+import { resolve, dirname, extname, basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 class ScriptError extends Error {
@@ -173,6 +173,32 @@ export function scriptApi(invoke, base) {
     async setReference({ file, ...options }) {
       return call("setReference", { ...options, path: path(file) });
     },
+    // Scenes (docs/worlds.md): a library model by reference, the map, the audit, the tile,
+    // the one-tile world.
+    async place({ id, model, ...options }) {
+      const result = await call("place", { id, model, ...options, ifRevision: await current() });
+      revision = result.revision;
+      return { revision, id, model: result.placed.model, bounds: result.placed.bounds, triangles: result.placed.triangles, warnings: result.warnings };
+    },
+    async audit(options = {}) {
+      const result = await call("audit", options);
+      return { findings: result.findings, counts: result.counts, triangles: result.triangles };
+    },
+    async map({ file = "map.png", ...options } = {}) {
+      const result = await call("map", options);
+      const target = await write(file, Buffer.from(result.dataUrl.split(",")[1], "base64"));
+      return { file: target, width: result.width, height: result.height, metresPerPixel: result.metresPerPixel, bounds: result.bounds };
+    },
+    async exportTile({ file = "tile.fun3d", ...options } = {}) {
+      const result = await call("exportTile", options);
+      return { file: await write(file, Buffer.from(result.data, "base64")), ...result.report };
+    },
+    async exportWorld({ dir = "world", ...options } = {}) {
+      const result = await call("exportWorld", options);
+      const written = [];
+      for (const f of result.files) written.push(await write(join(dir, f.path), Buffer.from(f.data, "base64")));
+      return { dir: path(dir), files: written, tiles: result.manifest.tiles.length, models: Object.keys(result.manifest.models) };
+    },
   };
   return { ws, files };
 }
@@ -186,13 +212,23 @@ export async function runScript(file, invoke) {
     throw new Error("A model script exports a default async function (ws)");
   await module.default(ws);
   const state = await ws.inspect();
-  return {
+  const result = {
     ok: true,
     revision: state.revision,
     stats: state.stats,
     validation: await ws.validate(),
     files,
   };
+  // A scene (placed models, markers, zones or paths) carries its audit too.
+  const { placed = 0, markers = 0, zones = 0, paths = 0 } = state.stats;
+  if (placed + markers + zones + paths > 0) {
+    const audit = await ws.audit();
+    result.audit = {
+      ...audit.counts,
+      findings: audit.findings.map((f) => ({ code: f.code, node: f.node ?? f.nodes, message: f.message })),
+    };
+  }
+  return result;
 }
 
 export async function guideText(root) {

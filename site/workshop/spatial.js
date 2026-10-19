@@ -163,13 +163,35 @@ export function boundsOf(points) {
     max = [0, 1, 2].map((i) => Math.max(...points.map((v) => v[i])));
   return { min, max, size: sub(max, min), center: mul(add(min, max), 0.5) };
 }
+// The local points that bound a part without a mesh (docs/worlds.md): a placed model's
+// bounds, a zone's corners, a path's points; a marker is its origin.
+export function nodePoints(node) {
+  if (node.place) {
+    const { min, max } = node.place.bounds;
+    return [0, 1, 2, 3, 4, 5, 6, 7].map((i) => [
+      i & 1 ? max[0] : min[0],
+      i & 2 ? max[1] : min[1],
+      i & 4 ? max[2] : min[2],
+    ]);
+  }
+  if (node.zone) {
+    const z = node.zone;
+    if (z.kind === "polygon") return z.polygon.flatMap(([x, zz]) => [[x, z.y[0], zz], [x, z.y[1], zz]]);
+    if (z.kind === "box") {
+      const h = z.size.map((v) => v / 2);
+      return [0, 1, 2, 3, 4, 5, 6, 7].map((i) => [i & 1 ? h[0] : -h[0], i & 2 ? h[1] : -h[1], i & 4 ? h[2] : -h[2]]);
+    }
+    const r = z.radius;
+    return [[-r, 0, 0], [r, 0, 0], [0, -r, 0], [0, r, 0], [0, 0, -r], [0, 0, r]];
+  }
+  if (node.path) return node.path.points.map((p) => [...p]);
+  return [[0, 0, 0]];
+}
 export function nodeInfo(project, id, { components = true } = {}) {
   const node = project.nodes.find((n) => n.id === id);
   if (!node) fail(`Unknown node: ${id}`);
   const world = worldMatrix(project, id),
-    vertices = node.mesh?.vertices.map((v) => point(world, v)) ?? [
-      point(world, [0, 0, 0]),
-    ];
+    vertices = (node.mesh?.vertices ?? nodePoints(node)).map((v) => point(world, v));
   return {
     worldMatrix: world,
     bounds: boundsOf(vertices),

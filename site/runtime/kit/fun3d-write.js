@@ -7,7 +7,7 @@
 // validated against the schema before packing, so a bad input fails here, not in a game.
 
 import { packChunks } from "./fun3d-container.js";
-import { VERSION, idFromName, skeletonHash, validateManifest } from "./fun3d-schema.js";
+import { FORMATS, VERSION, idFromName, skeletonHash, validateManifest } from "./fun3d-schema.js";
 
 const round = (n, digits = 6) => Number(n.toFixed(digits));
 const bytesOf = (typed) => new Uint8Array(typed.buffer, typed.byteOffset, typed.byteLength);
@@ -36,13 +36,14 @@ class Chunk {
 export function createWriter({ THREE, encoder = null }) {
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-  async function write(root, { kind = "model", asset = {}, animations = [], physics = null, rig = null, edit = null, quantize = true, compress = true, uses = [], requires = [], extensions = null } = {}) {
+  async function write(root, { kind = "model", asset = {}, animations = [], physics = null, rig = null, edit = null, quantize = true, compress = true, uses = [], requires = [], extensions = null, refs = [] } = {}) {
     if (!root?.isObject3D) throw new TypeError("write needs an Object3D");
     if (encoder) await encoder.ready;
     const bin = new Chunk(), stored = new Chunk();
     const manifest = {
-      fun3d: VERSION, kind, asset: { generator: "fun.dev fun3d 1.0", ...asset }, uses, requires,
-      streams: [], nodes: [], geometries: [], materials: [], images: [], textures: [], skeletons: [], animations: [], physics: {}, variants: [], refs: [], extensions: extensions ?? {},
+      fun3d: VERSION, kind, asset: { generator: `fun.dev fun3d ${VERSION}`, ...asset }, uses: [...uses], requires,
+      streams: [], nodes: [], geometries: [], materials: [], images: [], textures: [], skeletons: [], animations: [], physics: {}, variants: [],
+      refs: refs.map((r) => ({ id: r.id, model: r.model })), extensions: {},
     };
 
     function stream(typed, { count, stride, mode = null, store = false }) {
@@ -281,7 +282,16 @@ export function createWriter({ THREE, encoder = null }) {
       if (object.visible === false) node.visible = false;
       if (object.userData.tags?.length) node.tags = [...object.userData.tags];
       if (object.userData.sockets && Object.keys(object.userData.sockets).length) node.sockets = structuredClone(object.userData.sockets);
-      if (mesh) {
+      // A placed library model (docs/worlds.md): a reference, never the model's geometry.
+      if (object.userData.fun3dModel) {
+        const { ref, variants, tint } = object.userData.fun3dModel;
+        if (!manifest.refs.some((r) => r.id === ref)) throw new Error(`node "${id}" places the reference "${ref}" which refs does not name`);
+        node.model = { ref, ...(variants && Object.keys(variants).length ? { variants: { ...variants } } : {}), ...(tint ? { tint: tint.map((n) => round(n, 4)) } : {}) };
+      }
+      const nodeExtensions = { ...(object.userData.extensions ?? {}) };
+      if (object.userData.params && Object.keys(object.userData.params).length) nodeExtensions["fun3d.params"] = structuredClone(object.userData.params);
+      if (Object.keys(nodeExtensions).length) node.extensions = nodeExtensions;
+      if (mesh && !node.model) {
         const geometryId = await writeGeometry(mesh.geometry, id, mesh.morphTargetDictionary ? Object.keys(mesh.morphTargetDictionary) : null);
         const entry = manifest.geometries.find((g) => g.id === geometryId);
         const list = [mesh.material].flat();
@@ -421,6 +431,30 @@ export function createWriter({ THREE, encoder = null }) {
       });
       manifest.physics = out;
     }
+
+    // ---- extensions ----
+    // Values of the form { stream: TypedArray, format } become streams (a path table's points).
+    const withStreams = (value, path) => {
+      if (Array.isArray(value)) return value.map((v, i) => withStreams(v, `${path}[${i}]`));
+      if (value && typeof value === "object") {
+        if (ArrayBuffer.isView(value.stream) && typeof value.format === "string") {
+          const format = FORMATS[value.format];
+          if (!format) throw new Error(`${path}: unknown stream format ${value.format}`);
+          const [Type, components, , stride] = format;
+          if (!(value.stream instanceof Type)) throw new Error(`${path}: a ${value.format} stream is a ${Type.name}`);
+          const count = value.stream.length / components;
+          if (!Number.isInteger(count)) throw new Error(`${path}: the stream's length is not a multiple of ${components}`);
+          return { stream: stream(value.stream, { count, stride, mode: stride % 4 === 0 && stride <= 64 ? "attributes" : null }), format: value.format };
+        }
+        return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, withStreams(v, `${path}.${k}`)]));
+      }
+      return value;
+    };
+    manifest.extensions = withStreams(extensions ?? {}, "extensions");
+    const used = new Set(manifest.uses);
+    for (const name of Object.keys(manifest.extensions)) used.add(name);
+    for (const n of manifest.nodes) for (const name of Object.keys(n.extensions ?? {})) used.add(name);
+    manifest.uses = [...used];
 
     const chunks = [bin.length, stored.length].filter((n, i) => i === 0 || n).length;
     const problems = validateManifest(manifest, { chunks });

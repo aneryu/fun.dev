@@ -25,6 +25,7 @@ import { kernel } from "./workshop-kernel.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const MUTATING = [
   "apply",
+  "place",
   "loadProject",
   "importGLB",
   "openLibraryModel",
@@ -439,6 +440,32 @@ async function invoke(name, arguments_) {
   let structured = value;
   if (call.method === "renderViews")
     structured = { observations: await observations(value) };
+  else if (call.method === "map") {
+    const { dataUrl, ...meta } = value,
+      data = dataUrl.split(",")[1];
+    if (config.mcp) content.push({ type: "image", mimeType: value.mimeType, data });
+    structured = {
+      ...meta,
+      ...(config.artifacts
+        ? { artifact: await asset(data, "png", value.mimeType) }
+        : config.mcp
+          ? {}
+          : { dataUrl }),
+    };
+  } else if (call.method === "exportTile" && config.artifacts) {
+    const { data, ...meta } = value;
+    structured = { ...meta, artifact: await asset(data, "fun3d", value.mimeType) };
+  } else if (call.method === "exportWorld" && config.artifacts) {
+    const directory = resolve(config.artifacts, value.manifest.id),
+      written = [];
+    for (const f of value.files) {
+      const target = resolve(directory, f.path);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, Buffer.from(f.data, "base64"));
+      written.push(target);
+    }
+    structured = { revision: value.revision, manifest: value.manifest, report: value.report, directory, files: written };
+  }
   else if (
     ["preview", "recipeStage"].includes(call.method) &&
     value.observations

@@ -28,6 +28,7 @@ import {
   boundsOf,
   nodeInfo,
   reflection,
+  nodePoints,
 } from "./spatial.js";
 import { meshEdges, bevelEdges, cutPlane, loopCut } from "./topology.js";
 import { surfaceDiagnostics } from "./diagnostics.js";
@@ -357,6 +358,21 @@ export function normalizeProject(input) {
       result.instanceOf = identifier(node.instanceOf, "instanceOf");
     if (node.instanceOf && node.instanceBasis)
       result.instanceBasis = affine(node.instanceBasis);
+    const tags = normalizeTags(node.tags, `nodes.${node.id}.tags`);
+    if (tags.length) result.tags = tags;
+    if (node.params !== undefined && node.params !== null)
+      result.params = normalizeParams(node.params, `nodes.${node.id}.params`);
+    const data = DATA_KINDS.filter((k) => node[k]);
+    if (
+      data.length > 1 ||
+      (data.length &&
+        (result.mesh || result.generator || result.recipe || result.symmetry || result.instanceOf))
+    )
+      fail("A part is one of: mesh, placed model, marker, zone or path", `nodes.${node.id}`);
+    if (node.place) result.place = normalizePlace(node.place, `nodes.${node.id}.place`);
+    if (node.marker) result.marker = true;
+    if (node.zone) result.zone = normalizeZone(node.zone, `nodes.${node.id}.zone`);
+    if (node.path) result.path = normalizePath(node.path, `nodes.${node.id}.path`);
     return result;
   });
   unique(
@@ -445,11 +461,13 @@ export function normalizeProject(input) {
   };
   nodes.forEach((n) => visit(n.id));
   validateMaterialReferences({ materials, nodes });
-  const sources = normalizeSources(input.sources);
+  const sources = normalizeSources(input.sources),
+    tile = normalizeTile(input.tile);
   return {
     format: FORMAT,
     version: VERSION,
     name: label(input.name, "name"),
+    ...(tile ? { tile } : {}),
     assemblies: normalizeAssemblies(
       input.assemblies ?? (legacyAssembly ? [legacyAssembly] : []),
       nodes,
@@ -479,9 +497,127 @@ function normalizeSources(input) {
     });
 }
 
+// Scene data (docs/worlds.md): tags and parameters on any part; a part that is a placed
+// library model, a marker, a zone or a path instead of a mesh.
+const TAG = /^[\p{L}\p{N}_:.-]{1,64}$/u;
+export function normalizeTags(value, path = "tags") {
+  if (value === undefined || value === null) return [];
+  if (
+    !Array.isArray(value) ||
+    value.length > 16 ||
+    value.some((t) => typeof t !== "string" || !TAG.test(t))
+  )
+    fail("Tags are up to 16 strings of letters, digits, _ : . - (1–64)", path);
+  return [...new Set(value)];
+}
+export function normalizeParams(value, path = "params") {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    fail("Parameters are a JSON object", path);
+  let text;
+  try {
+    text = JSON.stringify(value);
+  } catch {
+    fail("Parameters must be plain JSON", path);
+  }
+  if (text === undefined || text.length > 4096)
+    fail("Parameters are plain JSON up to 4 KB", path);
+  return JSON.parse(text);
+}
+const MODEL_REF = /^[a-z0-9]+(?:_[a-z0-9]+)*@v\d{3}$/,
+  SHA = /^[a-f0-9]{64}$/,
+  SHORT_ID = /^[A-Za-z0-9_-]{1,64}$/;
+export function normalizePlace(value, path = "place") {
+  if (!value || typeof value !== "object") fail("Invalid placed model", path);
+  if (typeof value.model !== "string" || !MODEL_REF.test(value.model))
+    fail("A placed model is <id>@v<nnn>", `${path}.model`);
+  const bounds = value.bounds;
+  if (!bounds || typeof bounds !== "object")
+    fail("A placed model needs its bounds", `${path}.bounds`);
+  const min = vector(bounds.min, `${path}.bounds.min`),
+    max = vector(bounds.max, `${path}.bounds.max`);
+  if (min.some((v, i) => v > max[i]))
+    fail("Placed model bounds are inverted", `${path}.bounds`);
+  const result = { model: value.model, bounds: { min, max } };
+  if (value.sha256 !== undefined && value.sha256 !== null) {
+    if (!SHA.test(value.sha256)) fail("Invalid sha256", `${path}.sha256`);
+    result.sha256 = value.sha256;
+  }
+  if (value.derived !== undefined && value.derived !== null) {
+    if (!SHA.test(value.derived)) fail("Invalid derived sha256", `${path}.derived`);
+    result.derived = value.derived;
+  }
+  if (value.triangles !== undefined && value.triangles !== null) {
+    if (!Number.isInteger(value.triangles) || value.triangles < 0 || value.triangles > 1e8)
+      fail("Invalid triangle count", `${path}.triangles`);
+    result.triangles = value.triangles;
+  }
+  if (value.variants !== undefined && value.variants !== null) {
+    if (typeof value.variants !== "object" || Array.isArray(value.variants))
+      fail("Variants map an axis to a variant id", `${path}.variants`);
+    const entries = Object.entries(value.variants);
+    if (
+      entries.length > 16 ||
+      entries.some(([k, v]) => !SHORT_ID.test(k) || typeof v !== "string" || !SHORT_ID.test(v))
+    )
+      fail("Variants map up to 16 axes to variant ids", `${path}.variants`);
+    if (entries.length) result.variants = Object.fromEntries(entries);
+  }
+  if (value.tint !== undefined && value.tint !== null) {
+    const tint = vector(value.tint, `${path}.tint`);
+    if (tint.some((v) => v < 0 || v > 1)) fail("Tint components are 0–1", `${path}.tint`);
+    result.tint = tint;
+  }
+  return result;
+}
+export function normalizeZone(value, path = "area") {
+  if (!value || typeof value !== "object") fail("Invalid zone", path);
+  if (value.polygon !== undefined) {
+    if (!Array.isArray(value.polygon) || value.polygon.length < 3 || value.polygon.length > 256)
+      fail("A zone polygon has 3–256 [x, z] points", `${path}.polygon`);
+    const polygon = value.polygon.map((p, i) => {
+      if (!Array.isArray(p) || p.length !== 2 || p.some((v) => !Number.isFinite(v) || Math.abs(v) > 100000))
+        fail("Polygon points are [x, z]", `${path}.polygon.${i}`);
+      return [p[0], p[1]];
+    });
+    const y = value.y ?? [0, 3];
+    if (!Array.isArray(y) || y.length !== 2 || y.some((v) => !Number.isFinite(v) || Math.abs(v) > 100000) || y[1] <= y[0])
+      fail("A zone's y is [bottom, top]", `${path}.y`);
+    return { kind: "polygon", polygon, y: [y[0], y[1]] };
+  }
+  if (value.size !== undefined) {
+    const size = vector(value.size, `${path}.size`);
+    if (size.some((v) => v <= 0)) fail("A box zone needs a positive size", `${path}.size`);
+    return { kind: "box", size };
+  }
+  if (value.radius !== undefined)
+    return { kind: "sphere", radius: number(value.radius, 1e-6, 100000, `${path}.radius`) };
+  fail("A zone is a polygon with y, a box size or a sphere radius", path);
+}
+export function normalizePath(value, path = "path") {
+  if (!value || typeof value !== "object" || !Array.isArray(value.points) || value.points.length < 2 || value.points.length > 1024)
+    fail("A path has 2–1024 points", `${path}.points`);
+  if (value.kind !== undefined && value.kind !== "data")
+    fail("Only data paths exist in this release", `${path}.kind`);
+  return { points: value.points.map((p, i) => vector(p, `${path}.points.${i}`)), closed: !!value.closed };
+}
+function normalizeTile(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "object" || !Array.isArray(value.size) || value.size.length !== 2 || value.size.some((v) => !(v >= 1 && v <= 100000)))
+    fail("tile.size is [width, depth] in metres", "tile.size");
+  return { size: [value.size[0], value.size[1]] };
+}
+export const DATA_KINDS = ["place", "marker", "zone", "path"];
+export const dataKind = (node) => DATA_KINDS.find((k) => node?.[k]) ?? null;
+
 export function statistics(project) {
   return project.nodes.reduce(
     (s, node) => {
+      if (node.place) {
+        s.placed++;
+        s.placedTriangles += node.place.triangles ?? 0;
+      } else if (node.marker) s.markers++;
+      else if (node.zone) s.zones++;
+      else if (node.path) s.paths++;
       if (!node.mesh) return s;
       s.meshes++;
       s.vertices += node.mesh.vertices.length;
@@ -500,6 +636,11 @@ export function statistics(project) {
       faces: 0,
       triangles: 0,
       drawCalls: 0,
+      placed: 0,
+      placedTriangles: 0,
+      markers: 0,
+      zones: 0,
+      paths: 0,
     },
   );
 }
@@ -648,9 +789,11 @@ function descendants(project, id) {
 export function measure(project, id, options) {
   const ids = descendants(project, id),
     points = [];
-  for (const node of project.nodes.filter((n) => ids.has(n.id) && n.mesh)) {
+  for (const node of project.nodes.filter(
+    (n) => ids.has(n.id) && (n.mesh || n.place || n.zone || n.path),
+  )) {
     const m = worldMatrix(project, node.id);
-    points.push(...node.mesh.vertices.map((v) => point(m, v)));
+    points.push(...(node.mesh?.vertices ?? nodePoints(node)).map((v) => point(m, v)));
   }
   const info = nodeInfo(project, id, options);
   return { ...info, bounds: points.length ? boundsOf(points) : info.bounds };
@@ -1318,13 +1461,38 @@ function run(project, command) {
       material = project.materials[0].id,
       options = {},
     } = command;
+    const base = { id, name, parent, position, rotation, scale, mesh: null };
+    const tags = normalizeTags(command.tags, "tags");
+    if (tags.length) base.tags = tags;
+    if (command.params !== undefined && command.params !== null)
+      base.params = normalizeParams(command.params, "params");
+    if (kind === "place") {
+      if (!command.place) {
+        const error = new ModelError(
+          "Placing a library model needs its resolved record",
+          "schema",
+          "place",
+        );
+        error.suggestion = "Call place({ model, id, … }) which resolves the model in the library first.";
+        throw error;
+      }
+      project.nodes.push({ ...base, place: normalizePlace(command.place, "place") });
+      return;
+    }
+    if (kind === "marker") {
+      project.nodes.push({ ...base, marker: true });
+      return;
+    }
+    if (kind === "zone") {
+      project.nodes.push({ ...base, zone: normalizeZone(command.area ?? options, "area") });
+      return;
+    }
+    if (kind === "path") {
+      project.nodes.push({ ...base, path: normalizePath(command.path ?? options, "path") });
+      return;
+    }
     project.nodes.push({
-      id,
-      name,
-      parent,
-      position,
-      rotation,
-      scale,
+      ...base,
       mesh:
         kind === "group"
           ? null
@@ -1462,6 +1630,8 @@ function run(project, command) {
     !["unlink", "delete", "duplicate", "rename"].includes(command.op)
   )
     fail("Unlink the mirrored part before editing it");
+  if (dataKind(node) && !["set", "delete", "duplicate", "rename"].includes(command.op))
+    fail("Placed models, markers, zones and paths take set, delete, duplicate and rename only");
   switch (command.op) {
     case "rename": {
       // A node ID is its glTF name: games find wheels, doors and lights by it.
@@ -1665,6 +1835,34 @@ function run(project, command) {
         if (angle) node.smooth = angle;
         else delete node.smooth;
       }
+      if (command.tags !== undefined) {
+        const tags = normalizeTags(command.tags, "tags");
+        if (tags.length) node.tags = tags;
+        else delete node.tags;
+      }
+      if (command.params !== undefined) {
+        if (command.params === null) delete node.params;
+        else node.params = normalizeParams(command.params, "params");
+      }
+      if (command.variants !== undefined || command.tint !== undefined) {
+        if (!node.place) fail("Variants and tint belong to placed models", "variants");
+        node.place = normalizePlace(
+          {
+            ...node.place,
+            ...(command.variants !== undefined ? { variants: command.variants } : {}),
+            ...(command.tint !== undefined ? { tint: command.tint } : {}),
+          },
+          "place",
+        );
+      }
+      if (command.area !== undefined) {
+        if (!node.zone) fail("area belongs to zones", "area");
+        node.zone = normalizeZone(command.area, "area");
+      }
+      if (command.path !== undefined) {
+        if (!node.path) fail("path belongs to paths", "path");
+        node.path = normalizePath(command.path, "path");
+      }
       break;
     }
     case "delete": {
@@ -1741,6 +1939,7 @@ function run(project, command) {
       });
       if (command.linked && !hasAsset)
         for (const n of clones) {
+          if (dataKind(n)) fail("Linked copies need mesh parts; duplicate placed models, markers, zones and paths without linked");
           const source = project.nodes.find((s) => map.get(s.id) === n.id);
           n.instanceOf = source.instanceOf ?? source.id;
           delete n.generator;

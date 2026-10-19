@@ -180,8 +180,46 @@ const props = {
     },
   },
   newId: string,
-  params: { type: "object", additionalProperties: { oneOf: [number, string, boolean] } },
+  // Blueprint values (checked against the blueprint's own schema) and the free parameters of
+  // scene parts (markers, zones, paths, placed models): plain JSON up to 4 KB.
+  params: object,
   idMap: { type: "object", additionalProperties: string },
+  // Scene parts (docs/worlds.md): a library model by reference, tags, variants and tint of a
+  // placed model, a zone's area, a path's points.
+  model: { type: "string", pattern: "^[a-z0-9]+(?:_[a-z0-9]+)*(?:@v\\d{3})?$" },
+  version: { type: "string", pattern: "^v\\d{3}$" },
+  tags: { type: "array", items: string, maxItems: 16 },
+  variants: { type: "object", additionalProperties: string },
+  tint: vector,
+  area: {
+    type: "object",
+    properties: { polygon: { type: "array", items: pair, minItems: 3, maxItems: 256 }, y: pair, size: vector, radius: number },
+    additionalProperties: false,
+  },
+  path: {
+    type: "object",
+    properties: {
+      points: { type: "array", items: vector, minItems: 2, maxItems: 1024 },
+      closed: boolean,
+      kind: { const: "data" },
+    },
+    required: ["points"],
+    additionalProperties: false,
+  },
+  place: {
+    type: "object",
+    properties: {
+      model: { type: "string", pattern: "^[a-z0-9]+(?:_[a-z0-9]+)*@v\\d{3}$" },
+      bounds: { type: "object", properties: { min: vector, max: vector }, required: ["min", "max"], additionalProperties: false },
+      sha256: { type: "string", pattern: "^[a-f0-9]{64}$" },
+      derived: { oneOf: [{ type: "string", pattern: "^[a-f0-9]{64}$" }, { type: "null" }] },
+      triangles: { type: "integer", minimum: 0 },
+      variants: { type: "object", additionalProperties: string },
+      tint: vector,
+    },
+    required: ["model", "bounds"],
+    additionalProperties: false,
+  },
   replace: { type: "array", items: string, minItems: 2, maxItems: 2 },
   name: string,
   kind: {
@@ -198,6 +236,10 @@ const props = {
       "capsule",
       "mesh",
       "group",
+      "place",
+      "marker",
+      "zone",
+      "path",
     ],
   },
   parent: { oneOf: [string, { type: "null" }] },
@@ -370,7 +412,7 @@ props.shape = {
 const specs = {
   create: [
     "id kind",
-    "name parent position rotation scale material options mesh smooth",
+    "name parent position rotation scale material options mesh smooth tags params place variants tint area path",
   ],
   material: [
     "id",
@@ -379,7 +421,7 @@ const specs = {
   removeMaterial: ["id", "replacement"],
   purgeMaterials: ["", ""],
   renameProject: ["name", ""],
-  set: ["id", "name parent position rotation scale keepWorld smooth"],
+  set: ["id", "name parent position rotation scale keepWorld smooth tags params variants tint area path"],
   transform: [
     "",
     "id ids vertices faces edges topology select translation rotation scale pivot space matrix",
@@ -810,6 +852,10 @@ export function capabilities({ detail = "full", command } = {}) {
       vertices: 30000,
       triangles: 50000,
       checkpoints: 5,
+      tags: 16,
+      paramsBytes: 4096,
+      zonePolygonPoints: 256,
+      pathPoints: 1024,
     },
     persistence:
       "apply is synchronous; inspect persistence or await flush(). MCP waits for durable saves before acknowledging mutations.",
@@ -864,6 +910,11 @@ export function capabilities({ detail = "full", command } = {}) {
       "projectFiles",
       "referenceImages",
       "shellOverlapWarnings",
+      "placedLibraryModels",
+      "markersZonesPaths",
+      "sceneAudit",
+      "mapRender",
+      "tileExport",
     ],
     unsupported: [
       "UV textures",

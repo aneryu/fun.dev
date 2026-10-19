@@ -13,6 +13,7 @@
 
 import { ContainerError, packChunks, parseJSON, scanChunks, stripEditing, unpackChunks } from "./fun3d-container.js";
 import { CAPS, FORMATS, VERSION, skeletonHash, validateManifest } from "./fun3d-schema.js";
+import { cloneObjects } from "./objects.js";
 import { createWriter } from "./fun3d-write.js";
 import { textureFromImage } from "./assets.js";
 
@@ -254,12 +255,24 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
    * meshes are unnamed children carrying the dequantizing transform; skinned meshes are the
    * nodes themselves. `materials` builds from kit/materials.js when given to createFun3d.
    */
-  async function load(bytes, { warn = (message) => console.warn(`fun3d: ${message}`), keepSources = false, materials: builder = materials } = {}) {
+  async function load(bytes, { warn = (message) => console.warn(`fun3d: ${message}`), keepSources = false, materials: builder = materials, resolve = null } = {}) {
     if (decoder) await decoder.ready;
     const { manifest, bins, problems } = await read(bytes);
     if (problems.length) throw new Error(`invalid .fun3d: ${problems[0]}${problems.length > 1 ? ` (+${problems.length - 1} more)` : ""}`);
-    if (manifest.refs?.length) throw new Error("files with references are not in this release");
     for (const name of manifest.requires ?? []) throw new Error(`this file requires the extension ${name}, which this runtime does not have`);
+    // References (docs/worlds.md): the caller loads each referenced model (a tile places
+    // library models); only skeleton, image and texture references wait for a later release.
+    const resolved = new Map();
+    if (manifest.refs?.length) {
+      if (typeof resolve !== "function") throw new Error("this file places library models: load it with { resolve(model) } returning each referenced model, loaded");
+      for (const r of manifest.refs) {
+        const file = await resolve(r.model, r);
+        if (!file?.root || !file.manifest) throw new Error(`reference "${r.id}" (${r.model}) did not resolve to a loaded model`);
+        resolved.set(r.id, file);
+      }
+      if ((manifest.skeletons ?? []).some((s) => s.ref) || (manifest.images ?? []).some((i) => i.ref) || (manifest.textures ?? []).some((t) => t.ref))
+        throw new Error("referenced skeletons, images and textures are not in this release");
+    }
     const streams = openStreams(manifest, bins), warnings = [];
     const note = (message) => { warnings.push(message); warn(message); };
     const disposables = [];
@@ -418,6 +431,16 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
         if (mesh.dequantize) { child.position.fromArray(mesh.dequantize.offset); child.scale.setScalar(mesh.dequantize.scale); }
         object.add(child);
         object.userData.mesh = child;
+      } else if (n.model) {
+        // A placed library model: the referenced model's objects under this node, geometry
+        // and materials shared with the file it came from. Variants and tint are carried as
+        // data in this release.
+        object = new THREE.Object3D();
+        const file = resolved.get(n.model.ref);
+        const nested = cloneObjects(THREE, file.root);
+        nested.userData = { ...nested.userData, nested: true, model: manifest.refs.find((r) => r.id === n.model.ref).model };
+        object.add(nested);
+        object.userData.model = { ref: n.model.ref, model: nested.userData.model, variants: n.model.variants ? { ...n.model.variants } : {}, tint: n.model.tint ? [...n.model.tint] : null };
       } else object = boneIds.has(n.id) ? new THREE.Bone() : new THREE.Object3D();
       if (n.mesh) {
         const target = object.userData.mesh ?? object, shadow = n.mesh.shadow ?? "both";
@@ -436,6 +459,7 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
       if (n.visible === false) object.visible = false;
       if (n.tags) object.userData.tags = [...n.tags];
       if (n.sockets) object.userData.sockets = structuredClone(n.sockets);
+      if (n.extensions?.["fun3d.params"]) object.userData.params = structuredClone(n.extensions["fun3d.params"]);
       // A light is intent: kit/lights.js lends real lights to the best candidates (§4.1).
       if (n.light) { object.userData.light = { type: n.light.type, color: n.light.color ?? "#ffffff", intensity: n.light.intensity, range: n.light.range ?? 0, cone: n.light.cone ?? [0.5, 0.6], importance: n.light.importance ?? 0.5 }; lights.push({ node: n.id, ...object.userData.light }); }
       for (const key of Object.keys(IGNORED)) if (n[key] !== undefined) ignored.add(IGNORED[key]);
@@ -492,6 +516,7 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
 
     const model = {
       manifest, kind: manifest.kind, asset: manifest.asset, root, nodes, geometries, materials: materialDescs, textures, images, skeletons, animations, placements, lights, physicsData, warnings,
+      streams, extensions: manifest.extensions ?? {}, refs: resolved,
       node: (id) => nodes.get(id) ?? null,
       clip: (id) => animations.find((c) => c.name === id) ?? null,
       textureFor,

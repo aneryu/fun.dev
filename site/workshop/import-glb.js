@@ -535,6 +535,96 @@ function projectFromGLTF(json, buffers, { name } = {}) {
 }
 
 /** Adds another project's parts: clashing node and material IDs get suffixes. */
+/**
+ * A GLB as Three.js objects for display: the node tree with its names and transforms and
+ * triangle meshes with flat-colour materials from `material(desc)` (a workshop material).
+ * Placed library models draw through this in the workshop (docs/worlds.md); no project limit
+ * applies, and skins, animations and textures are ignored.
+ */
+export function glbToObject(bytes, { THREE, material: makeMaterial }) {
+  const { json, buffers } = parseModelFile(bytes);
+  const read = accessorReader(json, buffers);
+  const materials = new Map();
+  const materialFor = (index) => {
+    const key = index ?? -1;
+    if (!materials.has(key)) {
+      const source =
+        index === undefined ? { name: "default" } : (json.materials?.[index] ?? fail(`Missing material ${index}`));
+      materials.set(key, makeMaterial(convertMaterial(source, `material_${key < 0 ? "default" : key}`, () => {})));
+    }
+    return materials.get(key);
+  };
+  const meshes = new Map();
+  let triangles = 0;
+  const meshFor = (index) => {
+    if (meshes.has(index)) return meshes.get(index);
+    const mesh = json.meshes?.[index] ?? fail(`Missing mesh ${index}`);
+    const parts = [];
+    for (const primitive of mesh.primitives ?? []) {
+      const mode = primitive.mode ?? 4;
+      if (![4, 5, 6].includes(mode) || primitive.attributes?.POSITION === undefined) continue;
+      if (primitive.extensions?.KHR_draco_mesh_compression)
+        fail("Compressed files are not supported; export the model uncompressed", "unsupported");
+      const p = read(primitive.attributes.POSITION),
+        count = p.length / 3;
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.Float32BufferAttribute(Float32Array.from(p), 3));
+      if (primitive.attributes.NORMAL !== undefined)
+        geometry.setAttribute("normal", new THREE.Float32BufferAttribute(Float32Array.from(read(primitive.attributes.NORMAL)), 3));
+      const indices =
+        primitive.indices !== undefined ? read(primitive.indices) : Float64Array.from({ length: count }, (_, i) => i);
+      const list = [];
+      if (mode === 4) for (let i = 0; i + 2 < indices.length; i += 3) list.push(indices[i], indices[i + 1], indices[i + 2]);
+      else if (mode === 5)
+        for (let i = 0; i + 2 < indices.length; i++)
+          list.push(...(i % 2 ? [indices[i + 1], indices[i], indices[i + 2]] : [indices[i], indices[i + 1], indices[i + 2]]));
+      else for (let i = 1; i + 1 < indices.length; i++) list.push(indices[0], indices[i], indices[i + 1]);
+      if (list.some((i) => !Number.isInteger(i) || i < 0 || i >= count)) fail(`Mesh ${index} has an index outside its vertices`);
+      if (!list.length) continue;
+      geometry.setIndex(
+        count > 65535 ? new THREE.Uint32BufferAttribute(Uint32Array.from(list), 1) : new THREE.Uint16BufferAttribute(Uint16Array.from(list), 1),
+      );
+      if (!geometry.getAttribute("normal")) geometry.computeVertexNormals();
+      geometry.computeBoundingSphere();
+      triangles += list.length / 3;
+      parts.push({ geometry, material: materialFor(primitive.material) });
+    }
+    meshes.set(index, parts);
+    return parts;
+  };
+  const root = new THREE.Group();
+  const visited = new Set();
+  const build = (index, parent) => {
+    if (visited.has(index)) fail("Node cycle");
+    visited.add(index);
+    const node = json.nodes?.[index] ?? fail(`Missing node ${index}`);
+    const object = new THREE.Group();
+    object.name = typeof node.name === "string" && node.name ? node.name : `node_${index}`;
+    object.applyMatrix4(new THREE.Matrix4().fromArray(localMatrix(node)));
+    parent.add(object);
+    if (node.mesh !== undefined)
+      for (const part of meshFor(node.mesh)) {
+        const m = new THREE.Mesh(part.geometry, part.material);
+        m.castShadow = m.receiveShadow = true;
+        object.add(m);
+      }
+    for (const child of node.children ?? []) build(child, object);
+  };
+  const scene = json.scenes?.[json.scene ?? 0];
+  for (const index of scene?.nodes ?? []) build(index, root);
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root, true);
+  return {
+    root,
+    triangles,
+    bounds: box.isEmpty() ? null : { min: box.min.toArray(), max: box.max.toArray() },
+    dispose() {
+      for (const parts of meshes.values()) for (const part of parts) part.geometry.dispose();
+      for (const m of materials.values()) m.dispose();
+    },
+  };
+}
+
 export function mergeProjects(current, incoming, { parent = null } = {}) {
   if (parent !== null && !current.nodes.some((n) => n.id === parent))
     fail(`Unknown parent: ${parent}`, "invalid", "parent");

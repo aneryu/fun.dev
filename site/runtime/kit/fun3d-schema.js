@@ -3,7 +3,7 @@
 // returns every problem it finds (empty means valid). Data-level checks that need decoded
 // streams live in fun3d.js (`validateStreams`).
 
-export const VERSION = "1.0";
+export const VERSION = "1.1";
 export const ID = /^[A-Za-z0-9_-]{1,64}$/;
 export const EXTENSION = /^(?:fun3d|x\.[a-z0-9-]+)\.[A-Za-z0-9_.-]+$/;
 export const FORMATS = {
@@ -26,7 +26,9 @@ export const CAPS = Object.freeze({
   texelsPerImage: 4096 * 4096, texels: 64_000_000, bones: 128, influences: 4,
   morphTargetsPerGeometry: 128, morphTargetVertices: 1_000_000,
   clips: 256, tracksPerClip: 1024, keyframes: 4_000_000, eventsPerClip: 256,
-  placementsPerNode: 65536, placements: 262144, socketsPerNode: 32, regionsPerNode: 16, variants: 64, refs: 8, extensionsBytes: 64 * 1024,
+  placementsPerNode: 65536, placements: 262144, socketsPerNode: 32, regionsPerNode: 16, variants: 64, refs: 256, extensionsBytes: 64 * 1024,
+  // Scene data (docs/worlds.md): placed models' variants, a node's parameters, zones and paths.
+  modelVariants: 16, paramsBytes: 4096, zones: 1024, zonePolygon: 256, pathPoints: 65536, pathEdges: 4096,
   shapes: 256, bodies: 256, constraints: 256, vehicles: 8, wheelsPerVehicle: 32, ragdollParts: 32, characters: 8,
   convexPoints: 256, meshTriangles: 100_000, intensity: 1000,
 });
@@ -63,6 +65,8 @@ export const SCHEMA = {
     placements: F("object", { fields: { count: required("integer", { min: 1 }), transforms: streamRef(["mat4"]), tint: F("object", { fields: { stream: required("id"), format: required("enum", { values: ["unorm8x4"] }) } }) } }),
     light: F("object", { fields: { type: required("enum", { values: ["point", "spot"] }), color: F("color"), intensity: required("number", { min: 0, max: CAPS.intensity }), range: F("number", { min: 0 }), cone: vector(2, { min: 0, max: Math.PI }), importance: F("number", { min: 0, max: 1 }) } }),
     lod: F("object", { fields: { levels: required("array", { min: 1, items: F("object", { fields: { screenSize: required("number", { min: 0, max: 1 }), children: required("array", { items: F("id") }) } }) }) } }),
+    // A copy of a referenced library model (1.1): the whole model under this node.
+    model: F("object", { fields: { ref: required("id"), variants: F("map", { items: F("string", { max: 64 }) }), tint: F("array", { items: F("number", { min: 0, max: 1 }), min: 3, max: 4 }) } }),
     extensions: F("object"),
   },
   geometry: {
@@ -317,12 +321,25 @@ export function validateManifest(manifest, { chunks = Infinity, caps = CAPS } = 
         for (const c of level.children) if (!children.has(c)) out.push(`${path}.lod.levels[${k}] names "${c}" which is not a child`);
       });
     }
+    if (node.model) {
+      ref(refs, node.model.ref, `${path}.model.ref`, "ref");
+      if (node.mesh || node.skin || node.light || node.lod) out.push(`${path} a placed model has no mesh, skin, light or lod of its own`);
+      if (node.placements) out.push(`${path} placements of placed models are not in this release`);
+      if (node.model.variants && Object.keys(node.model.variants).length > caps.modelVariants) out.push(`${path}.model.variants has more than ${caps.modelVariants} axes`);
+    }
+    if (node.extensions) {
+      for (const name of Object.keys(node.extensions)) if (!uses.has(name)) out.push(`${path} uses the extension "${name}" which uses does not list`);
+      const params = node.extensions["fun3d.params"];
+      if (params !== undefined && (!params || typeof params !== "object" || Array.isArray(params))) out.push(`${path}.extensions["fun3d.params"] is an object`);
+      else if (params !== undefined && JSON.stringify(params).length > caps.paramsBytes) out.push(`${path}.extensions["fun3d.params"] is larger than ${caps.paramsBytes} bytes`);
+    }
     if ((node.sockets && Object.keys(node.sockets).length > caps.socketsPerNode)) out.push(`${path} has more than ${caps.socketsPerNode} sockets`);
     if ((node.regions?.length ?? 0) > caps.regionsPerNode) out.push(`${path} has more than ${caps.regionsPerNode} regions`);
     if ((bodiesOnNodes.get(node.id) ?? 0) > 1) out.push(`${path} carries more than one body`);
   });
   if (lights > caps.lights) out.push(`more than ${caps.lights} lights`);
   if (placements > caps.placements) out.push(`more than ${caps.placements} placements in all`);
+  validateSceneExtensions(manifest, { uses, streams, nodes, caps, out });
   const bones = new Set([...skeletons.values()].flatMap((s) => s.bones));
   for (const b of bodies.values()) if (bones.has(b.node) && !ragdolls.size) out.push(`physics.bodies "${b.id}" sits on a bone`);
 
@@ -512,4 +529,80 @@ export function validateManifest(manifest, { chunks = Infinity, caps = CAPS } = 
     axes.set(v.axis, 1);
   }
   return out;
+}
+
+const vector3 = (v) => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
+const isId = (v) => typeof v === "string" && ID.test(v);
+const small = (value, cap) => JSON.stringify(value ?? null).length <= cap;
+/** The scene extensions of docs/worlds.md: zones, paths (with their point stream) and the tile record. */
+function validateSceneExtensions(manifest, { uses, streams, nodes, caps, out }) {
+  const extensions = manifest.extensions ?? {};
+  for (const name of Object.keys(extensions)) if (!uses.has(name)) out.push(`extensions uses "${name}" which uses does not list`);
+  const streamRef = (ref, path, formats) => {
+    if (!ref || typeof ref !== "object" || !isId(ref.stream) || !formats.includes(ref.format)) { out.push(`${path} needs { stream, format } with a format of ${formats.join(", ")}`); return null; }
+    if (!streams.has(ref.stream)) { out.push(`${path} names unknown stream "${ref.stream}"`); return null; }
+    return streams.get(ref.stream);
+  };
+  const tagsAndParams = (entry, path) => {
+    if (entry.tags !== undefined && (!Array.isArray(entry.tags) || entry.tags.some((t) => typeof t !== "string" || !t.length || t.length > 64))) out.push(`${path}.tags are strings of 1–64 characters`);
+    if (entry.params !== undefined && (!entry.params || typeof entry.params !== "object" || Array.isArray(entry.params) || !small(entry.params, caps.paramsBytes))) out.push(`${path}.params is an object up to ${caps.paramsBytes} bytes`);
+  };
+  const zones = extensions["fun3d.zones"];
+  if (zones !== undefined) {
+    if (!Array.isArray(zones) || zones.length > caps.zones) out.push(`extensions["fun3d.zones"] is an array of up to ${caps.zones} zones`);
+    else {
+      const ids = new Set();
+      zones.forEach((z, i) => {
+        const path = `extensions["fun3d.zones"][${i}]`;
+        if (!z || typeof z !== "object" || !isId(z.id)) { out.push(`${path} needs an id`); return; }
+        if (ids.has(z.id)) out.push(`${path} repeats the id "${z.id}"`);
+        ids.add(z.id);
+        tagsAndParams(z, path);
+        const shape = z.shape ?? {};
+        if (shape.polygon) {
+          if (!Array.isArray(shape.polygon) || shape.polygon.length < 3 || shape.polygon.length > caps.zonePolygon || shape.polygon.some((p) => !Array.isArray(p) || p.length !== 2 || !p.every(Number.isFinite))) out.push(`${path}.shape.polygon is 3–${caps.zonePolygon} [x, z] points`);
+          if (shape.y !== undefined && (!Array.isArray(shape.y) || shape.y.length !== 2 || !shape.y.every(Number.isFinite) || shape.y[1] < shape.y[0])) out.push(`${path}.shape.y is [bottom, top]`);
+        } else if (shape.box) {
+          if (!vector3(shape.box.center) || !vector3(shape.box.halfExtents) || shape.box.halfExtents.some((v) => v < 0)) out.push(`${path}.shape.box needs center and halfExtents`);
+          if (shape.box.rotation !== undefined && !isQuaternion(shape.box.rotation)) out.push(`${path}.shape.box.rotation is a unit quaternion`);
+        } else if (shape.sphere) {
+          if (!vector3(shape.sphere.center) || !(shape.sphere.radius >= 0)) out.push(`${path}.shape.sphere needs center and radius`);
+        } else out.push(`${path}.shape is a polygon, a box or a sphere`);
+      });
+    }
+  }
+  const paths = extensions["fun3d.paths"];
+  if (paths !== undefined) {
+    if (!paths || typeof paths !== "object") out.push(`extensions["fun3d.paths"] is an object`);
+    else {
+      const points = streamRef(paths.points, `extensions["fun3d.paths"].points`, ["float32x3"]);
+      if (points && points.count > caps.pathPoints) out.push(`extensions["fun3d.paths"] has more than ${caps.pathPoints} points`);
+      for (const [name, ref] of Object.entries(paths.attributes ?? {})) {
+        const s = streamRef(ref, `extensions["fun3d.paths"].attributes.${name}`, ["float32"]);
+        if (s && points && s.count !== points.count) out.push(`extensions["fun3d.paths"].attributes.${name} has ${s.count} values for ${points.count} points`);
+      }
+      if (!Array.isArray(paths.edges) || paths.edges.length > caps.pathEdges) out.push(`extensions["fun3d.paths"].edges is an array of up to ${caps.pathEdges} edges`);
+      else {
+        const ids = new Set();
+        paths.edges.forEach((e, i) => {
+          const path = `extensions["fun3d.paths"].edges[${i}]`;
+          if (!e || typeof e !== "object" || !isId(e.id)) { out.push(`${path} needs an id`); return; }
+          if (ids.has(e.id)) out.push(`${path} repeats the id "${e.id}"`);
+          ids.add(e.id);
+          tagsAndParams(e, path);
+          if (!Array.isArray(e.points) || e.points.length < 2 || e.points.some((k) => !Number.isInteger(k) || k < 0 || (points && k >= points.count))) out.push(`${path}.points indexes at least two of the table's points`);
+          if (e.kind !== undefined && typeof e.kind !== "string") out.push(`${path}.kind is a string`);
+        });
+      }
+    }
+  }
+  const tile = extensions["fun3d.tile"];
+  if (tile !== undefined) {
+    if (!tile || typeof tile !== "object") out.push(`extensions["fun3d.tile"] is an object`);
+    else {
+      if (tile.bounds !== undefined && (!tile.bounds || !vector3(tile.bounds.min) || !vector3(tile.bounds.max))) out.push(`extensions["fun3d.tile"].bounds needs min and max`);
+      if (tile.size !== undefined && (!Array.isArray(tile.size) || tile.size.length !== 2 || !tile.size.every((v) => v > 0))) out.push(`extensions["fun3d.tile"].size is [width, depth]`);
+    }
+  }
+  void nodes;
 }

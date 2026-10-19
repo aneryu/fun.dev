@@ -487,6 +487,45 @@ One variant active per axis; overrides may set `materials`, `geometry`, `visible
   `models.lock` (section 8); the loader trusts the lock and never fetches. In the workshop,
   the library is the resolver and the validator verifies hashes.
 
+### 4.9a Placed models and scene data (1.1)
+
+A tile of a scene or world ([worlds](worlds.md)) places library models by reference and
+carries the data a game reads. `refs` may name whole models (up to 256 per file), and a node
+may be a copy of one:
+
+```jsonc
+"refs": [{ "id": "m0", "model": "street_lamp_01@v002" }],
+"nodes": [{ "id": "lamp_3", "parent": "scene", "transform": { "position": [12, 0, -4] }, "tags": ["lamp"],
+            "model": { "ref": "m0", "variants": { "arms": "double" }, "tint": [1, 1, 1] },          // a copy of the referenced model under this node
+            "extensions": { "fun3d.params": { "watts": 60 } } }]                                      // the game's own values, plain JSON up to 4 KB
+```
+
+A `model` node has no mesh, skin, light or lod of its own (placements of placed models come
+with a later release); the referenced model's objects load under it, sharing geometry and
+materials with the referenced file, and `kit/models.js` carries them with every copy.
+`variants` and `tint` are carried as data in this release. Loading a file with `refs` needs a
+`resolve(model)` callback returning each referenced model, loaded; the game build resolves the
+closure into `models.lock`. Reference depth is two for tiles (tile → model → the model's
+skeleton base, later).
+
+Scene data lives in extensions, always optional (`uses`, never `requires`): a runtime without
+them draws the scene and ignores the data.
+
+```jsonc
+"extensions": {
+  "fun3d.zones": [{ "id": "safe_1", "tags": ["safe"], "params": { "team": 1 },
+                    "shape": { "polygon": [[-3, -3], [3, -3], [3, 0], [-3, 0]], "y": [0, 2.5] } }],    // or { "box": { center, halfExtents, rotation } } | { "sphere": { center, radius } }, in tile space
+  "fun3d.paths": { "points": { "stream": "s50", "format": "float32x3" },
+                   "attributes": { "width": { "stream": "s51", "format": "float32" } },               // optional, one value per point
+                   "edges": [{ "id": "lap", "points": [0, 1, 2], "closed": true, "kind": "data", "tags": ["lap"], "params": {} }] },
+  "fun3d.tile": { "bounds": { "min": [-6, 0, -6], "max": [6, 7.4, 6] }, "size": [12, 12] }
+}
+```
+
+Markers are nodes with `tags` and `fun3d.params`; `kit/world.js` reads markers, zones and
+paths from a loaded file (`worldData(model)`). Caps: zones 1024 with polygons of 256 points,
+path points 65 536 and edges 4096, parameters 4 KB per node, 16 variant axes per copy.
+
 ### 4.10 Extensions
 
 `extensions` may appear on the top level and on any table entry except materials, whose
@@ -515,7 +554,8 @@ sections from other tools as untrusted input.
 
 ### 4.12 Versioning
 
-`fun3d` is `major.minor`. A minor change adds fields old readers can ignore without loading
+`fun3d` is `major.minor`; 1.1 (2026-10-19) added `model` nodes, `refs` to whole models,
+`fun3d.params` on nodes and the scene extensions of 4.9a, and raised the refs cap to 256. A minor change adds fields old readers can ignore without loading
 anything wrong (writers must show this; new enumeration values are extensions, 4.10); a major
 change refuses old readers. The schema is strict for the writer's own minor; a loader
 tolerates unknown fields of a newer minor. Extensions version by name.

@@ -85,6 +85,28 @@ animator.play("walk", { fade: 0.2 }); animator.update(dt);
 Without the TSL builder (`createFun3d({ THREE, decoder })`), files load into Three.js's own
 materials: roles and tints do not apply, everything else does.
 
+### A scene tile
+
+A tile written by the workshop ([worlds](worlds.md)) places library models by reference; load
+it with `resolve`, which returns each referenced model loaded, and read its data with
+`kit/world.js`:
+
+```js
+const { worldData } = await context.runtime("kit/world.js");
+const files = new Map();
+const tile = await fun3d.load(bytes, {
+  resolve: async (model) => files.get(model) ?? files.set(model, await fun3d.load(await load(`models/${model}.fun3d`))).get(model),
+});
+const copy = models.place(tile);                     // the placed models' objects come with the copy
+const data = worldData(tile);
+for (const m of data.markers("spawn")) spawnAt(m.position, m.rotation, m.params);
+data.zone("safe_1").contains([x, y, z]); data.zonesAt(position);
+const lap = data.path("lap"); lap.at(0.5).position; lap.nearest(position).distance; lap.length;
+```
+
+`world.json` of a one-tile world lists the tile and the models' files with their SHA-256; a
+game build pins them like any model.
+
 ## What to check
 
 - `npm run fun3d -- validate` on anything you produce; `npm test` and `npm run verify -- fun3d`

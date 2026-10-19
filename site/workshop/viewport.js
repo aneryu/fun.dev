@@ -17,6 +17,8 @@ import { meshEdges } from "./topology.js";
 import { normal, triangulate, cornerNormals } from "./mesh.js";
 import { nameMeshes } from "./glb.js";
 import { createSoftRenderer } from "./soft-renderer.js";
+import { nodePoints } from "./spatial.js";
+import { placedTemplate, ensurePlaced } from "./placed.js";
 
 function indexAttributes(positions, normals) {
   const uniquePositions = [],
@@ -97,11 +99,84 @@ function sky(renderer, top, bottom, intensity) {
   return target;
 }
 
-export function buildModel(project) {
+// Scene parts without a mesh (docs/worlds.md) draw as overlays in the workshop: a marker's
+// cross, a zone's outline, a path's line, a placed model's bounds until its template loads.
+// Overlays draw over everything (no depth test), are never picked by rays and never exported.
+const OVERLAY = { marker: 0x27ae60, zone: 0x2d9cdb, path: 0xe67e22, placeholder: 0x8e44ad };
+function overlayLines(points, color) {
+  const geometry = new THREE.BufferGeometry().setFromPoints(points.map((p) => new THREE.Vector3(...p)));
+  const lines = new THREE.LineSegments(
+    geometry,
+    new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 }),
+  );
+  lines.renderOrder = 10;
+  lines.userData = { overlay: true };
+  return lines;
+}
+const boxEdges = (size, center = [0, 0, 0]) => {
+  const [w, h, d] = size,
+    [cx, cy, cz] = center,
+    c = (i) => [cx + (i & 1 ? w / 2 : -w / 2), cy + (i & 2 ? h / 2 : -h / 2), cz + (i & 4 ? d / 2 : -d / 2)];
+  const pairs = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
+  return pairs.flatMap(([a, b]) => [c(a), c(b)]);
+};
+function markerOverlay() {
+  const s = 0.15;
+  return overlayLines([[-s, 0, 0], [s, 0, 0], [0, 0, -s], [0, 0, s], [0, 0, 0], [0, 2 * s, 0]], OVERLAY.marker);
+}
+function zoneOverlay(zone) {
+  if (zone.kind === "polygon") {
+    const points = [],
+      n = zone.polygon.length;
+    for (let i = 0; i < n; i++) {
+      const [ax, az] = zone.polygon[i],
+        [bx, bz] = zone.polygon[(i + 1) % n];
+      for (const y of zone.y) points.push([ax, y, az], [bx, y, bz]);
+      points.push([ax, zone.y[0], az], [ax, zone.y[1], az]);
+    }
+    return overlayLines(points, OVERLAY.zone);
+  }
+  if (zone.kind === "box") return overlayLines(boxEdges(zone.size), OVERLAY.zone);
+  const points = [],
+    r = zone.radius,
+    n = 32;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2,
+      b = ((i + 1) / n) * Math.PI * 2;
+    points.push([r * Math.cos(a), 0, r * Math.sin(a)], [r * Math.cos(b), 0, r * Math.sin(b)]);
+    points.push([r * Math.cos(a), r * Math.sin(a), 0], [r * Math.cos(b), r * Math.sin(b), 0]);
+    points.push([0, r * Math.cos(a), r * Math.sin(a)], [0, r * Math.cos(b), r * Math.sin(b)]);
+  }
+  return overlayLines(points, OVERLAY.zone);
+}
+function pathOverlay(path) {
+  const list = path.closed ? [...path.points, path.points[0]] : path.points,
+    points = [];
+  for (let i = 1; i < list.length; i++) points.push(list[i - 1], list[i]);
+  const [x, y, z] = path.points[0],
+    s = 0.1;
+  points.push([x - s, y, z], [x + s, y, z], [x, y, z - s], [x, y, z + s]);
+  return overlayLines(points, OVERLAY.path);
+}
+function placeholderOverlay(bounds) {
+  const size = bounds.max.map((v, i) => Math.max(0.01, v - bounds.min[i])),
+    center = bounds.max.map((v, i) => (v + bounds.min[i]) / 2);
+  return overlayLines(boxEdges(size, center), OVERLAY.placeholder);
+}
+
+/**
+ * The Three.js objects of a project: one object per part, named by its id. With `display`,
+ * scene parts get their overlays and placed models their loaded templates (copies sharing the
+ * template's geometry); exports build without, so nothing of that reaches a file.
+ */
+export function buildModel(project, { display = false } = {}) {
   const root = new THREE.Group(),
     objects = new Map(),
     materials = new Map(),
-    geometries = new Map();
+    geometries = new Map(),
+    placedMeshes = new Map(),
+    overlays = new Map(),
+    missing = [];
   root.name = project.name;
   for (const m of project.materials) materials.set(m.id, createMaterial(m));
   for (const node of project.nodes) {
@@ -167,7 +242,38 @@ export function buildModel(project) {
       object.receiveShadow = true;
       // Keep render-only metadata outside userData so it never enters GLB extras.
       object.editorFaces = triangleFaces;
-    } else object = new THREE.Group();
+    } else {
+      object = new THREE.Group();
+      if (display) {
+        let overlay = null;
+        if (node.place) {
+          const template = placedTemplate(node.place);
+          if (template) {
+            const copy = template.root.clone(true),
+              meshes = [];
+            copy.traverse((o) => {
+              if (o.isMesh) {
+                o.name = node.id;
+                o.userData = { placed: true };
+                meshes.push(o);
+              }
+            });
+            copy.userData = { placed: true };
+            object.add(copy);
+            placedMeshes.set(node.id, meshes);
+          } else {
+            overlay = placeholderOverlay(node.place.bounds);
+            missing.push(node.place);
+          }
+        } else if (node.marker) overlay = markerOverlay();
+        else if (node.zone) overlay = zoneOverlay(node.zone);
+        else if (node.path) overlay = pathOverlay(node.path);
+        if (overlay) {
+          object.add(overlay);
+          overlays.set(node.id, overlay);
+        }
+      }
+    }
     object.name = node.id;
     object.userData = { label: node.name };
     object.position.fromArray(node.position);
@@ -181,11 +287,18 @@ export function buildModel(project) {
   return {
     root,
     objects,
+    placedMeshes,
+    overlays,
+    missing,
     dispose() {
       new Set(
         [...objects.values()].map((o) => o.geometry).filter(Boolean),
       ).forEach((g) => g.dispose());
       materials.forEach((m) => m.dispose());
+      for (const o of overlays.values()) {
+        o.geometry.dispose();
+        o.material.dispose();
+      }
     },
   };
 }
@@ -453,7 +566,9 @@ export async function createViewport(
     return shown(id) && !inherited(id, viewState.locked);
   }
   function visibleMeshes() {
-    return [...model.objects.values()].filter((o) => o.isMesh && shown(o.name));
+    const meshes = [...model.objects.values()].filter((o) => o.isMesh && shown(o.name));
+    for (const [id, list] of model.placedMeshes) if (shown(id)) meshes.push(...list);
+    return meshes;
   }
   function canTransform() {
     if (readonly || !selection.id || selection.ids.some((id) => !pickable(id)))
@@ -560,9 +675,12 @@ export async function createViewport(
             );
           if (b.isEmpty() && o) b.setFromObject(o);
         }
-      } else
+      } else {
         for (const o of visibleMeshes())
           b.union(new THREE.Box3().setFromObject(o));
+        for (const [id, o] of model.overlays)
+          if (shown(id)) b.union(new THREE.Box3().setFromObject(o));
+      }
     }
     if (b.isEmpty())
       b.set(new THREE.Vector3(-1, 0, -1), new THREE.Vector3(1, 2, 1));
@@ -716,10 +834,22 @@ export async function createViewport(
   }
   function install(next) {
     disposeModel();
-    model = buildModel(next);
+    model = buildModel(next, { display: true });
     scene.add(model.root);
     for (const [id, o] of model.objects) o.visible = shown(id);
     applyShading();
+    // Placed models whose template has not loaded show their bounds; the scene rebuilds once
+    // a template arrives, if the same project is still shown.
+    if (model.missing.length) {
+      const current = next;
+      Promise.allSettled(model.missing.map((place) => ensurePlaced(place))).then((results) => {
+        if (disposed || project !== current) return;
+        if (!results.some((r) => r.status === "fulfilled" && r.value)) return;
+        install(project);
+        refreshSelection();
+        render();
+      });
+    }
   }
   function refreshSelection(attach = true) {
     clear(highlights);
@@ -998,7 +1128,7 @@ export async function createViewport(
     if (!model) return [];
     if (selection.mode === "object")
       return [...model.objects]
-        .filter(([id, o]) => o.isMesh && pickable(id))
+        .filter(([id, o]) => (o.isMesh || model.placedMeshes.has(id) || model.overlays.has(id)) && pickable(id))
         .map(([id, o]) => ({
           id,
           world: new THREE.Box3()
@@ -1043,7 +1173,7 @@ export async function createViewport(
   function objectInBox(id, rect) {
     const o = model.objects.get(id),
       n = project.nodes.find((n) => n.id === id),
-      points = n.mesh.vertices
+      points = (n.mesh?.vertices ?? nodePoints(n))
         .map((v) =>
           projected(new THREE.Vector3(...v).applyMatrix4(o.matrixWorld)),
         )
@@ -1054,7 +1184,7 @@ export async function createViewport(
       top = Math.max(rect.top, Math.min(...points.map((p) => p.y))),
       bottom = Math.min(rect.bottom, Math.max(...points.map((p) => p.y)));
     if (left > right || top > bottom) return false;
-    if (xray) return true;
+    if (xray || !n.mesh) return true;
     const r = canvas.getBoundingClientRect();
     for (const x of [0.1, 0.3, 0.5, 0.7, 0.9])
       for (const y of [0.1, 0.3, 0.5, 0.7, 0.9]) {
@@ -1451,19 +1581,23 @@ export async function createViewport(
         const nodeColors = {};
         if (shading === "ids") {
           let i = 0;
-          for (const o of model.objects.values())
-            if (o.isMesh) {
-              const color =
-                "#" + ((++i * 7919) % 0xffffff).toString(16).padStart(6, "0");
-              nodeColors[o.name] = color;
-              const m = new THREE.MeshBasicMaterial({
-                color,
-                toneMapped: false,
-              });
-              temporary.push(m);
-              o.material = m;
-            }
+          for (const [id, o] of model.objects) {
+            const meshes = o.isMesh ? [o] : (model.placedMeshes.get(id) ?? []);
+            if (!meshes.length) continue;
+            const color =
+              "#" + ((++i * 7919) % 0xffffff).toString(16).padStart(6, "0");
+            nodeColors[id] = color;
+            const m = new THREE.MeshBasicMaterial({
+              color,
+              toneMapped: false,
+            });
+            temporary.push(m);
+            for (const mesh of meshes) mesh.material = m;
+          }
         }
+        // Scene data overlays (zones, paths, markers, placeholders): shown unless asked away.
+        for (const o of model.overlays.values())
+          o.visible = shading !== "ids" && (options.overlays?.data ?? true);
         wireframe = options.overlays?.wire ?? false;
         updateWires();
         refreshSelection();
@@ -1595,6 +1729,7 @@ export async function createViewport(
         shading = previous.shading;
         wireframe = previous.wireframe;
         for (const [id, o] of model.objects) o.visible = shown(id);
+        for (const o of model.overlays.values()) o.visible = true;
         applyShading();
         temporary.forEach((m) => m.dispose());
         updateWires();

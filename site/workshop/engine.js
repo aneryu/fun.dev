@@ -29,6 +29,10 @@ import { hollowBoxRecipe } from "./recipe.js";
 import { exportReport, exportAsset } from "./viewport.js";
 import { importModel } from "./import-glb.js";
 import { searchLibrary, libraryModel, importLibraryModel } from "./library.js";
+import { auditProject } from "./audit.js";
+import { exportTile } from "./tile.js";
+import { exportWorld } from "./world-export.js";
+import { resolvePlacement, ensurePlaced } from "./placed.js";
 import { fromBase64, toBase64 } from "./glb.js";
 import { projectFile, projectFilename } from "./project-file.js";
 import { materialUsage } from "./materials.js";
@@ -677,6 +681,102 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
       } finally {
         action = null;
       }
+    },
+    // Scenes (docs/worlds.md): placed library models, the map, the audit, tiles and worlds.
+    async place(
+      { model, version, id, parent = null, name, position, rotation, scale, tags, params, variants, tint } = {},
+      options = {},
+    ) {
+      commitPending();
+      check(options);
+      const revision = store.revision;
+      const record = await resolvePlacement({ model, version });
+      // The display template (model.glb) loads beside the record; without it the viewport
+      // shows the model's bounds until it arrives.
+      const warnings = [];
+      try {
+        await ensurePlaced(record);
+      } catch (e) {
+        warnings.push(e.message);
+      }
+      check({ ifRevision: options.ifRevision ?? revision });
+      commitPending();
+      const { name: title, type, ...place } = record;
+      action = options.label ?? `Agent · place ${record.model}`;
+      try {
+        const result = store.apply(
+          [
+            {
+              op: "create",
+              id,
+              kind: "place",
+              name: name ?? title,
+              parent,
+              ...(position ? { position } : {}),
+              ...(rotation ? { rotation } : {}),
+              ...(scale ? { scale } : {}),
+              ...(tags ? { tags } : {}),
+              ...(params ? { params } : {}),
+              place: { ...place, ...(variants ? { variants } : {}), ...(tint ? { tint } : {}) },
+            },
+          ],
+          { ...options, ifRevision: options.ifRevision ?? revision, strictComponents: true },
+        );
+        return { ...result, placed: { ...record, type }, warnings, persistence: draft.persistence };
+      } finally {
+        action = null;
+      }
+    },
+    audit(options = {}) {
+      return { revision: store.revision, ...auditProject(store.snapshot(), options) };
+    },
+    map({ size = 512, overlays, helpers = false, ...options } = {}) {
+      const revision = store.revision;
+      const [shot] = viewport.renderViews(["top"], size, {
+        helpers,
+        focus: false,
+        ...options,
+        overlays: { data: true, ...(overlays ?? {}) },
+      });
+      const cam = shot.camera,
+        box = viewport.bounds();
+      return {
+        ...shot,
+        revision,
+        draftId: draft.id,
+        metresPerPixel:
+          cam.projection === "orthographic" ? (cam.top - cam.bottom) / (cam.zoom || 1) / shot.height : null,
+        bounds: box.min?.toArray ? { min: box.min.toArray(), max: box.max.toArray() } : box,
+      };
+    },
+    async exportTile({ encoding = "base64", name } = {}) {
+      if (!["buffer", "base64"].includes(encoding)) throw new Error("Use buffer or base64 encoding");
+      commitPending();
+      const p = store.snapshot(),
+        revision = store.revision,
+        { bytes, report } = await exportTile(p, { name });
+      return encoding === "base64"
+        ? {
+            revision,
+            report,
+            filename: `${filename(p.name)}.fun3d`,
+            mimeType: "application/octet-stream",
+            bytes: bytes.length,
+            data: base64(bytes),
+          }
+        : bytes;
+    },
+    async exportWorld({ name } = {}) {
+      commitPending();
+      const p = store.snapshot(),
+        revision = store.revision,
+        { manifest, files, report } = await exportWorld(p, { name });
+      return {
+        revision,
+        manifest,
+        report,
+        files: files.map((f) => ({ path: f.path, bytes: f.bytes.length, data: base64(f.bytes) })),
+      };
     },
     async exportProject() {
       commitPending();

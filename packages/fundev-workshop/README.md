@@ -13,6 +13,7 @@ Node 22 or newer.
 ```sh
 npx -y fundev-workshop --guide            # the one-page quick reference
 npx -y fundev-workshop --run model.mjs    # one JSON line: validation, statistics, files
+npx -y fundev-workshop --run scene.mjs    # scenes too: library models placed by reference, markers, zones, paths, map, audit, .fun3d tiles
 ```
 
 ```js

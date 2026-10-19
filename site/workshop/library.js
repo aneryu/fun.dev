@@ -153,3 +153,35 @@ export async function importLibraryModel({ id, version, mode = "replace", parent
 export async function libraryProject(id, version) {
   return (await importLibraryModel({ id, version })).project;
 }
+
+/** The address of a library file by content, at the origin the workshop reads from. */
+export const libraryBlobURL = (name, sha256) => url(name, sha256);
+
+/**
+ * What a placed model (docs/worlds.md) records: the pinned version, its bounds and triangle
+ * count from the library's stats, its model.glb and, when the library converted it, the
+ * .fun3d a tile loads. `model` is an id or id@version; version wins when given.
+ */
+export async function placementRecord({ model, version } = {}) {
+  if (typeof model !== "string") throw new ModelError("model names a library model", "schema", "model");
+  const [id, pinned] = model.split("@");
+  const m = await libraryModelRecord(id);
+  const wanted = version ?? pinned;
+  const entry = wanted ? m.versions.find((v) => v.version === wanted) : m.versions[0];
+  if (!entry) throw new ModelError(`${id} has no version ${wanted}`, "not_found", "version");
+  const stats = entry.stats ?? {};
+  if (!Array.isArray(stats.min) || !Array.isArray(stats.max))
+    throw new ModelError(`${id} ${entry.version} has no bounds in the library`, "not_found", "model");
+  const file = entry.files["model.glb"];
+  if (!file) throw new ModelError(`${id} ${entry.version} has no model.glb`, "not_found", "model");
+  return {
+    model: `${m.id}@${entry.version}`,
+    name: typeof m.name === "object" ? (m.name.en || m.name.zh || m.id) : (m.name ?? m.id),
+    bounds: { min: [...stats.min], max: [...stats.max] },
+    sha256: file.sha256,
+    derived: entry.derived?.sha256 ?? null,
+    triangles: Number.isInteger(stats.triangles) ? stats.triangles : 0,
+    type: m.type,
+  };
+}
+const libraryModelRecord = (id) => model(id);

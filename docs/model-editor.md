@@ -986,3 +986,46 @@ The GUI displays errors before offering the same override. The delivery report
 shows dimensions, origin/axes, triangle and material-group counts, generated GLB
 size, errors/warnings, and unchecked categories; JSON is expandable detail.
 The camera returned by `inspect`/observations can be passed directly to MCP observe.
+
+## Scenes: placed models, markers, zones and paths
+
+A project is also a scene ([worlds](worlds.md), step 1): library models placed by reference,
+and the data a game reads. Scene parts are nodes like any other (moved, grouped, duplicated,
+renamed, deleted; `set` changes their fields) but carry no mesh of their own.
+
+- **Placed model** (`place`): `funEditor.place({ model, id, parent, position, rotation, scale,
+  tags, params, variants, tint }, { ifRevision })`, MCP `fun_editor_place`, `ws.place(...)`.
+  `model` is a library id or `id@vNNN` (default: the newest approved version). The library
+  supplies the version's bounds, triangle count, `model.glb` (drawn in the viewport, a wire
+  box until it arrives) and its `.fun3d`; the part records them in `place` and never the
+  geometry. `inspect` reports the placed bounds; `stats.placed` and `stats.placedTriangles`
+  count them. The library resolves asynchronously, so `place` is its own method; `create` with
+  `kind: "place"` takes a record from `inspect` (duplicates and project files carry it).
+- **Marker** (`create kind: "marker"`): a point with `tags` and `params` (plain JSON up to 4 KB):
+  spawn points, checkpoints, pickups, build spots. Any part may carry `tags` and `params`.
+- **Zone** (`create kind: "zone"`, `area`): `{ polygon: [[x, z]…], y: [bottom, top] }` in the
+  part's space, `{ size: [x, y, z] }` for a box about its origin, or `{ radius }` for a sphere.
+- **Path** (`create kind: "path"`, `path`): `{ points: [[x, y, z]…], closed }`, data for the
+  game (a lap, a patrol, a camera rail); geometry along paths comes with a later step.
+
+Scene parts draw as overlays (zone blue, path orange, marker green, a placed model's bounds
+violet until loaded) over everything; `observe` takes `overlays: { data: false }` to leave
+them out. The map and the audit are for agents:
+
+- `funEditor.map({ size })` renders the top view with the overlays and returns `metresPerPixel`
+  and the scene's bounds (`ws.map({ file })`).
+- `funEditor.audit({ ground, budget })` lists findings with suggestions: `overlap` (bounds
+  interpenetrating by more than 5 cm on every axis), `floating` (a solid touching nothing,
+  with the gap below it), `buried` (below the ground plane), `out-of-bounds` (outside
+  `tile.size`), `unconverted-model` (a placed version without a `.fun3d`) and `budget`
+  (triangles above 300 000 by default). Parts tagged `ground` are the floor: never flagged,
+  and a support for the rest. `--run` adds the audit to its result for scene projects.
+
+Exports: `exportTile` writes the scene as one `.fun3d` tile ([format 4.9a](model-format.md#49a-placed-models-and-scene-data-11)):
+the project's parts as geometry, placed models as references, markers as tagged nodes with
+`fun3d.params`, zones and paths in `fun3d.zones` and `fun3d.paths` in tile space, the project
+in the editing section. `exportWorld` adds `world.json` and the `.fun3d` of every placed model
+(a one-tile world); `ws.exportWorld({ dir })` writes the files. A game loads a tile with
+`fun3d.load(bytes, { resolve })` and reads its data through `kit/world.js`
+([fun3d for agents](fun3d-agents.md)). `tile: { size: [width, depth] }` on the project sets the
+tile's extent for the audit and the manifest.

@@ -1,10 +1,10 @@
 # Scenes and worlds: design
 
-Status: proposed 2026-10-19, for the owner's review before anything is built. It follows the
-discussion of that day: what else the workshop should do, with scene and map building as the
-example. Nothing here is implemented; the [roadmap](platform-roadmap.md) still lists workshop
-stage 2 as "scatter and instancing, scene assembly from library models", which this document
-expands into a layer of its own.
+Status: designed and approved 2026-10-19 (the owner's "同意，并继续"); step 1 of the rollout is
+built the same day (section 11). It follows the discussion of that day: what else the workshop
+should do, with scene and map building as the example. The [roadmap](platform-roadmap.md)'s
+workshop stage 2 ("scatter and instancing, scene assembly from library models") expands into
+this layer.
 
 ## 1. Decisions this design serves
 
@@ -344,9 +344,18 @@ row gets in the first release are voxel ground, floating origin and baked lighti
 Each step adds producer and consumer together and is accepted by sample places an agent builds
 from a script, reviewed like library models.
 
-1. **Places and data.** `place` by reference, `marker`, `zone`, `path` as data, `map`, `audit`
-   for overlap, floating and references; the kit's `world.data` and `markers`, `zones`, `path`
-   queries; one-tile worlds. Samples: a toy diorama, an escape room.
+1. **Places and data** (built 2026-10-19). `place` by reference, `marker`, `zone`, `path` as
+   data, `map`, `audit` for overlap, floating, buried, out-of-bounds, unconverted models and the
+   budget; `exportTile` and `exportWorld` (one tile); the kit loads tiles with `resolve` and
+   answers `markers`, `zones`, `path` queries (`kit/world.js`); `.fun3d` 1.1 carries `model`
+   nodes, `fun3d.params`, `fun3d.zones`, `fun3d.paths`, `fun3d.tile`
+   ([format 4.9a](model-format.md#49a-placed-models-and-scene-data-11)). Samples:
+   `examples/worlds/park-corner.mjs` (18 placed models, a lawn zone, a stroll, a spawn) and
+   `examples/worlds/escape-room.mjs` (walls built, furniture placed, puzzle markers, an exit
+   trigger), both built by script against the live library and clean in the audit. Not yet:
+   per-copy tint and variants applied at run time, placed models' lamps as light-slot
+   candidates, and batching of nested copies (they draw as singles); these come with step 2's
+   instancing work. How the workshop records a placement: [model editor](model-editor.md#scenes-placed-models-markers-zones-and-paths).
 2. **Rules and kits.** `scatter`, `assemble` with socket rules, structured kits, `derive` with
    caching and `derived` stamps, runtime `assemble`. Samples: a dungeon floor, runner segments,
    an arena.

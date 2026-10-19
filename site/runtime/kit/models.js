@@ -13,6 +13,8 @@
 // Batched copies mirror their nodes' world matrices: static copies when placed and on
 // `copy.sync()`, live copies (`copy.live = true`; physics sets it for dynamic bodies) every update.
 
+import { cloneObjects } from "./objects.js";
+
 export function createModels({ THREE, TSL = null, materials = null, scene, lights = null, warn = (message) => console.warn(`models: ${message}`), lodPixels = 1.5, batch: batching = !!materials } = {}) {
   if (!scene) throw new TypeError("createModels needs the scene");
   if (batching && !materials) throw new TypeError("batching needs the materials builder");
@@ -133,6 +135,9 @@ export function createModels({ THREE, TSL = null, materials = null, scene, light
           singles.push({ node: object, mesh, entry });
           if (entry?.lods.length) lodParts.push({ node: object, entry, mesh });
         }
+        // A placed library model's objects (docs/worlds.md) come along as they loaded: drawn
+        // alone in this release, batched and tinted with the copy from a later one.
+        if (n.model) for (const child of original.children) if (child.userData.nested) object.add(cloneObjects(THREE, child));
       }
       object.name = n.id;
       object.userData = { ...original.userData, mesh: object.userData.mesh };
