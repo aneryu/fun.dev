@@ -241,6 +241,14 @@ await ws.rule({ id: "roads", kind: "sweep", on: { tag: "road" }, profile: { pres
 await ws.derive();                        // roads_1 … and roads_j1 … (the junction patches)
 ```
 
+`nav` on the project bakes a walkable raster into every tile (the ground less what stands on
+it, slopes and water, grown by the agent's radius); the audit then reports markers no `spawn`
+marker can reach, and the game walks with `data.walk(a, b)`:
+
+```js
+await ws.load({ name: "Keep", tile: { size: [96, 96] }, nav: { cell: 1, radius: 0.5 } });
+```
+
 `on` is `{ path, spacing, offset, sides }`, `{ zone, spacing, jitter, margin }` or `{ grid: { cells,
 spacing, origin } }`; the audit says when a rule is stale or not yet derived.
 

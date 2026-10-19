@@ -70,7 +70,7 @@ export async function exportWorld(project, { name = project.name, runtime = [], 
       farEntry = { file: path, sha256: await sha256(bytes), bytes: bytes.length };
     }
     const path = `tiles/${x}_${z}.fun3d`;
-    const { bytes, report } = await exportTile(cut.project, { name: `${name} ${x}_${z}`, world: { id, x, z, size, far: farEntry?.file ?? null }, edit: false });
+    const { bytes, report } = await exportTile(cut.project, { name: `${name} ${x}_${z}`, world: { id, x, z, size, far: farEntry?.file ?? null }, edit: false, source: project });
     files.push({ path, bytes });
     tileEntries.push({ x, z, file: path, sha256: await sha256(bytes), bytes: bytes.length, bounds: report.bounds, ...(farEntry ? { far: farEntry } : {}) });
     tileReports.push({ x, z, bytes: bytes.length, far: farEntry?.bytes ?? null, ...report });

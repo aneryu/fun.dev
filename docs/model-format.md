@@ -533,7 +533,9 @@ as a float32 stream, `surfaces` as a uint8 stream per cell, `surfaceTable`, `wat
 carries the field's flat-shaded mesh and a static mesh body. `fun3d.grid` is an array of cell
 maps (`node`, `origin`, `cell`, `size` [columns, rows], `step` metres per level, `cells` and
 optional `levels` as uint8 streams, `types` with `walkable`, `buildable`, `color`, `tags`),
-the node carrying the map's mesh and body likewise. Markers are nodes with `tags` and
+the node carrying the map's mesh and body likewise. `fun3d.navgrid` is one walkable raster per
+tile (`cell`, `origin`, `size`, `radius`, `climb`, `areas`, `cells` uint8 stream with the area
+index per cell and 0 blocked, `heights` float32 stream), baked by the workshop. Markers are nodes with `tags` and
 `fun3d.params`; `kit/world.js` reads markers, zones, paths and terrains from a loaded file
 (`worldData(model)`). `fun3d.rules` carries up to 64 scatter or
 assembly rules for play time, their models pinned (and among the refs), evaluated by

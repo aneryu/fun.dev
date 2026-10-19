@@ -10,6 +10,7 @@
 import { evaluateScatter } from "./scatter.js";
 import { evaluateAssembly } from "./assemble.js";
 import { evaluateLots } from "./lots.js";
+import { navPath, walkableAt } from "./nav.js";
 import { heightAt, surfaceAt } from "./terrain.js";
 import { createHeap, cellAt, gridHeightAt, gridPath } from "./grid.js";
 
@@ -208,6 +209,11 @@ export function worldData(model, { height: worldHeight = null, surface: worldSur
     for (const g of grids) { const h = gridHeightAt(g, x, z); if (h !== null) return h; }
     return null;
   };
+  // The walkable raster the workshop baked (fun3d.navgrid): where an agent may stand, and walks.
+  const navRecord = extensions["fun3d.navgrid"] ?? null;
+  const navgrid = navRecord && streams ? { cell: navRecord.cell, origin: navRecord.origin, size: navRecord.size, radius: navRecord.radius ?? 0, climb: navRecord.climb ?? 0.5, areas: navRecord.areas ?? [], cells: streams.of(navRecord.cells), heights: navRecord.heights ? streams.of(navRecord.heights) : null } : null;
+  const walkable = (x, z) => (navgrid ? walkableAt(navgrid, x, z) : false);
+  const walk = (a, b, options = {}) => (navgrid ? navPath(navgrid, a, b, { climb: navgrid.climb, ...options }) : { found: false, points: [], length: 0, cells: 0 });
   const surface = (x, z) => { for (const t of terrains) { const s = surfaceAt(t, x, z); if (s) return s; } return null; };
   /** The grid cell under a world point ({ col, row, type, level, height, grid }), null off every grid. */
   const cell = (x, z) => { for (const g of grids) { const c = cellAt(g, x, z); if (c) return { ...c, grid: g.node }; } return null; };
@@ -272,6 +278,12 @@ export function worldData(model, { height: worldHeight = null, surface: worldSur
     grids: () => grids.map((g) => ({ node: g.node, origin: g.origin, cell: g.cell, size: g.size, step: g.step, types: g.types })),
     cell,
     gridPath: gridRoute,
+    /** The baked walkable raster ({ cell, origin, size, radius, climb, areas, cells, heights }), or null. */
+    navgrid: () => navgrid,
+    /** Whether an agent may stand at a world point (false without a raster). */
+    walkable,
+    /** The shortest walk between two world points over the raster: { found, points, length }. */
+    walk,
     /** The terrain's height under a world point, null off every terrain. */
     height,
     /** The terrain surface under a world point ({ id, color, friction, tags }), null off every terrain. */
@@ -438,6 +450,10 @@ export async function createWorld(context, url, options = {}) {
     cell(x, z) { for (const t of tiles) if (t.near) { const c = t.near.data.cell(x, z); if (c) return c; } for (const t of tiles) if (t.far && !t.near) { const c = t.far.data.cell(x, z); if (c) return c; } return null; },
     /** A grid path within one near tile's grid holding both points. */
     gridPath(a, b, options) { for (const t of tiles) if (t.near) { const r = t.near.data.gridPath(a, b, options); if (r.found) return r; } return { found: false, cells: [], points: [], length: 0 }; },
+    /** Whether an agent may stand at a world point, by the near tiles' rasters. */
+    walkable(x, z) { for (const t of tiles) if (t.near && t.near.data.walkable(x, z)) return true; return false; },
+    /** A walk within one near tile's raster holding both points (across tiles: later). */
+    walk(a, b, options) { for (const t of tiles) if (t.near) { const r = t.near.data.walk(a, b, options); if (r.found) return r; } return { found: false, points: [], length: 0, cells: 0 }; },
     markers: (tag) => all((s) => s.markers(tag)),
     marker: (id) => first((s) => s.marker(id)),
     zones: (tag) => all((s) => s.zones(tag)),

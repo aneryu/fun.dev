@@ -163,10 +163,16 @@ A marker is a node with `tags` and, when the game needs values, `extensions["fun
 attachment frames, as on models. Spawn points, checkpoints, pickups, build spots, tees and
 holes, piece slots are all markers.
 
-**Navigation.** `fun3d.navmesh` holds a baked walkable mesh per tile: a vertex stream, polygon
-index lists, an area type per polygon, and portals naming the neighbouring tile and edge so
-paths cross tiles. Vehicle routing needs no extra data: it runs on `fun3d.paths` edges with a
-`kind` and `lanes`. Grid pathing runs on `fun3d.grid`.
+**Navigation.** Built 2026-10-19 as a raster rather than polygons: `fun3d.navgrid` is a
+walkable raster per tile (`cell`, `origin`, `size`, `radius`, `climb`, `areas` with costs,
+`cells` as a uint8 stream with the area index per cell, 0 blocked, `heights` as a float32
+stream), baked by the workshop from the ground (terrains, grids, floors and roads tagged
+`ground`) less what stands on it, the water, grid cells no one walks, slopes beyond the
+agent's limit, grown by the agent's radius; `worldData(tile).walk(a, b)` is an A* over the
+cells pulled straight where the way is clear, `walkable(x, z)` the test. `fun3d.navmesh`
+(polygons with portals across tiles, Recast) stays planned for when the raster is not enough;
+walks stay within one tile for now. Vehicle routing needs no extra data: it runs on
+`fun3d.paths` edges with a `kind` and `lanes`. Grid pathing runs on `fun3d.grid`.
 
 **Tile record.** `fun3d.tile` names the world (`world`, the manifest's id), the tile's
 coordinates (`x`, `z`), its `bounds` and the world's tile `size`, its far file (`far`, a coarse
@@ -456,8 +462,11 @@ from a script, reviewed like library models.
    on maps and junctions (built 2026-10-19: the `meet` op joins paths where they meet or
    cross, a sweep over several paths trims its ribbons at the junctions and fills them with
    patches, the welded network routes in the game; sample `examples/worlds/crossroads.mjs`)
-   are done; `fun3d.navmesh`, budgets measured on a phone, and 帝都 M1's block loaded from
-   world data remain.
+   are done, and navigation (built 2026-10-19 as the walkable raster `fun3d.navgrid`: a `nav`
+   setting on the project bakes it into every tile, the audit reports markers no spawn can
+   reach, the game walks over it; sample `examples/worlds/keep.mjs`); budgets measured on a
+   phone and 帝都 M1's block loaded from world data remain, polygon navmeshes with portals
+   across tiles are later.
 4. **Later** (appendix A).
 
 Step 1 fits the early phase and serves 帝都 M1. Whether step 3 precedes workshop stage 4

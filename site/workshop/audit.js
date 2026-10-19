@@ -7,6 +7,9 @@ import { ruleStatus, terrainFields, gridFields } from "./rules.js";
 import { auditTiles, tileGrid } from "./tiles.js";
 import { heightAt } from "../runtime/kit/terrain.js";
 import { gridHeightAt } from "../runtime/kit/grid.js";
+import { buildNavgrid } from "./nav.js";
+import { navCellAt, reachable } from "../runtime/kit/nav.js";
+import { sceneBounds } from "./tile.js";
 
 const EPS = 0.02; // 2 cm: resting on something, or on the ground
 const round = (v) => Math.round(v * 1000) / 1000;
@@ -151,6 +154,33 @@ export function auditProject(project, { ground: plane = 0, budget = {} } = {}) {
             : `rule ${status.id} was derived from inputs that have changed since`,
         suggestion: `derive({ id: "${status.id}" }) rebuilds its copies.`,
       });
+
+  // Reach (nav set): every marker must be reachable from a spawn marker over the walkable raster.
+  if (project.nav) {
+    const markers = project.nodes.filter((n) => n.marker), spawns = markers.filter((n) => n.tags?.includes("spawn"));
+    if (spawns.length) {
+      const b = sceneBounds(project), nav = buildNavgrid(project, project.nav, { min: [b.min[0], b.min[2]], max: [Math.max(b.max[0], b.min[0] + project.nav.cell), Math.max(b.max[2], b.min[2] + project.nav.cell)] });
+      const at = (n) => point(worldMatrix(project, n.id), [0, 0, 0]);
+      const mask = new Uint8Array(nav.cells.length);
+      for (const s of spawns) {
+        const p = at(s), c = navCellAt(nav, p[0], p[2]);
+        if (!c || !c.area) {
+          findings.push({ code: "unwalkable", severity: "warning", node: s.id, message: `spawn ${s.id} stands where no one can walk`, suggestion: "Move it onto open ground, or widen nav.radius's clearance around it." });
+          continue;
+        }
+        const r = reachable(nav, p, { climb: nav.climb });
+        for (let i = 0; i < mask.length; i++) if (r[i]) mask[i] = 1;
+      }
+      let listed = 0;
+      for (const m of markers) {
+        if (m.tags?.includes("spawn")) continue;
+        const p = at(m), c = navCellAt(nav, p[0], p[2]);
+        if (c && c.area && mask[c.index]) continue;
+        if (listed++ >= 20) break;
+        findings.push({ code: "unreachable", severity: "warning", node: m.id, message: c && c.area ? `${m.id} cannot be reached from any spawn marker` : `${m.id} stands where no one can walk`, suggestion: "Open a way (a path on the ground, a gap in what blocks), lower nav.slope or nav.radius, or move the marker." });
+      }
+    }
+  }
 
   // The budget: local triangles plus the placed models' own; per tile once the scene cuts
   // into several (what streams in together is what a phone draws together).

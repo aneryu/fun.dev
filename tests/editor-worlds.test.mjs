@@ -816,3 +816,47 @@ test("welded paths sweep as a network with junction patches, and the game routes
   const plain = (await api.derive({}, { ifRevision: api.inspect().revision })).derived.find((d) => d.rule === "roads");
   assert.equal(plain.sweep.junctions, 0, "junctions off: every path on its own");
 });
+
+test("a project with nav bakes a walkable raster into its tiles; the audit finds markers nobody can reach", async () => {
+  api.loadProject(
+    { format: "fun.dev/model", version: 1, name: "yard", tile: { size: [40, 40] }, nav: { cell: 1, radius: 0.5, slope: 40, climb: 0.5 }, materials: [{ id: "wood", name: "wood", color: "#c9a27a", roughness: 0.6 }], nodes: [] },
+    { ifRevision: api.inspect().revision },
+  );
+  assert.deepEqual(api.inspect().nav, { cell: 1, radius: 0.5, slope: 40, climb: 0.5, clearance: 1.8 });
+  api.apply([
+    { op: "create", id: "slab", kind: "box", material: "wood", position: [0, -0.05, 0], options: { size: [40, 0.1, 40] }, tags: ["ground"] },
+    // A wall across the yard with a gap at the south end, and a walled pen with no door.
+    { op: "create", id: "wall", kind: "box", material: "wood", position: [0, 1, -3], options: { size: [0.4, 2, 34] } },
+    { op: "create", id: "pen_n", kind: "box", material: "wood", position: [12, 1, 6], options: { size: [8, 2, 0.4] } },
+    { op: "create", id: "pen_s", kind: "box", material: "wood", position: [12, 1, 14], options: { size: [8, 2, 0.4] } },
+    { op: "create", id: "pen_e", kind: "box", material: "wood", position: [16, 1, 10], options: { size: [0.4, 2, 8] } },
+    { op: "create", id: "pen_w", kind: "box", material: "wood", position: [8, 1, 10], options: { size: [0.4, 2, 8] } },
+    { op: "create", id: "spawn", kind: "marker", position: [-15, 0, -15], tags: ["spawn"] },
+    { op: "create", id: "goal", kind: "marker", position: [15, 0, -15], tags: ["goal"] },
+    { op: "create", id: "penned", kind: "marker", position: [12, 0, 10], tags: ["loot"] },
+    { op: "create", id: "in_wall", kind: "marker", position: [0, 0, -3], tags: ["loot"] },
+  ]);
+  const findings = api.audit().findings.filter((f) => f.code === "unreachable");
+  assert.deepEqual(findings.map((f) => f.node).sort(), ["in_wall", "penned"], JSON.stringify(findings));
+  assert.ok(findings.find((f) => f.node === "penned").message.includes("cannot be reached"));
+  assert.ok(findings.find((f) => f.node === "in_wall").message.includes("no one can walk"));
+  const tile = await api.exportTile({ encoding: "buffer" });
+  assert.deepEqual(await fun3d.validate(tile), []);
+  const model = await fun3d.load(tile);
+  const nav = model.extensions["fun3d.navgrid"];
+  assert.deepEqual([nav.cell, nav.size], [1, [40, 40]]);
+  const data = worldData(model);
+  assert.equal(data.walkable(-15, -15), true);
+  assert.equal(data.walkable(0, -3), false, "the wall, grown by the radius");
+  assert.equal(data.walkable(12, 10), true, "inside the pen is walkable, just not reachable");
+  const walk = data.walk([-15, 0, -15], [15, 0, -15]);
+  assert.ok(walk.found && walk.length > 40 && walk.points.some((p) => p[2] > 14), `round the south end of the wall: ${JSON.stringify(walk)}`);
+  assert.equal(data.walk([-15, 0, -15], [12, 0, 10]).found, false, "no way into the pen");
+  // A world's tiles carry rasters over their own rectangles, from the whole project.
+  api.loadProject({ ...api.getProject(), tile: { size: [20, 20], span: [3, 3] } }, { ifRevision: api.inspect().revision });
+  const world = await api.exportWorld({ name: "Yard" });
+  const t = await fun3d.load(Buffer.from(world.files.find((f) => f.path === "tiles/0_0.fun3d").data, "base64"));
+  assert.deepEqual(t.extensions["fun3d.navgrid"].origin, [-10, 0, -10]);
+  assert.equal(worldData(t).walkable(-9.5, -9.5), true);
+  assert.equal(worldData(t).walkable(0.2, 0), false, "the wall blocks the centre tile's raster");
+});

@@ -1091,6 +1091,7 @@ export function capabilities({ detail = "full", command } = {}) {
       "lots",
       "tileGridOnMaps",
       "junctions",
+      "navigation",
     ],
     unsupported: [
       "UV textures",

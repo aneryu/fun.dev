@@ -1,10 +1,12 @@
 // A tower-defence map (docs/worlds.md step 3): a 40 × 30 cell board with a lane painted from
 // the gate to the keep, a river with a ford, rock, a raised plateau, build spots as markers;
 // trees scattered on the plain cells only; a walkthrough down the lane. The game reads
-// cell(x, z) for types and levels, gridPath for the creeps, markers("build") for turrets.
+// cell(x, z) for types and levels, gridPath for the creeps, markers("build") for turrets; the
+// tile also carries a walkable raster (nav), so walk(gate, keep) finds the way and the audit
+// says when a build spot cannot be reached.
 //   node scripts/editor-agent.mjs --run examples/worlds/keep.mjs
 export default async function (ws) {
-  await ws.load({ name: "Keep", tile: { size: [96, 96] }, materials: [{ id: "stone", name: "Stone", color: "#8f8a80", roughness: 0.9 }] });
+  await ws.load({ name: "Keep", tile: { size: [96, 96] }, nav: { cell: 1, radius: 0.4, climb: 0.6 }, materials: [{ id: "stone", name: "Stone", color: "#8f8a80", roughness: 0.9 }] });
   await ws.apply([
     { op: "create", id: "board", kind: "grid", position: [-40, 0, -30], tags: ["ground"], grid: {
       cell: 2, size: [40, 30], step: 0.5,
@@ -23,6 +25,7 @@ export default async function (ws) {
       { type: "rock", rect: [8, 0, 11, 7] },
       { type: "rock", rect: [26, 20, 39, 29] },
       { type: "plateau", level: 2, rect: [30, 0, 39, 9] },
+      { type: "plateau", level: 1, rect: [29, 0, 29, 9] },          // a ramp: one step of 0.5 m up, then another
       // The lane, cell by cell along the path's legs (the ford crosses the river at row 15).
       { type: "lane", rect: [0, 28, 0, 15] },
       { type: "lane", rect: [0, 15, 18, 15] },
@@ -33,15 +36,19 @@ export default async function (ws) {
     ] },
     { op: "create", id: "gate", kind: "marker", position: [-39, 0, 27], rotation: [0, 180, 0], tags: ["spawn", "gate"] },
     { op: "create", id: "keep", kind: "marker", position: [35, 0, 13], tags: ["goal", "keep"] },
+    // Build spots: a marker each, and a pad zone the shrubs keep out of.
     { op: "create", id: "tower_1", kind: "marker", position: [-31, 0, 9], tags: ["build"], params: { slot: 1 } },
     { op: "create", id: "tower_2", kind: "marker", position: [3, 0, -9], tags: ["build"], params: { slot: 2 } },
     { op: "create", id: "tower_3", kind: "marker", position: [27, 1, -25], tags: ["build"], params: { slot: 3 } },
-    { op: "create", id: "donjon", kind: "box", material: "stone", position: [35, 3, 9], options: { size: [6, 6, 6] } },
+    { op: "create", id: "pad_1", kind: "zone", tags: ["pad"], position: [-31, 0, 9], area: { size: [6, 2, 6] } },
+    { op: "create", id: "pad_2", kind: "zone", tags: ["pad"], position: [3, 0, -9], area: { size: [6, 2, 6] } },
+    { op: "create", id: "pad_3", kind: "zone", tags: ["pad"], position: [27, 1, -25], area: { size: [6, 2, 6] } },
+    { op: "create", id: "donjon", kind: "box", material: "stone", position: [35, 3, 7], options: { size: [6, 6, 6] } },
   ]);
   // Shrubs and a few trees on the plain cells, away from the lane (cherry trees are heavy:
   // the board stays under a phone's budget).
-  await ws.rule({ id: "trees", kind: "scatter", seed: "keep", target: "trees", tags: ["tree"], on: { grid: { cells: [20, 15], spacing: 4, origin: [0, 0, 0] } }, ground: true, where: { types: ["plain"] }, yaw: "random", scale: [0.7, 1.1],
-    avoid: [{ path: "lane", width: 5 }], candidates: [{ model: "garden_shrub_01", weight: 10 }, { model: "flowering_cherry_tree_01", weight: 1 }] });
+  await ws.rule({ id: "trees", kind: "scatter", seed: "keep", target: "trees", tags: ["tree"], on: { grid: { cells: [13, 10], spacing: 6, origin: [0, 0, 0] } }, ground: true, where: { types: ["plain"] }, yaw: "random", scale: [0.7, 1.1],
+    avoid: [{ path: "lane", width: 6 }, { zone: "pad_1" }, { zone: "pad_2" }, { zone: "pad_3" }], candidates: [{ model: "garden_shrub_01", weight: 10 }, { model: "flowering_cherry_tree_01", weight: 1 }] });
   const derived = await ws.derive();
   const audit = await ws.audit();
   await ws.map({ file: "keep-map.png", size: 768 });

@@ -491,12 +491,14 @@ export function normalizeProject(input) {
   validateMaterialReferences({ materials, nodes });
   const sources = normalizeSources(input.sources),
     tile = normalizeTile(input.tile),
+    nav = normalizeNav(input.nav),
     rules = normalizeRules(input.rules);
   return {
     format: FORMAT,
     version: VERSION,
     name: label(input.name, "name"),
     ...(tile ? { tile } : {}),
+    ...(nav ? { nav } : {}),
     ...(rules.length ? { rules } : {}),
     assemblies: normalizeAssemblies(
       input.assemblies ?? (legacyAssembly ? [legacyAssembly] : []),
@@ -645,6 +647,19 @@ export function normalizePath(value, path = "path") {
   if (value.oneway) out.oneway = true;
   if (value.speed !== undefined && value.speed !== null) out.speed = number(value.speed, 1, 400, `${path}.speed`);
   return out;
+}
+// nav bakes a walkable raster into every tile (nav.js): the cell size, the agent's radius,
+// the slope it climbs, the step it steps over, the clearance it needs.
+function normalizeNav(value) {
+  if (value === undefined || value === null || value === false) return null;
+  if (typeof value !== "object") fail("nav is { cell, radius, slope, climb, clearance }", "nav");
+  return {
+    cell: number(value.cell ?? 1, 0.25, 8, "nav.cell"),
+    radius: number(value.radius ?? 0.4, 0, 5, "nav.radius"),
+    slope: number(value.slope ?? 40, 0, 89, "nav.slope"),
+    climb: number(value.climb ?? 0.5, 0, 10, "nav.climb"),
+    clearance: number(value.clearance ?? 1.8, 0.2, 10, "nav.clearance"),
+  };
 }
 // tile.size cuts a world into tiles centred on multiples of it (tiles.js); tile.span is how
 // many tiles across and deep the world may use, centred on tile 0_0 (odd numbers; 1 by default).

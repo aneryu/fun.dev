@@ -12,6 +12,7 @@ import { statistics } from "./document.js";
 import { runtimeRule, sweepProfiles } from "./rules.js";
 import { terrainMesh } from "../runtime/kit/terrain.js";
 import { gridMesh } from "../runtime/kit/grid.js";
+import { buildNavgrid } from "./nav.js";
 
 const round = (v) => Math.round(v * 1e6) / 1e6;
 
@@ -208,6 +209,22 @@ export async function exportTile(project, { name = project.name, runtime = [], w
         physics.bodies.push({ id: `body_${id}`, node: id, shape: `shape_${id}`, motion: "static", friction: 0.8 });
       }
     const bounds = sceneBounds(project);
+    // The walkable raster (nav.js): over the tile's rectangle in a world, the scene's bounds
+    // alone; from the whole project, so what stands over a seam blocks both sides.
+    const navSetting = (source ?? project).nav;
+    let navgrid = null;
+    if (navSetting && !world?.data && world?.level !== "far") {
+      const rect = world && world.x !== undefined
+        ? { min: [world.x * world.size[0] - world.size[0] / 2, world.z * world.size[1] - world.size[1] / 2], max: [world.x * world.size[0] + world.size[0] / 2, world.z * world.size[1] + world.size[1] / 2] }
+        : { min: [bounds.min[0], bounds.min[2]], max: [Math.max(bounds.max[0], bounds.min[0] + navSetting.cell), Math.max(bounds.max[2], bounds.min[2] + navSetting.cell)] };
+      const built = buildNavgrid(source ?? project, navSetting, rect);
+      if (built.stats.walkable)
+        navgrid = {
+          cell: built.cell, origin: built.origin.map(round), size: built.size, radius: built.radius, climb: built.climb, areas: built.areas,
+          cells: { stream: built.cells, format: "uint8" },
+          heights: { stream: built.heights, format: "float32" },
+        };
+    }
     const record = world
       ? {
           world: world.id,
@@ -221,6 +238,7 @@ export async function exportTile(project, { name = project.name, runtime = [], w
     const extensions = { "fun3d.tile": record };
     if (terrains.length) extensions["fun3d.terrain"] = terrains;
     if (grids.length) extensions["fun3d.grid"] = grids;
+    if (navgrid) extensions["fun3d.navgrid"] = navgrid;
     if (zones.length) extensions["fun3d.zones"] = zones;
     if (edges.length) {
       extensions["fun3d.paths"] = { points: { stream: Float32Array.from(points), format: "float32x3" }, edges };
@@ -266,6 +284,7 @@ export async function exportTile(project, { name = project.name, runtime = [], w
         terrainTriangles: stats.terrainTriangles,
         grids: grids.length,
         gridTriangles: stats.gridTriangles,
+        ...(navgrid ? { nav: { cell: navgrid.cell, size: navgrid.size, walkable: navgrid.cells.stream.reduce((n, v) => n + (v ? 1 : 0), 0) } } : {}),
         meshes: stats.meshes,
         triangles: stats.triangles,
       },

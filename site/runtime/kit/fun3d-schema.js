@@ -648,6 +648,21 @@ function validateSceneExtensions(manifest, { uses, streams, nodes, caps, out }) 
       if (!Array.isArray(g.types) || !g.types.length || g.types.length > 32 || g.types.some((t) => !t || typeof t.id !== "string")) out.push(`${path}.types has 1–32 types with ids`);
     });
   }
+  const navgrid = extensions["fun3d.navgrid"];
+  if (navgrid !== undefined) {
+    const path = `extensions["fun3d.navgrid"]`;
+    if (!navgrid || typeof navgrid !== "object") out.push(`${path} is an object`);
+    else {
+      if (!vector3(navgrid.origin) || !(navgrid.cell > 0) || !Array.isArray(navgrid.size) || navgrid.size.length !== 2 || navgrid.size.some((v) => !Number.isInteger(v) || v < 1 || v > 4096)) out.push(`${path} needs origin, cell and size [columns, rows] up to 4096`);
+      const cells = streamRef(navgrid.cells, `${path}.cells`, ["uint8"]);
+      if (cells && Array.isArray(navgrid.size) && cells.count !== navgrid.size[0] * navgrid.size[1]) out.push(`${path}.cells has ${cells.count} values for ${navgrid.size[0]} × ${navgrid.size[1]} cells`);
+      if (navgrid.heights !== undefined) {
+        const heights = streamRef(navgrid.heights, `${path}.heights`, ["float32"]);
+        if (heights && Array.isArray(navgrid.size) && heights.count !== navgrid.size[0] * navgrid.size[1]) out.push(`${path}.heights has one value per cell`);
+      }
+      if (navgrid.areas !== undefined && (!Array.isArray(navgrid.areas) || navgrid.areas.length > 255 || navgrid.areas.some((a) => !a || typeof a.id !== "string"))) out.push(`${path}.areas has up to 255 areas with ids`);
+    }
+  }
   const rules = extensions["fun3d.rules"];
   if (rules !== undefined) {
     if (!Array.isArray(rules) || rules.length > 64) out.push(`extensions["fun3d.rules"] is an array of up to 64 rules`);

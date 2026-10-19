@@ -1285,3 +1285,30 @@ await ws.derive();
 - `bake: false` leaves the rule for the game: `worldData(tile).run(id)` returns the rows per
   model and the `lots`. Sample: `examples/worlds/block.mjs`. Blueprint buildings sized to
   their lots are later.
+
+### Navigation: the walkable raster
+
+`nav` on the project bakes a walkable raster into every tile it exports (`kit/nav.js`,
+`site/workshop/nav.js`):
+
+```js
+await ws.load({ name: "Keep", tile: { size: [96, 96] }, nav: { cell: 1, radius: 0.5, slope: 40, climb: 0.6, clearance: 1.8 } });
+```
+
+- `cell` metres (1; grown when a tile would exceed 1 048 576 cells), `radius` of the agent
+  (0.4), `slope` degrees it climbs (40), `climb` the step it steps over (0.5), `clearance` it
+  needs under things (1.8: lower things do not block, things higher than 20 cm off the ground
+  do).
+- The ground is the terrains, grids and every mesh part tagged `ground` (slabs, swept roads);
+  what stands on it (placed models per copy, other meshes) blocks, as do water, grid cells of
+  types with `walkable: false` and slopes beyond the limit; blocked cells grow by the radius.
+  A cell's area is the ground's name: a terrain surface, a grid type, a floor part's first
+  tag that is not `ground` (`road` for a swept road), else `ground` or `floor`.
+- The audit, when `nav` is set and the scene has markers tagged `spawn`, reports `unwalkable`
+  spawns and `unreachable` markers (none of the spawns reaches them over the raster).
+- The tile carries `fun3d.navgrid` (cells and heights as streams); a world bakes one per tile
+  over the tile's rectangle from the whole project. In the game `worldData(tile).walkable(x, z)`,
+  `walk(a, b, { climb, costs })` (A* over eight neighbours with the areas' costs, the corners
+  pulled straight where the line is clear; `{ found, points, length }`) and `navgrid()`; a
+  world walks within one near tile. Polygon navmeshes with portals across tiles are later.
+  Sample: `examples/worlds/keep.mjs`.
