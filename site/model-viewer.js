@@ -62,6 +62,19 @@ function pose(gltf) {
   });
 }
 
+// Collision shapes (nodes named collider…, docs/models.md) are for physics: games hide them
+// (kit/fun3d-import.js), and the library's pictures and turntable leave them out too.
+function dropColliders(root) {
+  const colliders = [];
+  root.traverse((node) => {
+    if (/^collider/.test(node.name)) colliders.push(node);
+  });
+  for (const node of colliders) {
+    release(node);
+    node.removeFromParent();
+  }
+}
+
 function release(object) {
   object?.traverse((node) => {
     node.geometry?.dispose();
@@ -87,6 +100,7 @@ export async function renderThumbnail(bytes, size = 512) {
     environment = sky(renderer);
     scene.environment = environment.texture;
     gltf = await new GLTFLoader().parseAsync(buffer, "");
+    dropColliders(gltf.scene);
     pose(gltf);
     scene.add(gltf.scene);
     frame(camera, gltf.scene);
@@ -151,6 +165,7 @@ export function createViewer(container) {
       const [gltf] = await Promise.all([new GLTFLoader().loadAsync(url), ready]);
       if (disposed) { release(gltf.scene); return; }
       if (model) { scene.remove(model); release(model); }
+      dropColliders(gltf.scene);
       pose(gltf);
       model = gltf.scene;
       scene.add(model);

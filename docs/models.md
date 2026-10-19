@@ -38,6 +38,10 @@ game's `assets/`.
 
 - Every GLB follows the pipeline's production spec: metres, glTF +Y up, front +Z, root at the
   centre of the bounding box's floor, real-world size.
+- Nodes named `collider…` are simplified collision shapes (a box around a lamp's pole, say):
+  games use them for physics instead of the model's outline and hide them, and the library's
+  thumbnails and 3D view leave them out. Worth adding wherever the outline's convex hull would
+  block space the model leaves open (lamp arms over a road, sign gantries, arches).
 - Licence: CC0. The source is published too when the pipeline uploaded one: a `.blend`, or a
   workshop project file (`source.funmodel.glb`, the model plus its editable project; see
   [model editor](model-editor.md#project-files-and-glb-import)).
