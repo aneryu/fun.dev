@@ -235,6 +235,76 @@ test("a one-tile world bundles the manifest, the tile and the models' runtime fi
   api.apply([{ op: "delete", id: "stool_2" }]);
 });
 
+test("scatter rules derive many copies of a placed model, go stale, and leave with their rule", async () => {
+  fresh("avenue", { size: [60, 30] });
+  api.apply([
+    { op: "create", id: "road", kind: "path", tags: ["road"], path: { points: [[-25, 0, 0], [25, 0, 0]] } },
+    { op: "create", id: "verge", kind: "zone", area: { polygon: [[-25, 3], [25, 3], [25, 12], [-25, 12]], y: [0, 3] } },
+    { op: "create", id: "kiosk", kind: "box", material: "wood", position: [0, 1, 7], options: { size: [4, 2, 4] } },
+  ]);
+  const lamps = { id: "lamps", kind: "scatter", target: "lamp_row", tags: ["lamp"], on: { path: "road", spacing: 10, offset: 2, sides: "both" }, candidates: [{ model: "test_lamp_01" }] };
+  const bushes = { id: "bushes", kind: "scatter", seed: "spring", parent: null, on: { zone: "verge", spacing: 2, jitter: 0.5, margin: 0.5 }, yaw: "random", scale: [0.9, 1.1], avoid: [{ nodes: ["kiosk"] }], candidates: [{ model: "test_lamp_01", weight: 1, tints: [[1, 0.8, 0.8], [0.8, 1, 0.8]] }] };
+  const added = api.apply([{ op: "rule", definition: lamps }, { op: "rule", definition: bushes }]);
+  assert.equal(api.inspect().rules.length, 2);
+  assert.deepEqual(api.inspect().rules[0].on, { path: "road", spacing: 10, offset: 2, sides: "both", start: 0, end: null, jitter: 0 });
+  assert.deepEqual(api.audit().findings.map((f) => f.code), ["underived-rule", "underived-rule"]);
+  const derived = await api.derive({}, { ifRevision: added.revision });
+  assert.deepEqual(derived.derived.map((d) => [d.rule, d.nodes, d.copies]), [["lamps", ["lamp_row"], 12], ["bushes", ["bushes"], derived.derived[1].copies]]);
+  assert.ok(derived.derived[1].copies > 40, `bushes fill the verge (${derived.derived[1].copies})`);
+  const row = api.inspect({ id: "lamp_row" });
+  assert.equal(row.node.copies.length, 12);
+  assert.deepEqual(row.node.copies[0], [-25, 0, 2, 0, 90, 0, 1]);
+  assert.deepEqual(row.node.tags, ["lamp"]);
+  assert.equal(row.node.derived.rule, "lamps");
+  assert.deepEqual(row.bounds.min.map((v) => Math.round(v * 100) / 100), [-25.15, 0, -2.15]);
+  const bushNode = api.inspect({ id: "bushes" }).node;
+  assert.equal(bushNode.tints.length, bushNode.copies.length);
+  assert.ok(bushNode.copies.every(([x, , z]) => !(x >= -2 && x <= 2 && z >= 5 && z <= 9)), "no bush in the kiosk's footprint");
+  assert.ok(bushNode.copies.some(([x, , z]) => Math.abs(x) < 4 && z > 4 && z < 10), "bushes do stand around the kiosk");
+  assert.equal(api.inspect().stats.copies, 12 + bushNode.copies.length);
+  assert.equal(api.inspect().stats.placedTriangles, 40 * (12 + bushNode.copies.length));
+  assert.deepEqual(api.audit().findings.filter((f) => /rule/.test(f.code)), [], "derived rules are current");
+  // Copies draw instanced; ids shading colours them; the map covers them.
+  const shot = api.renderViews(["perspective"], { size: 160, shading: "ids" })[0];
+  assert.ok(shot.observation.nodeColors.lamp_row && shot.observation.nodeColors.bushes);
+  assert.ok(brightness(api.map({ size: 160 }).dataUrl).colours > 6);
+  // The rule goes stale when its path moves, and current again after deriving.
+  api.apply([{ op: "set", id: "road", path: { points: [[-25, 0, 1], [25, 0, 1]] } }]);
+  assert.deepEqual(api.audit().findings.filter((f) => /rule/.test(f.code)).map((f) => f.rule), ["lamps"]);
+  await api.derive({ id: "lamps" }, { ifRevision: api.inspect().revision });
+  assert.deepEqual(api.inspect({ id: "lamp_row" }).node.copies[0], [-25, 0, 3, 0, 90, 0, 1]);
+  assert.deepEqual(api.audit().findings.filter((f) => /rule/.test(f.code)), []);
+  // A copy made by hand leaves the rule; removing the rule removes what it derived.
+  api.apply([{ op: "duplicate", id: "lamp_row", newId: "lamp_row_b", offset: [0, 0, 20] }]);
+  assert.equal(api.inspect({ id: "lamp_row_b" }).node.derived, undefined);
+  api.apply([{ op: "removeRule", id: "bushes" }]);
+  assert.equal(api.inspect().rules.length, 1);
+  assert.ok(!api.getProject().nodes.some((n) => n.id === "bushes"));
+  assert.throws(() => api.apply([{ op: "rule", definition: { id: "x", kind: "scatter", on: { path: "road", zone: "verge" }, candidates: [{ model: "a" }] } }]), /one of path, zone or grid/);
+  // A grid rule: its spacing may sit on the grid itself.
+  api.apply([{ op: "rule", definition: { id: "tiles", kind: "scatter", target: "tiles", on: { grid: { cells: [4, 2], spacing: 6, origin: [0, 0, 20] } }, yaw: 0, candidates: [{ model: "test_lamp_01" }] } }]);
+  await api.derive({ id: "tiles" }, { ifRevision: api.inspect().revision });
+  const tiles = api.inspect({ id: "tiles" }).node.copies;
+  assert.equal(tiles.length, 8);
+  assert.deepEqual(tiles[0], [-9, 0, 17, 0, 0, 0, 1]);
+  assert.deepEqual(tiles.at(-1), [9, 0, 23, 0, 0, 0, 1]);
+  await assert.rejects(api.derive({ id: "nope" }), /Unknown rule/);
+  // The tile carries the copies as placements; the runtime instances them and knows each lamp.
+  const tile = await api.exportTile({ encoding: "buffer" });
+  assert.deepEqual(await fun3d.validate(tile), []);
+  const model = await fun3d.load(tile, { resolve: () => fun3d.load(lampFun3d) });
+  const rowNode = model.node("lamp_row");
+  assert.ok(rowNode.children.some((c) => c.isInstancedMesh && c.count === 12), "an instanced mesh per part of the lamp");
+  assert.equal(model.placements.get("lamp_row").count, 12);
+  const data = worldData(model);
+  assert.equal(data.markers("lamp").length, 12 + 12, "every copy of both rows is a marker");
+  assert.deepEqual(data.markers("lamp")[0].position.map((v) => Math.round(v * 100) / 100), [-25, 0, 3]);
+  const project = await api.exportProject();
+  api.importGLB({ data: project.data, mode: "replace" });
+  assert.equal(api.inspect().rules.length, 2, "rules ride in the project file");
+  assert.equal(api.inspect({ id: "lamp_row" }).node.copies.length, 12);
+});
+
 test("unknown models and stale revisions are refused", async () => {
   await assert.rejects(api.place({ model: "no_such_model", id: "x" }), /not in the model library/);
   await assert.rejects(api.place({ model: "test_lamp_01", id: "x" }, { ifRevision: 1 }), /Project changed/);

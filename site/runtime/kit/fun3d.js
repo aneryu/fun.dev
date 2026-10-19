@@ -431,6 +431,35 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
         if (mesh.dequantize) { child.position.fromArray(mesh.dequantize.offset); child.scale.setScalar(mesh.dequantize.scale); }
         object.add(child);
         object.userData.mesh = child;
+      } else if (n.model && n.placements) {
+        // Many copies of a placed model: one instanced mesh per part of the referenced model,
+        // every copy in this node's parent space; its lamps once per copy.
+        object = new THREE.Object3D();
+        const file = resolved.get(n.model.ref), ref = manifest.refs.find((r) => r.id === n.model.ref).model;
+        const transforms = streams.of(n.placements.transforms), count = n.placements.count;
+        const tint = n.placements.tint ? streams.of(n.placements.tint) : null;
+        file.root.updateMatrixWorld(true);
+        const base = new THREE.Matrix4().copy(file.root.matrixWorld).invert(), copy = new THREE.Matrix4(), part = new THREE.Matrix4(), rel = new THREE.Matrix4(), color = new THREE.Color();
+        file.root.traverse((o) => {
+          const mesh = o.userData.mesh;
+          if (!mesh?.isMesh || mesh.isInstancedMesh) return;
+          rel.multiplyMatrices(base, mesh.matrixWorld);
+          const instanced = new THREE.InstancedMesh(mesh.geometry, mesh.material, count);
+          for (let i = 0; i < count; i++) { copy.fromArray(transforms, i * 16); part.multiplyMatrices(copy, rel); instanced.setMatrixAt(i, part); }
+          if (tint) for (let i = 0; i < count; i++) instanced.setColorAt(i, color.setRGB(tint[i * 4] / 255, tint[i * 4 + 1] / 255, tint[i * 4 + 2] / 255));
+          instanced.castShadow = mesh.castShadow;
+          instanced.receiveShadow = mesh.receiveShadow;
+          instanced.name = o.name;
+          instanced.userData = { nested: true, part: o.name, model: ref };
+          object.add(instanced);
+        });
+        placements.set(n.id, { count, transforms, tint });
+        object.userData.model = { ref: n.model.ref, model: ref, variants: n.model.variants ? { ...n.model.variants } : {}, tint: null, copies: count };
+        for (const l of file.lights ?? []) {
+          const lightNode = file.nodes.get(l.node);
+          rel.multiplyMatrices(base, lightNode.matrixWorld);
+          for (let i = 0; i < count; i++) { copy.fromArray(transforms, i * 16); part.multiplyMatrices(copy, rel); lights.push({ ...l, node: n.id, copy: i, matrix: part.toArray() }); }
+        }
       } else if (n.model) {
         // A placed library model: the referenced model's objects under this node, geometry
         // and materials shared with the file it came from. Variants and tint are carried as

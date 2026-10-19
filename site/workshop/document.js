@@ -166,7 +166,8 @@ export function normalizeProject(input) {
   if (!Array.isArray(input.nodes) || input.nodes.length > LIMITS.nodes)
     fail(`Expected at most ${LIMITS.nodes} nodes`);
   let vertexCount = 0,
-    triangleCount = 0;
+    triangleCount = 0,
+    copyCount = 0;
   const nodes = input.nodes.map((node) => {
     if (!node) fail("Invalid node");
     const result = {
@@ -373,6 +374,15 @@ export function normalizeProject(input) {
     if (node.marker) result.marker = true;
     if (node.zone) result.zone = normalizeZone(node.zone, `nodes.${node.id}.zone`);
     if (node.path) result.path = normalizePath(node.path, `nodes.${node.id}.path`);
+    if (node.copies !== undefined && node.copies !== null) {
+      if (!result.place) fail("copies belong to a placed model", `nodes.${node.id}.copies`);
+      result.copies = normalizeCopies(node.copies, `nodes.${node.id}.copies`);
+      if ((copyCount += result.copies.length) > COPY_LIMITS.total)
+        fail(`More than ${COPY_LIMITS.total} copies in the project`, `nodes.${node.id}.copies`);
+      if (node.tints !== undefined && node.tints !== null)
+        result.tints = normalizeTints(node.tints, result.copies.length, `nodes.${node.id}.tints`);
+    }
+    if (node.derived) result.derived = normalizeDerived(node.derived, `nodes.${node.id}.derived`);
     return result;
   });
   unique(
@@ -462,12 +472,14 @@ export function normalizeProject(input) {
   nodes.forEach((n) => visit(n.id));
   validateMaterialReferences({ materials, nodes });
   const sources = normalizeSources(input.sources),
-    tile = normalizeTile(input.tile);
+    tile = normalizeTile(input.tile),
+    rules = normalizeRules(input.rules);
   return {
     format: FORMAT,
     version: VERSION,
     name: label(input.name, "name"),
     ...(tile ? { tile } : {}),
+    ...(rules.length ? { rules } : {}),
     assemblies: normalizeAssemblies(
       input.assemblies ?? (legacyAssembly ? [legacyAssembly] : []),
       nodes,
@@ -606,6 +618,139 @@ function normalizeTile(value) {
     fail("tile.size is [width, depth] in metres", "tile.size");
   return { size: [value.size[0], value.size[1]] };
 }
+// Many copies of a placed model in one part (docs/worlds.md §5): rows [x, y, z, rx, ry, rz,
+// scale] in the part's space, usually derived by a rule; a derived stamp names the rule.
+export const COPY_LIMITS = { perNode: 10000, total: 100000, rules: 64, candidates: 16, avoid: 32 };
+function normalizeCopies(value, path) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > COPY_LIMITS.perNode)
+    fail(`Copies are 1–${COPY_LIMITS.perNode} rows of [x, y, z, rx, ry, rz, scale]`, path);
+  return value.map((row, i) => {
+    if (
+      !Array.isArray(row) ||
+      row.length !== 7 ||
+      row.some((v) => !Number.isFinite(v) || Math.abs(v) > 100000) ||
+      row[6] < 0.001 ||
+      row[6] > 1000
+    )
+      fail("A copy is [x, y, z, rx, ry, rz, scale] with a scale from 0.001 to 1000", `${path}.${i}`);
+    return [...row];
+  });
+}
+function normalizeTints(value, count, path) {
+  if (!Array.isArray(value) || value.length !== count) fail("Tints need one [r, g, b] per copy", path);
+  return value.map((t, i) => {
+    const tint = vector(t, `${path}.${i}`);
+    if (tint.some((v) => v < 0 || v > 1)) fail("Tint components are 0–1", `${path}.${i}`);
+    return tint;
+  });
+}
+function normalizeDerived(value, path) {
+  if (!value || typeof value !== "object" || typeof value.hash !== "string" || value.hash.length > 32)
+    fail("A derived stamp is { rule, hash }", path);
+  return { rule: identifier(value.rule, `${path}.rule`), hash: value.hash };
+}
+const RULE_MODEL = /^[a-z0-9]+(?:_[a-z0-9]+)*(?:@v\d{3})?$/;
+function normalizeYaw(value, path) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "number") return { mode: "fixed", value: number(value, -10000, 10000, path) };
+  if (value === "path" || value === "random") return { mode: value };
+  if (value && typeof value === "object") {
+    const mode = value.mode ?? (value.value !== undefined ? "fixed" : "random");
+    if (!["path", "random", "fixed"].includes(mode))
+      fail("yaw is path, random, a number, or { mode, value, jitter }", path);
+    const out = { mode };
+    if (mode === "fixed") out.value = number(value.value ?? 0, -10000, 10000, `${path}.value`);
+    if (value.jitter !== undefined) out.jitter = number(value.jitter, 0, 360, `${path}.jitter`);
+    return out;
+  }
+  fail("yaw is path, random, a number, or { mode, value, jitter }", path);
+}
+export function normalizeRule(value, path = "definition") {
+  if (!value || typeof value !== "object") fail("Invalid rule", path);
+  const id = identifier(value.id, `${path}.id`);
+  if (value.kind !== "scatter") fail("Rule kinds: scatter", `${path}.kind`);
+  const rule = { id, kind: "scatter" };
+  if (typeof value.seed === "string") {
+    if (!value.seed.length || value.seed.length > 64) fail("A seed is a number or a short string", `${path}.seed`);
+    rule.seed = value.seed;
+  } else rule.seed = value.seed === undefined ? 1 : number(value.seed, 0, 4294967295, `${path}.seed`);
+  rule.target = value.target === undefined ? id : identifier(value.target, `${path}.target`);
+  if (value.parent !== undefined && value.parent !== null) rule.parent = identifier(value.parent, `${path}.parent`);
+  const tags = normalizeTags(value.tags, `${path}.tags`);
+  if (tags.length) rule.tags = tags;
+  const on = value.on;
+  if (!on || typeof on !== "object") fail("A scatter rule needs on: { path } | { zone } | { grid }", `${path}.on`);
+  const modes = ["path", "zone", "grid"].filter((k) => on[k] !== undefined && on[k] !== null);
+  if (modes.length !== 1) fail("on is one of path, zone or grid", `${path}.on`);
+  const spacing = number(on.spacing ?? on.grid?.spacing ?? 1, 0.01, 10000, `${path}.on.spacing`);
+  if (modes[0] === "path") {
+    const offset = Array.isArray(on.offset)
+      ? [number(on.offset[0], -10000, 10000, `${path}.on.offset`), number(on.offset[1] ?? on.offset[0], -10000, 10000, `${path}.on.offset`)]
+      : number(on.offset ?? 0, -10000, 10000, `${path}.on.offset`);
+    rule.on = {
+      path: identifier(on.path, `${path}.on.path`),
+      spacing,
+      offset,
+      sides: on.sides === "both" ? "both" : "one",
+      start: number(on.start ?? 0, 0, 1000000, `${path}.on.start`),
+      end: on.end === undefined || on.end === null ? null : number(on.end, 0, 1000000, `${path}.on.end`),
+      jitter: number(on.jitter ?? 0, 0, 1, `${path}.on.jitter`),
+    };
+  } else if (modes[0] === "zone") {
+    rule.on = {
+      zone: identifier(on.zone, `${path}.on.zone`),
+      spacing,
+      jitter: number(on.jitter ?? 0.5, 0, 1, `${path}.on.jitter`),
+      margin: number(on.margin ?? 0, 0, 10000, `${path}.on.margin`),
+      count: on.count === undefined || on.count === null ? null : number(on.count, 1, COPY_LIMITS.perNode, `${path}.on.count`),
+    };
+  } else {
+    const grid = on.grid;
+    if (!grid || typeof grid !== "object" || !Array.isArray(grid.cells) || grid.cells.length !== 2 || grid.cells.some((v) => !Number.isInteger(v) || v < 1 || v > 1000) || grid.cells[0] * grid.cells[1] > COPY_LIMITS.perNode)
+      fail(`A grid has cells [columns, rows] up to ${COPY_LIMITS.perNode} in all`, `${path}.on.grid`);
+    rule.on = { grid: { cells: [...grid.cells], spacing, origin: vector(grid.origin ?? [0, 0, 0], `${path}.on.grid.origin`) } };
+  }
+  if (value.y !== undefined && value.y !== null) rule.y = number(value.y, -100000, 100000, `${path}.y`);
+  const yaw = normalizeYaw(value.yaw, `${path}.yaw`);
+  if (yaw) rule.yaw = yaw;
+  if (value.scale !== undefined && value.scale !== null) {
+    const scale = value.scale;
+    if (!Array.isArray(scale) || scale.length !== 2 || scale.some((v) => !(v >= 0.001 && v <= 1000)) || scale[0] > scale[1])
+      fail("scale is [min, max]", `${path}.scale`);
+    rule.scale = [scale[0], scale[1]];
+  }
+  if (!Array.isArray(value.candidates) || !value.candidates.length || value.candidates.length > COPY_LIMITS.candidates)
+    fail(`candidates are 1–${COPY_LIMITS.candidates} library models`, `${path}.candidates`);
+  rule.candidates = value.candidates.map((c, i) => {
+    if (!c || typeof c !== "object" || typeof c.model !== "string" || !RULE_MODEL.test(c.model))
+      fail("A candidate names a library model (id or id@vNNN)", `${path}.candidates.${i}.model`);
+    const out = { model: c.model, weight: number(c.weight ?? 1, 0, 1000, `${path}.candidates.${i}.weight`) };
+    if (c.tints !== undefined && c.tints !== null) {
+      if (!Array.isArray(c.tints) || !c.tints.length || c.tints.length > 16) fail("tints are 1–16 colours", `${path}.candidates.${i}.tints`);
+      out.tints = normalizeTints(c.tints, c.tints.length, `${path}.candidates.${i}.tints`);
+    }
+    return out;
+  });
+  if (value.avoid !== undefined && value.avoid !== null) {
+    if (!Array.isArray(value.avoid) || value.avoid.length > COPY_LIMITS.avoid) fail(`avoid lists up to ${COPY_LIMITS.avoid} entries`, `${path}.avoid`);
+    rule.avoid = value.avoid.map((a, i) => {
+      const at = `${path}.avoid.${i}`;
+      if (!a || typeof a !== "object") fail("avoid entries are { path, width } | { zone } | { nodes }", at);
+      if (a.path !== undefined) return { path: identifier(a.path, `${at}.path`), width: number(a.width ?? 1, 0, 10000, `${at}.width`) };
+      if (a.zone !== undefined) return { zone: identifier(a.zone, `${at}.zone`) };
+      if (Array.isArray(a.nodes) && a.nodes.length && a.nodes.length <= 64) return { nodes: a.nodes.map((n, k) => identifier(n, `${at}.nodes.${k}`)) };
+      fail("avoid entries are { path, width } | { zone } | { nodes }", at);
+    });
+  }
+  return rule;
+}
+function normalizeRules(input) {
+  if (input === undefined || input === null) return [];
+  if (!Array.isArray(input) || input.length > COPY_LIMITS.rules) fail(`Expected up to ${COPY_LIMITS.rules} rules`, "rules");
+  const rules = input.map((r, i) => normalizeRule(r, `rules.${i}`));
+  unique(rules.map((r) => r.id), "rules");
+  return rules;
+}
 export const DATA_KINDS = ["place", "marker", "zone", "path"];
 export const dataKind = (node) => DATA_KINDS.find((k) => node?.[k]) ?? null;
 
@@ -614,7 +759,9 @@ export function statistics(project) {
     (s, node) => {
       if (node.place) {
         s.placed++;
-        s.placedTriangles += node.place.triangles ?? 0;
+        const count = node.copies?.length ?? 1;
+        s.copies += node.copies?.length ?? 0;
+        s.placedTriangles += (node.place.triangles ?? 0) * count;
       } else if (node.marker) s.markers++;
       else if (node.zone) s.zones++;
       else if (node.path) s.paths++;
@@ -637,6 +784,7 @@ export function statistics(project) {
       triangles: 0,
       drawCalls: 0,
       placed: 0,
+      copies: 0,
       placedTriangles: 0,
       markers: 0,
       zones: 0,
@@ -1449,6 +1597,56 @@ function run(project, command) {
   }
   if (command.op === "removeMaterial") return removeMaterial(project, command);
   if (command.op === "purgeMaterials") return purgeMaterials(project);
+  // Scatter rules (docs/worlds.md §5): rules are data on the project; `derived` replaces what
+  // a rule produced last time with what it produces now, every node stamped with the rule.
+  if (command.op === "rule") {
+    const rule = normalizeRule(command.definition, "definition");
+    project.rules = [...(project.rules ?? []).filter((r) => r.id !== rule.id), rule];
+    return;
+  }
+  if (command.op === "removeRule") {
+    identifier(command.id, "id");
+    if (!(project.rules ?? []).some((r) => r.id === command.id)) fail(`Unknown rule: ${command.id}`);
+    project.rules = project.rules.filter((r) => r.id !== command.id);
+    const removed = new Set(project.nodes.filter((n) => n.derived?.rule === command.id).map((n) => n.id));
+    if (project.nodes.some((n) => removed.has(n.parent) && !removed.has(n.id)))
+      fail("A derived part has children; move them before removing the rule");
+    project.nodes = project.nodes.filter((n) => !removed.has(n.id));
+    return;
+  }
+  if (command.op === "derived") {
+    identifier(command.rule, "rule");
+    if (!(project.rules ?? []).some((r) => r.id === command.rule)) fail(`Unknown rule: ${command.rule}`);
+    if (!Array.isArray(command.nodes) || command.nodes.length > 64) fail("derived takes up to 64 nodes", "nodes");
+    const removed = new Set(project.nodes.filter((n) => n.derived?.rule === command.rule).map((n) => n.id));
+    if (project.nodes.some((n) => removed.has(n.parent) && !removed.has(n.id)))
+      fail("A derived part has children; move them before deriving again");
+    project.nodes = project.nodes.filter((n) => !removed.has(n.id));
+    for (const [i, node] of command.nodes.entries()) {
+      const at = `nodes.${i}`;
+      if (!node || typeof node !== "object") fail("Invalid derived node", at);
+      const result = {
+        id: identifier(node.id, `${at}.id`),
+        name: label(node.name ?? node.id, `${at}.name`),
+        parent: node.parent == null ? null : identifier(node.parent, `${at}.parent`),
+        position: vector(node.position ?? [0, 0, 0], `${at}.position`),
+        rotation: vector(node.rotation ?? [0, 0, 0], `${at}.rotation`),
+        scale: vector(node.scale ?? [1, 1, 1], `${at}.scale`),
+        mesh: null,
+        place: normalizePlace(node.place, `${at}.place`),
+        derived: { rule: command.rule, hash: normalizeDerived({ rule: command.rule, hash: node.derived?.hash ?? node.hash ?? "" }, `${at}.derived`).hash },
+      };
+      if (node.copies !== undefined && node.copies !== null) {
+        result.copies = normalizeCopies(node.copies, `${at}.copies`);
+        if (node.tints !== undefined && node.tints !== null) result.tints = normalizeTints(node.tints, result.copies.length, `${at}.tints`);
+      }
+      const tags = normalizeTags(node.tags, `${at}.tags`);
+      if (tags.length) result.tags = tags;
+      if (node.params !== undefined && node.params !== null) result.params = normalizeParams(node.params, `${at}.params`);
+      project.nodes.push(result);
+    }
+    return;
+  }
   if (command.op === "create") {
     const {
       id,
@@ -1476,7 +1674,12 @@ function run(project, command) {
         error.suggestion = "Call place({ model, id, … }) which resolves the model in the library first.";
         throw error;
       }
-      project.nodes.push({ ...base, place: normalizePlace(command.place, "place") });
+      const placed = { ...base, place: normalizePlace(command.place, "place") };
+      if (command.copies !== undefined && command.copies !== null) {
+        placed.copies = normalizeCopies(command.copies, "copies");
+        if (command.tints !== undefined && command.tints !== null) placed.tints = normalizeTints(command.tints, placed.copies.length, "tints");
+      }
+      project.nodes.push(placed);
       return;
     }
     if (kind === "marker") {
@@ -1855,6 +2058,21 @@ function run(project, command) {
           "place",
         );
       }
+      if (command.copies !== undefined) {
+        if (!node.place) fail("copies belong to placed models", "copies");
+        if (command.copies === null) {
+          delete node.copies;
+          delete node.tints;
+        } else {
+          node.copies = normalizeCopies(command.copies, "copies");
+          if (command.tints === undefined && node.tints && node.tints.length !== node.copies.length) delete node.tints;
+        }
+      }
+      if (command.tints !== undefined) {
+        if (!node.copies) fail("tints belong to copies", "tints");
+        if (command.tints === null) delete node.tints;
+        else node.tints = normalizeTints(command.tints, node.copies.length, "tints");
+      }
       if (command.area !== undefined) {
         if (!node.zone) fail("area belongs to zones", "area");
         node.zone = normalizeZone(command.area, "area");
@@ -1909,6 +2127,8 @@ function run(project, command) {
             parent: map.get(n.parent) ?? n.parent,
           };
           remapRecipeReferences(clone.recipe, n.id, clone.id);
+          // A copy made by hand is no longer the rule's to replace.
+          delete clone.derived;
           return clone;
         });
       const root = clones.find((n) => n.id === command.newId);

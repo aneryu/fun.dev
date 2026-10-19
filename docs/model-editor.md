@@ -1029,3 +1029,46 @@ in the editing section. `exportWorld` adds `world.json` and the `.fun3d` of ever
 `fun3d.load(bytes, { resolve })` and reads its data through `kit/world.js`
 ([fun3d for agents](fun3d-agents.md)). `tile: { size: [width, depth] }` on the project sets the
 tile's extent for the audit and the manifest.
+
+### Scatter rules
+
+A rule places many copies of library models at once and stays on the project as data, so a
+change of seed, spacing or path is one `derive` away ([worlds §5](worlds.md#5-generators-rules-as-data)):
+
+```js
+funEditor.rule({ id: "lamps", kind: "scatter", target: "lamps", tags: ["lamp"],
+  on: { path: "road", spacing: 12, offset: 5, sides: "both", start: 6 }, y: 0.35,
+  candidates: [{ model: "street_lamp_01" }] }, { ifRevision });
+funEditor.rule({ id: "green", kind: "scatter", seed: "spring",
+  on: { zone: "verge", spacing: 4, jitter: 0.6, margin: 3.5 }, yaw: "random", scale: [0.85, 1.15],
+  avoid: [{ path: "road", width: 14 }, { nodes: ["kiosk"] }],
+  candidates: [{ model: "flowering_cherry_tree_01", weight: 1 }, { model: "garden_shrub_01", weight: 3, tints: [[1, 1, 1], [0.9, 1, 0.9]] }] }, { ifRevision });
+await funEditor.derive({}, { ifRevision });          // or { id } / { ids }
+```
+
+- `on` is one of `{ path, spacing, offset, sides, start, end, jitter }` (stations by arc
+  length; `offset` is the distance to the left of the path, a pair for two offsets, `sides:
+  "both"` mirrors it; copies face along the path, the right side the other way),
+  `{ zone, spacing, jitter, margin, count }` (a jittered hexagonal grid inside the zone,
+  `margin` from its edges) or `{ grid: { cells, spacing, origin } }`.
+- `y` fixes the height (else the path's or the zone's floor); `yaw` is `"path"`, `"random"`,
+  degrees or `{ mode, value, jitter }`; `scale` is `[min, max]`, uniform.
+- `candidates` are library models (id or `id@vNNN`) with `weight` and optional `tints`, a
+  palette one colour of which each copy takes; `avoid` keeps copies off paths by `width`, out
+  of zones and off the footprints of `nodes`.
+- `target` names the derived part (`<target>_<n>` with several candidates), `parent` its
+  parent, `tags` its tags; `seed` (a number or a string) makes the result reproducible.
+
+In the page `funEditor.rule` and `funEditor.removeRule` wrap the `rule` and `removeRule`
+commands of `apply`; MCP has `fun_editor_derive` and uses `fun_editor_apply` for the rules
+themselves; scripts have `ws.rule`, `ws.removeRule` and `ws.derive`.
+
+`derive` creates or replaces the rule's parts: placed models carrying `copies` (rows
+`[x, y, z, rx, ry, rz, scale]` in the part's space, up to 10 000 per part, 100 000 per
+project) and `tints`, stamped `derived: { rule, hash }`. A part duplicated by hand drops the
+stamp; `removeRule` removes the rule and its parts; `set` with `copies` edits rows by hand.
+The audit lists `underived-rule` and `stale-rule` (the path, zone, solids or models the rule
+read have changed since) and counts every copy's triangles in the budget; copies stay out of
+the overlap and floating checks. In the viewport copies draw instanced; `exportTile` writes
+them as `placements` of the model node, and a game gets one instanced mesh per part, the
+model's lamps once per copy, and one marker per copy for the part's tags.

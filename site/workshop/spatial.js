@@ -168,11 +168,18 @@ export function boundsOf(points) {
 export function nodePoints(node) {
   if (node.place) {
     const { min, max } = node.place.bounds;
-    return [0, 1, 2, 3, 4, 5, 6, 7].map((i) => [
+    const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => [
       i & 1 ? max[0] : min[0],
       i & 2 ? max[1] : min[1],
       i & 4 ? max[2] : min[2],
     ]);
+    if (!node.copies) return corners;
+    const points = [];
+    for (const [x, y, z, rx, ry, rz, s] of node.copies) {
+      const m = matrix({ position: [x, y, z], rotation: [rx, ry, rz], scale: [s, s, s] });
+      for (const c of corners) points.push(point(m, c));
+    }
+    return points;
   }
   if (node.zone) {
     const z = node.zone;

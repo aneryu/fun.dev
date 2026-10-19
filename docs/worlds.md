@@ -356,9 +356,19 @@ from a script, reviewed like library models.
    per-copy tint and variants applied at run time, placed models' lamps as light-slot
    candidates, and batching of nested copies (they draw as singles); these come with step 2's
    instancing work. How the workshop records a placement: [model editor](model-editor.md#scenes-placed-models-markers-zones-and-paths).
-2. **Rules and kits.** `scatter`, `assemble` with socket rules, structured kits, `derive` with
-   caching and `derived` stamps, runtime `assemble`. Samples: a dungeon floor, runner segments,
-   an arena.
+2. **Rules and kits.** Scatter is built (2026-10-19): `rule` adds a scatter rule as data on
+   the project (along a path with offset and sides, inside a zone with jitter and margin, on a
+   grid; yaw, scale range, weighted candidates with tint palettes, keep-out by paths, zones
+   and solids; a seed), `derive` resolves the candidate models in the library, evaluates the
+   rule in `kit/scatter.js` (the same code a game may run) and replaces the parts it produced
+   last time: one placed model with many copies per candidate, stamped with the rule and a
+   hash of its inputs, so the audit reports `stale-rule` and `underived-rule`. Copies draw
+   instanced in the viewport (the software renderer too), export as `placements` on `model`
+   nodes, load as one instanced mesh per part of the referenced model, offer the model's lamps
+   to the light slots once per copy, and read as one marker per copy. Sample:
+   `examples/worlds/avenue.mjs` (grass tiles on grids, lamps and benches along the road,
+   trees and shrubs over the verges). Still to come in this step: kits with socket rules,
+   `assemble`, runtime `assemble`, and the dungeon, runner and arena samples.
 3. **Ground, sweeps, navigation, tiles.** `fun3d.terrain` and `fun3d.grid`, terrain ops, `sweep`
    for roads and tracks (帝都's generator generalised), `lots`, `fun3d.navmesh`, the manifest with
    streaming and far files, `sample`, full budgets. Samples: a racing track, an island, 帝都 M1's

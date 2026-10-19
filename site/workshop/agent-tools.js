@@ -331,7 +331,7 @@ const definitions = [
   ],
   [
     "place",
-    "Place a library model by reference (docs/worlds.md): model is an id or id@vNNN (default: the newest approved version); id names the new part; parent, position, rotation (degrees), scale, tags, params (plain JSON up to 4 KB), variants and tint as for create. The library supplies the version's bounds, triangle count and files; the part keeps a reference, never the geometry. Markers, zones and paths are created with apply: create kind marker | zone (area) | path (path).",
+    "Place a library model by reference (docs/worlds.md): model is an id or id@vNNN, id names the part; parent, position, rotation, scale, tags, params, variants, tint as for create. The part keeps the library's bounds and files, never the geometry. Markers, zones, paths and scatter rules go through apply (create kind marker | zone | path; op rule | removeRule).",
     object(
       {
         model: str,
@@ -354,26 +354,32 @@ const definitions = [
     false,
   ],
   [
+    "derive",
+    "Run scatter rules (one with id, some with ids, else all): resolves their models in the library, evaluates each rule from its seed and replaces the parts it derived before with placed models carrying many copies. audit reports stale or underived rules.",
+    object({ id: str, ids: { type: "array", items: str, minItems: 1 }, label: str, ifRevision: revision }, ["ifRevision"]),
+    false,
+  ],
+  [
     "map",
-    "A top-down map of the scene: every part, with zones (blue), paths (orange) and markers (green) drawn over it. Returns the image, its metres per pixel and the scene's bounds.",
+    "A top-down map: every part with zones (blue), paths (orange) and markers (green) over it; returns the image, metres per pixel and the bounds.",
     object({ size: render.size, ids, shading: render.shading, helpers: bool, visibility: render.visibility }),
     true,
   ],
   [
     "audit",
-    "What a picture cannot show: overlapping solids, floating or buried parts, parts outside the tile, placed models without a .fun3d file, and the triangle budget (300 000 by default, a phone's). Every finding carries a suggestion.",
+    "What a picture cannot show: overlaps, floating or buried parts, parts outside the tile, placed models without a .fun3d, stale or underived rules, the triangle budget. Findings carry suggestions.",
     object({ ground: num, budget: object({ triangles: num }) }),
     true,
   ],
   [
     "exportTile",
-    "The scene as a .fun3d tile: the project's parts as geometry, placed models as references (refs and model nodes), markers as tagged nodes with fun3d.params, zones and paths in fun3d.zones and fun3d.paths, the project in the editing section. The adapter writes it to --artifacts when set.",
+    "The scene as one .fun3d tile: parts as geometry, placed models as references (copies as placements), markers, zones and paths as data, the project in the editing section. Written to --artifacts when set.",
     object({ name: str }),
     true,
   ],
   [
     "exportWorld",
-    "A one-tile world: world.json, tiles/0_0.fun3d and the .fun3d of every placed model, downloaded from the library (each placed model needs a converted version; audit reports those without). The adapter writes the files under --artifacts when set.",
+    "A one-tile world: world.json, the tile and the .fun3d of every placed model from the library (each needs a converted version). Written under --artifacts when set.",
     object({ name: str }),
     true,
   ],
@@ -482,10 +488,11 @@ export function toolInvocation(name, args = {}) {
     return { method, args: [id, { ifRevision }] };
   if (method === "exportGLB" || method === "exportTile")
     return { method, args: [{ ...args, encoding: "base64" }] };
-  if (method === "place") {
+  if (method === "place" || method === "derive") {
     const { ifRevision: expected, label: title, ...options } = args;
     return { method, args: [options, { ifRevision: expected, label: title }] };
   }
+
   if (method === "openLibraryModel") {
     const { ifRevision: expected, ...options } = args;
     return { method, args: [options, { ifRevision: expected }] };

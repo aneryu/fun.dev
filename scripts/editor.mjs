@@ -26,11 +26,9 @@ async function build() {
     "_headers",
     "404.html",
     "runtime/three.js",
-    "runtime/kit/assets.js",
-    // Scene tiles (docs/worlds.md) are written with the format's writer.
-    "runtime/kit/fun3d-write.js",
-    "runtime/kit/fun3d-schema.js",
-    "runtime/kit/fun3d-container.js",
+    // The workshop reads the runtime kit: assets, the format's writer and schema for scene
+    // tiles, the scatter evaluator and seeded random streams (docs/worlds.md).
+    "runtime/kit",
     // "Open in workshop" reads the model library through the site's own catalog module.
     "models-catalog.js",
     "game-source.js",

@@ -105,7 +105,9 @@ const lap = data.path("lap"); lap.at(0.5).position; lap.nearest(position).distan
 ```
 
 `world.json` of a one-tile world lists the tile and the models' files with their SHA-256; a
-game build pins them like any model.
+game build pins them like any model. A model node with `placements` (a scatter rule's copies)
+loads as instanced parts, lights its lamps once per copy and yields one marker per copy
+(`id#index`).
 
 ## What to check
 

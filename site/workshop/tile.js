@@ -39,6 +39,21 @@ export async function exportTile(project, { name = project.name } = {}) {
           ...(node.place.variants ? { variants: { ...node.place.variants } } : {}),
           ...(node.place.tint ? { tint: [...node.place.tint] } : {}),
         };
+        if (node.copies) {
+          // Copies replace the part's own transform in the file: each matrix in the parent's space.
+          const copies = new Float32Array(node.copies.length * 16),
+            m = new THREE.Matrix4();
+          node.copies.forEach((row, i) => {
+            m.compose(
+              new THREE.Vector3(row[0], row[1], row[2]),
+              new THREE.Quaternion().setFromEuler(new THREE.Euler(...row.slice(3, 6).map(THREE.MathUtils.degToRad), "XYZ")),
+              new THREE.Vector3(row[6], row[6], row[6]),
+            );
+            m.premultiply(o.matrix).toArray(copies, i * 16);
+          });
+          o.userData.fun3dModel.copies = copies;
+          if (node.tints) o.userData.fun3dModel.tints = node.tints.map((t) => [...t]);
+        }
       }
       // Zones and paths live in the tile's tables; their nodes stay only as pivots of children.
       if ((node.zone || node.path) && !project.nodes.some((n) => n.parent === node.id)) o.removeFromParent();
@@ -103,6 +118,7 @@ export async function exportTile(project, { name = project.name } = {}) {
         bounds,
         refs: refs.size,
         placed: stats.placed,
+        copies: stats.copies,
         placedTriangles: stats.placedTriangles,
         markers: stats.markers,
         zones: zones.length,

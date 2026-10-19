@@ -189,3 +189,15 @@ await ws.exportWorld({ dir: "park-world" }); // world.json, the tile, the placed
 `model` is a library id or `id@vNNN`; `ws.librarySearch({ query })` finds ids. A placed part
 keeps the library's bounds and files, never the geometry. Tag the floor `ground`. Fix what the
 audit lists before exporting; `--run` prints the audit for scene projects.
+
+Many copies come from rules, data on the project that `derive` runs:
+
+```js
+await ws.rule({ id: "lamps", kind: "scatter", target: "lamps", tags: ["lamp"], on: { path: "road", spacing: 12, offset: 5, sides: "both" }, candidates: [{ model: "street_lamp_01" }] });
+await ws.rule({ id: "green", kind: "scatter", seed: "spring", on: { zone: "verge", spacing: 4, jitter: 0.6, margin: 3.5 }, yaw: "random", scale: [0.85, 1.15],
+  avoid: [{ path: "road", width: 14 }], candidates: [{ model: "flowering_cherry_tree_01" }, { model: "garden_shrub_01", weight: 3 }] });
+await ws.derive();                        // placed parts with copies, stamped with their rule
+```
+
+`on` is `{ path, spacing, offset, sides }`, `{ zone, spacing, jitter, margin }` or `{ grid: { cells,
+spacing, origin } }`; the audit says when a rule is stale or not yet derived.

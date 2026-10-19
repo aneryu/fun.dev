@@ -206,6 +206,12 @@ const props = {
     required: ["points"],
     additionalProperties: false,
   },
+  // Many copies of a placed model in one part, usually derived by a scatter rule.
+  copies: { type: "array", items: { type: "array", items: number, minItems: 7, maxItems: 7 }, minItems: 1, maxItems: 10000 },
+  tints: { type: "array", items: vector, minItems: 1, maxItems: 10000 },
+  derived: { type: "object", properties: { rule: string, hash: string }, required: ["rule", "hash"], additionalProperties: false },
+  rule: string,
+  nodes: { type: "array", items: object, maxItems: 64 },
   place: {
     type: "object",
     properties: {
@@ -412,7 +418,7 @@ props.shape = {
 const specs = {
   create: [
     "id kind",
-    "name parent position rotation scale material options mesh smooth tags params place variants tint area path",
+    "name parent position rotation scale material options mesh smooth tags params place variants tint area path copies tints derived",
   ],
   material: [
     "id",
@@ -421,7 +427,10 @@ const specs = {
   removeMaterial: ["id", "replacement"],
   purgeMaterials: ["", ""],
   renameProject: ["name", ""],
-  set: ["id", "name parent position rotation scale keepWorld smooth tags params variants tint area path"],
+  set: ["id", "name parent position rotation scale keepWorld smooth tags params variants tint area path copies tints"],
+  rule: ["definition", ""],
+  removeRule: ["id", ""],
+  derived: ["rule nodes", ""],
   transform: [
     "",
     "id ids vertices faces edges topology select translation rotation scale pivot space matrix",
@@ -708,7 +717,51 @@ export const modelDefinitions = {
     ["parameters", "bindings"],
   ),
 };
+modelDefinitions.rule = obj(
+  {
+    id: string,
+    kind: { const: "scatter" },
+    seed: { oneOf: [number, string] },
+    target: string,
+    parent: { oneOf: [string, { type: "null" }] },
+    tags: { type: "array", items: string, maxItems: 16 },
+    on: {
+      type: "object",
+      properties: {
+        path: string,
+        zone: string,
+        grid: obj({ cells: { type: "array", items: { type: "integer" }, minItems: 2, maxItems: 2 }, spacing: number, origin: vector }, ["cells"]),
+        spacing: number,
+        offset: { oneOf: [number, pair] },
+        sides: { enum: ["one", "both"] },
+        start: number,
+        end: { oneOf: [number, { type: "null" }] },
+        jitter: number,
+        margin: number,
+        count: { oneOf: [{ type: "integer" }, { type: "null" }] },
+      },
+      additionalProperties: false,
+    },
+    y: { oneOf: [number, { type: "null" }] },
+    yaw: { oneOf: [number, { enum: ["path", "random"] }, obj({ mode: { enum: ["path", "random", "fixed"] }, value: number, jitter: number })] },
+    scale: pair,
+    candidates: {
+      type: "array",
+      minItems: 1,
+      maxItems: 16,
+      items: obj({ model: string, weight: number, tints: { type: "array", items: vector, minItems: 1, maxItems: 16 } }, ["model"]),
+    },
+    avoid: {
+      type: "array",
+      maxItems: 32,
+      items: { oneOf: [obj({ path: string, width: number }, ["path"]), obj({ zone: string }, ["zone"]), obj({ nodes: { type: "array", items: string, minItems: 1, maxItems: 64 } }, ["nodes"])] },
+    },
+  },
+  ["id", "kind", "on", "candidates"],
+);
 for (const c of commandSchema.oneOf) {
+  if (c.properties.op.const === "rule")
+    c.properties.definition = { $ref: "#/$defs/rule" };
   if (c.properties.op.const === "recipe")
     c.properties.definition = { $ref: "#/$defs/recipe" };
   if (c.properties.op.const === "assembly")
@@ -856,6 +909,9 @@ export function capabilities({ detail = "full", command } = {}) {
       paramsBytes: 4096,
       zonePolygonPoints: 256,
       pathPoints: 1024,
+      rules: 64,
+      copiesPerPart: 10000,
+      copies: 100000,
     },
     persistence:
       "apply is synchronous; inspect persistence or await flush(). MCP waits for durable saves before acknowledging mutations.",
@@ -915,6 +971,8 @@ export function capabilities({ detail = "full", command } = {}) {
       "sceneAudit",
       "mapRender",
       "tileExport",
+      "scatterRules",
+      "placementCopies",
     ],
     unsupported: [
       "UV textures",

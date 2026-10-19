@@ -500,9 +500,12 @@ may be a copy of one:
             "extensions": { "fun3d.params": { "watts": 60 } } }]                                      // the game's own values, plain JSON up to 4 KB
 ```
 
-A `model` node has no mesh, skin, light or lod of its own (placements of placed models come
-with a later release); the referenced model's objects load under it, sharing geometry and
-materials with the referenced file, and `kit/models.js` carries them with every copy.
+A `model` node has no mesh, skin, light or lod of its own; the referenced model's objects load
+under it, sharing geometry and materials with the referenced file, and `kit/models.js` carries
+them with every copy. With `placements` (count, `mat4` transforms in the node's parent space,
+optional tints) a `model` node stands for many copies: the loader builds one instanced mesh
+per part of the referenced model, offers the model's lamps to the light slots once per copy,
+and `kit/world.js` reads one marker per copy for the node's tags.
 `variants` and `tint` are carried as data in this release. Loading a file with `refs` needs a
 `resolve(model)` callback returning each referenced model, loaded; the game build resolves the
 closure into `models.lock`. Reference depth is two for tiles (tile → model → the model's

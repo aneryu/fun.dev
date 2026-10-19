@@ -33,6 +33,7 @@ import { auditProject } from "./audit.js";
 import { exportTile } from "./tile.js";
 import { exportWorld } from "./world-export.js";
 import { resolvePlacement, ensurePlaced } from "./placed.js";
+import { ruleInputs, deriveNodes } from "./rules.js";
 import { fromBase64, toBase64 } from "./glb.js";
 import { projectFile, projectFilename } from "./project-file.js";
 import { materialUsage } from "./materials.js";
@@ -214,6 +215,8 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
         ...common,
         name: p.name,
         assemblies: p.assemblies,
+        rules: p.rules ?? [],
+        tile: p.tile ?? null,
         assembly: assetFor(p, selection.id),
         selection: structuredClone(selection),
         stats: statistics(p),
@@ -729,6 +732,45 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
     },
     audit(options = {}) {
       return { revision: store.revision, ...auditProject(store.snapshot(), options) };
+    },
+    // Scatter rules: data on the project; derive resolves the candidate models in the library
+    // and replaces what each rule produced last time.
+    rule(definition, options = {}) {
+      return api.apply([{ op: "rule", definition }], options);
+    },
+    removeRule(id, options = {}) {
+      return api.apply([{ op: "removeRule", id }], options);
+    },
+    async derive({ id, ids } = {}, options = {}) {
+      commitPending();
+      check(options);
+      const revision = store.revision,
+        project = store.snapshot();
+      const rules = (project.rules ?? []).filter((r) => (id ? r.id === id : ids ? ids.includes(r.id) : true));
+      if (id && !rules.length) throw new ModelError(`Unknown rule: ${id}`, "not_found", "id");
+      if (!rules.length) throw new ModelError("The project has no rules to derive", "not_found", "rules");
+      const records = new Map();
+      for (const rule of rules)
+        for (const c of rule.candidates) if (!records.has(c.model)) records.set(c.model, await resolvePlacement({ model: c.model }));
+      await Promise.allSettled([...records.values()].map((record) => ensurePlaced(record)));
+      check({ ifRevision: options.ifRevision ?? revision });
+      commitPending();
+      const commands = rules.map((rule) => ({
+        op: "derived",
+        rule: rule.id,
+        nodes: deriveNodes(project, rule, rule.candidates.map((c) => records.get(c.model)), ruleInputs(project, rule)),
+      }));
+      action = options.label ?? `Agent · derive ${rules.map((r) => r.id).join(", ")}`;
+      try {
+        const result = store.apply(commands, { ...options, ifRevision: options.ifRevision ?? revision, strictComponents: true });
+        return {
+          ...result,
+          derived: commands.map((c) => ({ rule: c.rule, nodes: c.nodes.map((n) => n.id), copies: c.nodes.reduce((sum, n) => sum + n.copies.length, 0) })),
+          persistence: draft.persistence,
+        };
+      } finally {
+        action = null;
+      }
     },
     map({ size = 512, overlays, helpers = false, ...options } = {}) {
       const revision = store.revision;

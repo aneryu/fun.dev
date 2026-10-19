@@ -26,6 +26,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const MUTATING = [
   "apply",
   "place",
+  "derive",
   "loadProject",
   "importGLB",
   "openLibraryModel",

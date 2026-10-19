@@ -830,6 +830,28 @@ export function createRasterizer(THREE) {
           });
         return;
       }
+      if (object.isInstancedMesh && object.geometry?.attributes.position) {
+        // Every instance draws as a mesh of its own: a proxy sharing geometry and material.
+        const m = new THREE.Matrix4();
+        for (let i = 0; i < object.count; i++) {
+          object.getMatrixAt(i, m);
+          collect({
+            isMesh: true,
+            geometry: object.geometry,
+            material: object.material,
+            matrixWorld: new THREE.Matrix4().multiplyMatrices(object.matrixWorld, m),
+            castShadow: object.castShadow,
+            receiveShadow: object.receiveShadow,
+            renderOrder: object.renderOrder,
+            layers: object.layers,
+            frustumCulled: true,
+          });
+        }
+        return;
+      }
+      collect(object);
+    });
+    function collect(object) {
       if (!(object.isMesh || object.isLine || object.isPoints) || !object.geometry?.attributes.position) return;
       if (object.isMesh && object.castShadow) casters.push(object);
       if (!object.layers.test(camera.layers)) return;
@@ -847,7 +869,7 @@ export function createRasterizer(THREE) {
           transparent: material.transparent || (material.transmission ?? 0) > 0,
         });
       }
-    });
+    }
     if (shadows)
       for (const light of lights)
         if (light.object?.castShadow) light.shadow = shadowMap(light.object, casters);

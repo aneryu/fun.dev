@@ -270,7 +270,7 @@ export function createWriter({ THREE, encoder = null }) {
       if (object !== root) node.parent = nodeIds.get(object.parent);
       const mesh = object.isMesh ? object : object.userData.mesh?.isMesh ? object.userData.mesh : null;
       const transform = {};
-      if (!(mesh?.isInstancedMesh)) {
+      if (!(mesh?.isInstancedMesh) && !object.userData.fun3dModel?.copies) {
         if (object.position.lengthSq() > 0) transform.position = object.position.toArray().map((n) => round(n));
         if (object.quaternion.w !== 1 || object.quaternion.x || object.quaternion.y || object.quaternion.z) transform.rotation = object.quaternion.toArray().map((n) => round(n, 7));
         if (object.scale.x !== 1 || object.scale.y !== 1 || object.scale.z !== 1) {
@@ -287,6 +287,19 @@ export function createWriter({ THREE, encoder = null }) {
         const { ref, variants, tint } = object.userData.fun3dModel;
         if (!manifest.refs.some((r) => r.id === ref)) throw new Error(`node "${id}" places the reference "${ref}" which refs does not name`);
         node.model = { ref, ...(variants && Object.keys(variants).length ? { variants: { ...variants } } : {}), ...(tint ? { tint: tint.map((n) => round(n, 4)) } : {}) };
+        // Many copies: matrices in the node's parent space (replacing its own transform), tints per copy.
+        const { copies, tints } = object.userData.fun3dModel;
+        if (copies) {
+          if (!ArrayBuffer.isView(copies) || copies.length % 16) throw new Error(`node "${id}": copies are a Float32Array of 4×4 matrices`);
+          const count = copies.length / 16;
+          node.placements = { count, transforms: { stream: stream(Float32Array.from(copies), { count, stride: 64, mode: "attributes" }), format: "mat4" } };
+          if (tints) {
+            if (tints.length !== count) throw new Error(`node "${id}": one tint per copy`);
+            const bytes = new Uint8Array(count * 4);
+            for (let i = 0; i < count; i++) { for (let k = 0; k < 3; k++) bytes[i * 4 + k] = Math.round(clamp(tints[i][k], 0, 1) * 255); bytes[i * 4 + 3] = 255; }
+            node.placements.tint = { stream: stream(bytes, { count, stride: 4, mode: "attributes" }), format: "unorm8x4" };
+          }
+        }
       }
       const nodeExtensions = { ...(object.userData.extensions ?? {}) };
       if (object.userData.params && Object.keys(object.userData.params).length) nodeExtensions["fun3d.params"] = structuredClone(object.userData.params);

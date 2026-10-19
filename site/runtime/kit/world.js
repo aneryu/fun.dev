@@ -90,6 +90,16 @@ export function worldData(model) {
     const tags = n.tags ?? [], params = n.extensions?.[PARAMS];
     if (!tags.length && !params) continue;
     const object = model.nodes.get(n.id);
+    if (n.placements && model.placements?.get(n.id)) {
+      // One marker per copy, in the tile's space.
+      const { count, transforms } = model.placements.get(n.id), parent = object.parent?.matrixWorld?.elements ?? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+      for (let i = 0; i < count; i++) {
+        const t = transforms.subarray(i * 16, i * 16 + 16);
+        const x = parent[0] * t[12] + parent[4] * t[13] + parent[8] * t[14] + parent[12], y = parent[1] * t[12] + parent[5] * t[13] + parent[9] * t[14] + parent[13], z = parent[2] * t[12] + parent[6] * t[13] + parent[10] * t[14] + parent[14];
+        markers.push({ id: `${n.id}#${i}`, tags: [...tags], params: params ?? {}, position: [x, y, z], rotation: [0, 0, 0, 1], node: object, copy: i });
+      }
+      continue;
+    }
     const e = object.matrixWorld.elements;
     // Position and rotation in the tile's space (the root sits at the origin when loaded).
     const sx = Math.hypot(e[0], e[1], e[2]) || 1, sy = Math.hypot(e[4], e[5], e[6]) || 1, sz = Math.hypot(e[8], e[9], e[10]) || 1;

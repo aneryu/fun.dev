@@ -163,6 +163,50 @@ function placeholderOverlay(bounds) {
     center = bounds.max.map((v, i) => (v + bounds.min[i]) / 2);
   return overlayLines(boxEdges(size, center), OVERLAY.placeholder);
 }
+// A copy's matrix from its row [x, y, z, rx, ry, rz, scale] (degrees, the parts' convention).
+const copyMatrix = (row, target = new THREE.Matrix4()) =>
+  target.compose(
+    new THREE.Vector3(row[0], row[1], row[2]),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(...row.slice(3, 6).map(THREE.MathUtils.degToRad), "XYZ")),
+    new THREE.Vector3(row[6], row[6], row[6]),
+  );
+// Many copies of a placed model: one instanced mesh per part of its template, every copy's
+// matrix composed with the part's place in the template.
+function instancedCopies(template, node) {
+  const meshes = [],
+    part = new THREE.Matrix4(),
+    copy = new THREE.Matrix4(),
+    color = new THREE.Color();
+  template.root.updateMatrixWorld(true);
+  template.root.traverse((o) => {
+    if (!o.isMesh) return;
+    const instanced = new THREE.InstancedMesh(o.geometry, o.material, node.copies.length);
+    node.copies.forEach((row, i) => {
+      part.multiplyMatrices(copyMatrix(row, copy), o.matrixWorld);
+      instanced.setMatrixAt(i, part);
+      if (node.tints) instanced.setColorAt(i, color.setRGB(...node.tints[i]));
+    });
+    instanced.castShadow = instanced.receiveShadow = true;
+    instanced.computeBoundingSphere();
+    meshes.push(instanced);
+  });
+  return meshes;
+}
+function placeholderCopies(node) {
+  const { min, max } = node.place.bounds,
+    size = max.map((v, i) => Math.max(0.01, v - min[i])),
+    center = max.map((v, i) => (v + min[i]) / 2);
+  const geometry = new THREE.BoxGeometry(...size).translate(...center);
+  const mesh = new THREE.InstancedMesh(
+    geometry,
+    new THREE.MeshBasicMaterial({ color: OVERLAY.placeholder, transparent: true, opacity: 0.35 }),
+    node.copies.length,
+  );
+  const m = new THREE.Matrix4();
+  node.copies.forEach((row, i) => mesh.setMatrixAt(i, copyMatrix(row, m)));
+  mesh.userData = { overlay: true };
+  return mesh;
+}
 
 /**
  * The Three.js objects of a project: one object per part, named by its id. With `display`,
@@ -248,7 +292,15 @@ export function buildModel(project, { display = false } = {}) {
         let overlay = null;
         if (node.place) {
           const template = placedTemplate(node.place);
-          if (template) {
+          if (template && node.copies) {
+            const meshes = instancedCopies(template, node);
+            for (const m of meshes) {
+              m.name = node.id;
+              m.userData = { placed: true };
+              object.add(m);
+            }
+            placedMeshes.set(node.id, meshes);
+          } else if (template) {
             const copy = template.root.clone(true),
               meshes = [];
             copy.traverse((o) => {
@@ -262,7 +314,7 @@ export function buildModel(project, { display = false } = {}) {
             object.add(copy);
             placedMeshes.set(node.id, meshes);
           } else {
-            overlay = placeholderOverlay(node.place.bounds);
+            overlay = node.copies ? placeholderCopies(node) : placeholderOverlay(node.place.bounds);
             missing.push(node.place);
           }
         } else if (node.marker) overlay = markerOverlay();

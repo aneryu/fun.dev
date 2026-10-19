@@ -180,6 +180,19 @@ export function scriptApi(invoke, base) {
       revision = result.revision;
       return { revision, id, model: result.placed.model, bounds: result.placed.bounds, triangles: result.placed.triangles, warnings: result.warnings };
     },
+    async rule(definition) {
+      const result = await ws.apply([{ op: "rule", definition }]);
+      return { revision: result.revision, id: definition.id };
+    },
+    async removeRule(id) {
+      const result = await ws.apply([{ op: "removeRule", id }]);
+      return { revision: result.revision };
+    },
+    async derive(options = {}) {
+      const result = await call("derive", { ...options, ifRevision: await current() });
+      revision = result.revision;
+      return { revision, derived: result.derived };
+    },
     async audit(options = {}) {
       const result = await call("audit", options);
       return { findings: result.findings, counts: result.counts, triangles: result.triangles };

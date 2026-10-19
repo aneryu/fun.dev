@@ -163,15 +163,18 @@ export function createModels({ THREE, TSL = null, materials = null, scene, light
     // The copy's lights, as candidates for the slot manager: world positions, cached for
     // static copies at sync, spots shining down the node's −Z.
     const serial = placed++;
-    const lightNodes = (file.lights ?? []).map((l) => ({ ...l, object: nodes.get(l.node), id: `${serial}:${l.node}` }));
+    const lightNodes = (file.lights ?? []).map((l) => ({ ...l, object: nodes.get(l.node), id: `${serial}:${l.node}${l.copy !== undefined ? `#${l.copy}` : ""}` }));
+    const lightMatrix = new THREE.Matrix4();
     const candidates = lightNodes.map((l) => ({ id: l.id, x: 0, y: 0, z: 0, color: l.color, intensity: l.intensity, range: l.range, cone: l.cone, importance: l.importance, direction: [0, -1, 0] }));
     const direction = new THREE.Vector3();
     const lightsAt = () => {
       lightNodes.forEach((l, i) => {
         l.object.updateWorldMatrix(true, false);
-        vector.setFromMatrixPosition(l.object.matrixWorld);
+        // A placed model's lamp, once per copy: its matrix sits in the node's parent space.
+        const world = l.matrix ? lightMatrix.fromArray(l.matrix).premultiply(l.object.matrixWorld) : l.object.matrixWorld;
+        vector.setFromMatrixPosition(world);
         candidates[i].x = vector.x; candidates[i].y = vector.y; candidates[i].z = vector.z;
-        if (l.type === "spot") { direction.set(0, 0, -1).transformDirection(l.object.matrixWorld); candidates[i].direction = [direction.x, direction.y, direction.z]; }
+        if (l.type === "spot") { direction.set(0, 0, -1).transformDirection(world); candidates[i].direction = [direction.x, direction.y, direction.z]; }
       });
       return candidates;
     };

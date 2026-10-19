@@ -3,6 +3,7 @@
 // what the audit flags (a lamp standing in a planter overlaps it).
 import { worldMatrix, point, nodePoints } from "./spatial.js";
 import { statistics } from "./document.js";
+import { ruleStatus } from "./rules.js";
 
 const EPS = 0.02; // 2 cm: resting on something, or on the ground
 const round = (v) => Math.round(v * 1000) / 1000;
@@ -16,7 +17,7 @@ export function solidBounds(project) {
     const points = (node.mesh?.vertices ?? nodePoints(node)).map((v) => point(m, v));
     const min = [0, 1, 2].map((i) => Math.min(...points.map((p) => p[i]))),
       max = [0, 1, 2].map((i) => Math.max(...points.map((p) => p[i])));
-    solids.push({ id: node.id, min, max, kind: node.place ? "place" : "mesh" });
+    solids.push({ id: node.id, min, max, kind: node.place ? "place" : "mesh", copies: node.copies?.length ?? 0 });
   }
   return solids;
 }
@@ -42,11 +43,13 @@ export function auditProject(project, { ground = 0, budget = {} } = {}) {
   const footprintsTouch = (a, b) =>
     a.min[0] < b.max[0] + EPS && a.max[0] > b.min[0] - EPS && a.min[2] < b.max[2] + EPS && a.max[2] > b.min[2] - EPS;
 
-  // Overlaps: bounds that interpenetrate by more than 5 cm on every axis.
-  for (let i = 0; i < solids.length; i++)
-    for (let j = i + 1; j < solids.length; j++) {
-      const a = solids[i],
-        b = solids[j];
+  // Overlaps: bounds that interpenetrate by more than 5 cm on every axis. Parts with many
+  // copies are one wide box and stay out of this (their rules keep them off paths and solids).
+  const singles = solids.filter((s) => !s.copies);
+  for (let i = 0; i < singles.length; i++)
+    for (let j = i + 1; j < singles.length; j++) {
+      const a = singles[i],
+        b = singles[j];
       if (related(a.id, b.id)) continue;
       const depth = [0, 1, 2].map((k) => Math.min(a.max[k], b.max[k]) - Math.max(a.min[k], b.min[k]));
       if (depth.every((d) => d > 0.05))
@@ -63,7 +66,7 @@ export function auditProject(project, { ground = 0, budget = {} } = {}) {
   // Floating and buried: a solid stands on the ground, rests on another solid under its
   // footprint, or touches one on a side (a clock on a wall, a shelf against it).
   const touch = (a, b) => [0, 1, 2].every((k) => Math.max(a.min[k], b.min[k]) - Math.min(a.max[k], b.max[k]) <= EPS);
-  for (const s of solids) {
+  for (const s of singles) {
     if (grounds.has(s.id)) continue;
     const bottom = s.min[1];
     if (bottom < ground - EPS) {
@@ -78,7 +81,7 @@ export function auditProject(project, { ground = 0, budget = {} } = {}) {
       continue;
     }
     if (bottom <= ground + EPS) continue;
-    const others = solids.filter((o) => o !== s && !related(o.id, s.id));
+    const others = singles.filter((o) => o !== s && !related(o.id, s.id));
     if (others.some((o) => touch(o, s))) continue;
     let support = ground;
     for (const o of others) if (o.max[1] <= bottom + EPS && o.max[1] > support && footprintsTouch(o, s)) support = o.max[1];
@@ -117,6 +120,20 @@ export function auditProject(project, { ground = 0, budget = {} } = {}) {
         model: n.place.model,
         message: `${n.place.model} has no .fun3d file yet; a tile needs it`,
         suggestion: "The library converts approved versions; ask for the conversion or pick another version.",
+      });
+
+  // Rules whose inputs changed since they were derived, or never derived.
+  for (const status of ruleStatus(project))
+    if (status.state !== "current")
+      findings.push({
+        code: status.state === "underived" ? "underived-rule" : "stale-rule",
+        severity: "warning",
+        rule: status.id,
+        message:
+          status.state === "underived"
+            ? `rule ${status.id} has not been derived yet`
+            : `rule ${status.id} was derived from inputs that have changed since`,
+        suggestion: `derive({ id: "${status.id}" }) rebuilds its copies.`,
       });
 
   // The budget: local triangles plus the placed models' own.

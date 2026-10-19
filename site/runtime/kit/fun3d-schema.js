@@ -324,7 +324,6 @@ export function validateManifest(manifest, { chunks = Infinity, caps = CAPS } = 
     if (node.model) {
       ref(refs, node.model.ref, `${path}.model.ref`, "ref");
       if (node.mesh || node.skin || node.light || node.lod) out.push(`${path} a placed model has no mesh, skin, light or lod of its own`);
-      if (node.placements) out.push(`${path} placements of placed models are not in this release`);
       if (node.model.variants && Object.keys(node.model.variants).length > caps.modelVariants) out.push(`${path}.model.variants has more than ${caps.modelVariants} axes`);
     }
     if (node.extensions) {
