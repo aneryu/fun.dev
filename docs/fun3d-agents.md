@@ -104,8 +104,11 @@ data.zone("safe_1").contains([x, y, z]); data.zonesAt(position);
 const lap = data.path("lap"); lap.at(0.5).position; lap.nearest(position).distance; lap.length;
 ```
 
-`world.json` of a one-tile world lists the tile and the models' files with their SHA-256; a
-game build pins them like any model. A model node with `placements` (a scatter rule's copies)
+`data.height(x, z)` and `data.surface(x, z)` read the tile's terrains (`fun3d.terrain`: the
+field, its surface table with friction and tags, its water level); the terrain's mesh has a
+static body already. `world.json` of a one-tile world lists the tile and the models' files
+with their SHA-256; a game build pins them like any model. A model node with `placements` (a
+scatter rule's copies)
 loads as instanced parts, lights its lamps once per copy and yields one marker per copy
 (`id#index`). Rules the workshop left for play time (`fun3d.rules`) run in the game:
 

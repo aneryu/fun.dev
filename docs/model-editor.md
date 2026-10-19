@@ -1118,3 +1118,28 @@ frames resolved and its keep-outs by solids as boxes; `exportWorld` lists it und
 `rules.runtime`. In the game, `worldData(tile).run(id, { seed })` evaluates it with the same
 code over the tile's paths and zones and returns rows per model (a dungeon floor per run, a
 runner's next segments) for `models.place`.
+
+### Terrain
+
+A `terrain` part is a height field: `create kind: "terrain"` with `terrain: { cell, samples:
+[columns, rows] (2–257 each), surfaceTable: [{ id, color, roughness, friction, tags }], water:
+{ level, color } }`, its corner at the part's origin, samples along +x then +z, never rotated or
+scaled. `{ op: "terrain", id, seed, ops, surfaces, water }` shapes it in world space and keeps
+the ops on the part:
+
+- `ops`: `{ noise: { amplitude, scale, octaves, persistence, seed, offset, mode } }` (fractal
+  value noise of world x and z, so neighbouring terrains continue), `{ stamp: { shape: "circle"
+  | "box", center, radius | size, height, falloff, mode: "add" | "set" | "max" | "min" } }`,
+  `{ flatten: { path, width, blend, height } }` (a path part; the height follows the path
+  unless given), `{ level: { zone, height, blend } }` (a zone part), `{ smooth: { passes } }`,
+  `{ clamp: { min, max } }`, `{ add: { height } }`.
+- `surfaces`: rules in order, the last that matches a cell wins: `{ surface, slope: [min, max]
+  degrees, height: [min, max] }`; cells no rule matches take the first surface.
+
+The terrain draws as one flat-shaded mesh coloured by surface, with its water as a pane.
+Scatter rules take `ground: true` (each copy's height from the terrain under it; stations off
+every terrain are dropped) and `where: { surfaces: [ids] }`. The audit takes a terrain as the
+ground under what stands on it. `inspect` reports `stats.terrains` and `terrainTriangles`
+(two per cell). A tile carries the mesh (vertex colours, one material), a static mesh body and
+the field itself in `fun3d.terrain`; `worldData(tile).height(x, z)`, `surface(x, z)` and
+`terrains()` read it in the game, and runtime rules with `ground` sit on it.

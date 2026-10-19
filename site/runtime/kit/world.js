@@ -9,6 +9,7 @@
 
 import { evaluateScatter } from "./scatter.js";
 import { evaluateAssembly } from "./assemble.js";
+import { heightAt, surfaceAt } from "./terrain.js";
 
 const ZONES = "fun3d.zones", PATHS = "fun3d.paths", PARAMS = "fun3d.params", RULES = "fun3d.rules";
 
@@ -123,6 +124,14 @@ export function worldData(model) {
     for (const edge of table.edges ?? []) paths.push(pathOf(edge, points));
   }
   const byTag = (list, tag) => (tag === undefined ? [...list] : list.filter((x) => x.tags.includes(tag)));
+  // Terrains: the fields as typed arrays, asked by world x and z.
+  const terrains = (extensions["fun3d.terrain"] ?? []).map((t) => ({
+    node: t.node, origin: t.origin, cell: t.cell, samples: t.samples, surfaceTable: t.surfaceTable, water: t.water ?? null,
+    heights: model.streams ? model.streams.of(t.heights) : new Float32Array(t.samples[0] * t.samples[1]),
+    surfaces: t.surfaces && model.streams ? model.streams.of(t.surfaces) : null,
+  }));
+  const height = (x, z) => { for (const t of terrains) { const h = heightAt(t, x, z); if (h !== null) return h; } return null; };
+  const surface = (x, z) => { for (const t of terrains) { const s = surfaceAt(t, x, z); if (s) return s; } return null; };
   // Rules the workshop left for play time (bake: false): the same evaluators, the tile's
   // paths and zones as their inputs, rows in the tile's space, per model.
   const rules = extensions[RULES] ?? [];
@@ -137,7 +146,7 @@ export function worldData(model) {
     return [];
   };
   const inputsOf = (rule) => {
-    const inputs = { paths: {}, polygons: {}, zoneY: {}, avoid: { paths: [], polygons: [], boxes: [...(rule.avoid?.boxes ?? [])] } };
+    const inputs = { paths: {}, polygons: {}, zoneY: {}, avoid: { paths: [], polygons: [], boxes: [...(rule.avoid?.boxes ?? [])] }, height, surface: (x, z) => surface(x, z)?.id ?? null };
     const path = (id) => { const p = paths.find((x) => x.id === id); if (!p) throw new Error(`rule ${rule.id}: the tile has no path ${id}`); return { points: p.points.slice(0, p.closed ? -1 : undefined), closed: p.closed }; };
     const zone = (id) => { const z = zones.find((x) => x.id === id); if (!z) throw new Error(`rule ${rule.id}: the tile has no zone ${id}`); return z; };
     if (rule.kind === "assemble") { if (rule.bounds) inputs.polygons[rule.bounds] = polygonOf(zone(rule.bounds)); }
@@ -167,6 +176,11 @@ export function worldData(model) {
   return {
     rules: () => rules.map((r) => ({ id: r.id, kind: r.kind, tags: [...(r.tags ?? [])], models: (r.kind === "assemble" ? r.pieces : r.candidates).map((m) => m.model) })),
     run,
+    terrains: () => terrains.map((t) => ({ node: t.node, origin: t.origin, cell: t.cell, samples: t.samples, surfaceTable: t.surfaceTable, water: t.water })),
+    /** The terrain's height under a world point, null off every terrain. */
+    height,
+    /** The terrain surface under a world point ({ id, color, friction, tags }), null off every terrain. */
+    surface,
     markers: (tag) => byTag(markers, tag),
     marker: (id) => markers.find((m) => m.id === id) ?? null,
     zones: (tag) => byTag(zones, tag),

@@ -525,8 +525,11 @@ them draws the scene and ignores the data.
 }
 ```
 
-Markers are nodes with `tags` and `fun3d.params`; `kit/world.js` reads markers, zones and
-paths from a loaded file (`worldData(model)`). `fun3d.rules` carries up to 64 scatter or
+`fun3d.terrain` is an array of height fields (`node`, `origin`, `cell`, `samples`, `heights`
+as a float32 stream, `surfaces` as a uint8 stream per cell, `surfaceTable`, `water`); the node
+carries the field's flat-shaded mesh and a static mesh body. Markers are nodes with `tags` and
+`fun3d.params`; `kit/world.js` reads markers, zones, paths and terrains from a loaded file
+(`worldData(model)`). `fun3d.rules` carries up to 64 scatter or
 assembly rules for play time, their models pinned (and among the refs), evaluated by
 `worldData(model).run(id, { seed })`. The converter turns a GLB's `socket_<name>`
 empties into their parent's `sockets` (4.1), so kit pieces mate at run time as in the workshop. Caps: zones 1024 with polygons of 256 points,

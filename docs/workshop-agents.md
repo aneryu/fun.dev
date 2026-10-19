@@ -215,3 +215,16 @@ await ws.derive({ id: "streets" });
 
 Parts take sockets too (`sockets` on create/set, `socket`, `removeSocket`), `snap` mates two
 sockets, and GLBs carry them as `socket_<name>` empties.
+
+Ground is a terrain part shaped by ops, with surfaces by height and slope:
+
+```js
+await ws.apply([
+  { op: "create", id: "ground", kind: "terrain", position: [-128, 0, -128], tags: ["ground"], terrain: { cell: 4, samples: [65, 65],
+    surfaceTable: [{ id: "sand", color: "#d9c58a" }, { id: "grass", color: "#6b8f3a" }, { id: "rock", color: "#7a746c" }] } },
+  { op: "terrain", id: "ground", seed: "isle", ops: [{ noise: { amplitude: 16, scale: 90 } }, { stamp: { shape: "circle", center: [0, 0], radius: 40, height: 14, falloff: 50 } },
+    { flatten: { path: "road", width: 10, blend: 8 } }, { level: { zone: "village", height: 9, blend: 10 } }],
+    surfaces: [{ surface: "sand", height: [-100, 1.5] }, { surface: "grass", height: [1.5, 100] }, { surface: "rock", slope: [30, 90] }], water: { level: 0.5 } },
+]);
+await ws.rule({ id: "trees", kind: "scatter", on: { zone: "whole", spacing: 9 }, ground: true, where: { surfaces: ["grass"] }, candidates: [{ model: "flowering_cherry_tree_01" }] });
+```

@@ -90,7 +90,8 @@ and hand edits beside them survive. Reference depth becomes two for tiles (tile 
 model's skeleton base), still acyclic; the validator checks the closure.
 
 **Ground.** Three representations, each an extension on the tile's top level naming the node
-that carries its baked mesh and body:
+that carries its baked mesh and body (`fun3d.terrain` is an array: a tile may hold several
+fields):
 
 ```jsonc
 "extensions": {
@@ -383,10 +384,17 @@ from a script, reviewed like library models.
    frames, keep-outs by solids as boxes) and `worldData(tile).run(id, { seed })` evaluates it
    in the game with the same code, over the tile's paths and zones, returning rows per model
    for `models.place`. Still to come: the library's kit records as structured agreements.
-3. **Ground, sweeps, navigation, tiles.** `fun3d.terrain` and `fun3d.grid`, terrain ops, `sweep`
-   for roads and tracks (帝都's generator generalised), `lots`, `fun3d.navmesh`, the manifest with
-   streaming and far files, `sample`, full budgets. Samples: a racing track, an island, 帝都 M1's
-   block loaded from world data instead of game code.
+3. **Ground, sweeps, navigation, tiles.** Terrain is built (2026-10-19): a `terrain` part is a
+   height field (cell, samples up to 257 × 257, a surface table with colours, friction and
+   tags, water) that the `terrain` command shapes by ops in world space (noise, stamps,
+   flatten along a path, level inside a zone, smooth, clamp) and classifies by height and slope
+   rules; it draws as one flat-shaded mesh coloured by surface, scatter rules place on it
+   (`ground: true`, `where: { surfaces }`), the audit takes it as the ground, and a tile carries
+   the mesh, a static mesh body and the field itself (`fun3d.terrain`, an array of fields) so
+   `worldData(tile).height(x, z)` and `surface(x, z)` answer at play time and runtime rules sit
+   on it. Sample: `examples/worlds/island.mjs`. Still to come in this step: `fun3d.grid`,
+   `sweep` for roads and tracks, `lots`, `fun3d.navmesh`, the manifest with streaming and far
+   files, `sample`, full budgets, and 帝都 M1's block loaded from world data.
 4. **Later** (appendix A).
 
 Step 1 fits the early phase and serves 帝都 M1. Whether step 3 precedes workshop stage 4

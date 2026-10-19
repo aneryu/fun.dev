@@ -11,6 +11,7 @@ export const FORMATS = {
   unorm8x4: [Uint8Array, 4, true, 4], uint8x4: [Uint8Array, 4, false, 4],
   float32: [Float32Array, 1, false, 4], float32x2: [Float32Array, 2, false, 8], float32x3: [Float32Array, 3, false, 12], float32x4: [Float32Array, 4, false, 16],
   uint16: [Uint16Array, 1, false, 2], uint32: [Uint32Array, 1, false, 4], mat4: [Float32Array, 16, false, 64],
+  uint8: [Uint8Array, 1, false, 1],
 };
 export const ATTRIBUTE_FORMATS = {
   position: ["snorm16x4", "float32x3"], normal: ["snorm8x4"], tangent: ["snorm8x4"], uv: ["unorm16x2", "float32x2"], uv1: ["unorm16x2", "float32x2"],
@@ -594,6 +595,22 @@ function validateSceneExtensions(manifest, { uses, streams, nodes, caps, out }) 
         });
       }
     }
+  }
+  const terrains = extensions["fun3d.terrain"];
+  if (terrains !== undefined) {
+    if (!Array.isArray(terrains) || terrains.length > 16) out.push(`extensions["fun3d.terrain"] is an array of up to 16 terrains`);
+    else terrains.forEach((t, i) => {
+      const path = `extensions["fun3d.terrain"][${i}]`;
+      if (!t || typeof t !== "object" || !isId(t.node) || !nodes.has(t.node)) { out.push(`${path} names a node`); return; }
+      if (!vector3(t.origin) || !(t.cell > 0) || !Array.isArray(t.samples) || t.samples.length !== 2 || t.samples.some((v) => !Number.isInteger(v) || v < 2 || v > 4097)) out.push(`${path} needs origin, cell and samples [columns, rows]`);
+      const heights = streamRef(t.heights, `${path}.heights`, ["float32"]);
+      if (heights && Array.isArray(t.samples) && heights.count !== t.samples[0] * t.samples[1]) out.push(`${path}.heights has ${heights.count} values for ${t.samples[0]} × ${t.samples[1]} samples`);
+      if (t.surfaces !== undefined) {
+        const surfaces = streamRef(t.surfaces, `${path}.surfaces`, ["uint8"]);
+        if (surfaces && Array.isArray(t.samples) && surfaces.count !== (t.samples[0] - 1) * (t.samples[1] - 1)) out.push(`${path}.surfaces has one value per cell`);
+      }
+      if (!Array.isArray(t.surfaceTable) || !t.surfaceTable.length || t.surfaceTable.length > 16 || t.surfaceTable.some((s) => !s || typeof s.id !== "string")) out.push(`${path}.surfaceTable has 1–16 surfaces with ids`);
+    });
   }
   const rules = extensions["fun3d.rules"];
   if (rules !== undefined) {

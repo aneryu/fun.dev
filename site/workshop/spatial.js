@@ -192,6 +192,13 @@ export function nodePoints(node) {
     return [[-r, 0, 0], [r, 0, 0], [0, -r, 0], [0, r, 0], [0, 0, -r], [0, 0, r]];
   }
   if (node.path) return node.path.points.map((p) => [...p]);
+  if (node.terrain) {
+    const t = node.terrain;
+    let lo = Infinity, hi = -Infinity;
+    for (const h of t.heights) { if (h < lo) lo = h; if (h > hi) hi = h; }
+    const w = (t.samples[0] - 1) * t.cell, d = (t.samples[1] - 1) * t.cell;
+    return [[0, lo, 0], [w, lo, 0], [w, lo, d], [0, lo, d], [0, hi, 0], [w, hi, 0], [w, hi, d], [0, hi, d]];
+  }
   return [[0, 0, 0]];
 }
 export function nodeInfo(project, id, { components = true } = {}) {

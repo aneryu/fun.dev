@@ -457,7 +457,7 @@ export function createWriter({ THREE, encoder = null }) {
           if (!(value.stream instanceof Type)) throw new Error(`${path}: a ${value.format} stream is a ${Type.name}`);
           const count = value.stream.length / components;
           if (!Number.isInteger(count)) throw new Error(`${path}: the stream's length is not a multiple of ${components}`);
-          return { stream: stream(value.stream, { count, stride, mode: stride % 4 === 0 && stride <= 64 ? "attributes" : null }), format: value.format };
+          return { stream: stream(value.stream, { count, stride, mode: stride % 4 === 0 && stride <= 64 && count > 0 ? "attributes" : null }), format: value.format };
         }
         return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, withStreams(v, `${path}.${k}`)]));
       }

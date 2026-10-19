@@ -19,6 +19,7 @@ import { nameMeshes } from "./glb.js";
 import { createSoftRenderer } from "./soft-renderer.js";
 import { nodePoints } from "./spatial.js";
 import { placedTemplate, ensurePlaced } from "./placed.js";
+import { terrainMesh, terrainBounds, hexToLinear } from "../runtime/kit/terrain.js";
 
 function indexAttributes(positions, normals) {
   const uniquePositions = [],
@@ -192,6 +193,26 @@ function instancedCopies(template, node) {
   });
   return meshes;
 }
+// A terrain draws as one flat-shaded mesh coloured by surface, with its water as a pane.
+function terrainObjects(node) {
+  const { positions, normals, colors } = terrainMesh(node.terrain);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geometry.computeBoundingSphere();
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 }));
+  mesh.castShadow = mesh.receiveShadow = true;
+  let water = null;
+  if (node.terrain.water) {
+    const bounds = terrainBounds(node.terrain);
+    const pane = new THREE.PlaneGeometry(bounds.max[0], bounds.max[2]).rotateX(-Math.PI / 2).translate(bounds.max[0] / 2, node.terrain.water.level, bounds.max[2] / 2);
+    const [r, g, b] = hexToLinear(node.terrain.water.color);
+    water = new THREE.Mesh(pane, new THREE.MeshStandardMaterial({ color: new THREE.Color(r, g, b), transparent: true, opacity: 0.6, roughness: 0.2 }));
+    water.userData = { overlay: true };
+  }
+  return { mesh, water };
+}
 function placeholderCopies(node) {
   const { min, max } = node.place.bounds,
     size = max.map((v, i) => Math.max(0.01, v - min[i])),
@@ -320,6 +341,14 @@ export function buildModel(project, { display = false } = {}) {
         } else if (node.marker) overlay = markerOverlay();
         else if (node.zone) overlay = zoneOverlay(node.zone);
         else if (node.path) overlay = pathOverlay(node.path);
+        else if (node.terrain) {
+          const { mesh, water } = terrainObjects(node);
+          mesh.name = node.id;
+          mesh.userData = { placed: true };
+          object.add(mesh);
+          placedMeshes.set(node.id, [mesh]);
+          if (water) overlay = water;
+        }
         if (overlay) {
           object.add(overlay);
           overlays.set(node.id, overlay);
@@ -351,6 +380,12 @@ export function buildModel(project, { display = false } = {}) {
         o.geometry.dispose();
         o.material.dispose();
       }
+      for (const [id, meshes] of placedMeshes)
+        if (project.nodes.find((n) => n.id === id)?.terrain)
+          for (const m of meshes) {
+            m.geometry.dispose();
+            m.material.dispose();
+          }
     },
   };
 }

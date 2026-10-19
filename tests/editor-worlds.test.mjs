@@ -408,6 +408,67 @@ test("a rule with bake false rides in the tile and runs in the game with the til
   assert.deepEqual(world.manifest.rules, { runtime: ["props", "tiles"] });
 });
 
+test("a terrain is shaped by ops, classified into surfaces, scattered on, audited against and exported with its field", async () => {
+  fresh("hill", { size: [40, 40] });
+  api.apply([
+    { op: "create", id: "ground", kind: "terrain", position: [-16, 0, -16], terrain: { cell: 2, samples: [17, 17], surfaceTable: [{ id: "sand", color: "#d9c58a" }, { id: "grass", color: "#6b8f3a" }, { id: "rock", color: "#7a746c" }] } },
+    { op: "create", id: "track", kind: "path", path: { points: [[-16, 1, 0], [16, 1, 0]] } },
+    { op: "create", id: "pad", kind: "zone", area: { polygon: [[6, 6], [14, 6], [14, 14], [6, 14]], y: [0, 10] } },
+    { op: "create", id: "all", kind: "zone", area: { polygon: [[-16, -16], [16, -16], [16, 16], [-16, 16]], y: [-5, 30] } },
+    { op: "terrain", id: "ground", seed: 3, ops: [{ noise: { amplitude: 4, scale: 12 } }, { stamp: { shape: "circle", center: [-6, -6], radius: 4, height: 6, falloff: 3 } }, { flatten: { path: "track", width: 4, blend: 2 } }, { level: { zone: "pad", height: 2.5, blend: 1 } }],
+      surfaces: [{ surface: "sand", height: [-100, 0.5] }, { surface: "grass", height: [0.5, 100] }, { surface: "rock", slope: [35, 90] }], water: { level: -0.5 } },
+  ]);
+  assert.throws(() => api.apply([{ op: "set", id: "ground", rotation: [0, 45, 0] }]), /never rotated/);
+  const ground = api.inspect({ id: "ground" });
+  const t = ground.node.terrain;
+  assert.equal(t.heights.length, 289);
+  assert.ok(t.heights.slice(8 * 17 + 2, 8 * 17 + 15).every((h) => Math.abs(h - 1) < 1e-6), "the track's row is flat at the path's height");
+  assert.ok(Math.abs(t.heights[13 * 17 + 13] - 2.5) < 1e-6, "the pad is levelled");
+  assert.ok(t.heights[5 * 17 + 5] > 4, "the hill stands");
+  assert.equal(t.surfaces.length, 256);
+  assert.ok(new Set(t.surfaces).size >= 2, "more than one surface");
+  assert.equal(t.ops.length, 4);
+  assert.deepEqual(ground.bounds.min.slice(0, 1), [-16]);
+  assert.equal(api.inspect().stats.terrainTriangles, 512);
+  // Scatter on the ground, grass only; a box on the hill floats; a box on the pad rests.
+  api.apply([
+    { op: "rule", definition: { id: "shrubs", kind: "scatter", seed: 1, on: { zone: "all", spacing: 2, jitter: 0.3 }, ground: true, where: { surfaces: ["grass"] }, candidates: [{ model: "test_lamp_01" }] } },
+    { op: "create", id: "hut", kind: "box", material: "wood", position: [10, 3, 10], options: { size: [2, 1, 2] } },
+    { op: "create", id: "balloon", kind: "box", material: "wood", position: [-6, 12, -6], options: { size: [1, 1, 1] } },
+  ]);
+  await api.derive({}, { ifRevision: api.inspect().revision });
+  const shrubs = api.inspect({ id: "shrubs" }).node;
+  assert.ok(shrubs.copies.length > 20, `shrubs on the grass: ${shrubs.copies.length}`);
+  for (const [x, y, z] of shrubs.copies.slice(0, 10)) {
+    const i = Math.round((x + 16) / 2), k = Math.round((z + 16) / 2);
+    assert.ok(Math.abs(y - t.heights[k * 17 + i]) < 2.5, `a shrub at ${x}, ${z} sits near the field (${y})`);
+  }
+  const findings = api.audit().findings;
+  assert.ok(findings.some((f) => f.code === "floating" && f.node === "balloon"), JSON.stringify(findings));
+  assert.ok(!findings.some((f) => f.node === "hut" || f.node === "ground"), "the hut rests on the pad, the terrain is the ground");
+  // The tile: a mesh, the field as data, a static body; the runtime answers heights.
+  const tile = await api.exportTile({ encoding: "buffer" });
+  assert.deepEqual(await fun3d.validate(tile), []);
+  const model = await fun3d.load(tile, { resolve: () => fun3d.load(lampFun3d) });
+  assert.ok(model.node("ground").userData.mesh?.isMesh, "the terrain mesh is the node's own");
+  assert.equal(model.manifest.physics.bodies[0].node, "ground");
+  assert.equal(model.manifest.physics.shapes[0].type, "mesh");
+  const data = worldData(model);
+  assert.equal(data.terrains().length, 1);
+  assert.ok(Math.abs(data.height(0, 0) - 1) < 1e-5, `the road height at the origin: ${data.height(0, 0)}`);
+  assert.ok(Math.abs(data.height(10, 10) - 2.5) < 1e-5, "the pad's height");
+  assert.equal(data.height(100, 100), null);
+  assert.equal(data.surface(10, 10).id, "grass");
+  const runtime = model.extensions["fun3d.terrain"][0];
+  assert.deepEqual(runtime.origin, [-16, 0, -16]);
+  assert.equal(runtime.water[0].level, -0.5);
+  // A runtime rule on the ground gets the tile's heights.
+  api.apply([{ op: "rule", definition: { id: "live", kind: "scatter", bake: false, seed: 5, on: { zone: "all", spacing: 3 }, ground: true, where: { surfaces: ["grass"] }, candidates: [{ model: "test_lamp_01" }] } }]);
+  const live = worldData(await fun3d.load(await api.exportTile({ encoding: "buffer" }), { resolve: () => fun3d.load(lampFun3d) })).run("live");
+  assert.ok(live.placed[0].rows.length > 10);
+  assert.ok(live.placed[0].rows.every(([x, y, z]) => Math.abs(y - data.height(x, z)) < 1e-5), "rows sit on the terrain");
+});
+
 test("unknown models and stale revisions are refused", async () => {
   await assert.rejects(api.place({ model: "no_such_model", id: "x" }), /not in the model library/);
   await assert.rejects(api.place({ model: "test_lamp_01", id: "x" }, { ifRevision: 1 }), /Project changed/);

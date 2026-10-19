@@ -36,6 +36,8 @@ import { surfaceDiagnostics } from "./diagnostics.js";
 import { booleanMesh } from "./booleans.js";
 import { arrayStep, stepMatrix, arrayMesh } from "./arrays.js";
 import { blueprintCommands } from "./blueprints.js";
+import { generateHeights, classifySurfaces } from "../runtime/kit/terrain.js";
+import { hashString } from "../runtime/kit/random.js";
 import {
   MESH_EDITS,
   DISTANCE_EDITS,
@@ -375,6 +377,10 @@ export function normalizeProject(input) {
     if (node.marker) result.marker = true;
     if (node.zone) result.zone = normalizeZone(node.zone, `nodes.${node.id}.zone`);
     if (node.path) result.path = normalizePath(node.path, `nodes.${node.id}.path`);
+    if (node.terrain) {
+      result.terrain = normalizeTerrain(node.terrain, `nodes.${node.id}.terrain`);
+      if (result.rotation.some((v) => v !== 0) || result.scale.some((v) => v !== 1)) fail("A terrain is placed, never rotated or scaled", `nodes.${node.id}`);
+    }
     if (node.copies !== undefined && node.copies !== null) {
       if (!result.place) fail("copies belong to a placed model", `nodes.${node.id}.copies`);
       result.copies = normalizeCopies(node.copies, `nodes.${node.id}.copies`);
@@ -791,6 +797,12 @@ export function normalizeRule(value, path = "definition") {
     rule.on = { grid: { cells: [...grid.cells], spacing, origin: vector(grid.origin ?? [0, 0, 0], `${path}.on.grid.origin`) } };
   }
   if (value.y !== undefined && value.y !== null) rule.y = number(value.y, -100000, 100000, `${path}.y`);
+  if (value.ground) rule.ground = true;
+  if (value.where !== undefined && value.where !== null) {
+    if (typeof value.where !== "object" || !Array.isArray(value.where.surfaces) || !value.where.surfaces.length || value.where.surfaces.length > 16 || value.where.surfaces.some((v) => typeof v !== "string" || !SHORT_ID.test(v)))
+      fail("where is { surfaces: [ids] }", `${path}.where`);
+    rule.where = { surfaces: [...value.where.surfaces] };
+  }
   const yaw = normalizeYaw(value.yaw, `${path}.yaw`);
   if (yaw) rule.yaw = yaw;
   if (value.scale !== undefined && value.scale !== null) {
@@ -832,7 +844,72 @@ function normalizeRules(input) {
   unique(rules.map((r) => r.id), "rules");
   return rules;
 }
-export const DATA_KINDS = ["place", "marker", "zone", "path"];
+// Terrain (docs/worlds.md §4): a height field in the part's space, its corner at the origin,
+// samples row by row along +z of columns along +x; never rotated or scaled.
+const HEX = /^#[0-9a-fA-F]{6}$/;
+export function normalizeTerrain(value, path = "terrain") {
+  if (!value || typeof value !== "object") fail("Invalid terrain", path);
+  const cell = number(value.cell ?? 2, 0.1, 100, `${path}.cell`);
+  const samples = value.samples;
+  if (!Array.isArray(samples) || samples.length !== 2 || samples.some((v) => !Number.isInteger(v) || v < 2 || v > 257))
+    fail("samples are [columns, rows] from 2 to 257", `${path}.samples`);
+  const n = samples[0] * samples[1], cells = (samples[0] - 1) * (samples[1] - 1);
+  let heights = value.heights;
+  if (heights === undefined || heights === null) heights = new Array(n).fill(0);
+  else {
+    if (!Array.isArray(heights) && !ArrayBuffer.isView(heights)) fail(`heights are ${n} numbers`, `${path}.heights`);
+    if (heights.length !== n) fail(`heights are ${n} numbers`, `${path}.heights`);
+    heights = Array.from(heights, (v, i) => {
+      if (!Number.isFinite(v) || Math.abs(v) > 10000) fail("Invalid height", `${path}.heights.${i}`);
+      return Math.round(v * 1000) / 1000;
+    });
+  }
+  const table = value.surfaceTable ?? [{ id: "ground", color: "#8a9a5b" }];
+  if (!Array.isArray(table) || !table.length || table.length > 16) fail("surfaceTable has 1–16 surfaces", `${path}.surfaceTable`);
+  const surfaceTable = table.map((s, i) => {
+    if (!s || typeof s !== "object" || !SHORT_ID.test(s.id ?? "") || !HEX.test(s.color ?? "")) fail("A surface is { id, color, roughness, friction, tags }", `${path}.surfaceTable.${i}`);
+    const out = { id: s.id, color: s.color.toLowerCase() };
+    if (s.roughness !== undefined) out.roughness = number(s.roughness, 0, 1, `${path}.surfaceTable.${i}.roughness`);
+    if (s.friction !== undefined) out.friction = number(s.friction, 0, 2, `${path}.surfaceTable.${i}.friction`);
+    const tags = normalizeTags(s.tags, `${path}.surfaceTable.${i}.tags`);
+    if (tags.length) out.tags = tags;
+    return out;
+  });
+  const result = { cell, samples: [samples[0], samples[1]], heights, surfaceTable };
+  if (value.surfaces !== undefined && value.surfaces !== null) {
+    const surfaces = value.surfaces;
+    if ((!Array.isArray(surfaces) && !ArrayBuffer.isView(surfaces)) || surfaces.length !== cells) fail(`surfaces are ${cells} surface indices`, `${path}.surfaces`);
+    result.surfaces = Array.from(surfaces, (v, i) => {
+      if (!Number.isInteger(v) || v < 0 || v >= surfaceTable.length) fail("A surface index names an entry of surfaceTable", `${path}.surfaces.${i}`);
+      return v;
+    });
+  }
+  if (value.water !== undefined && value.water !== null) {
+    if (typeof value.water !== "object") fail("water is { level, color }", `${path}.water`);
+    result.water = { level: number(value.water.level ?? 0, -10000, 10000, `${path}.water.level`), color: HEX.test(value.water.color ?? "") ? value.water.color.toLowerCase() : "#4ba3c7" };
+  }
+  if (value.ops !== undefined && value.ops !== null) {
+    if (!Array.isArray(value.ops) || value.ops.length > 32 || value.ops.some((o) => !o || typeof o !== "object")) fail("ops are up to 32 objects", `${path}.ops`);
+    if (JSON.stringify(value.ops).length > 16384) fail("ops are up to 16 KB", `${path}.ops`);
+    result.ops = JSON.parse(JSON.stringify(value.ops));
+  }
+  if (value.rules !== undefined && value.rules !== null) {
+    if (!Array.isArray(value.rules) || value.rules.length > 16) fail("surface rules are up to 16 entries", `${path}.rules`);
+    result.rules = value.rules.map((r, i) => {
+      if (!r || typeof r !== "object") fail("A surface rule is { surface, slope, height }", `${path}.rules.${i}`);
+      const out = { surface: typeof r.surface === "string" ? r.surface : number(r.surface ?? 0, 0, surfaceTable.length - 1, `${path}.rules.${i}.surface`) };
+      if (typeof out.surface === "string" && !surfaceTable.some((t) => t.id === out.surface)) fail(`Unknown surface ${out.surface}`, `${path}.rules.${i}.surface`);
+      for (const key of ["slope", "height"])
+        if (r[key] !== undefined && r[key] !== null) {
+          if (!Array.isArray(r[key]) || r[key].length !== 2 || r[key].some((v) => !Number.isFinite(v)) || r[key][0] > r[key][1]) fail(`${key} is [min, max]`, `${path}.rules.${i}.${key}`);
+          out[key] = [r[key][0], r[key][1]];
+        }
+      return out;
+    });
+  }
+  return result;
+}
+export const DATA_KINDS = ["place", "marker", "zone", "path", "terrain"];
 export const dataKind = (node) => DATA_KINDS.find((k) => node?.[k]) ?? null;
 
 export function statistics(project) {
@@ -846,6 +923,10 @@ export function statistics(project) {
       } else if (node.marker) s.markers++;
       else if (node.zone) s.zones++;
       else if (node.path) s.paths++;
+      else if (node.terrain) {
+        s.terrains++;
+        s.terrainTriangles += (node.terrain.samples[0] - 1) * (node.terrain.samples[1] - 1) * 2;
+      }
       if (!node.mesh) return s;
       s.meshes++;
       s.vertices += node.mesh.vertices.length;
@@ -870,6 +951,8 @@ export function statistics(project) {
       markers: 0,
       zones: 0,
       paths: 0,
+      terrains: 0,
+      terrainTriangles: 0,
     },
   );
 }
@@ -1817,6 +1900,11 @@ function run(project, command) {
       project.nodes.push({ ...base, path: normalizePath(command.path ?? options, "path") });
       return;
     }
+    if (kind === "terrain") {
+      if (rotation.some((v) => v !== 0) || scale.some((v) => v !== 1)) fail("A terrain is placed, never rotated or scaled", "rotation");
+      project.nodes.push({ ...base, terrain: normalizeTerrain(command.terrain ?? options, "terrain") });
+      return;
+    }
     project.nodes.push({
       ...base,
       mesh:
@@ -1956,7 +2044,7 @@ function run(project, command) {
     !["unlink", "delete", "duplicate", "rename"].includes(command.op)
   )
     fail("Unlink the mirrored part before editing it");
-  if (dataKind(node) && !["set", "delete", "duplicate", "rename", "socket", "removeSocket"].includes(command.op))
+  if (dataKind(node) && !["set", "delete", "duplicate", "rename", "socket", "removeSocket", "terrain"].includes(command.op))
     fail("Placed models, markers, zones and paths take set, delete, duplicate and rename only");
   switch (command.op) {
     case "rename": {
@@ -2141,6 +2229,53 @@ function run(project, command) {
       node.recipe = recipe;
       break;
     }
+    case "terrain": {
+      if (!node.terrain) fail("terrain shapes a terrain part", "id");
+      const terrain = node.terrain, origin = point(worldMatrix(project, node.id), [0, 0, 0]);
+      const ops = command.ops === undefined ? terrain.ops ?? [] : normalizeTerrain({ ...terrain, ops: command.ops }, "ops").ops;
+      // Paths and zones named by ops become world geometry for the generator.
+      const resolved = ops.map((op) => {
+        if (op.flatten?.path) {
+          const source = project.nodes.find((n) => n.id === op.flatten.path);
+          if (!source?.path) fail(`${op.flatten.path} is not a path`, "ops");
+          const m = worldMatrix(project, source.id);
+          const points = source.path.points.map((pt) => point(m, pt));
+          if (source.path.closed) points.push(points[0]);
+          return { flatten: { ...op.flatten, points } };
+        }
+        if (op.level?.zone) {
+          const source = project.nodes.find((n) => n.id === op.level.zone);
+          if (!source?.zone) fail(`${op.level.zone} is not a zone`, "ops");
+          const z = source.zone, m = worldMatrix(project, source.id);
+          const polygon =
+            z.kind === "polygon"
+              ? z.polygon.map(([x, zz]) => { const w = point(m, [x, z.y[0], zz]); return [w[0], w[2]]; })
+              : z.kind === "box"
+                ? [[-z.size[0] / 2, -z.size[2] / 2], [z.size[0] / 2, -z.size[2] / 2], [z.size[0] / 2, z.size[2] / 2], [-z.size[0] / 2, z.size[2] / 2]].map(([x, zz]) => { const w = point(m, [x, 0, zz]); return [w[0], w[2]]; })
+                : Array.from({ length: 32 }, (_, i) => { const w = point(m, [z.radius * Math.cos((i / 32) * Math.PI * 2), 0, z.radius * Math.sin((i / 32) * Math.PI * 2)]); return [w[0], w[2]]; });
+          return { level: { ...op.level, polygon } };
+        }
+        return op;
+      });
+      const seed = typeof command.seed === "string" ? hashString(command.seed) : command.seed === undefined ? 1 : number(command.seed, 0, 4294967295, "seed");
+      const world = generateHeights({ cell: terrain.cell, samples: terrain.samples, origin }, resolved, seed);
+      const heights = Array.from(world, (h) => Math.round((h - origin[1]) * 1000) / 1000);
+      const next = { ...terrain, heights, ops };
+      const rules = command.surfaces === undefined ? terrain.rules : normalizeTerrain({ ...terrain, rules: command.surfaces }, "surfaces").rules;
+      if (rules) {
+        next.rules = rules;
+        const indexOf = (surface) => (typeof surface === "string" ? terrain.surfaceTable.findIndex((t) => t.id === surface) : surface);
+        const ordered = [{}, ...rules.map((r) => ({ ...r }))];
+        const classes = classifySurfaces(Float32Array.from(heights), terrain, ordered);
+        next.surfaces = Array.from(classes, (c) => (c === 0 ? 0 : indexOf(rules[c - 1].surface)));
+      }
+      if (command.water !== undefined) {
+        if (command.water === null) delete next.water;
+        else next.water = normalizeTerrain({ ...terrain, water: command.water }, "water").water;
+      }
+      node.terrain = normalizeTerrain(next, "terrain");
+      break;
+    }
     case "socket": {
       if (dataKind(node)) fail("Sockets belong to mesh and group parts");
       const frames = normalizeFrames({ [command.socket]: { position: command.position ?? [0, 0, 0], rotation: command.rotation ?? [0, 0, 0], tags: command.tags ?? [] } }, "socket");
@@ -2217,6 +2352,12 @@ function run(project, command) {
         if (!node.path) fail("path belongs to paths", "path");
         node.path = normalizePath(command.path, "path");
       }
+      if (command.terrain !== undefined) {
+        if (!node.terrain) fail("terrain belongs to terrains", "terrain");
+        node.terrain = normalizeTerrain({ ...node.terrain, ...command.terrain }, "terrain");
+      }
+      if (node.terrain && ((command.rotation && command.rotation.some((v) => v !== 0)) || (command.scale && command.scale.some((v) => v !== 1))))
+        fail("A terrain is placed, never rotated or scaled", "rotation");
       if (command.sockets !== undefined) {
         if (dataKind(node)) fail("Sockets belong to mesh and group parts", "sockets");
         if (command.sockets === null) delete node.sockets;

@@ -219,6 +219,25 @@ const props = {
     additionalProperties: { type: "object", properties: { position: vector, rotation: vector, tags: { type: "array", items: string, maxItems: 16 } }, additionalProperties: false },
   },
   target: { type: "object", properties: { id: string, socket: string }, required: ["id", "socket"], additionalProperties: false },
+  // Terrain: a height field with surfaces; ops shape it, rules classify it.
+  terrain: {
+    type: "object",
+    properties: {
+      cell: number,
+      samples: { type: "array", items: { type: "integer" }, minItems: 2, maxItems: 2 },
+      heights: { type: "array", items: number },
+      surfaces: { type: "array", items: { type: "integer" } },
+      surfaceTable: { type: "array", items: { type: "object", properties: { id: string, color: string, roughness: number, friction: number, tags: { type: "array", items: string } }, required: ["id", "color"], additionalProperties: false }, minItems: 1, maxItems: 16 },
+      water: { oneOf: [{ type: "object", properties: { level: number, color: string }, additionalProperties: false }, { type: "null" }] },
+      ops: { type: "array", items: object, maxItems: 32 },
+      rules: { type: "array", items: object, maxItems: 16 },
+    },
+    additionalProperties: false,
+  },
+  ops: { type: "array", items: object, maxItems: 32 },
+  surfaces: { type: "array", items: { type: "object", properties: { surface: { oneOf: [string, { type: "integer" }] }, slope: pair, height: pair }, required: ["surface"], additionalProperties: false }, maxItems: 16 },
+  water: { oneOf: [{ type: "object", properties: { level: number, color: string }, additionalProperties: false }, { type: "null" }] },
+  seed: { oneOf: [number, string] },
   place: {
     type: "object",
     properties: {
@@ -254,6 +273,7 @@ const props = {
       "marker",
       "zone",
       "path",
+      "terrain",
     ],
   },
   parent: { oneOf: [string, { type: "null" }] },
@@ -426,7 +446,7 @@ props.shape = {
 const specs = {
   create: [
     "id kind",
-    "name parent position rotation scale material options mesh smooth tags params place variants tint area path copies tints derived sockets",
+    "name parent position rotation scale material options mesh smooth tags params place variants tint area path copies tints derived sockets terrain",
   ],
   material: [
     "id",
@@ -435,7 +455,8 @@ const specs = {
   removeMaterial: ["id", "replacement"],
   purgeMaterials: ["", ""],
   renameProject: ["name", ""],
-  set: ["id", "name parent position rotation scale keepWorld smooth tags params variants tint area path copies tints sockets"],
+  set: ["id", "name parent position rotation scale keepWorld smooth tags params variants tint area path copies tints sockets terrain"],
+  terrain: ["id", "ops surfaces water seed"],
   socket: ["id socket", "position rotation tags"],
   removeSocket: ["id socket", ""],
   snap: ["id socket target", ""],
@@ -779,6 +800,8 @@ modelDefinitions.rule = obj(
       additionalProperties: false,
     },
     y: { oneOf: [number, { type: "null" }] },
+    ground: boolean,
+    where: obj({ surfaces: { type: "array", items: string, minItems: 1, maxItems: 16 } }, ["surfaces"]),
     yaw: { oneOf: [number, { enum: ["path", "random"] }, obj({ mode: { enum: ["path", "random", "fixed"] }, value: number, jitter: number })] },
     scale: pair,
     candidates: {
@@ -1011,6 +1034,7 @@ export function capabilities({ detail = "full", command } = {}) {
       "placementCopies",
       "assemblyRules",
       "sockets",
+      "terrain",
     ],
     unsupported: [
       "UV textures",

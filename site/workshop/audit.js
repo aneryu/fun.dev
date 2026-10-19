@@ -3,7 +3,8 @@
 // what the audit flags (a lamp standing in a planter overlaps it).
 import { worldMatrix, point, nodePoints } from "./spatial.js";
 import { statistics } from "./document.js";
-import { ruleStatus } from "./rules.js";
+import { ruleStatus, terrainFields } from "./rules.js";
+import { heightAt } from "../runtime/kit/terrain.js";
 
 const EPS = 0.02; // 2 cm: resting on something, or on the ground
 const round = (v) => Math.round(v * 1000) / 1000;
@@ -12,12 +13,12 @@ const round = (v) => Math.round(v * 1000) / 1000;
 export function solidBounds(project) {
   const solids = [];
   for (const node of project.nodes) {
-    if (!(node.mesh || node.place)) continue;
+    if (!(node.mesh || node.place || node.terrain)) continue;
     const m = worldMatrix(project, node.id);
     const points = (node.mesh?.vertices ?? nodePoints(node)).map((v) => point(m, v));
     const min = [0, 1, 2].map((i) => Math.min(...points.map((p) => p[i]))),
       max = [0, 1, 2].map((i) => Math.max(...points.map((p) => p[i])));
-    solids.push({ id: node.id, min, max, kind: node.place ? "place" : "mesh", copies: node.copies?.length ?? 0 });
+    solids.push({ id: node.id, min, max, kind: node.place ? "place" : node.terrain ? "terrain" : "mesh", copies: node.copies?.length ?? 0 });
   }
   return solids;
 }
@@ -27,8 +28,9 @@ export function solidBounds(project) {
  * placed models without a runtime file, and the triangle budget. `ground` is the floor's
  * height (0: the library convention); `budget.triangles` defaults to a phone's.
  */
-export function auditProject(project, { ground = 0, budget = {} } = {}) {
-  if (!Number.isFinite(ground)) throw new TypeError("ground must be a number");
+export function auditProject(project, { ground: plane = 0, budget = {} } = {}) {
+  if (!Number.isFinite(plane)) throw new TypeError("ground must be a number");
+  const ground = plane;
   const findings = [];
   const byId = new Map(project.nodes.map((n) => [n.id, n]));
   const ancestors = (id) => {
@@ -45,7 +47,7 @@ export function auditProject(project, { ground = 0, budget = {} } = {}) {
 
   // Overlaps: bounds that interpenetrate by more than 5 cm on every axis. Parts with many
   // copies are one wide box and stay out of this (their rules keep them off paths and solids).
-  const singles = solids.filter((s) => !s.copies);
+  const singles = solids.filter((s) => !s.copies && s.kind !== "terrain");
   for (let i = 0; i < singles.length; i++)
     for (let j = i + 1; j < singles.length; j++) {
       const a = singles[i],
@@ -63,12 +65,16 @@ export function auditProject(project, { ground = 0, budget = {} } = {}) {
         });
     }
 
-  // Floating and buried: a solid stands on the ground, rests on another solid under its
-  // footprint, or touches one on a side (a clock on a wall, a shelf against it).
+  // Floating and buried: a solid stands on the ground (a terrain's height under it, else the
+  // ground plane), rests on another solid under its footprint, or touches one on a side (a
+  // clock on a wall, a shelf against it).
   const touch = (a, b) => [0, 1, 2].every((k) => Math.max(a.min[k], b.min[k]) - Math.min(a.max[k], b.max[k]) <= EPS);
+  const fields = terrainFields(project);
+  const groundAt = (x, z) => { for (const t of fields) { const h = heightAt(t, x, z); if (h !== null) return h; } return ground; };
+  const terrainIds = new Set(fields.map((t) => t.node));
   for (const s of singles) {
-    if (grounds.has(s.id)) continue;
-    const bottom = s.min[1];
+    if (grounds.has(s.id) || terrainIds.has(s.id)) continue;
+    const bottom = s.min[1], ground = groundAt((s.min[0] + s.max[0]) / 2, (s.min[2] + s.max[2]) / 2);
     if (bottom < ground - EPS) {
       findings.push({
         code: "buried",

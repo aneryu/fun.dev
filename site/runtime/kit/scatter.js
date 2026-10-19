@@ -109,6 +109,10 @@ export function evaluateScatter(rule, inputs, seed = rule.seed ?? 1) {
     stations = inPolygon(polygon, { spacing: on.spacing, jitter: on.jitter, margin: on.margin, count: on.count, y: inputs.zoneY?.[on.zone]?.[0] ?? 0 }, random);
   } else stations = onGrid(on.grid);
   if (rule.y !== undefined && rule.y !== null) for (const s of stations) s.position[1] = rule.y;
+  // On the ground: the terrain's height under each station; stations off every terrain go.
+  if (rule.ground && inputs.height) stations = stations.filter((s) => { const h = inputs.height(s.position[0], s.position[2]); if (h === null) return false; s.position[1] = h; return true; });
+  // Only on some surfaces.
+  if (rule.where?.surfaces?.length && inputs.surface) stations = stations.filter((s) => rule.where.surfaces.includes(inputs.surface(s.position[0], s.position[2])));
   // Keep-out: other paths by width, zones, and the footprints of solids.
   const avoid = inputs.avoid ?? {};
   stations = stations.filter((s) => {

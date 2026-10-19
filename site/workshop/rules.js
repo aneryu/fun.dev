@@ -8,6 +8,22 @@ import { evaluateAssembly, boxSockets } from "../runtime/kit/assemble.js";
 import { hashString } from "../runtime/kit/random.js";
 import { solidBounds } from "./audit.js";
 import { ModelError } from "./mesh.js";
+import { heightAt, surfaceAt } from "../runtime/kit/terrain.js";
+
+/** The project's terrains in world space, with a cheap digest for staleness. */
+export function terrainFields(project) {
+  return project.nodes.filter((n) => n.terrain).map((n) => {
+    const origin = point(worldMatrix(project, n.id), [0, 0, 0]);
+    const t = n.terrain;
+    let digest = 0;
+    for (let i = 0; i < t.heights.length; i += 7) digest = (digest * 31 + Math.round(t.heights[i] * 1000)) % 1000000007;
+    return { node: n.id, origin, cell: t.cell, samples: t.samples, heights: t.heights.map((h) => h + origin[1]), surfaces: t.surfaces ?? null, surfaceTable: t.surfaceTable, digest };
+  });
+}
+const groundQueries = (fields) => ({
+  height: (x, z) => { for (const t of fields) { const h = heightAt(t, x, z); if (h !== null) return h; } return null; },
+  surface: (x, z) => { for (const t of fields) { const s = surfaceAt(t, x, z); if (s) return s.id; } return null; },
+});
 
 const round = (v) => Math.round(v * 10000) / 10000;
 
@@ -57,6 +73,11 @@ export function ruleInputs(project, rule) {
     return { polygon, y: [point(m, [0, -z.radius, 0])[1], point(m, [0, z.radius, 0])[1]].sort((a, b) => a - b).map(round) };
   };
   const inputs = { paths: {}, polygons: {}, zoneY: {}, avoid: { paths: [], polygons: [], boxes: [] } };
+  if (rule.ground || rule.where) {
+    const fields = terrainFields(project);
+    inputs.terrains = fields.map((t) => [t.node, t.digest]);
+    Object.defineProperties(inputs, { height: { value: groundQueries(fields).height, enumerable: false }, surface: { value: groundQueries(fields).surface, enumerable: false } });
+  }
   if (rule.kind === "assemble") {
     if (rule.bounds) inputs.polygons[rule.bounds] = zoneOf(rule.bounds).polygon;
   } else {
@@ -211,7 +232,7 @@ export function runtimeRule(project, rule, records, ids = (id) => id) {
     out.on = { ...rule.on };
     if (out.on.path !== undefined) out.on.path = ids(out.on.path);
     if (out.on.zone !== undefined) out.on.zone = ids(out.on.zone);
-    for (const key of ["y", "yaw", "scale"]) if (rule[key] !== undefined) out[key] = rule[key];
+    for (const key of ["y", "yaw", "scale", "ground", "where"]) if (rule[key] !== undefined) out[key] = rule[key];
     out.candidates = rule.candidates.map((c, i) => ({ model: records[i].model, weight: c.weight, ...(c.tints ? { tints: c.tints } : {}), bounds: records[i].bounds }));
   }
   return out;

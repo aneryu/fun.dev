@@ -10,6 +10,7 @@ import { worldMatrix, point } from "./spatial.js";
 import { solidBounds } from "./audit.js";
 import { statistics } from "./document.js";
 import { runtimeRule } from "./rules.js";
+import { terrainMesh } from "../runtime/kit/terrain.js";
 
 const round = (v) => Math.round(v * 1e6) / 1e6;
 
@@ -106,8 +107,40 @@ export async function exportTile(project, { name = project.name, runtime = [] } 
         edges.push({ ...common, points: node.path.points.map((_, i) => start + i), closed: node.path.closed, kind: "data" });
       }
     }
+    // Terrains: a flat-shaded mesh per terrain under its node, the field as data, a static body.
+    const terrains = [], physics = { shapes: [], bodies: [] };
+    const terrainMaterial = new THREE.MeshStandardMaterial({ name: "mat_terrain", color: "#ffffff", roughness: 0.92, metalness: 0 });
+    for (const node of project.nodes) {
+      if (!node.terrain) continue;
+      const o = model.objects.get(node.id), t = node.terrain;
+      const { positions, normals, colors } = terrainMesh(t);
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+      geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+      geometry.name = node.id;
+      const mesh = new THREE.Mesh(geometry, terrainMaterial);
+      mesh.castShadow = mesh.receiveShadow = true;
+      // The writer's convention: an unnamed mesh hung under its node is the node's own.
+      o.add(mesh);
+      o.userData.mesh = mesh;
+      const id = await idFromName(node.id), origin = point(worldMatrix(project, node.id), [0, 0, 0]).map(round);
+      terrains.push({
+        node: id,
+        origin,
+        cell: t.cell,
+        samples: [...t.samples],
+        heights: { stream: Float32Array.from(t.heights), format: "float32" },
+        ...(t.surfaces ? { surfaces: { stream: Uint8Array.from(t.surfaces), format: "uint8" } } : {}),
+        surfaceTable: t.surfaceTable.map((s) => ({ ...s })),
+        ...(t.water ? { water: [{ level: t.water.level, color: t.water.color }] } : {}),
+      });
+      physics.shapes.push({ id: `shape_${id}`, type: "mesh", geometry: id });
+      physics.bodies.push({ id: `body_${id}`, node: id, shape: `shape_${id}`, motion: "static", friction: t.surfaceTable[0].friction ?? 0.8 });
+    }
     const bounds = sceneBounds(project);
     const extensions = { "fun3d.tile": { bounds, ...(project.tile ? { size: [...project.tile.size] } : {}) } };
+    if (terrains.length) extensions["fun3d.terrain"] = terrains;
     if (zones.length) extensions["fun3d.zones"] = zones;
     if (edges.length) extensions["fun3d.paths"] = { points: { stream: Float32Array.from(points), format: "float32x3" }, edges };
     // Rules the game runs: pinned models (also among the refs, so a build fetches them),
@@ -128,6 +161,7 @@ export async function exportTile(project, { name = project.name, runtime = [] } 
       asset: { name, source: { kind: "edit", tool: "fun.dev/workshop" } },
       refs: [...refs].map(([modelId, id]) => ({ id, model: modelId })),
       extensions,
+      ...(physics.bodies.length ? { physics } : {}),
       edit: { tool: "fun.dev/workshop", version: 3, document: project },
     });
     const stats = statistics(project);
@@ -144,6 +178,8 @@ export async function exportTile(project, { name = project.name, runtime = [] } 
         zones: zones.length,
         paths: edges.length,
         rules: runtime.length,
+        terrains: terrains.length,
+        terrainTriangles: stats.terrainTriangles,
         meshes: stats.meshes,
         triangles: stats.triangles,
       },
