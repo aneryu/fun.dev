@@ -2,19 +2,30 @@
 
 ## Project
 
-This repository contains the source for `fun.dev`, a static personal website
-deployed with Cloudflare Pages.
+This repository contains the source for `fun.dev`, a static website deployed
+with Cloudflare Pages.
 
-The site's theme is **just for fun**. Prefer playful, personal, lightweight
-ideas over a corporate portfolio aesthetic. The site should feel intentional
-without taking itself too seriously.
+Since 2026-10-19 fun.dev's product is an **agent-first 3D content toolchain**:
+the workshop (model authoring), the public model library, the `.fun3d` format
+with its runtime, and parametric derivation. Its primary users are external AI
+agents and their developers; our own agents are the first users. The
+small-game site stays as validation and showcase (帝都 is the main showcase).
+Scope, decisions and the order of work are in
+[`docs/platform-roadmap.md`](docs/platform-roadmap.md#direction-decided-2026-10-19);
+judge new work against it.
+
+The theme is still **just for fun**. Prefer playful, personal, lightweight
+ideas over a corporate SaaS or portfolio aesthetic, for the toolchain as much as
+for the games. The site should feel intentional without taking itself too
+seriously.
 
 ## Current State
 
 The site uses plain HTML, CSS, and JavaScript, with a small Node.js build that
 copies static assets and the pinned Three.js runtime into `dist/`. The shared
 player loads game bundles using the contract in `docs/game-bundles.md`.
-Game sources live in `games/<id>/`; planned platform capabilities and their
+Game sources live in `games/<id>/` until they move to the private
+`fundev-games` repository (roadmap step 3); planned capabilities and their
 order are in `docs/platform-roadmap.md`. Binary files (`games/<id>/assets/`,
 `sources/`) are not in Git: run `npm run assets` after changing them and commit
 the locks (`docs/assets.md`). When several agents work at once, follow

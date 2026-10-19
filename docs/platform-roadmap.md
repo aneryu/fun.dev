@@ -1,13 +1,99 @@
 # Platform roadmap
 
-Status: decided on 2026-10-14. Phases 1–4 are implemented and live (API v2
-shipped with Wooden Fish 1.2.0). Asset delivery and storage, added on
-2026-10-16, are described in [assets](assets.md). This records the shared
-capabilities fun.dev should provide as a small-game platform, the reasoning
-behind each choice, and the order of work. Items under [Later](#later) are
-deferred for future consideration, not rejected.
+Status: the [direction](#direction-decided-2026-10-19) was re-scoped on
+2026-10-19 and governs everything below it. The game-platform plan was decided
+on 2026-10-14; its phases 1–4 are implemented and live (API v2 shipped with
+Wooden Fish 1.2.0). Asset delivery and storage, added on 2026-10-16, are
+described in [assets](assets.md). Items marked Later are deferred for future
+consideration, not rejected.
+
+## Direction (decided 2026-10-19)
+
+fun.dev's product is a **3D content production toolchain**; games validate and
+show it. The decisions:
+
+- **Product**: the workshop, the model library, `.fun3d` with its runtime, and
+  parametric derivation. The small-game site stays, as showcase and test bed.
+- **Users**: external AI agents and their developers, reached through
+  commands with schemas (npm package, MCP, CLI) before UI. Our own agents (the
+  library and Beijing pipelines, the game agents) are the first users and the
+  test of every capability.
+- **Outputs, equal weight**: standard GLB that works in any engine, and a
+  one-stop path of `.fun3d` plus the fun.dev runtime and player that publishes
+  a playable work on fun.dev.
+- **Visual range**: not limited. The early phase concentrates on stylized
+  low-poly (flat colours, PBR metal, glass and emission, faceted or smooth
+  shading, no textures). Formats, project files and command schemas must leave
+  room for UVs, textures and realism later.
+- **Games** leave this public repository for one private repository,
+  `fundev-games`. The platform API becomes versioned with a compatibility
+  window (the player supports the current and the previous major version),
+  replacing "all games upgrade together" in [Scope](#scope). The publisher
+  becomes a CLI that the games repository calls. Later: game bundles uploaded
+  through the console with review, open to outside developers.
+- **帝都** (the Beijing driving game) is the main showcase and the stress test
+  for the toolchain. The layers of the showcase are still to be decided, before
+  the site redesign.
+- **Model library**: public and read-only, CC0; agents search, download and
+  derive through an API. Uploads and review stay internal. Later: outside
+  uploads with review.
+- **Workshop delivery**: local first. An npm package with a pure Node runtime
+  (engine and software renderer, no browser) and an MCP mode; computation runs on
+  the user's machine. The web workshop is for people to look and adjust. Later:
+  a hosted API.
+- **Site**: the homepage presents the toolchain (workshop, library, agent
+  docs) with 帝都 as what it made, in the playful tone; games stay at
+  `/games/<id>`; `/editor/` becomes `/workshop/` without the old address.
+
+### Disposition of existing work
+
+| Work | Status |
+| --- | --- |
+| Workshop stages 1–2, blueprints and derivation | Mainline |
+| Model library, console, review | Mainline (public read-only) |
+| `.fun3d` and runtime (kit, light slots, physics) | Mainline, as the one-stop path |
+| Player and host API | Maintained; gains versioning |
+| 帝都 (`game/didu`, `game/didu-fun3d`) | Moves to `fundev-games`; main showcase |
+| Wooden Fish, Slap, Seal Carving | Move to `fundev-games`; maintenance only |
+| Clock Out, Slap Puppet, Cyber Muyu branches | Move to `fundev-games`; Later |
+| Workshop stage 4: skeletons and animation (low-poly characters) | Next after the early phase |
+| Workshop stage 3: UVs, textures, baking | Later |
+| Realistic humans, MetaHuman (archive branches) | Stay archived |
+| China access, monitor, cleanup Workers | Maintained, not extended |
+| Douyin promotion | Later, with the showcase plan |
+
+### Early phase: exit criteria
+
+The early phase ends when all three hold:
+
+1. A fresh Claude agent and a fresh Codex agent with no fun.dev context,
+   following only the homepage's agent docs, install the package and build
+   models that pass library review (a lamp post, a sedan, a building), unaided
+   and at no more cost than the Blender route.
+2. 帝都 M1 (a drivable Beijing block: road kit, vehicles, building families,
+   signals) is made entirely with the toolchain; no model comes from Blender.
+3. The library and Beijing pipelines no longer use Blender; they report gaps
+   in the toolchain instead of working around them.
+
+Then workshop stage 4 follows; stage 3 comes after it or earlier if a real
+need appears.
+
+### Order of work
+
+0. Rewrite `AGENTS.md` and this roadmap for the direction (done 2026-10-19).
+1. Pure Node workshop runtime, published as an npm package with an MCP mode.
+2. Public read-only library API; search, open and derive in the workshop.
+3. Versioned platform API with the compatibility window; games move to
+   `fundev-games`; the publisher becomes a CLI; `games/` leaves this repository.
+4. Site redesign: toolchain homepage, `/workshop/`, agent docs (after the
+   showcase layers are decided).
+5. The outside-agent acceptance test (exit criterion 1).
 
 ## Scope
+
+The rest of this document records the game-platform plan of 2026-10-14 and
+the workshop and parametric plans of 2026-10-18 and 2026-10-19; where it
+disagrees with the direction above, the direction wins.
 
 - Game types: tap/idle/casual, puzzle/turn-based, and arcade/action.
 - Layering: capabilities that need cross-game state, user preferences,
