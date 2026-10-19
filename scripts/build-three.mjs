@@ -1,4 +1,5 @@
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { build, transform } from "esbuild";
 
@@ -24,17 +25,43 @@ export async function buildThree(root, output) {
     entryPoints: [fileURLToPath(new URL("scripts/editor-tools.js", root))], outfile: fileURLToPath(new URL("editor/tools.js", output)),
     bundle: true, format: "esm", minify: true, target: "es2022", legalComments: "eof", logLevel: "warning", plugins: [platform],
   });
-  // The agent tool for machines without this repository: the CLI/MCP adapter in one file,
-  // driving the published workshop. It needs only Playwright beside it. Imports of
-  // /editor/... run inside the page, so they stay as they are.
-  await build({
-    entryPoints: [fileURLToPath(new URL("scripts/editor-agent.mjs", root))], outfile: fileURLToPath(new URL("tools/fundev-workshop.mjs", output)),
-    bundle: true, platform: "node", format: "esm", target: "node22", external: ["playwright", "/editor/*"], legalComments: "eof", logLevel: "error",
+  // The agent tool for machines without this repository (docs/model-editor.md "Agents without
+  // the repository"). The workshop itself (CLI/MCP adapter, the page's modules, the software
+  // renderer, Three.js, the geometry kernel and its WebAssembly) is one Node file named by its
+  // content; fundev-workshop.mjs is a small launcher that fetches the current one through
+  // tools/workshop.json, checks it and caches it. Page paths resolve to their sources here;
+  // imports of /editor/... inside page.evaluate run in the page and stay as they are, and
+  // Playwright is loaded only for --browser.
+  const sitePaths = { name: "workshop-site-paths", setup(builder) {
+    const three = fileURLToPath(new URL("node_modules/three/build/three.webgpu.js", root));
+    builder.onResolve({ filter: /^\/(runtime\/three|vendor\/three\/three\.webgpu)\.js$/ }, () => ({ path: three }));
+    builder.onResolve({ filter: /^\/editor\/tools\.js$/ }, () => ({ path: fileURLToPath(new URL("scripts/editor-tools.js", root)) }));
+    builder.onResolve({ filter: /\/workshop-kernel\.mjs$/ }, () => ({ path: fileURLToPath(new URL("scripts/workshop-kernel-bundle.mjs", root)) }));
+  } };
+  const workshop = await build({
+    entryPoints: [fileURLToPath(new URL("scripts/editor-agent.mjs", root))], write: false,
+    bundle: true, platform: "node", format: "esm", target: "node22", external: ["playwright", "/editor/*"], minify: true, legalComments: "eof", logLevel: "error",
+    loader: { ".wasm": "binary" }, plugins: [sitePaths],
+    // A CommonJS dependency may still call require (Node built-ins): give the bundle one.
+    banner: { js: 'import { createRequire as __workshopRequire } from "node:module"; const require = __workshopRequire(import.meta.url);' },
     define: {
+      __WORKSHOP_BUNDLED__: "true",
       "process.env.FUNDEV_WORKSHOP_URL": JSON.stringify("https://fun.dev/editor/"),
       // --guide prints the quick reference without the repository.
       "process.env.FUNDEV_WORKSHOP_GUIDE": JSON.stringify(await readFile(new URL("docs/workshop-agents.md", root), "utf8")),
     },
+  });
+  const bytes = workshop.outputFiles[0].contents,
+    digest = createHash("sha256").update(bytes).digest("hex"),
+    file = `workshop-${digest.slice(0, 16)}.mjs`;
+  const tools = new URL("tools/", output);
+  await rm(tools, { recursive: true, force: true });
+  await mkdir(tools, { recursive: true });
+  await writeFile(new URL(file, tools), bytes);
+  await writeFile(new URL("workshop.json", tools), JSON.stringify({ file, sha256: digest, bytes: bytes.length }) + "\n");
+  await build({
+    entryPoints: [fileURLToPath(new URL("scripts/workshop-launcher.mjs", root))], outfile: fileURLToPath(new URL("fundev-workshop.mjs", tools)),
+    bundle: true, platform: "node", format: "esm", target: "node22", legalComments: "eof", logLevel: "error",
   });
   // The workshop's geometry kernel (manifold-3d): its ES module finds the .wasm beside it.
   const kernel = new URL("editor/vendor/", output);

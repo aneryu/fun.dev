@@ -10,9 +10,10 @@ let module = null,
 const source =
   typeof window === "undefined" ? "manifold-3d" : "/editor/vendor/manifold.js";
 
-export function loadKernel() {
-  loading ??= import(source).then(async ({ default: Module }) => {
-    const wasm = await Module();
+// A bundled Node tool hands over the module and its WebAssembly bytes ({ module, wasmBinary }).
+export function loadKernel({ module: provided, ...options } = {}) {
+  loading ??= (provided ? Promise.resolve({ default: provided }) : import(source)).then(async ({ default: Module }) => {
+    const wasm = await Module(options);
     wasm.setup();
     module = wasm;
     return wasm;

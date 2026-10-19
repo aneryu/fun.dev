@@ -61,7 +61,9 @@ framework. `@mediapipe/tasks-vision` is pinned the same way, as the platform's
 vision runtime, so games share one copy instead of each bundling 17 MB.
 `manifold-3d` is pinned as the workshop's geometry kernel (booleans and other solid
 operations, WebAssembly, loaded only by `/editor/`); the build copies its module and
-`.wasm` to `editor/vendor/` and bundles the agent tool to `tools/fundev-workshop.mjs`.
+`.wasm` to `editor/vendor/`, and bundles the agent tool: `tools/workshop-<hash>.mjs` (the
+workshop for Node, kernel included), `tools/workshop.json` naming it, and the launcher
+`tools/fundev-workshop.mjs`.
 `jolt-physics` is pinned as the physics runtime (`/runtime/physics/<hash>/`, loaded by
 games on first use, cached forever) and `meshoptimizer` encodes `.fun3d` geometry (the
 encoder serves the workshop and the converter; games only decode). The

@@ -10,20 +10,33 @@ import {
   unlink,
 } from "node:fs/promises";
 import { resolve, dirname, extname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
 import { execFileSync } from "node:child_process";
-import { chromium } from "playwright";
 import { createPreviewServer, listen } from "./preview-server.mjs";
 import { agentTools, toolInvocation } from "../site/editor/agent-tools.js";
 import { errorInfo } from "../site/editor/agent-contract.js";
 import { normalizeProject } from "../site/editor/document.js";
 import { runScript, guideText, compactError } from "./editor-script.mjs";
 import { parseModelFile, workshopProject } from "../site/editor/glb.js";
+import { openWorkshop } from "./workshop-node.mjs";
+import { kernel } from "./workshop-kernel.mjs";
 
-const root = fileURLToPath(new URL("../", import.meta.url)),
-  args = process.argv.slice(2),
-  config = {};
+const root = fileURLToPath(new URL("../", import.meta.url));
+const MUTATING = [
+  "apply",
+  "loadProject",
+  "importGLB",
+  "undo",
+  "redo",
+  "checkpoint",
+  "restoreCheckpoint",
+  "removeCheckpoint",
+];
+
+/** The workshop tool: --run, the JSON line CLI or MCP over stdio (docs/model-editor.md). */
+export async function main(args = process.argv.slice(2)) {
+const config = {};
 // The published single-file tool (static.fun.dev/tools/fundev-workshop.mjs) is built with a
 // default URL: it drives the live workshop and needs no repository, only Playwright.
 const defaultUrl = process.env.FUNDEV_WORKSHOP_URL || undefined;
@@ -31,6 +44,7 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === "--mcp") config.mcp = true;
   else if (args[i] === "--gpu") config.gpu = true;
   else if (args[i] === "--software") config.software = true;
+  else if (args[i] === "--browser") config.browser = true;
   else if (args[i] === "--guide") config.guide = true;
   else if (
     ["--session", "--project", "--artifacts", "--cdp", "--url", "--run"].includes(
@@ -42,8 +56,17 @@ for (let i = 0; i < args.length; i++) {
       throw new Error("Missing " + args[i]);
     config[key] = args[++i];
   } else if (args[i] === "--help") {
+    const tool = defaultUrl ? "fundev-workshop.mjs" : "scripts/editor-agent.mjs";
     console.log(
-      `node ${defaultUrl ? "fundev-workshop.mjs" : "scripts/editor-agent.mjs"} --run model.mjs   (build a model from a script: --guide prints the quick reference)\nnode ${defaultUrl ? "fundev-workshop.mjs" : "scripts/editor-agent.mjs"} [--mcp] [--session state.json] [--project model.funmodel.glb|.json] [--artifacts directory] [--url ${defaultUrl ?? "https://fun.dev/editor/"}] [--gpu | --software]\nNo GPU or WebGL needed: without them the workshop draws in software (--software skips trying).\nExisting browser: --cdp http://127.0.0.1:9222 --url <exact editor tab URL>\nCLI stdin: one JSON {"method":"inspect","arguments":{}} per line; stdout: JSON results.\n${defaultUrl ? "Needs Playwright beside this file: npm i playwright && npx playwright install chromium" : "Build the editor first (npm run editor -- --build), or pass --url to drive a published workshop."}`,
+      [
+        `node ${tool} --run model.mjs        build a model from a script (--guide prints the quick reference)`,
+        `node ${tool} [--mcp] [--session state.json] [--project model.funmodel.glb|.json] [--artifacts directory]`,
+        "The workshop runs in Node: no browser, GPU or WebGL; views draw in software.",
+        `--browser drives a real page instead (${defaultUrl ?? "the local preview"}; --url another), --gpu draws on the GPU,`,
+        "--cdp http://127.0.0.1:9222 --url <exact editor tab URL> attaches to an open browser. These need Playwright:",
+        "npm i playwright && npx playwright install chromium",
+        'CLI stdin: one JSON {"method":"inspect","arguments":{}} per line; stdout: JSON results.',
+      ].join("\n"),
     );
     process.exit(0);
   } else throw new Error("Unknown option " + args[i]);
@@ -52,7 +75,10 @@ if (config.guide) {
   process.stdout.write(await guideText(root));
   process.exit(0);
 }
-config.url ??= config.cdp ? undefined : defaultUrl;
+// The workshop runs in Node unless a browser is asked for: --browser, --gpu, --software,
+// --url or --cdp drive a real page (the published workshop by default).
+config.node = !(config.browser || config.gpu || config.software || config.url || config.cdp);
+if (!config.node) config.url ??= config.cdp ? undefined : defaultUrl;
 if (config.cdp && (!config.url || config.project || config.session))
   throw new Error(
     "Existing-tab mode requires --url and does not load a project or session",
@@ -60,6 +86,7 @@ if (config.cdp && (!config.url || config.project || config.session))
 let browser,
   context,
   page,
+  editor,
   server,
   sessionLock,
   startError,
@@ -74,6 +101,62 @@ async function start() {
     startError = e;
     throw e;
   }
+}
+// Playwright for --browser: beside this file, or in the working directory's node_modules (the
+// published workshop runs from a cache, so its own location rarely has it).
+async function loadPlaywright() {
+  try {
+    return await import("playwright");
+  } catch (error) {
+    if (error.code !== "ERR_MODULE_NOT_FOUND") throw error;
+    const { createRequire } = await import("node:module");
+    for (const base of [process.cwd(), dirname(resolve(process.argv[1] ?? "."))])
+      try {
+        const found = await import(pathToFileURL(createRequire(resolve(base, "noop.js")).resolve("playwright")).href);
+        // A CommonJS package arrives as a default export.
+        return found.chromium ? found : found.default;
+      } catch {
+        /* not here */
+      }
+    throw new Error("--browser needs Playwright: npm i playwright && npx playwright install chromium");
+  }
+}
+// The project to start from: the session file, else --project (a .funmodel.glb or JSON).
+async function sessionRecord() {
+  let record;
+  if (config.session)
+    try {
+      record = JSON.parse(await readFile(resolve(config.session), "utf8"));
+    } catch (e) {
+      if (e.code !== "ENOENT") throw e;
+    }
+  if (config.project) {
+    if (record)
+      throw new Error(
+        "Session already exists; use loadProject with ifRevision instead of --project",
+      );
+    // A project file (.funmodel.glb) carries its editable project; JSON projects still work.
+    const bytes = await readFile(resolve(config.project)),
+      project = /\.glb$/i.test(config.project)
+        ? workshopProject(parseModelFile(new Uint8Array(bytes)).json)
+        : JSON.parse(bytes.toString("utf8"));
+    if (!project)
+      throw new Error(
+        "This GLB has no workshop project; start a session and use importGLB",
+      );
+    record = { project, revision: 0 };
+  }
+  if (record) {
+    // Projects built by the geometry kernel are checked by the page instead.
+    try {
+      normalizeProject(record.project);
+    } catch (error) {
+      if (error.code !== "kernel_loading") throw error;
+    }
+    if (!Number.isSafeInteger(record.revision) || record.revision < 0)
+      throw new Error("Invalid session revision");
+  }
+  return record;
 }
 async function connect() {
   if (page) return;
@@ -99,6 +182,16 @@ async function connect() {
     }
     await sessionLock.writeFile(String(process.pid));
   }
+  if (config.node) {
+    if (editor) return;
+    // No browser: the page's modules in Node, drawn by the software renderer.
+    const session = await openWorkshop({ record: await sessionRecord(), kernel });
+    editor = session.api;
+    ready = true;
+    process.stderr.write("Editor agent ready (Node workshop, software renderer).\n");
+    return;
+  }
+  const { chromium } = await loadPlaywright();
   if (config.cdp) {
     browser = await chromium.connectOverCDP(config.cdp);
     const matches = browser
@@ -143,39 +236,7 @@ async function connect() {
       serviceWorkers: "block",
       viewport: { width: 1440, height: 900 },
     });
-    let record;
-    if (config.session)
-      try {
-        record = JSON.parse(await readFile(resolve(config.session), "utf8"));
-      } catch (e) {
-        if (e.code !== "ENOENT") throw e;
-      }
-    if (config.project) {
-      if (record)
-        throw new Error(
-          "Session already exists; use loadProject with ifRevision instead of --project",
-        );
-      // A project file (.funmodel.glb) carries its editable project; JSON projects still work.
-      const bytes = await readFile(resolve(config.project)),
-        project = /\.glb$/i.test(config.project)
-          ? workshopProject(parseModelFile(new Uint8Array(bytes)).json)
-          : JSON.parse(bytes.toString("utf8"));
-      if (!project)
-        throw new Error(
-          "This GLB has no workshop project; start a session and use importGLB",
-        );
-      record = { project, revision: 0 };
-    }
-    if (record) {
-      // Projects built by the geometry kernel are checked by the page instead.
-      try {
-        normalizeProject(record.project);
-      } catch (error) {
-        if (error.code !== "kernel_loading") throw error;
-      }
-      if (!Number.isSafeInteger(record.revision) || record.revision < 0)
-        throw new Error("Invalid session revision");
-    }
+    const record = await sessionRecord();
     if (record)
       await context.addInitScript(
         (value) =>
@@ -202,9 +263,9 @@ async function connect() {
   );
 }
 async function persist() {
-  if (!config.session || !page || !ready) return;
+  if (!config.session || (!page && !editor) || !ready) return;
   const path = resolve(config.session),
-    record = await page.evaluate(() => funEditor.getSession());
+    record = editor ? editor.getSession() : await page.evaluate(() => funEditor.getSession());
   if (record.recovery) return { state: "protected" };
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path + ".tmp", JSON.stringify(record));
@@ -227,35 +288,34 @@ async function localFiles(name, arguments_) {
   const data = (await readFile(resolve(path))).toString("base64");
   return { ...rest, image: `data:${type};base64,${data}` };
 }
-async function invoke(name, arguments_) {
-  arguments_ = await localFiles(name, arguments_);
-  // Agents hand over a local file by path; the page receives its bytes.
-  if (name === "fun_editor_importGLB" && typeof arguments_?.path === "string") {
-    const { path, ...rest } = arguments_;
-    arguments_ = {
-      ...rest,
-      data: (await readFile(resolve(path))).toString("base64"),
-    };
+// Calls a method of the workshop API: in this process (Node) or in the page. Mutating calls
+// are flushed; the result travels as data either way.
+async function callEditor(call) {
+  if (editor) {
+    let applied = false;
+    try {
+      let value = await editor[call.method](...call.args);
+      if (MUTATING.includes(call.method)) {
+        applied = true;
+        const persistence = await editor.flush();
+        if (value && !Array.isArray(value) && typeof value === "object")
+          value.persistence = persistence;
+      }
+      if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) value = undefined;
+      return { ok: true, result: value === undefined ? value : structuredClone(value) };
+    } catch (e) {
+      return {
+        ok: false,
+        error: { ...errorInfo(e), applied, revision: editor.inspect().revision },
+      };
+    }
   }
-  const call = toolInvocation(name, arguments_);
-  await start();
-  const result = await page.evaluate(async ({ method, args }) => {
+  return page.evaluate(async ({ method, args, mutating }) => {
     let value,
       applied = false;
     try {
       value = await window.funEditor[method](...args);
-      if (
-        [
-          "apply",
-          "loadProject",
-          "importGLB",
-          "undo",
-          "redo",
-          "checkpoint",
-          "restoreCheckpoint",
-          "removeCheckpoint",
-        ].includes(method)
-      ) {
+      if (mutating.includes(method)) {
         applied = true;
         const persistence = await window.funEditor.flush();
         if (value && !Array.isArray(value) && typeof value === "object")
@@ -273,25 +333,34 @@ async function invoke(name, arguments_) {
         },
       };
     }
-  }, call);
+  }, { ...call, mutating: MUTATING });
+}
+async function editorState() {
+  if (editor) return { revision: editor.inspect().revision, draft: editor.inspect().persistence };
+  return page.evaluate(() => ({
+    revision: funEditor.inspect().revision,
+    draft: funEditor.inspect().persistence,
+  }));
+}
+async function invoke(name, arguments_) {
+  arguments_ = await localFiles(name, arguments_);
+  // Agents hand over a local file by path; the page receives its bytes.
+  if (name === "fun_editor_importGLB" && typeof arguments_?.path === "string") {
+    const { path, ...rest } = arguments_;
+    arguments_ = {
+      ...rest,
+      data: (await readFile(resolve(path))).toString("base64"),
+    };
+  }
+  const call = toolInvocation(name, arguments_);
+  await start();
+  const result = await callEditor(call);
   let sessionPersistence;
   try {
     sessionPersistence = await persist();
   } catch (e) {
-    const state = await page.evaluate(() => ({
-      revision: funEditor.inspect().revision,
-      draft: funEditor.inspect().persistence,
-    }));
-    const mutating = [
-      "apply",
-      "loadProject",
-      "importGLB",
-      "undo",
-      "redo",
-      "checkpoint",
-      "restoreCheckpoint",
-      "removeCheckpoint",
-    ].includes(call.method);
+    const state = await editorState();
+    const mutating = MUTATING.includes(call.method);
     const error = {
       ...errorInfo(e),
       code: "session_storage",
@@ -427,8 +496,8 @@ async function handle(message) {
     } catch (e) {
       const error = { ...errorInfo(e), applied: false };
       if (ready)
-        error.revision = await page
-          .evaluate(() => funEditor.inspect().revision)
+        error.revision = await editorState()
+          .then((state) => state.revision)
           .catch(() => undefined);
       return {
         isError: true,
@@ -494,3 +563,7 @@ try {
     }
   }
 }
+}
+
+// `node scripts/editor-agent.mjs …` runs it; the published launcher imports it and calls main.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

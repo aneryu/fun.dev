@@ -38,3 +38,11 @@
   Cache-Control: public, max-age=31536000, immutable
 /runtime/physics/*
   Cache-Control: public, max-age=31536000, immutable
+
+# The agent tool: the launcher and workshop.json stay current; workshop files are named by their content.
+/tools/fundev-workshop.mjs
+  Cache-Control: no-cache
+/tools/workshop.json
+  Cache-Control: no-cache
+/tools/workshop-*
+  Cache-Control: public, max-age=31536000, immutable

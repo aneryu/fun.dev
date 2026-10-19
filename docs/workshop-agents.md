@@ -8,16 +8,18 @@ scratch; run it, look at the preview, fix, run again.
 
 In the repository: `node scripts/editor-agent.mjs --run model.mjs`
 
-Without it:
+Without it, with nothing but Node 22 or newer:
 
 ```sh
-npm i playwright && npx playwright install chromium
 curl -O https://static.fun.dev/tools/fundev-workshop.mjs
-node fundev-workshop.mjs --run model.mjs        # --gpu: render on the GPU
+node fundev-workshop.mjs --run model.mjs
 ```
 
-No GPU or WebGL needed: without them the workshop draws in software (same results, slower
-previews); `--software` skips trying the GPU. The connect line on stderr names the renderer.
+The file is a small launcher: it fetches the current workshop, checks it, caches it and
+runs it (offline, the cached one). The workshop runs in Node itself: no browser, GPU or
+WebGL; views draw in software, exactly as the web workshop draws without WebGL. `--browser`
+drives a real page instead and needs `npm i playwright && npx playwright install chromium`;
+`--gpu` draws on the GPU there.
 
 The run prints one JSON line: the validation summary, statistics and files written. On an
 error it prints `{ ok: false, error }` (code, message, commandIndex, path, suggestion) and

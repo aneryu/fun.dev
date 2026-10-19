@@ -10,35 +10,20 @@ import {
   statistics,
   validateProject,
   measure,
-  inspectNode,
-  nodeSummary,
   shapeGenerator,
   LIMITS,
   evaluateCommands,
 } from "./document.js";
-import { assetFor, bindingFor } from "./assembly.js";
+import { bindingFor } from "./assembly.js";
 import { materialUsage } from "./materials.js";
 import { createMaterialLibrary } from "./material-library.js";
 import { createWorkbench, materialRuleFields } from "./workbench.js";
-import {
-  topologyToken,
-  componentRef,
-  resolveComponents,
-} from "./components.js";
-import {
-  createViewport,
-  exportGLB,
-  exportAsset,
-  exportReport,
-} from "./viewport.js";
+import { createEngine, normalizeSelection, followRenames } from "./engine.js";
+import { topologyToken, componentRef } from "./components.js";
+import { createViewport, exportAsset, exportReport } from "./viewport.js";
 import { openDraft } from "./draft.js";
 import { loadKernel } from "./kernel.js";
-import {
-  normalizeReference,
-  referenceSummary,
-  referenceDialog,
-  REFERENCE_VIEWS,
-} from "./references.js";
+import { referenceDialog } from "./references.js";
 import { importModel } from "./import-glb.js";
 import { isGLB } from "./glb.js";
 import { projectFile, projectFilename } from "./project-file.js";
@@ -71,13 +56,6 @@ function download(name, data, type) {
 }
 function filename(name) {
   return name.replace(/[^\p{L}\p{N}_.-]+/gu, "-").slice(0, 80) || "model";
-}
-function base64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let result = "";
-  for (let i = 0; i < bytes.length; i += 8192)
-    result += String.fromCharCode(...bytes.subarray(i, i + 8192));
-  return btoa(result);
 }
 function options(select, entries, selected) {
   select.replaceChildren(
@@ -355,33 +333,8 @@ async function start() {
     return `${prefix}-${i}`;
   };
   function updateSelection(reset = false) {
-    const p = store.snapshot();
-    selection.ids = selection.ids.filter((id) =>
-      p.nodes.some((n) => n.id === id),
-    );
-    if (!p.nodes.some((n) => n.id === selection.id))
-      selection.id =
-        selection.ids.at(-1) ??
-        p.nodes.find((n) => n.mesh)?.id ??
-        p.nodes[0]?.id ??
-        null;
-    if (selection.id && !selection.ids.length) selection.ids = [selection.id];
-    const n = node();
-    selection.faces = selection.faces.filter((id) =>
-      n?.mesh?.faces.some((f) => f.id === id),
-    );
-    selection.vertices = selection.vertices.filter((i) => n?.mesh?.vertices[i]);
-    selection.edges = (selection.edges ?? []).filter(
-      (id) => n?.mesh && meshEdges(n.mesh).some((e) => e.id === id),
-    );
-    if (reset) {
-      selection.faces = n?.mesh ? [n.mesh.faces[0].id] : [];
-      selection.vertices = n?.mesh ? [0] : [];
-      selection.edges = [];
-      materialId = null;
-    }
-    selection.face = selection.faces.at(-1) ?? null;
-    selection.vertex = selection.vertices.at(-1) ?? 0;
+    normalizeSelection(store.snapshot(), selection, reset);
+    if (reset) materialId = null;
     viewport.select(selection);
     renderUI();
   }
@@ -934,19 +887,7 @@ async function start() {
   }
   store.subscribe((results = []) => {
     const p = store.snapshot();
-    // A rename keeps the selection and session view state on the same part.
-    for (const r of results)
-      if (r.op === "rename")
-        for (const [from, to] of Object.entries(r.idMap ?? {})) {
-          if (selection.id === from) selection.id = to;
-          selection.ids = selection.ids.map((id) => (id === from ? to : id));
-          for (const set of [
-            viewState.hidden,
-            viewState.locked,
-            viewState.isolated,
-          ])
-            if (set?.delete(from)) set.add(to);
-        }
+    followRenames(results, selection, viewState);
     try {
       viewport.setProject(p);
       updateSelection();
@@ -1017,17 +958,6 @@ async function start() {
     }
     return true;
   }
-  const pendingInputError = () =>
-    new ModelError(
-      t(
-        $("#add-dialog").open
-          ? "edShapePending"
-          : workbench?.hasPending()
-            ? "edParameterPending"
-            : "edInvalidField",
-      ),
-      "pending_input",
-    );
   for (const input of all(
     "#project-name,#transform-form input,#transform-form select,#vertex-form input",
   )) {
@@ -2404,7 +2334,39 @@ async function start() {
     "pivot",
   ])
     if (!draft.writable) $("#" + id).disabled = true;
+  // The agent API (engine.js) is the same object the Node workshop runs; the page adds its
+  // dialogs and panels through these hooks.
+  const engine = createEngine({
+    store,
+    draft,
+    viewport,
+    viewState,
+    getSelection: () => selection,
+    setSelection: (next) => {
+      selection = next;
+    },
+    ui: {
+      status,
+      flushPending,
+      pendingInput: () =>
+        $("#add-dialog").open ||
+        workbench.hasPending() ||
+        !!document.querySelector('[data-autocommit][data-dirty="true"]'),
+      hasPendingParameters: () => !!workbench?.hasPending(),
+      shapePending: () => $("#add-dialog").open,
+      afterReplace: () => {
+        resetViewState();
+        updateSelection(true);
+        viewport.view();
+      },
+      afterSelect: () => {
+        materialId = null;
+        updateSelection();
+      },
+    },
+  });
   workbench = createWorkbench({
+    engine,
     store,
     draft,
     viewport,
@@ -2422,166 +2384,7 @@ async function start() {
     },
   });
   workbench.renderRecipe();
-  window.funEditor = Object.freeze({
-    version: 3,
-    inspect({ id, detail = "summary" } = {}) {
-      const p = store.snapshot(),
-        common = {
-          revision: store.revision,
-          draftId: draft.id,
-          writable: draft.writable,
-          recovery: draft.recovery,
-          units: "meters",
-          renderer: viewport.rendererInfo(),
-          persistence: draft.persistence,
-          pendingInput:
-            $("#add-dialog").open ||
-            workbench.hasPending() ||
-            !!document.querySelector('[data-autocommit][data-dirty="true"]'),
-        };
-      if (id) {
-        return { ...common, ...inspectNode(p, id, { detail }) };
-      }
-      return {
-        ...common,
-        name: p.name,
-        assemblies: p.assemblies,
-        assembly: assetFor(p, selection.id),
-        selection: structuredClone(selection),
-        stats: statistics(p),
-        bounds: viewport.bounds(),
-        camera: viewport.cameraInfo(),
-        viewState: {
-          hidden: [...viewState.hidden],
-          locked: [...viewState.locked],
-          isolated: viewState.isolated ? [...viewState.isolated] : null,
-        },
-        nodes: p.nodes.map((n) => ({
-          ...nodeSummary(n),
-          bounds: measure(p, n.id, { components: false }).bounds,
-        })),
-        materials: materialUsage(p),
-      };
-    },
-    getProject: () => store.snapshot(),
-    loadProject(p, options) {
-      if (!flushPending()) throw pendingInputError();
-      const result = store.replace(p, options);
-      resetViewState();
-      updateSelection(true);
-      viewport.view();
-      return { ...result, persistence: draft.persistence };
-    },
-    apply(commands, options) {
-      if (!flushPending()) throw pendingInputError();
-      return store.apply(commands, options);
-    },
-    undo: () => {
-      if (!flushPending()) return false;
-      return store.undo();
-    },
-    redo: () => store.redo(),
-    select(id, opts = {}) {
-      if (!flushPending()) throw pendingInputError();
-      const p = store.snapshot(),
-        ids = Array.isArray(id) ? id : [id],
-        n = p.nodes.find((n) => n.id === ids.at(-1));
-      if (!ids.length || ids.some((id) => !p.nodes.some((n) => n.id === id)))
-        throw new Error("Unknown selection");
-      opts = resolveComponents(
-        p,
-        { ...opts, id: n.id },
-        { selectionOnly: true },
-      );
-      const mode = opts.mode ?? selection.mode;
-      if (!["object", "face", "vertex", "edge"].includes(mode))
-        throw new Error("Unknown selection mode");
-      const faces =
-          opts.faces ??
-          (opts.face !== undefined
-            ? [opts.face]
-            : n.mesh
-              ? [n.mesh.faces[0].id]
-              : []),
-        vertices = opts.vertices ?? [opts.vertex ?? 0],
-        edges = opts.edges ?? (opts.edge ? [opts.edge] : []);
-      if (
-        edges.some(
-          (id) => !n.mesh || !meshEdges(n.mesh).some((e) => e.id === id),
-        )
-      )
-        throw new Error("Unknown edge");
-      if (
-        faces.some((id) => !n.mesh?.faces.some((f) => f.id === id)) ||
-        vertices.some(
-          (i) => !Number.isInteger(i) || (n.mesh && !n.mesh.vertices[i]),
-        )
-      )
-        throw new Error("Unknown component");
-      selection = {
-        id: n.id,
-        ids,
-        mode,
-        faces,
-        vertices: n.mesh ? vertices : [],
-        edges,
-      };
-      materialId = null;
-      updateSelection();
-      return structuredClone(selection);
-    },
-    view: (name, options) => viewport.view(name, options),
-    focus: () => viewport.focus(),
-    renderViews(views, { size = 512, ...options } = {}) {
-      const revision = store.revision;
-      return viewport
-        .renderViews(views, size, options)
-        .map((shot) => ({ ...shot, revision, draftId: draft.id }));
-    },
-    validate: (budget) => ({
-      revision: store.revision,
-      ...validateProject(store.snapshot(), budget),
-    }),
-    async setReference(spec) {
-      const next = normalizeReference(spec),
-        list = [
-          ...(draft.record.references ?? []).filter((r) => r.view !== next.view),
-          next,
-        ];
-      await viewport.setReferences(list);
-      const persistence = draft.setMetadata({ references: list });
-      return { references: list.map(referenceSummary), persistence };
-    },
-    async clearReference({ view } = {}) {
-      if (view !== undefined && !REFERENCE_VIEWS.includes(view))
-        throw new ModelError("Choose front, back, left, right or top", "invalid", "view");
-      const list = (draft.record.references ?? []).filter(
-        (r) => view !== undefined && r.view !== view,
-      );
-      await viewport.setReferences(list);
-      const persistence = draft.setMetadata({ references: list });
-      return { references: list.map(referenceSummary), persistence };
-    },
-    references: () => (draft.record.references ?? []).map(referenceSummary),
-    async exportGLB({ encoding = "buffer", ...options } = {}) {
-      if (!["buffer", "base64"].includes(encoding))
-        throw new Error("Use buffer or base64 encoding");
-      if (!flushPending()) throw pendingInputError();
-      const p = store.snapshot(),
-        revision = store.revision,
-        { buffer, report } = await exportAsset(p, options);
-      return encoding === "base64"
-        ? {
-            revision,
-            report,
-            filename: `${filename(p.name)}.glb`,
-            mimeType: "model/gltf-binary",
-            data: base64(buffer),
-          }
-        : buffer;
-    },
-    ...workbench.api,
-  });
+  window.funEditor = Object.freeze(engine.api);
   // Last, so the restore and first updates do not hide it.
   if (viewport.rendererInfo().backend === "software") status(t("edSoftwareNotice"));
 }

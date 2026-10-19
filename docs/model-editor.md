@@ -685,13 +685,25 @@ directly under the export root, the library's static parts.
 ## Agents without the repository
 
 `tools/fundev-workshop.mjs` (published at `https://static.fun.dev/tools/fundev-workshop.mjs`)
-is the CLI / MCP adapter below as one file, including `--run` and `--guide`. It drives the
-published workshop, or `--url`, in its own headless Chromium; `--gpu` uses the machine's GPU
-instead of software WebGL 2. No GPU or WebGL is needed: where Chromium has no WebGL the
-workshop draws in software, and `--software` skips trying (no GPU process at all).
+needs Node 22 or newer and nothing else. It is a small launcher: `tools/workshop.json` names
+the current workshop file (`workshop-<sha256>.mjs`, the CLI / MCP adapter below with the
+workshop's own modules, the software renderer, Three.js and the geometry kernel's
+WebAssembly in one file), which it downloads, checks against the SHA-256, caches
+(`FUNDEV_WORKSHOP_CACHE`, else `~/.cache/fundev-workshop`, else the temp directory) and runs;
+offline it runs the newest cached one. So it always matches the live workshop, and a page
+release is a tool release.
+
+The workshop runs in Node (`scripts/workshop-node.mjs`): the page's modules work unchanged,
+the agent API is `site/editor/engine.js` (the same object the page publishes as
+`window.funEditor`), the viewport draws through the software renderer into a stand-in canvas
+(`scripts/workshop-shims.mjs`) and the draft lives in memory, saved by the adapter as the
+session file. A script gives the same files in Node and in a page: GLBs byte for byte,
+previews pixel for pixel with the page's software renderer (`npm run verify:editor`).
+Reference images are PNG in Node. `--browser` drives a real page instead (the published
+workshop, or `--url`), `--gpu` there draws on the GPU, `--cdp` attaches to an open browser;
+these need Playwright beside the launcher or in the working directory.
 
 ```sh
-npm i playwright && npx playwright install chromium
 curl -O https://static.fun.dev/tools/fundev-workshop.mjs
 node fundev-workshop.mjs --guide            # the quick reference
 node fundev-workshop.mjs --run model.mjs     # build a model from a script
@@ -714,8 +726,9 @@ node scripts/editor-agent.mjs --mcp --session /tmp/toolbox-session.json \
 
 The adapter advertises typed `fun_editor_*` tools for capabilities, inspect/query,
 select/observe, preview/apply, undo/redo, presets, validation, project loading,
-export, checkpoints, flush and activity. Mutations require `ifRevision`. It starts an isolated local Chromium
-and serves the built static editor on loopback; `--project model.funmodel.glb` (or a
+export, checkpoints, flush and activity. Mutations require `ifRevision`. It runs the workshop
+in Node; `--browser` starts an isolated local Chromium on the built static editor instead
+(served on loopback; `npm run editor -- --build` first). `--project model.funmodel.glb` (or a
 JSON project) seeds a new session. `fun_editor_importGLB` takes `data` (base64) or, through
 the adapter, a local `path`; `fun_editor_exportProject` returns the project file.
 `--artifacts` writes observation PNGs, GLBs and project files and returns paths;

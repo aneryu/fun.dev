@@ -6,7 +6,7 @@ const envelope = (v) => object(v) && object(v.project) && revision(v.revision);
 const optionalList = (value, valid) =>
   value === undefined || (Array.isArray(value) && value.every(valid));
 const string = (value) => typeof value === "string";
-function readMetadata(record) {
+export function readMetadata(record) {
   let damaged = false;
   const list = (key, valid) => {
     const items = record[key] === undefined ? [] : record[key];

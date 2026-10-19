@@ -705,18 +705,18 @@ await funEditor.clearReference({ view: "left" });</pre
       </p>
       <h2>Agents without the repository</h2>
       <pre>
-npm i playwright &amp;&amp; npx playwright install chromium
 curl -O https://static.fun.dev/tools/fundev-workshop.mjs
 node fundev-workshop.mjs --guide              # one-page quick reference
 node fundev-workshop.mjs --run model.mjs      # a script builds the model: export default async (ws) =&gt; {…}
 node fundev-workshop.mjs --mcp --session model.json --artifacts out/</pre
       >
       <p>
-        The same CLI / MCP adapter in one file. It drives the published workshop
-        (<code>--url</code> to choose another), saves the session file after each
-        request and writes observations and GLBs to the artifacts directory.
-        <code>--gpu</code> renders on the machine's GPU; the default software
-        renderer works everywhere.
+        Needs Node 22 or newer and nothing else: the launcher fetches the current
+        workshop, checks and caches it, and runs it in Node, without a browser, GPU or
+        WebGL (views draw in software). It saves the session file after each request and
+        writes observations and GLBs to the artifacts directory. 只需要 Node，不需要浏览器。
+        <code>--browser</code> drives a real page instead (<code>--url</code> to choose
+        one, <code>--gpu</code> to draw on the GPU) and needs Playwright.
       </p>
       <h2>Project · 工程</h2>
       <pre>
