@@ -12,7 +12,7 @@ export async function bundleWorkshop(root) {
   const sitePaths = { name: "workshop-site-paths", setup(builder) {
     const three = fileURLToPath(new URL("node_modules/three/build/three.webgpu.js", root));
     builder.onResolve({ filter: /^\/(runtime\/three|vendor\/three\/three\.webgpu)\.js$/ }, () => ({ path: three }));
-    builder.onResolve({ filter: /^\/editor\/tools\.js$/ }, () => ({ path: fileURLToPath(new URL("scripts/editor-tools.js", root)) }));
+    builder.onResolve({ filter: /^\/workshop\/tools\.js$/ }, () => ({ path: fileURLToPath(new URL("scripts/editor-tools.js", root)) }));
     builder.onResolve({ filter: /\/workshop-kernel\.mjs$/ }, () => ({ path: fileURLToPath(new URL("scripts/workshop-kernel-bundle.mjs", root)) }));
   } };
   const workshop = await build({
