@@ -139,7 +139,7 @@ const definitions = [
   ],
   [
     "preview",
-    "Evaluate without changing the draft. Returns compact proposed nodes/bounds, materials, results and validation; optional views render the proposal. detail:'full' additionally returns the complete project mesh.",
+    "Evaluate without changing the draft. Returns compact proposed nodes/bounds, materials, results and validation; optional views render the proposal. detail:'full' also returns the complete project mesh.",
     object(
       {
         commands: { ...commandsSchema, $defs: undefined },
@@ -263,7 +263,7 @@ const definitions = [
   ["activity", "Read recent changes and structured failures.", object(), true],
   [
     "setReference",
-    "Put a reference image (data URL; the CLI also accepts path) behind the model in one orthographic view. center is [horizontal, vertical] metres along that view's screen axes from the world origin; width in metres. Kept with the draft, never exported. observe({references:true}) renders it.",
+    "Put a reference image (data URL; the CLI also accepts path) behind the model in one orthographic view. center is [horizontal, vertical] metres along the view's screen axes from the origin; width in metres. Kept with the draft, never exported. observe({references:true}) renders it.",
     object(
       {
         view: { enum: ["front", "back", "left", "right", "top"] },
@@ -279,7 +279,7 @@ const definitions = [
   ],
   [
     "importGLB",
-    "Open a GLB. A workshop project file (.funmodel.glb) restores its editable project; any other GLB becomes editable parts (hierarchy, names, flat PBR materials, polygons; skins, animations and textures are reported, not imported). mode replace (default, undoable) or add under parent. data is base64; the local CLI/MCP adapter also accepts path.",
+    "Open a GLB. A workshop project file (.funmodel.glb) restores its editable project; any other GLB becomes editable parts (hierarchy, names, flat PBR materials, polygons; skins, animations, textures reported, not imported). mode replace (default, undoable) or add under parent. data is base64; the local adapter also accepts path.",
     object(
       {
         data: str,
@@ -295,7 +295,7 @@ const definitions = [
   ],
   [
     "librarySearch",
-    "Search the public CC0 model library (fun.dev/models): listed models matching every word of query in id, name, tags or description, best first, with size in metres, newest version, thumbnail and page addresses, and the fitting agreement of each kit in the results. Chinese queries search Chinese text.",
+    "Search the public CC0 model library (fun.dev/models): listed models matching every word of query in id, name, tags or description, best first, with size in metres, newest version, thumbnail and page addresses, and each kit's fitting agreement. Chinese queries search Chinese text.",
     object({
       query: str,
       type: { enum: ["prop", "piece", "vehicle", "character", "creature", "animation", "scene", "world"] },
@@ -309,13 +309,13 @@ const definitions = [
   ],
   [
     "libraryModel",
-    "One library model: text in both languages, kit, every approved version with its stats (size, bounds, triangles), whether it has a workshop project (editable) and the address, SHA-256 and size of each file (model.glb, source.funmodel.glb, thumbnail.png, model.fun3d …).",
+    "One library model: text in both languages, kit, every approved version with stats (size, bounds, triangles), whether it has a workshop project (editable), and each file's address, SHA-256 and size (model.glb, source.funmodel.glb, thumbnail.png, model.fun3d …).",
     object({ id: str }, ["id"]),
     true,
   ],
   [
     "openLibraryModel",
-    "Open a library model to edit or derive from: its workshop project when the version has one (editable) or its model.glb as parts. mode replace (default, undoable) or add its parts under parent, e.g. to assemble a scene. version defaults to the newest. The project records the model in sources (kind, id, version, file, sha256).",
+    "Open a library model to edit or derive from: its workshop project when the version has one (editable) or its model.glb as parts. mode replace (default, undoable) or add under parent. version defaults to the newest. The project records it in sources (kind, id, version, file, sha256).",
     object(
       {
         id: str,
@@ -331,7 +331,7 @@ const definitions = [
   ],
   [
     "place",
-    "Place a library model by reference (docs/worlds.md): model is an id or id@vNNN, id names the part; parent, position, rotation, scale, tags, params, variants, tint as for create. The part keeps the library's bounds and files, never the geometry. Markers, zones, paths and scatter rules go through apply (create kind marker | zone | path; op rule | removeRule).",
+    "Place a library model by reference (docs/worlds.md): model is an id or id@vNNN, id names the part; parent, position, rotation, scale, tags, params, variants, tint as for create; the part keeps the library's bounds, never the geometry. Markers, zones, paths and rules: apply (create kind marker | zone | path; op rule | removeRule).",
     object(
       {
         model: str,
@@ -355,7 +355,7 @@ const definitions = [
   ],
   [
     "derive",
-    "Run scatter rules (one with id, some with ids, else all): resolves their models in the library, evaluates each rule from its seed and replaces the parts it derived before with placed models carrying many copies. audit reports stale or underived rules.",
+    "Run rules (one with id, some with ids, else all): resolves their models in the library, evaluates each from its seed and replaces what it derived before with placed parts carrying many copies.",
     object({ id: str, ids: { type: "array", items: str, minItems: 1 }, label: str, ifRevision: revision }, ["ifRevision"]),
     false,
   ],
@@ -367,20 +367,20 @@ const definitions = [
   ],
   [
     "audit",
-    "What a picture cannot show: overlaps, floating or buried parts, parts outside the tile, placed models without a .fun3d, stale or underived rules, the triangle budget. Findings carry suggestions.",
+    "What a picture cannot show: overlaps, floating or buried parts, parts outside the tile(s), unconverted placed models, stale or underived rules, triangle budgets (per tile in a world). Findings carry suggestions.",
     object({ ground: num, budget: object({ triangles: num }) }),
     true,
   ],
   [
     "exportTile",
-    "The scene as one .fun3d tile: parts as geometry, placed models as references (copies as placements), markers, zones and paths as data, the project in the editing section. Written to --artifacts when set.",
+    "The scene as one .fun3d tile: parts as geometry, placed models as references, markers, zones, paths and terrain as data, the project in the editing section. Written to --artifacts when set.",
     object({ name: str }),
     true,
   ],
   [
     "exportWorld",
-    "A one-tile world: world.json, the tile and the .fun3d of every placed model from the library (each needs a converted version). Written under --artifacts when set.",
-    object({ name: str }),
+    "A world: world.json, tiles cut by tile.size (+ far files), world.fun3d (markers, zones, paths, runtime rules), the source project, placed models' .fun3d (converted versions only). far: { minSize, step } | false. Under --artifacts when set.",
+    object({ name: str, far: { oneOf: [object({ minSize: num, step: num }), bool] } }),
     true,
   ],
   [

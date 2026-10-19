@@ -830,11 +830,11 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
           }
         : bytes;
     },
-    async exportWorld({ name } = {}) {
+    async exportWorld({ name, far } = {}) {
       commitPending();
       const p = store.snapshot(),
         revision = store.revision,
-        { manifest, files, report } = await exportWorld(p, { name, runtime: await api.runtimeRules(p) });
+        { manifest, files, report } = await exportWorld(p, { name, far, runtime: await api.runtimeRules(p) });
       return {
         revision,
         manifest,

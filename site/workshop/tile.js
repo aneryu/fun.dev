@@ -24,16 +24,26 @@ export function sceneBounds(project) {
   };
 }
 
-export async function exportTile(project, { name = project.name, runtime = [] } = {}) {
+/**
+ * Writes a project as one tile. In a world (`world: { id, x, z, size, bounds, far, level,
+ * data }`, see world-export.js) a tile carries geometry only: the markers, zones and paths
+ * belong to the world's data file (`world.data: true` writes that file), its tile record
+ * names the world, and `physics: false` / `edit: false` leave bodies and the project out.
+ * `source` is the whole project when `project` is a cut of it (runtime rules read it).
+ */
+export async function exportTile(project, { name = project.name, runtime = [], world = null, physics: wantPhysics = true, edit: wantEdit = true, source = null } = {}) {
   const model = buildModel(project);
+  const tables = !world || !!world.data;
   try {
     // The root's name must not collide with a part's id.
     model.root.name = project.nodes.some((n) => n.id === "scene") ? "scene_root" : "scene";
     const refs = new Map();
     for (const node of project.nodes) {
       const o = model.objects.get(node.id);
-      if (node.tags?.length) o.userData.tags = [...node.tags];
-      if (node.params) o.userData.params = structuredClone(node.params);
+      // A pure marker in a world tile is the data file's; its node stays only as a pivot.
+      const carries = tables || !node.marker;
+      if (carries && node.tags?.length) o.userData.tags = [...node.tags];
+      if (carries && node.params) o.userData.params = structuredClone(node.params);
       if (node.sockets)
         o.userData.sockets = Object.fromEntries(
           Object.entries(node.sockets).map(([name, f]) => [
@@ -64,8 +74,8 @@ export async function exportTile(project, { name = project.name, runtime = [] } 
           if (node.tints) o.userData.fun3dModel.tints = node.tints.map((t) => [...t]);
         }
       }
-      // Zones and paths live in the tile's tables; their nodes stay only as pivots of children.
-      if ((node.zone || node.path) && !project.nodes.some((n) => n.parent === node.id)) o.removeFromParent();
+      // Zones and paths live in the tables; their nodes stay only as pivots of children.
+      if ((node.zone || node.path || (node.marker && !carries)) && !project.nodes.some((n) => n.parent === node.id)) o.removeFromParent();
     }
     model.root.updateMatrixWorld(true);
     const zones = [],
@@ -75,7 +85,7 @@ export async function exportTile(project, { name = project.name, runtime = [] } 
       quaternion = new THREE.Quaternion(),
       scale = new THREE.Vector3();
     for (const node of project.nodes) {
-      if (!(node.zone || node.path)) continue;
+      if (!tables || !(node.zone || node.path)) continue;
       const m = worldMatrix(project, node.id),
         id = await idFromName(node.id),
         common = { id, ...(node.tags?.length ? { tags: [...node.tags] } : {}), ...(node.params ? { params: structuredClone(node.params) } : {}) };
@@ -135,16 +145,28 @@ export async function exportTile(project, { name = project.name, runtime = [] } 
         surfaceTable: t.surfaceTable.map((s) => ({ ...s })),
         ...(t.water ? { water: [{ level: t.water.level, color: t.water.color }] } : {}),
       });
-      physics.shapes.push({ id: `shape_${id}`, type: "mesh", geometry: id });
-      physics.bodies.push({ id: `body_${id}`, node: id, shape: `shape_${id}`, motion: "static", friction: t.surfaceTable[0].friction ?? 0.8 });
+      if (wantPhysics) {
+        physics.shapes.push({ id: `shape_${id}`, type: "mesh", geometry: id });
+        physics.bodies.push({ id: `body_${id}`, node: id, shape: `shape_${id}`, motion: "static", friction: t.surfaceTable[0].friction ?? 0.8 });
+      }
     }
     const bounds = sceneBounds(project);
-    const extensions = { "fun3d.tile": { bounds, ...(project.tile ? { size: [...project.tile.size] } : {}) } };
+    const record = world
+      ? {
+          world: world.id,
+          ...(world.x !== undefined ? { x: world.x, z: world.z } : {}),
+          bounds: world.bounds ?? bounds,
+          size: [...world.size],
+          ...(world.far ? { far: world.far } : {}),
+          ...(world.level ? { level: world.level } : {}),
+        }
+      : { bounds, ...(project.tile ? { size: [...project.tile.size] } : {}) };
+    const extensions = { "fun3d.tile": record };
     if (terrains.length) extensions["fun3d.terrain"] = terrains;
     if (zones.length) extensions["fun3d.zones"] = zones;
     if (edges.length) extensions["fun3d.paths"] = { points: { stream: Float32Array.from(points), format: "float32x3" }, edges };
     // Rules the game runs: pinned models (also among the refs, so a build fetches them),
-    // ids as the tile's tables name them.
+    // ids as the tables name them, keep-outs from the whole project.
     if (runtime.length) {
       const names = new Map();
       for (const node of project.nodes) if (node.zone || node.path) names.set(node.id, await idFromName(node.id));
@@ -152,7 +174,7 @@ export async function exportTile(project, { name = project.name, runtime = [] } 
       extensions["fun3d.rules"] = [];
       for (const { rule, records } of runtime) {
         for (const record of records) if (!refs.has(record.model)) refs.set(record.model, `m${refs.size}`);
-        extensions["fun3d.rules"].push(runtimeRule(project, rule, records, ids));
+        extensions["fun3d.rules"].push(runtimeRule(source ?? project, rule, records, ids));
       }
     }
     const writer = createWriter({ THREE });
@@ -162,7 +184,7 @@ export async function exportTile(project, { name = project.name, runtime = [] } 
       refs: [...refs].map(([modelId, id]) => ({ id, model: modelId })),
       extensions,
       ...(physics.bodies.length ? { physics } : {}),
-      edit: { tool: "fun.dev/workshop", version: 3, document: project },
+      ...(wantEdit ? { edit: { tool: "fun.dev/workshop", version: 3, document: project } } : {}),
     });
     const stats = statistics(project);
     return {

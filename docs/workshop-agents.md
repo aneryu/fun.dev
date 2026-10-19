@@ -183,7 +183,7 @@ await ws.apply([
 const audit = await ws.audit();          // overlap, floating, buried, out-of-bounds, unconverted-model, budget
 await ws.map({ file: "map.png" });       // the top view with zones, paths and markers
 await ws.exportTile({ file: "park.fun3d" });
-await ws.exportWorld({ dir: "park-world" }); // world.json, the tile, the placed models' .fun3d files
+await ws.exportWorld({ dir: "park-world" }); // world.json, the tiles (+ far files), world.fun3d (markers, zones, paths), the source, the placed models' .fun3d files
 ```
 
 `model` is a library id or `id@vNNN`; `ws.librarySearch({ query })` finds ids. A placed part

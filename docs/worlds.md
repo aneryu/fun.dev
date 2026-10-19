@@ -1,7 +1,7 @@
 # Scenes and worlds: design
 
-Status: designed and approved 2026-10-19 (the owner's "同意，并继续"); step 1 of the rollout is
-built the same day (section 11). It follows the discussion of that day: what else the workshop
+Status: designed and approved 2026-10-19 (the owner's "同意，并继续"); steps 1, 2 and the terrain
+and tiles of step 3 are built the same day (section 11). It follows the discussion of that day: what else the workshop
 should do, with scene and map building as the example. The [roadmap](platform-roadmap.md)'s
 workshop stage 2 ("scatter and instancing, scene assembly from library models") expands into
 this layer.
@@ -155,9 +155,11 @@ index lists, an area type per polygon, and portals naming the neighbouring tile 
 paths cross tiles. Vehicle routing needs no extra data: it runs on `fun3d.paths` edges with a
 `kind` and `lanes`. Grid pathing runs on `fun3d.grid`.
 
-**Tile record.** `fun3d.tile` names the world, the tile's coordinates and bounds, its far file
-(a merged low-detail version for the distance) and its budget, so a tile is self-describing
-when opened alone.
+**Tile record.** `fun3d.tile` names the world (`world`, the manifest's id), the tile's
+coordinates (`x`, `z`), its `bounds` and the world's tile `size`, its far file (`far`, a coarse
+version for the distance) and, in that far file, `level: "far"`, so a tile is self-describing
+when opened alone. A tile exported on its own has `bounds` and `size` only; the budget is the
+audit's.
 
 **Caps** (first release, checked by the validator with the format's own): placed-model nodes
 4096 per tile, copies 262 144 per tile (the format's placements cap), path points 65 536, edges
@@ -168,29 +170,46 @@ cells 1024 × 1024.
 
 ```jsonc
 {
-  "format": "fun.dev/world", "version": 1, "id": "island", "name": { "zh": "海岛", "en": "Island" },
-  "tile": { "size": 256 }, "bounds": { "min": [-1024, -50, -1024], "max": [1024, 300, 1024] },
-  "tiles": [{ "x": -4, "z": -4, "file": "tiles/-4_-4.fun3d", "sha256": "…", "bytes": 418212,
-              "far": { "file": "tiles/-4_-4.far.fun3d", "sha256": "…" } }],
-  "data": { "file": "world.fun3d", "sha256": "…" },                        // paths, zones, markers, grid and navmesh portals that span tiles; loaded first, small
-  "models": { "street_lamp_01@v005": { "file": "models/street_lamp_01@v005.fun3d", "sha256": "…" } },   // the closure, as models.lock records it
-  "environment": { "sun": [{ "time": 0.25, "direction": [0.3, -0.8, 0.5], "intensity": 3.0, "color": "#fff1dc" }],
-                   "sky": { "zenith": "#7fb3e6", "horizon": "#dbe7f0", "ground": "#6b6b66" }, "fog": { "color": "#dbe7f0", "near": 400, "far": 2400 } },
-  "rules": { "runtime": ["floor_layout"] }                                  // rules the kit executes when the game asks
+  "format": "fun.dev/world", "version": 1, "id": "island", "name": "Island",
+  "tile": { "size": [256, 256], "span": [9, 9] }, "bounds": { "min": [-1152, -50, -1152], "max": [1152, 300, 1152] },
+  "tiles": [{ "x": -4, "z": -4, "file": "tiles/-4_-4.fun3d", "sha256": "…", "bytes": 418212, "bounds": { "min": […], "max": […] },
+              "far": { "file": "tiles/-4_-4.far.fun3d", "sha256": "…", "bytes": 31020 } }],
+  "data": { "file": "world.fun3d", "sha256": "…", "bytes": 9120 },         // markers, zones, paths and runtime rules of the whole world; loaded first, small
+  "models": { "street_lamp_01@v005": { "file": "models/street_lamp_01@v005.fun3d", "sha256": "…", "bytes": 48210 } },   // the closure, as models.lock records it
+  "environment": { "sun": [{ "time": 0.5, "direction": [-0.4, -0.8, 0.45], "intensity": 3, "color": "#fff1dc" }],
+                   "sky": { "zenith": "#7fb3e6", "horizon": "#dbe7f0", "ground": "#6b6b66" }, "fog": null },
+  "rules": { "runtime": ["floor_layout"] },                                 // rules the kit executes when the game asks
+  "source": { "file": "world.funmodel.glb", "sha256": "…", "bytes": 120400 }   // the project, to reopen in the workshop
 }
 ```
 
 A scene is a world with one tile, or just the tile. The manifest is JSON, not `.fun3d`: it is
 small, read before any binary data, and is what a release's `files.json` closure and the game
-build's lock work from. Data that spans tiles (a lap, a road network, zones, markers) lives in
-`world.fun3d`, a tile-shaped file without geometry; per-tile data (navmesh, local markers) stays
-in the tile.
+build's lock work from.
+
+**How a project becomes tiles** (`site/workshop/tiles.js`, built 2026-10-19). Tile `(i, k)` is
+centred on `(i·w, k·d)` for `tile.size = [w, d]`, so a scene built around the origin is the one
+tile `0_0` and a world grows outward; `tile.span = [across, deep]` (odd numbers, 1 by default)
+is how many tiles the world may use, which the audit's `out-of-bounds` checks. A part goes to
+the tile under the centre of its bounds, its ancestors along as bare pivots; a part with
+`copies` goes row by row, one placements node per tile; a terrain is split into sub-fields along
+its cells (a cell belongs to the tile under its centre; the shared edge samples repeat, so
+heights agree at the seam; the sub-field node is `<id>__<x>_<z>` with `m` for minus); tiles
+without anything are not written. Markers, zones, paths and the runtime rules are the world's
+data, not any tile's: they go to `world.fun3d`, a tile-shaped file without geometry, so a game
+reads spawn points and lap data before any tile has streamed; a pure marker's node stays in its
+tile only as a pivot of children, while tagged geometry (a placed lamp tagged `lamp`, a copy of
+a rule with tags) stays a marker of its tile. A far file holds the tile's terrains coarsened
+(every fourth sample where that divides the cells, else fifth, third or second) and the parts at
+least 8 metres across (`far: { minSize, step }`, or `far: false`), with no bodies and no
+editing section; a tile with nothing worth the distance has none. Tiles carry no editing
+section either; the project rides once as `source`.
 
 ### 3.3 Sources and the library
 
 The workshop source of a scene or world is its project with the rules, kept in the tile's
-editing section and, for worlds, as `world.funworld.glb` beside the manifest (the project
-container the workshop already uses). The library API reserves the types `scene` and `world`:
+editing section and, for worlds, as `world.funmodel.glb` beside the manifest (the project
+container the workshop already uses; the manifest's `source`). The library API reserves the types `scene` and `world`:
 a scene is uploaded as its tile plus source; a world as manifest, tiles, `world.fun3d` and
 source. Both are CC0 like everything else, pinned by games like models, and their closure of
 referenced models is resolved at build.
@@ -271,8 +290,9 @@ modules of [format section 7](model-format.md#7-runtime) plus `kit/world.js` and
 player uses the same package.
 
 ```js
-const world = await createWorld({ THREE, scene, fun3d, models, physics, lights, fetch }, "worlds/island/world.json");
-world.focus(car.position); world.update(camera, dt);          // streams tiles by distance, far files beyond, bodies with tiles
+const world = await createWorld({ fun3d, models, physics, read: assets.arrayBuffer, json: assets.json }, "worlds/island/world.json");
+world.focus(car.position);                                     // each frame: tiles by distance, far files beyond, bodies with near tiles
+await world.settle();                                          // loading screens and tests; world.tiles() lists states
 world.height(x, z); world.surface(x, z); world.normal(x, z);   // terrain; grid: world.cell(x, z)
 world.markers("spawn");                                        // [{ id, position, rotation, params, node }]
 world.zones("safe"); world.zone("safe_1").contains(p);
@@ -286,8 +306,17 @@ world.time = 0.5;                                               // environment k
 world.dispose();
 ```
 
+Built 2026-10-19 (`kit/world.js`): `createWorld` with `read` and `json` taking paths joined to
+the manifest's directory (fetch by default), `focus`, `update`, `settle`, `tiles`, `tile`,
+`height`, `surface`, `markers`, `marker`, `zones`, `zone`, `zonesAt`, `paths`, `path`, `rules`,
+`run`, `dispose`; options `radius` (the tile size by default), `far` (four tile sizes),
+`hysteresis`, `concurrency`, `onTile`. A tile is near within `radius` of its rectangle, far
+within `far` (its far file, if it has one), gone beyond; a near file replaces the far copy only
+once it has loaded, and the reverse; a tile whose file fails is reported once and left. Queries
+merge the data file with the near tiles; terrain queries ask the near tiles first, then the far
+ones. Still sketches: `normal`, zone events, networks, navmesh, grid, environment time.
 A single tile needs none of this: `fun3d.load` and `models.place` as today, with
-`world.data(tile)` to read its markers, zones and paths.
+`worldData(tile)` to read its markers, zones and paths.
 
 ## 8. Genre coverage
 
@@ -392,9 +421,13 @@ from a script, reviewed like library models.
    (`ground: true`, `where: { surfaces }`), the audit takes it as the ground, and a tile carries
    the mesh, a static mesh body and the field itself (`fun3d.terrain`, an array of fields) so
    `worldData(tile).height(x, z)` and `surface(x, z)` answer at play time and runtime rules sit
-   on it. Sample: `examples/worlds/island.mjs`. Still to come in this step: `fun3d.grid`,
-   `sweep` for roads and tracks, `lots`, `fun3d.navmesh`, the manifest with streaming and far
-   files, `sample`, full budgets, and 帝都 M1's block loaded from world data.
+   on it. Tiles and streaming are built (2026-10-19): `exportWorld` cuts the project by
+   `tile.size` as section 3.2 describes (parts by bounds, copies by row, terrains at their
+   cells, data in `world.fun3d`, far files, the source), the audit checks `tile.span` and a
+   triangle budget per tile (`tile-budget`), and `createWorld` streams the result (section 7).
+   Sample: `examples/worlds/island.mjs`, a 3 × 3 world of 96 m tiles. Still to come in this
+   step: `fun3d.grid`, `sweep` for roads and tracks, `lots`, `fun3d.navmesh`, the tile grid on
+   the map, `sample`, budgets measured on a phone, and 帝都 M1's block loaded from world data.
 4. **Later** (appendix A).
 
 Step 1 fits the early phase and serves 帝都 M1. Whether step 3 precedes workshop stage 4

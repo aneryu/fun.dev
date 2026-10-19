@@ -1017,18 +1017,27 @@ them out. The map and the audit are for agents:
 - `funEditor.audit({ ground, budget })` lists findings with suggestions: `overlap` (bounds
   interpenetrating by more than 5 cm on every axis), `floating` (a solid touching nothing,
   with the gap below it), `buried` (below the ground plane), `out-of-bounds` (outside
-  `tile.size`), `unconverted-model` (a placed version without a `.fun3d`) and `budget`
-  (triangles above 300 000 by default). Parts tagged `ground` are the floor: never flagged,
-  and a support for the rest. `--run` adds the audit to its result for scene projects.
+  `tile.size`, or outside the `tile.span` tiles of it), `unconverted-model` (a placed version
+  without a `.fun3d`) and `budget` (triangles above 300 000 by default; `tile-budget` per tile
+  once `tile.span` makes a world of several tiles, and the result's `tiles` lists each tile's
+  numbers). Parts tagged `ground` are the floor: never flagged, and a support for the rest.
+  `--run` adds the audit to its result for scene projects.
 
 Exports: `exportTile` writes the scene as one `.fun3d` tile ([format 4.9a](model-format.md#49a-placed-models-and-scene-data-11)):
 the project's parts as geometry, placed models as references, markers as tagged nodes with
 `fun3d.params`, zones and paths in `fun3d.zones` and `fun3d.paths` in tile space, the project
-in the editing section. `exportWorld` adds `world.json` and the `.fun3d` of every placed model
-(a one-tile world); `ws.exportWorld({ dir })` writes the files. A game loads a tile with
-`fun3d.load(bytes, { resolve })` and reads its data through `kit/world.js`
-([fun3d for agents](fun3d-agents.md)). `tile: { size: [width, depth] }` on the project sets the
-tile's extent for the audit and the manifest.
+in the editing section. `exportWorld` writes a world ([worlds 3.2](worlds.md#32-a-world)):
+`world.json`, the tiles the project cuts into by `tile.size` (tile `x_z` is centred on
+`x · width, z · depth`, so a scene around the origin is the one tile `0_0`; parts go by the
+centre of their bounds, copies row by row, terrains split at their cells), a far file per tile
+with the terrain coarsened and the parts at least 8 m across (`far: { minSize, step }`, or
+`false`), `world.fun3d` with the markers, zones, paths and runtime rules of the whole world,
+the project as `world.funmodel.glb`, and the `.fun3d` of every placed model;
+`ws.exportWorld({ dir })` writes the files and returns the per-tile report. A game loads a
+tile with `fun3d.load(bytes, { resolve })` and reads its data through `kit/world.js`, or
+streams the world with `createWorld` ([fun3d for agents](fun3d-agents.md)).
+`tile: { size: [width, depth], span: [across, deep] }` on the project sets the tile size and
+how many tiles (odd numbers, 1 by default) the audit allows.
 
 ### Scatter rules
 

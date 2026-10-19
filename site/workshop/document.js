@@ -625,11 +625,19 @@ export function normalizePath(value, path = "path") {
     fail("Only data paths exist in this release", `${path}.kind`);
   return { points: value.points.map((p, i) => vector(p, `${path}.points.${i}`)), closed: !!value.closed };
 }
+// tile.size cuts a world into tiles centred on multiples of it (tiles.js); tile.span is how
+// many tiles across and deep the world may use, centred on tile 0_0 (odd numbers; 1 by default).
 function normalizeTile(value) {
   if (value === undefined || value === null) return null;
   if (typeof value !== "object" || !Array.isArray(value.size) || value.size.length !== 2 || value.size.some((v) => !(v >= 1 && v <= 100000)))
     fail("tile.size is [width, depth] in metres", "tile.size");
-  return { size: [value.size[0], value.size[1]] };
+  const tile = { size: [value.size[0], value.size[1]] };
+  if (value.span !== undefined && value.span !== null) {
+    if (!Array.isArray(value.span) || value.span.length !== 2 || value.span.some((v) => !Number.isInteger(v) || v < 1 || v > 63 || v % 2 === 0))
+      fail("tile.span is [across, deep] tiles, odd numbers from 1 to 63", "tile.span");
+    if (value.span[0] !== 1 || value.span[1] !== 1) tile.span = [value.span[0], value.span[1]];
+  }
+  return tile;
 }
 // Many copies of a placed model in one part (docs/worlds.md §5): rows [x, y, z, rx, ry, rz,
 // scale] in the part's space, usually derived by a rule; a derived stamp names the rule.

@@ -633,6 +633,11 @@ function validateSceneExtensions(manifest, { uses, streams, nodes, caps, out }) 
     else {
       if (tile.bounds !== undefined && (!tile.bounds || !vector3(tile.bounds.min) || !vector3(tile.bounds.max))) out.push(`extensions["fun3d.tile"].bounds needs min and max`);
       if (tile.size !== undefined && (!Array.isArray(tile.size) || tile.size.length !== 2 || !tile.size.every((v) => v > 0))) out.push(`extensions["fun3d.tile"].size is [width, depth]`);
+      // A tile of a world (docs/worlds.md §3.2): the world's id, its coordinates, its far file.
+      if (tile.world !== undefined && typeof tile.world !== "string") out.push(`extensions["fun3d.tile"].world is the world's id`);
+      if ((tile.x !== undefined || tile.z !== undefined) && !(Number.isInteger(tile.x) && Number.isInteger(tile.z))) out.push(`extensions["fun3d.tile"].x and z are integers`);
+      if (tile.far !== undefined && tile.far !== null && typeof tile.far !== "string") out.push(`extensions["fun3d.tile"].far names the far file`);
+      if (tile.level !== undefined && tile.level !== "far") out.push(`extensions["fun3d.tile"].level is "far" or absent`);
     }
   }
   void nodes;

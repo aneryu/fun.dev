@@ -757,7 +757,7 @@ await ws.apply([
 await ws.audit();                              // overlap, floating, buried, out-of-bounds, unconverted-model, budget
 await ws.map({ file: "map.png" });             // the top view with the overlays
 await ws.exportTile({ file: "park.fun3d" });   // the scene as one .fun3d tile
-await ws.exportWorld({ dir: "park-world" });   // world.json + tile + the placed models' files
+await ws.exportWorld({ dir: "park-world" });   // world.json + tiles by tile.size (+ far files) + world.fun3d (data) + the placed models' files
 await ws.rule({ id: "lamps", kind: "scatter", on: { path: "road", spacing: 12, offset: 5, sides: "both" }, candidates: [{ model: "street_lamp_01" }] });
 await ws.derive();                             // rules → placed parts with many copies, instanced
 await ws.rule({ id: "streets", kind: "assemble", bounds: "block", count: 60, pieces: [

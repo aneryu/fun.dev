@@ -106,9 +106,23 @@ const lap = data.path("lap"); lap.at(0.5).position; lap.nearest(position).distan
 
 `data.height(x, z)` and `data.surface(x, z)` read the tile's terrains (`fun3d.terrain`: the
 field, its surface table with friction and tags, its water level); the terrain's mesh has a
-static body already. `world.json` of a one-tile world lists the tile and the models' files
-with their SHA-256; a game build pins them like any model. A model node with `placements` (a
-scatter rule's copies)
+static body already. `world.json` lists the world's tiles (`x`, `z`, file, SHA-256, bounds,
+a `far` file), its `data` file (`world.fun3d`: the markers, zones, paths and runtime rules of
+the whole world) and the models' files; a game build pins them like any model. `createWorld`
+streams it:
+
+```js
+import { createWorld } from "/runtime/kit/world.js";
+const world = await createWorld({ fun3d, models, physics, read: assets.arrayBuffer, json: assets.json }, "worlds/island/world.json");
+const [spawn] = world.markers("spawn");               // the data file answers before any tile
+world.focus(spawn.position);                           // each frame: near tiles within a tile size, far files within four, bodies with the near ones
+await world.settle();                                  // wait for the first tiles (loading screen)
+world.height(x, z); world.zone("safe_1").contains(p); world.path("lap").nearest(p); world.run("floor_layout", { seed });
+world.tiles();                                         // [{ x, z, state: "near" | "far" | "none", distance }]
+world.dispose();
+```
+
+A model node with `placements` (a scatter rule's copies)
 loads as instanced parts, lights its lamps once per copy and yields one marker per copy
 (`id#index`). Rules the workshop left for play time (`fun3d.rules`) run in the game:
 

@@ -212,7 +212,7 @@ export function scriptApi(invoke, base) {
       const result = await call("exportWorld", options);
       const written = [];
       for (const f of result.files) written.push(await write(join(dir, f.path), Buffer.from(f.data, "base64")));
-      return { dir: path(dir), files: written, tiles: result.manifest.tiles.length, models: Object.keys(result.manifest.models) };
+      return { dir: path(dir), files: written, tiles: result.manifest.tiles.length, models: Object.keys(result.manifest.models), report: result.report };
     },
   };
   return { ws, files };

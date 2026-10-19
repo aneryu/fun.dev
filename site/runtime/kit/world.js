@@ -85,9 +85,12 @@ function pathOf(edge, points) {
   };
 }
 
-/** The scene data of a loaded tile or model. */
-export function worldData(model) {
-  const manifest = model.manifest, extensions = model.extensions ?? manifest.extensions ?? {};
+/**
+ * The scene data of a loaded tile or model (or a placed copy of one). A world passes its own
+ * `height` and `surface` so the file's runtime rules sit on terrain in other tiles.
+ */
+export function worldData(model, { height: worldHeight = null, surface: worldSurface = null } = {}) {
+  const manifest = model.manifest, extensions = model.extensions ?? manifest.extensions ?? {}, streams = model.streams ?? model.file?.streams ?? null;
   model.root.updateMatrixWorld(true);
   const markers = [];
   for (const n of manifest.nodes ?? []) {
@@ -119,19 +122,22 @@ export function worldData(model) {
   const zones = (extensions[ZONES] ?? []).map(zoneOf);
   const paths = [];
   const table = extensions[PATHS];
-  if (table?.points?.stream !== undefined && model.streams) {
-    const points = model.streams.of(table.points);
+  if (table?.points?.stream !== undefined && streams) {
+    const points = streams.of(table.points);
     for (const edge of table.edges ?? []) paths.push(pathOf(edge, points));
   }
   const byTag = (list, tag) => (tag === undefined ? [...list] : list.filter((x) => x.tags.includes(tag)));
   // Terrains: the fields as typed arrays, asked by world x and z.
   const terrains = (extensions["fun3d.terrain"] ?? []).map((t) => ({
     node: t.node, origin: t.origin, cell: t.cell, samples: t.samples, surfaceTable: t.surfaceTable, water: t.water ?? null,
-    heights: model.streams ? model.streams.of(t.heights) : new Float32Array(t.samples[0] * t.samples[1]),
-    surfaces: t.surfaces && model.streams ? model.streams.of(t.surfaces) : null,
+    heights: streams ? streams.of(t.heights) : new Float32Array(t.samples[0] * t.samples[1]),
+    surfaces: t.surfaces && streams ? streams.of(t.surfaces) : null,
   }));
   const height = (x, z) => { for (const t of terrains) { const h = heightAt(t, x, z); if (h !== null) return h; } return null; };
   const surface = (x, z) => { for (const t of terrains) { const s = surfaceAt(t, x, z); if (s) return s; } return null; };
+  // Rules sit on this file's terrains, then on the world's (other tiles) when it gave them.
+  const ruleHeight = worldHeight ? (x, z) => height(x, z) ?? worldHeight(x, z) : height;
+  const ruleSurface = worldSurface ? (x, z) => surface(x, z) ?? worldSurface(x, z) : surface;
   // Rules the workshop left for play time (bake: false): the same evaluators, the tile's
   // paths and zones as their inputs, rows in the tile's space, per model.
   const rules = extensions[RULES] ?? [];
@@ -146,7 +152,7 @@ export function worldData(model) {
     return [];
   };
   const inputsOf = (rule) => {
-    const inputs = { paths: {}, polygons: {}, zoneY: {}, avoid: { paths: [], polygons: [], boxes: [...(rule.avoid?.boxes ?? [])] }, height, surface: (x, z) => surface(x, z)?.id ?? null };
+    const inputs = { paths: {}, polygons: {}, zoneY: {}, avoid: { paths: [], polygons: [], boxes: [...(rule.avoid?.boxes ?? [])] }, height: ruleHeight, surface: (x, z) => ruleSurface(x, z)?.id ?? null };
     const path = (id) => { const p = paths.find((x) => x.id === id); if (!p) throw new Error(`rule ${rule.id}: the tile has no path ${id}`); return { points: p.points.slice(0, p.closed ? -1 : undefined), closed: p.closed }; };
     const zone = (id) => { const z = zones.find((x) => x.id === id); if (!z) throw new Error(`rule ${rule.id}: the tile has no zone ${id}`); return z; };
     if (rule.kind === "assemble") { if (rule.bounds) inputs.polygons[rule.bounds] = polygonOf(zone(rule.bounds)); }
@@ -190,5 +196,168 @@ export function worldData(model) {
     paths: (tag) => byTag(paths, tag),
     path: (id) => paths.find((p) => p.id === id) ?? null,
     tile: extensions["fun3d.tile"] ?? null,
+  };
+}
+
+/**
+ * A world streamed from its manifest (docs/worlds.md §3.2 and §7): the data file first, then
+ * tiles by distance from the focus, far files beyond, static bodies with the near tiles.
+ * Paths are joined to the manifest's directory; `read` and `json` take the joined path
+ * (the assets kit's arrayBuffer and json fit), fetch is the default.
+ *
+ *   const world = await createWorld({ fun3d, models, physics, read: assets.arrayBuffer, json: assets.json }, "worlds/island/world.json");
+ *   world.focus(car.position);                     // each frame: what to load, swap and drop
+ *   await world.settle();                          // loading screens and tests
+ *   world.height(x, z); world.markers("spawn"); world.zone("safe_1").contains(p); world.run("floor", { seed });
+ *   world.dispose();
+ */
+export async function createWorld(context, url, options = {}) {
+  const { fun3d, models, physics = null, warn = (message) => console.warn(`world: ${message}`) } = context;
+  if (!fun3d?.load || !models?.place) throw new Error("createWorld needs the fun3d loader and the models placer");
+  const base = url.slice(0, url.lastIndexOf("/") + 1);
+  const fetchOk = async (path) => {
+    const response = await (context.fetch ?? globalThis.fetch)(path);
+    if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
+    return response;
+  };
+  const readBytes = context.read ?? (async (path) => new Uint8Array(await (await fetchOk(path)).arrayBuffer()));
+  const readJson = context.json ?? (async (path) => (await fetchOk(path)).json());
+  const manifest = await readJson(url);
+  if (manifest?.format !== "fun.dev/world" || manifest.version !== 1) throw new Error(`${url} is not a fun.dev/world version 1 manifest`);
+  const [w, d] = manifest.tile?.size ?? [1, 1], span = Math.max(w, d);
+  const { radius = span, far: farRadius = span * 4, hysteresis = 0.25, concurrency = 2, onTile = null } = options;
+  let disposed = false;
+
+  // Referenced models, loaded once each from the manifest's closure.
+  const modelFiles = new Map();
+  const resolve = (model) => {
+    if (!modelFiles.has(model))
+      modelFiles.set(model, (async () => {
+        const entry = manifest.models?.[model];
+        if (!entry) throw new Error(`the world does not list the model ${model}`);
+        return fun3d.load(await readBytes(base + entry.file), { resolve, warn });
+      })());
+    return modelFiles.get(model);
+  };
+
+  const tiles = (manifest.tiles ?? []).map((t) => ({ x: t.x, z: t.z, entry: t, state: "none", want: "none", distance: Infinity, near: null, far: null, loading: null, failed: null }));
+  const byKey = new Map(tiles.map((t) => [`${t.x}_${t.z}`, t]));
+  // Terrain queries: the near tiles answer first, then the far ones (coarser).
+  const height = (x, z) => {
+    for (const t of tiles) if (t.near) { const h = t.near.data.height(x, z); if (h !== null) return h; }
+    for (const t of tiles) if (t.far && !t.near) { const h = t.far.data.height(x, z); if (h !== null) return h; }
+    return null;
+  };
+  const surface = (x, z) => {
+    for (const t of tiles) if (t.near) { const s = t.near.data.surface(x, z); if (s) return s; }
+    for (const t of tiles) if (t.far && !t.near) { const s = t.far.data.surface(x, z); if (s) return s; }
+    return null;
+  };
+
+  // The data file: markers, zones, paths and runtime rules of the whole world, loaded first.
+  let dataFile = null, data = null;
+  if (manifest.data?.file) {
+    dataFile = await fun3d.load(await readBytes(base + manifest.data.file), { resolve, warn });
+    data = worldData(dataFile, { height, surface });
+  }
+
+  const show = (file, level) => {
+    const copy = models.place(file);
+    const bodies = level === "near" && physics && file.manifest.physics?.bodies?.length ? physics.add(copy) : null;
+    return { file, copy, bodies, data: worldData(copy, { height, surface }) };
+  };
+  const hide = (shown) => {
+    shown.bodies?.remove();
+    shown.copy.remove();
+    shown.file.dispose();
+  };
+  const status = (t) => ({ x: t.x, z: t.z, state: t.state, want: t.want, distance: t.distance, loading: t.loading, far: !!t.entry.far });
+  // Makes a tile's state follow its want without loading: drops, and swaps once both are here.
+  const reconcile = (t) => {
+    const drop = (level) => { if (t[level]) { hide(t[level]); t[level] = null; } };
+    const before = t.state;
+    if (t.want === "near") { if (t.near) { drop("far"); t.state = "near"; } }
+    else if (t.want === "far") {
+      if (t.far) { drop("near"); t.state = "far"; }
+      else if (!t.entry.far || t.failed === "far") { drop("near"); t.state = "none"; }
+    } else { drop("near"); drop("far"); t.state = "none"; }
+    if (t.state !== before) onTile?.(status(t));
+  };
+  const needsLoad = (t) => t.want !== "none" && !t[t.want] && !t.loading && t.failed !== t.want && (t.want === "near" || !!t.entry.far);
+  let inFlight = 0;
+  const waiting = [];
+  const start = (t) => {
+    const level = t.want, entry = level === "near" ? t.entry : t.entry.far;
+    t.loading = level;
+    inFlight++;
+    (async () => {
+      let file = null;
+      try {
+        file = await fun3d.load(await readBytes(base + entry.file), { resolve, warn });
+        if (disposed || t.want !== level) file.dispose();
+        else t[level] = show(file, level);
+      } catch (error) {
+        t.failed = level;
+        warn(`tile ${t.x}_${t.z} (${level}): ${error.message ?? error}`);
+      } finally {
+        t.loading = null;
+        inFlight--;
+        if (!disposed) { reconcile(t); pump(); }
+      }
+    })();
+  };
+  const pump = () => {
+    const queue = tiles.filter(needsLoad).sort((a, b) => a.distance - b.distance);
+    while (inFlight < concurrency && queue.length) start(queue.shift());
+    if (!inFlight) for (const done of waiting.splice(0)) done();
+  };
+  let fx = 0, fz = 0;
+  const update = () => {
+    if (disposed) return;
+    for (const t of tiles) {
+      const dx = Math.max(0, Math.abs(fx - t.x * w) - w / 2), dz = Math.max(0, Math.abs(fz - t.z * d) - d / 2);
+      t.distance = Math.hypot(dx, dz);
+      // Hysteresis: a tile keeps its level a little beyond the radius that admitted it.
+      const within = (limit, held) => t.distance <= limit * (held ? 1 + hysteresis : 1);
+      const level = within(radius, t.state === "near") ? "near" : within(farRadius, t.state !== "none") ? "far" : "none";
+      if (level !== t.want) { t.want = level; if (t.failed && t.failed !== level) t.failed = null; }
+      reconcile(t);
+    }
+    pump();
+  };
+
+  const nearData = () => tiles.filter((t) => t.near).map((t) => t.near.data);
+  const all = (pick) => [...(data ? pick(data) : []), ...nearData().flatMap(pick)];
+  const first = (pick) => { for (const source of [data, ...nearData()]) { const found = source && pick(source); if (found) return found; } return null; };
+  return {
+    manifest, id: manifest.id, name: manifest.name, bounds: manifest.bounds ?? null, environment: manifest.environment ?? null, size: [w, d], radius, far: farRadius,
+    /** The world's own data (markers, zones, paths, rules), or null for a world without a data file. */
+    data,
+    /** Sets the point tiles stream around (an array or a Vector3) and applies it. */
+    focus(position) { fx = position.x ?? position[0] ?? 0; fz = position.z ?? position[2] ?? 0; update(); },
+    update,
+    /** Resolves once nothing is loading for the current focus. */
+    settle: () => new Promise((done) => { pump(); if (!inFlight) done(); else waiting.push(done); }),
+    tiles: () => tiles.map(status),
+    /** A tile's status and, when shown, its near or far copy and data. */
+    tile(x, z) { const t = byKey.get(`${x}_${z}`); return t ? { ...status(t), near: t.near ? { copy: t.near.copy, data: t.near.data } : null, farCopy: t.far ? { copy: t.far.copy, data: t.far.data } : null } : null; },
+    height, surface,
+    markers: (tag) => all((s) => s.markers(tag)),
+    marker: (id) => first((s) => s.marker(id)),
+    zones: (tag) => all((s) => s.zones(tag)),
+    zone: (id) => first((s) => s.zone(id)),
+    zonesAt: (p) => all((s) => s.zonesAt(p)),
+    paths: (tag) => all((s) => s.paths(tag)),
+    path: (id) => first((s) => s.path(id)),
+    rules: () => (data ? data.rules() : []),
+    run(id, options) { if (!data) throw new Error("the world has no data file, so no rules"); return data.run(id, options); },
+    dispose() {
+      disposed = true;
+      for (const t of tiles) { if (t.near) hide(t.near); if (t.far) hide(t.far); t.near = t.far = null; t.state = "none"; }
+      dataFile?.dispose();
+      for (const pending of modelFiles.values()) pending.then((file) => file.dispose(), () => {});
+      modelFiles.clear();
+      for (const done of waiting.splice(0)) done();
+    },
   };
 }

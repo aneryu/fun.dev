@@ -521,7 +521,8 @@ them draws the scene and ignores the data.
   "fun3d.paths": { "points": { "stream": "s50", "format": "float32x3" },
                    "attributes": { "width": { "stream": "s51", "format": "float32" } },               // optional, one value per point
                    "edges": [{ "id": "lap", "points": [0, 1, 2], "closed": true, "kind": "data", "tags": ["lap"], "params": {} }] },
-  "fun3d.tile": { "bounds": { "min": [-6, 0, -6], "max": [6, 7.4, 6] }, "size": [12, 12] }
+  "fun3d.tile": { "bounds": { "min": [-6, 0, -6], "max": [6, 7.4, 6] }, "size": [12, 12],
+                  "world": "island", "x": 1, "z": 0, "far": "tiles/1_0.far.fun3d" }                 // world, x, z, far, level: "far" only in a world's tiles (worlds 3.2)
 }
 ```
 

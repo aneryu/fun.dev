@@ -5,7 +5,8 @@ import { createHash } from "node:crypto";
 import * as THREE from "three";
 import { openWorkshop } from "../scripts/workshop-node.mjs";
 import { createFun3d } from "../site/runtime/kit/fun3d.js";
-import { worldData } from "../site/runtime/kit/world.js";
+import { worldData, createWorld } from "../site/runtime/kit/world.js";
+import { createModels } from "../site/runtime/kit/models.js";
 import { decodePNG } from "../scripts/png.mjs";
 
 // Scenes in the workshop (docs/worlds.md, step 1): library models placed by reference,
@@ -226,10 +227,20 @@ test("a one-tile world bundles the manifest, the tile and the models' runtime fi
   assert.equal(world.manifest.id, "diorama");
   assert.deepEqual(world.manifest.tile.size, [10, 10]);
   assert.equal(world.manifest.tiles.length, 1);
-  assert.deepEqual(world.files.map((f) => f.path), ["world.json", "tiles/0_0.fun3d", "models/test_lamp_01@v001.fun3d"]);
+  // One tile, no far file (nothing 8 m across), the data file, the source, the model.
+  assert.deepEqual(world.files.map((f) => f.path), ["world.json", "tiles/0_0.fun3d", "world.fun3d", "world.funmodel.glb", "models/test_lamp_01@v001.fun3d"]);
   assert.equal(world.manifest.models["test_lamp_01@v001"].sha256, lampDerived.sha256);
-  assert.equal(sha(Buffer.from(world.files[2].data, "base64")), lampDerived.sha256);
+  assert.equal(sha(Buffer.from(world.files[4].data, "base64")), lampDerived.sha256);
   assert.equal(sha(Buffer.from(world.files[1].data, "base64")), world.manifest.tiles[0].sha256);
+  assert.equal(sha(Buffer.from(world.files[2].data, "base64")), world.manifest.data.sha256);
+  assert.deepEqual(world.manifest.tiles[0].far, undefined);
+  const tile00 = await fun3d.load(Buffer.from(world.files[1].data, "base64"), { resolve: () => fun3d.load(lampFun3d) });
+  assert.deepEqual(tile00.extensions["fun3d.tile"], { world: "diorama", x: 0, z: 0, bounds: tile00.extensions["fun3d.tile"].bounds, size: [10, 10] });
+  assert.equal(tile00.extensions["fun3d.zones"], undefined, "zones are the data file's");
+  assert.equal(worldData(tile00).markers("spawn").length, 0, "pure markers are the data file's");
+  const data00 = worldData(await fun3d.load(Buffer.from(world.files[2].data, "base64")));
+  assert.equal(data00.markers("spawn").length, 2);
+  assert.ok(data00.zone("safe") && data00.path("lap"));
   await api.place({ model: "test_stool_01", id: "stool_2" }, { ifRevision: api.inspect().revision });
   await assert.rejects(api.exportWorld(), /No \.fun3d yet for test_stool_01@v001/);
   api.apply([{ op: "delete", id: "stool_2" }]);
@@ -473,4 +484,101 @@ test("unknown models and stale revisions are refused", async () => {
   await assert.rejects(api.place({ model: "no_such_model", id: "x" }), /not in the model library/);
   await assert.rejects(api.place({ model: "test_lamp_01", id: "x" }, { ifRevision: 1 }), /Project changed/);
   await assert.rejects(api.place({ model: "test_lamp_01@v009", id: "x" }), /no version v009/);
+});
+
+test("a world of several tiles: cut by tile.size, terrain split at its cells, copies by row, data in world.fun3d, far files, streamed back", async () => {
+  fresh("valley", { size: [20, 20], span: [3, 3] });
+  api.apply([
+    { op: "create", id: "ground", kind: "terrain", position: [-30, 0, -30], tags: ["ground"], terrain: { cell: 2, samples: [31, 31], surfaceTable: [{ id: "grass", color: "#6b8f3a" }, { id: "rock", color: "#7a746c" }] } },
+    { op: "terrain", id: "ground", seed: 3, ops: [{ noise: { amplitude: 3, scale: 15 } }], surfaces: [{ surface: "grass" }, { surface: "rock", slope: [30, 90] }] },
+    { op: "create", id: "tower", kind: "box", material: "wood", position: [15, 5, 15], options: { size: [4, 10, 4] } },
+    { op: "create", id: "crate", kind: "box", material: "wood", position: [-15, 0.5, -15], options: { size: [1, 1, 1] } },
+    { op: "create", id: "spawn", kind: "marker", position: [0, 0, 0], tags: ["spawn"], params: { facing: "north" } },
+    { op: "create", id: "whole", kind: "zone", tags: ["all"], area: { polygon: [[-30, -30], [30, -30], [30, 30], [-30, 30]], y: [-10, 40] } },
+    { op: "create", id: "road", kind: "path", tags: ["road"], path: { points: [[-30, 0, 0], [30, 0, 0]] } },
+  ]);
+  await api.place({ model: "test_lamp_01", id: "lamps", tags: ["lamp"] }, { ifRevision: api.inspect().revision });
+  api.apply([{ op: "set", id: "lamps", copies: [-25, -15, -5, 5, 15, 25].map((x) => [x, 0, 0, 0, 0, 0, 1]) }]);
+  assert.equal(api.inspect({ id: "lamps" }).node.copies.length, 6);
+  // The audit judges budgets per tile and the extent by tile.span.
+  const tight = api.audit({ budget: { triangles: 100 } });
+  assert.ok(tight.findings.some((f) => f.code === "tile-budget" && f.tile.join() === "0,0"), JSON.stringify(tight.findings.map((f) => f.code)));
+  assert.ok(!tight.findings.some((f) => f.code === "budget"), "no whole-scene budget once the scene cuts into tiles");
+  assert.equal(tight.tiles.length, 9);
+  assert.ok(!api.audit().findings.some((f) => f.code === "out-of-bounds"), "span 3 × 3 holds the whole valley");
+  api.loadProject({ ...api.getProject(), tile: { size: [20, 20] } }, { ifRevision: api.inspect().revision });
+  assert.ok(api.audit().findings.some((f) => f.code === "out-of-bounds" && f.node === "tower"), "without span the tower leaves the one tile");
+  api.loadProject({ ...api.getProject(), tile: { size: [20, 20], span: [3, 3] } }, { ifRevision: api.inspect().revision });
+
+  const world = await api.exportWorld({ name: "Valley" });
+  const m = world.manifest;
+  assert.deepEqual(m.tile, { size: [20, 20], span: [3, 3] });
+  assert.equal(m.tiles.length, 9, "the terrain covers nine tiles");
+  assert.deepEqual(m.tiles.slice(0, 3).map((t) => [t.x, t.z]), [[-1, -1], [0, -1], [1, -1]], "tiles sorted by z, then x");
+  assert.equal(m.data.file, "world.fun3d");
+  assert.equal(m.source.file, "world.funmodel.glb");
+  assert.ok(m.bounds.min[0] <= -30 && m.bounds.max[0] >= 30);
+  const bytes = (path) => Buffer.from(world.files.find((f) => f.path === path).data, "base64");
+  const resolve = () => fun3d.load(lampFun3d);
+  const tileFile = async (path) => { const b = bytes(path); assert.deepEqual(await fun3d.validate(b), [], path); return fun3d.load(b, { resolve }); };
+  // Tile 1_1: the tower, the terrain's sub-field, no data tables, a static body for the field.
+  const t11 = await tileFile("tiles/1_1.fun3d");
+  assert.ok(t11.node("tower") && t11.node("ground__1_1") && !t11.node("crate") && !t11.node("spawn"));
+  assert.deepEqual(t11.extensions["fun3d.tile"], { world: "valley", x: 1, z: 1, bounds: t11.extensions["fun3d.tile"].bounds, size: [20, 20], far: "tiles/1_1.far.fun3d" });
+  assert.equal(t11.extensions["fun3d.zones"], undefined);
+  assert.equal(t11.manifest.physics.bodies.length, 1);
+  const field11 = t11.extensions["fun3d.terrain"][0];
+  assert.deepEqual([field11.origin, field11.samples], [[10, 0, 10], [11, 11]], "the sub-field starts at the tile's edge with the cells whose centres fall inside");
+  // Tile 1_0 holds the two lamps standing in it, as placements.
+  const t10 = await tileFile("tiles/1_0.fun3d");
+  assert.equal(t10.manifest.nodes.find((n) => n.id === "lamps").placements.count, 2);
+  assert.deepEqual(worldData(t10).markers("lamp").map((mk) => mk.position[0]), [15, 25]);
+  // Heights agree where two sub-fields meet.
+  const t00 = await tileFile("tiles/0_0.fun3d");
+  const d00 = worldData(t00), d10 = worldData(t10);
+  for (const z of [-9, -3, 0, 4, 9]) assert.ok(Math.abs(d00.height(10, z) - d10.height(10, z)) < 1e-5, `seam at x = 10, z = ${z}`);
+  assert.equal(d00.height(10.5, 0), null, "a cell past the seam belongs to the neighbour");
+  assert.ok(d10.height(10.5, 0) !== null);
+  // Far files: the terrain coarsened and the tower; the crate's tile has only the field.
+  const f11 = await tileFile("tiles/1_1.far.fun3d");
+  assert.ok(f11.node("tower") && f11.node("ground__1_1"));
+  assert.equal(f11.extensions["fun3d.tile"].level, "far");
+  assert.equal(f11.manifest.physics?.bodies?.length ?? 0, 0, "no bodies at a distance");
+  assert.deepEqual(f11.extensions["fun3d.terrain"][0].samples, [3, 3], "every fifth sample of ten cells");
+  const fm1 = await tileFile("tiles/-1_-1.far.fun3d");
+  assert.ok(!fm1.node("crate") && fm1.node("ground__m1_m1"));
+  const f10 = await tileFile("tiles/1_0.far.fun3d");
+  assert.equal(f10.manifest.nodes.find((n) => n.id === "lamps"), undefined, "small copies stay out of the far file");
+  // The data file: markers with their parameters, the zone, the path, the world record.
+  const data = worldData(await tileFile("world.fun3d"));
+  assert.deepEqual(data.markers("spawn").map((mk) => [mk.id, mk.params.facing]), [["spawn", "north"]]);
+  assert.ok(data.zone("whole").contains([25, 1, 25]));
+  assert.equal(data.path("road").length, 60);
+  assert.deepEqual(data.tile.size, [20, 20]);
+  assert.equal(data.tile.world, "valley");
+  assert.equal(data.tile.x, undefined);
+  assert.equal(world.report.tiles.length, 9);
+  assert.ok(world.report.tiles.every((t) => t.far > 0), "every tile has a far file: the terrain is in each");
+  assert.ok(world.report.bytes > 0 && world.report.data.markers === 1);
+
+  // Streamed back: the near tile answers exactly, far ones coarsely, markers from the data file.
+  const files = new Map(world.files.map((f) => [`valley/${f.path}`, new Uint8Array(Buffer.from(f.data, "base64"))]));
+  const read = async (path) => { const b = files.get(path); if (!b) throw new Error(`missing ${path}`); return b; };
+  const scene = new THREE.Scene(), models = createModels({ THREE, scene });
+  const live = await createWorld({ fun3d, models, read, json: async (path) => JSON.parse(new TextDecoder().decode(await read(path))) }, "valley/world.json", { radius: 5 });
+  live.focus([0, 0, 0]);
+  await live.settle();
+  const states = Object.fromEntries(live.tiles().map((t) => [`${t.x}_${t.z}`, t.state]));
+  assert.equal(states["0_0"], "near");
+  assert.equal(states["1_1"], "far");
+  assert.ok(Math.abs(live.height(3, 3) - d00.height(3, 3)) < 1e-5);
+  assert.ok(live.height(25, 25) !== null, "the far field answers off the near tile");
+  assert.equal(live.markers("spawn")[0].params.facing, "north");
+  assert.equal(live.markers("lamp").length, 2, "the near tile's lamps (x = -5 and 5)");
+  live.focus([25, 0, 25]);
+  await live.settle();
+  assert.equal(Object.fromEntries(live.tiles().map((t) => [`${t.x}_${t.z}`, t.state]))["1_1"], "near");
+  assert.ok(scene.getObjectByName("tower"));
+  live.dispose();
+  models.dispose();
 });

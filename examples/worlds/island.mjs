@@ -1,9 +1,11 @@
 // An island (docs/worlds.md step 3): a terrain shaped by noise, a hill and a lowered rim,
 // a road flattened across it and a plateau levelled for a village; surfaces by height and
-// slope; shrubs and trees scattered on the grass; a spawn on the road.
+// slope; shrubs and trees scattered on the grass; a spawn on the road. The world cuts into
+// 3 × 3 tiles of 96 m: the terrain is split at its cells, the trees go by position, the
+// road, the zones and the spawn are the world's data file, far files keep the ground coarse.
 //   node scripts/editor-agent.mjs --run examples/worlds/island.mjs
 export default async function (ws) {
-  await ws.load({ name: "Island", tile: { size: [256, 256] } });
+  await ws.load({ name: "Island", tile: { size: [96, 96], span: [3, 3] } });
   await ws.apply([
     { op: "create", id: "ground", kind: "terrain", position: [-128, 0, -128], tags: ["ground"], terrain: {
       cell: 4, samples: [65, 65],

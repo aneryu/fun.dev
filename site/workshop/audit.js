@@ -4,6 +4,7 @@
 import { worldMatrix, point, nodePoints } from "./spatial.js";
 import { statistics } from "./document.js";
 import { ruleStatus, terrainFields } from "./rules.js";
+import { auditTiles, tileGrid } from "./tiles.js";
 import { heightAt } from "../runtime/kit/terrain.js";
 
 const EPS = 0.02; // 2 cm: resting on something, or on the ground
@@ -102,17 +103,18 @@ export function auditProject(project, { ground: plane = 0, budget = {} } = {}) {
     });
   }
 
-  // The tile's extent.
-  if (project.tile) {
-    const [w, d] = project.tile.size;
+  // The world's extent: the tile, or tile.span tiles around it.
+  const grid = tileGrid(project);
+  if (grid) {
+    const { min, max } = grid.extent, [w, d] = grid.size, many = grid.span[0] > 1 || grid.span[1] > 1;
     for (const s of solids)
-      if (s.min[0] < -w / 2 || s.max[0] > w / 2 || s.min[2] < -d / 2 || s.max[2] > d / 2)
+      if (s.min[0] < min[0] || s.max[0] > max[0] || s.min[2] < min[1] || s.max[2] > max[1])
         findings.push({
           code: "out-of-bounds",
           severity: "warning",
           node: s.id,
-          message: `${s.id} leaves the ${w} × ${d} m tile`,
-          suggestion: "Move it inside the tile or enlarge tile.size.",
+          message: many ? `${s.id} leaves the ${grid.span[0]} × ${grid.span[1]} tiles of ${w} × ${d} m` : `${s.id} leaves the ${w} × ${d} m tile`,
+          suggestion: many ? "Move it inside the world or widen tile.span." : "Move it inside the tile, enlarge tile.size, or set tile.span for a world of several tiles.",
         });
   }
 
@@ -142,11 +144,15 @@ export function auditProject(project, { ground: plane = 0, budget = {} } = {}) {
         suggestion: `derive({ id: "${status.id}" }) rebuilds its copies.`,
       });
 
-  // The budget: local triangles plus the placed models' own.
+  // The budget: local triangles plus the placed models' own; per tile once the scene cuts
+  // into several (what streams in together is what a phone draws together).
   const stats = statistics(project),
     triangles = stats.triangles + stats.placedTriangles,
     limit = budget.triangles ?? 300000;
-  if (triangles > limit)
+  const many = grid && (grid.span[0] > 1 || grid.span[1] > 1);
+  const tiles = many ? auditTiles(project, { triangles: limit }) : { findings: [], tiles: [] };
+  findings.push(...tiles.findings);
+  if (!many && triangles > limit)
     findings.push({
       code: "budget",
       severity: "warning",
@@ -159,6 +165,7 @@ export function auditProject(project, { ground: plane = 0, budget = {} } = {}) {
 
   return {
     findings,
+    tiles: tiles.tiles,
     counts: {
       errors: findings.filter((f) => f.severity === "error").length,
       warnings: findings.filter((f) => f.severity === "warning").length,

@@ -1035,6 +1035,7 @@ export function capabilities({ detail = "full", command } = {}) {
       "assemblyRules",
       "sockets",
       "terrain",
+      "worldTiles",
     ],
     unsupported: [
       "UV textures",
