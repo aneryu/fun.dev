@@ -776,7 +776,7 @@ function normalizeAssembleRule(value, rule, path) {
 export function normalizeRule(value, path = "definition") {
   if (!value || typeof value !== "object") fail("Invalid rule", path);
   const id = identifier(value.id, `${path}.id`);
-  if (!["scatter", "assemble", "sweep"].includes(value.kind)) fail("Rule kinds: scatter, assemble, sweep", `${path}.kind`);
+  if (!["scatter", "assemble", "sweep", "lots"].includes(value.kind)) fail("Rule kinds: scatter, assemble, sweep, lots", `${path}.kind`);
   const rule = { id, kind: value.kind };
   if (typeof value.seed === "string") {
     if (!value.seed.length || value.seed.length > 64) fail("A seed is a number or a short string", `${path}.seed`);
@@ -790,6 +790,11 @@ export function normalizeRule(value, path = "definition") {
   if (value.bake === false) rule.bake = false;
   if (rule.kind === "sweep") {
     normalizeSweepRule(value, rule, path);
+    return rule;
+  }
+  if (rule.kind === "lots") {
+    normalizeLotsRule(value, rule, path);
+    if (value.avoid !== undefined && value.avoid !== null) rule.avoid = normalizeAvoid(value.avoid, path);
     return rule;
   }
   if (rule.kind === "assemble") {
@@ -868,14 +873,56 @@ export function normalizeRule(value, path = "definition") {
 }
 // Sweep (docs/worlds.md §5): a profile carried along paths becomes mesh parts tagged ground.
 const SWEEP_LIMITS = { paths: 64, strips: 16, marks: 16 };
+// Paths a rule runs along: one, a list, or every path carrying a tag.
+function normalizePathsOn(on, path, what) {
+  if (!on || typeof on !== "object") fail(`A ${what} rule needs on: { path } | { paths: [ids] } | { tag }`, `${path}.on`);
+  if (on.path !== undefined && on.path !== null) return { paths: [identifier(on.path, `${path}.on.path`)] };
+  if (Array.isArray(on.paths) && on.paths.length && on.paths.length <= SWEEP_LIMITS.paths) return { paths: on.paths.map((p, i) => identifier(p, `${path}.on.paths.${i}`)) };
+  if (typeof on.tag === "string") return { tag: normalizeTags([on.tag], `${path}.on.tag`)[0] };
+  fail(`on is { path } | { paths: [up to ${SWEEP_LIMITS.paths} ids] } | { tag }`, `${path}.on`);
+}
+// Lots (docs/worlds.md §5): parcels along paths, each taking a library model that fits and
+// faces the road; optionally a zone part per lot.
+function normalizeLotsRule(value, rule, path) {
+  rule.on = normalizePathsOn(value.on, path, "lots");
+  if (value.sides !== undefined && value.sides !== null) {
+    if (!["both", "left", "right"].includes(value.sides)) fail("sides is both, left or right", `${path}.sides`);
+    if (value.sides !== "both") rule.sides = value.sides;
+  }
+  const pair = (v, name, min, max, fallback) => {
+    if (v === undefined || v === null) return fallback;
+    if (typeof v === "number") return number(v, min, max, `${path}.${name}`);
+    if (!Array.isArray(v) || v.length !== 2 || v.some((x) => !(x >= min && x <= max)) || v[0] > v[1]) fail(`${name} is a number or [min, max]`, `${path}.${name}`);
+    return [v[0], v[1]];
+  };
+  rule.width = pair(value.width, "width", 0.5, 1000, [10, 16]);
+  if (typeof rule.width === "number") rule.width = [rule.width, rule.width];
+  rule.depth = pair(value.depth, "depth", 0.5, 1000, 12);
+  if (value.offset !== undefined && value.offset !== null) rule.offset = number(value.offset, 0, 1000, `${path}.offset`);
+  const gap = pair(value.gap, "gap", 0, 1000, [0, 0]);
+  rule.gap = typeof gap === "number" ? [gap, gap] : gap;
+  rule.start = number(value.start ?? 0, 0, 1000000, `${path}.start`);
+  if (value.end !== undefined && value.end !== null) rule.end = number(value.end, 0, 1000000, `${path}.end`);
+  if (value.ground) rule.ground = true;
+  if (value.bounds !== undefined && value.bounds !== null) rule.bounds = identifier(value.bounds, `${path}.bounds`);
+  if (value.zones) rule.zones = true;
+  if (!Array.isArray(value.candidates) || !value.candidates.length || value.candidates.length > COPY_LIMITS.candidates)
+    fail(`candidates are 1–${COPY_LIMITS.candidates} library models`, `${path}.candidates`);
+  rule.candidates = value.candidates.map((c, i) => {
+    if (!c || typeof c !== "object" || typeof c.model !== "string" || !RULE_MODEL.test(c.model))
+      fail("A candidate names a library model (id or id@vNNN)", `${path}.candidates.${i}.model`);
+    const out = { model: c.model, weight: number(c.weight ?? 1, 0, 1000, `${path}.candidates.${i}.weight`) };
+    if (c.front !== undefined && c.front !== null) {
+      if (!["+z", "-z", "+x", "-x"].includes(c.front)) fail("front is +z, -z, +x or -x: the model's side that faces the road", `${path}.candidates.${i}.front`);
+      if (c.front !== "+z") out.front = c.front;
+    }
+    if (c.margin !== undefined && c.margin !== null) out.margin = number(c.margin, 0, 100, `${path}.candidates.${i}.margin`);
+    return out;
+  });
+}
 function normalizeSweepRule(value, rule, path) {
   if (value.bake === false) fail("Sweep rules bake in the workshop; bake: false is for scatter and assembly", `${path}.bake`);
-  const on = value.on;
-  if (!on || typeof on !== "object") fail("A sweep rule needs on: { path } | { paths: [ids] } | { tag }", `${path}.on`);
-  if (on.path !== undefined && on.path !== null) rule.on = { paths: [identifier(on.path, `${path}.on.path`)] };
-  else if (Array.isArray(on.paths) && on.paths.length && on.paths.length <= SWEEP_LIMITS.paths) rule.on = { paths: on.paths.map((p, i) => identifier(p, `${path}.on.paths.${i}`)) };
-  else if (typeof on.tag === "string") rule.on = { tag: normalizeTags([on.tag], `${path}.on.tag`)[0] };
-  else fail(`on is { path } | { paths: [up to ${SWEEP_LIMITS.paths} ids] } | { tag }`, `${path}.on`);
+  rule.on = normalizePathsOn(value.on, path, "sweep");
   const given = value.profile === undefined || value.profile === null ? "road" : value.profile;
   let profile;
   try {
@@ -1940,8 +1987,10 @@ function run(project, command) {
         mesh: null,
         derived: { rule: command.rule, hash: normalizeDerived({ rule: command.rule, hash: node.derived?.hash ?? node.hash ?? "" }, `${at}.derived`).hash },
       };
-      // A sweep derives meshes (validated with the project); the others place library models.
+      // A sweep derives meshes (validated with the project), lots may derive zones; the
+      // others place library models.
       if (node.mesh) result.mesh = copy(node.mesh);
+      else if (node.zone) result.zone = normalizeZone(node.zone, `${at}.zone`);
       else result.place = normalizePlace(node.place, `${at}.place`);
       if (result.place && node.copies !== undefined && node.copies !== null) {
         result.copies = normalizeCopies(node.copies, `${at}.copies`);

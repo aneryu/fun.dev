@@ -536,8 +536,10 @@ export async function createViewport(
     }),
     silhouette = new THREE.MeshBasicMaterial({ color: 0x22262b });
   const highlights = new THREE.Group(),
-    wires = new THREE.Group();
-  scene.add(highlights, wires);
+    wires = new THREE.Group(),
+    tileLines = new THREE.Group();
+  tileLines.visible = false;
+  scene.add(highlights, wires, tileLines);
   // Reference images (blueprints, photos, concept views) stand behind the model in one
   // orthographic view. They are drawing aids: never picked, exported or saved in a project.
   const referenceGroup = new THREE.Group();
@@ -1704,6 +1706,26 @@ export async function createViewport(
         // Scene data overlays (zones, paths, markers, placeholders): shown unless asked away.
         for (const o of model.overlays.values())
           o.visible = shading !== "ids" && (options.overlays?.data ?? true);
+        // The tile grid (docs/worlds.md §3.2): where the world's tiles meet, drawn over the
+        // scene for maps; the span's extent in a heavier tone.
+        tileLines.clear();
+        if (options.tileGrid && shading !== "ids") {
+          const { size: [w, d], span = [1, 1] } = options.tileGrid, b = bounds(false), top = b.max.y + 0.5;
+          const i0 = Math.min(Math.floor(b.min.x / w + 0.5), -((span[0] - 1) / 2)), i1 = Math.max(Math.floor(b.max.x / w + 0.5), (span[0] - 1) / 2);
+          const k0 = Math.min(Math.floor(b.min.z / d + 0.5), -((span[1] - 1) / 2)), k1 = Math.max(Math.floor(b.max.z / d + 0.5), (span[1] - 1) / 2);
+          const x0 = (i0 - 0.5) * w, x1 = (i1 + 0.5) * w, z0 = (k0 - 0.5) * d, z1 = (k1 + 0.5) * d, points = [];
+          for (let i = i0; i <= i1 + 1; i++) points.push(new THREE.Vector3((i - 0.5) * w, top, z0), new THREE.Vector3((i - 0.5) * w, top, z1));
+          for (let k = k0; k <= k1 + 1; k++) points.push(new THREE.Vector3(x0, top, (k - 0.5) * d), new THREE.Vector3(x1, top, (k - 0.5) * d));
+          const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineBasicMaterial({ color: 0x3b4a6b, toneMapped: false }));
+          const ex0 = (-span[0] / 2) * w, ex1 = (span[0] / 2) * w, ez0 = (-span[1] / 2) * d, ez1 = (span[1] / 2) * d;
+          const edge = new THREE.LineSegments(
+            new THREE.BufferGeometry().setFromPoints([ex0, ex1].flatMap((x) => [new THREE.Vector3(x, top + 0.01, ez0), new THREE.Vector3(x, top + 0.01, ez1)]).concat([ez0, ez1].flatMap((z) => [new THREE.Vector3(ex0, top + 0.01, z), new THREE.Vector3(ex1, top + 0.01, z)]))),
+            new THREE.LineBasicMaterial({ color: 0x1b2440, toneMapped: false }),
+          );
+          temporary.push(lines.geometry, lines.material, edge.geometry, edge.material);
+          tileLines.add(lines, edge);
+        }
+        tileLines.visible = tileLines.children.length > 0;
         wireframe = options.overlays?.wire ?? false;
         updateWires();
         refreshSelection();
@@ -1836,6 +1858,8 @@ export async function createViewport(
         wireframe = previous.wireframe;
         for (const [id, o] of model.objects) o.visible = shown(id);
         for (const o of model.overlays.values()) o.visible = true;
+        tileLines.clear();
+        tileLines.visible = false;
         applyShading();
         temporary.forEach((m) => m.dispose());
         updateWires();

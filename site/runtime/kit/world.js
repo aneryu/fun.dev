@@ -9,6 +9,7 @@
 
 import { evaluateScatter } from "./scatter.js";
 import { evaluateAssembly } from "./assemble.js";
+import { evaluateLots } from "./lots.js";
 import { heightAt, surfaceAt } from "./terrain.js";
 import { createHeap, cellAt, gridHeightAt, gridPath } from "./grid.js";
 
@@ -233,7 +234,11 @@ export function worldData(model, { height: worldHeight = null, surface: worldSur
     const path = (id) => { const p = paths.find((x) => x.id === id); if (!p) throw new Error(`rule ${rule.id}: the tile has no path ${id}`); return { points: p.points.slice(0, p.closed ? -1 : undefined), closed: p.closed }; };
     const zone = (id) => { const z = zones.find((x) => x.id === id); if (!z) throw new Error(`rule ${rule.id}: the tile has no zone ${id}`); return z; };
     if (rule.kind === "assemble") { if (rule.bounds) inputs.polygons[rule.bounds] = polygonOf(zone(rule.bounds)); }
-    else {
+    else if (rule.kind === "lots") {
+      const ids = rule.on.paths ?? paths.filter((p) => p.tags.includes(rule.on.tag)).map((p) => p.id);
+      for (const id of ids) inputs.paths[id] = path(id);
+      if (rule.bounds) inputs.polygons[rule.bounds] = polygonOf(zone(rule.bounds));
+    } else {
       if (rule.on.path !== undefined) inputs.paths[rule.on.path] = path(rule.on.path);
       if (rule.on.zone !== undefined) { const z = zone(rule.on.zone); inputs.polygons[rule.on.zone] = polygonOf(z); inputs.zoneY[rule.on.zone] = z.shape?.y ?? [0, 0]; }
     }
@@ -250,6 +255,10 @@ export function worldData(model, { height: worldHeight = null, surface: worldSur
       const result = evaluateAssembly({ ...rule, bounds: rule.bounds ? inputs.polygons[rule.bounds] : undefined, avoid: inputs.avoid }, rule.pieces, seed ?? rule.seed);
       rows = result.rows;
       report = { placed: result.placed, open: result.open, stuck: result.stuck };
+    } else if (rule.kind === "lots") {
+      const result = evaluateLots(rule, inputs, seed ?? rule.seed);
+      rows = result.rows;
+      report = { lots: result.lots };
     } else ({ rows, tints } = evaluateScatter(rule, inputs, seed ?? rule.seed));
     return {
       id: rule.id, kind: rule.kind, tags: [...(rule.tags ?? [])], ...report,

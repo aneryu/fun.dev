@@ -784,7 +784,16 @@ const socketFrames = {
 modelDefinitions.rule = obj(
   {
     id: string,
-    kind: { enum: ["scatter", "assemble", "sweep"] },
+    kind: { enum: ["scatter", "assemble", "sweep", "lots"] },
+    // Lots: parcels along on.path | paths | tag, width and depth ranges, offset from the
+    // centreline to the front line (the sweep's half width + 2 by default), gaps, sides,
+    // zones: true for a zone part per lot; candidates fit by footprint and face the road.
+    sides: { enum: ["both", "left", "right"] },
+    width: { oneOf: [number, pair] },
+    depth: { oneOf: [number, pair] },
+    offset: number,
+    gap: { oneOf: [number, pair] },
+    zones: boolean,
     // false: the rule rides in the tile for the game to run at play time.
     bake: boolean,
     // Sweep: a profile (preset name, { preset, …options } or { strips, marks, thickness }) carried
@@ -844,7 +853,7 @@ modelDefinitions.rule = obj(
       type: "array",
       minItems: 1,
       maxItems: 16,
-      items: obj({ model: string, weight: number, tints: { type: "array", items: vector, minItems: 1, maxItems: 16 } }, ["model"]),
+      items: obj({ model: string, weight: number, tints: { type: "array", items: vector, minItems: 1, maxItems: 16 }, front: { enum: ["+z", "-z", "+x", "-x"] }, margin: number }, ["model"]),
     },
     avoid: {
       type: "array",
@@ -1075,6 +1084,8 @@ export function capabilities({ detail = "full", command } = {}) {
       "sweeps",
       "grids",
       "sampleAlongPaths",
+      "lots",
+      "tileGridOnMaps",
     ],
     unsupported: [
       "UV textures",

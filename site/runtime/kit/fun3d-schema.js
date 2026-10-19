@@ -655,7 +655,7 @@ function validateSceneExtensions(manifest, { uses, streams, nodes, caps, out }) 
       const ids = new Set();
       rules.forEach((r, i) => {
         const path = `extensions["fun3d.rules"][${i}]`;
-        if (!r || typeof r !== "object" || !isId(r.id) || !["scatter", "assemble"].includes(r.kind)) { out.push(`${path} needs an id and a kind of scatter or assemble`); return; }
+        if (!r || typeof r !== "object" || !isId(r.id) || !["scatter", "assemble", "lots"].includes(r.kind)) { out.push(`${path} needs an id and a kind of scatter, assemble or lots`); return; }
         if (ids.has(r.id)) out.push(`${path} repeats the id "${r.id}"`);
         ids.add(r.id);
         const models = r.kind === "assemble" ? r.pieces : r.candidates;

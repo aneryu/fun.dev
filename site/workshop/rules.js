@@ -11,6 +11,7 @@ import { ModelError } from "./mesh.js";
 import { heightAt, surfaceAt } from "../runtime/kit/terrain.js";
 import { sweepPath, resolveProfile } from "../runtime/kit/sweep.js";
 import { gridHeightAt, cellAt } from "../runtime/kit/grid.js";
+import { evaluateLots } from "../runtime/kit/lots.js";
 
 /** The project's terrains in world space, with a cheap digest for staleness. */
 export function terrainFields(project) {
@@ -95,9 +96,10 @@ export function ruleInputs(project, rule) {
     if (grids.length) inputs.grids = grids.map((g) => [g.node, g.digest]);
     Object.defineProperties(inputs, { height: { value: queries.height, enumerable: false }, surface: { value: queries.surface, enumerable: false }, cellType: { value: queries.cellType, enumerable: false } });
   }
-  if (rule.kind === "sweep") {
+  if (rule.kind === "sweep" || rule.kind === "lots") {
     for (const id of sweepPaths(project, rule)) inputs.paths[id] = pathOf(id);
     if (!Object.keys(inputs.paths).length) throw dependency(`no path carries the tag ${rule.on.tag}`, "on.tag");
+    if (rule.kind === "lots" && rule.bounds) inputs.polygons[rule.bounds] = zoneOf(rule.bounds).polygon;
   } else if (rule.kind === "assemble") {
     if (rule.bounds) inputs.polygons[rule.bounds] = zoneOf(rule.bounds).polygon;
   } else {
@@ -131,6 +133,13 @@ export const sweepPaths = (project, rule) => rule.on.paths ?? project.nodes.filt
 export function sweepMaterials(rule) {
   const p = resolveProfile(rule.profile);
   return [...new Set([...p.strips.map((s) => s.material), ...p.marks.flatMap((m) => m.materials ?? [m.material]), ...(p.below ? [p.below] : [])])];
+}
+
+/** The distance from a path's centreline to its lots' front line: the rule's, else half the sweep's width plus 2 m, else 5.5 m. */
+export function lotOffset(project, rule, pathId) {
+  if (rule.offset !== undefined && rule.offset !== null) return rule.offset;
+  const swept = sweepProfiles(project).find((p) => p.paths.includes(pathId));
+  return swept ? swept.width / 2 + 2 : 5.5;
 }
 
 /** Profile summaries for the tile's path table: one per sweep rule, with the paths it covers. */
@@ -170,7 +179,7 @@ export function ruleHash(rule, inputs) {
  */
 export function deriveNodes(project, rule, records, inputs = ruleInputs(project, rule)) {
   if (rule.kind === "sweep") return sweepNodes(project, rule, inputs);
-  let rows, tints, candidates, report = null;
+  let rows, tints, candidates, report = null, lots = null;
   if (rule.kind === "assemble") {
     const pieces = rule.pieces.map((piece, i) => assemblyPiece(piece, records[i], i));
     const result = evaluateAssembly(
@@ -181,6 +190,15 @@ export function deriveNodes(project, rule, records, inputs = ruleInputs(project,
     tints = pieces.map(() => null);
     candidates = rule.pieces;
     report = { placed: result.placed, open: result.open.length, stuck: result.stuck };
+  } else if (rule.kind === "lots") {
+    const ids = Object.keys(inputs.paths), offset = lotOffset(project, rule, ids[0]);
+    // The library's bounds decide which candidates fit a lot.
+    const result = evaluateLots({ ...rule, offset, candidates: rule.candidates.map((c, i) => ({ ...c, bounds: records[i].bounds })) }, inputs);
+    rows = result.rows;
+    tints = result.tints;
+    candidates = rule.candidates;
+    lots = result.lots;
+    report = { lots: lots.length, empty: lots.filter((l) => l.candidate === null).length, offset };
   } else {
     ({ rows, tints } = evaluateScatter(rule, inputs));
     candidates = rule.candidates;
@@ -215,6 +233,22 @@ export function deriveNodes(project, rule, records, inputs = ruleInputs(project,
       derived: { rule: rule.id, hash },
     });
   });
+  // Lots as zones (zones: true): a polygon per parcel in the world's space, tagged lot.
+  if (lots && rule.zones) {
+    if (lots.length > 64 - nodes.length) throw new ModelError(`Rule ${rule.id}: ${lots.length} lots are too many for zones (64 per rule); split the street or leave zones off`, "limit", "zones");
+    lots.forEach((lot, i) => {
+      const y = lot.centre[1];
+      nodes.push({
+        id: `${rule.target}_lot_${i + 1}`,
+        name: `${rule.target} lot ${i + 1}`,
+        parent: null,
+        zone: { polygon: lot.corners, y: [round(y - 0.5), round(y + 3)] },
+        tags: [...new Set(["lot", ...(rule.tags ?? [])])],
+        params: { side: lot.side, distance: lot.distance, width: lot.width, depth: lot.depth, model: lot.candidate === null ? null : (records[lot.candidate]?.model ?? candidates[lot.candidate].model), yaw: lot.yaw },
+        derived: { rule: rule.id, hash },
+      });
+    });
+  }
   if (report) nodes.report = report;
   return nodes;
 }
@@ -312,6 +346,12 @@ export function runtimeRule(project, rule, records, ids = (id) => id) {
     for (const key of ["mates", "start", "at", "yaw", "count", "frontier", "sequence", "close", "tolerance"]) if (rule[key] !== undefined) out[key] = rule[key];
     if (rule.from !== undefined) out.from = rule.from;
     if (rule.bounds) out.bounds = ids(rule.bounds);
+  } else if (rule.kind === "lots") {
+    out.on = rule.on.paths ? { paths: rule.on.paths.map(ids) } : { tag: rule.on.tag };
+    for (const key of ["sides", "width", "depth", "gap", "start", "end", "ground", "zones"]) if (rule[key] !== undefined) out[key] = rule[key];
+    out.offset = lotOffset(project, rule, rule.on.paths?.[0] ?? sweepPaths(project, rule)[0]);
+    if (rule.bounds) out.bounds = ids(rule.bounds);
+    out.candidates = rule.candidates.map((c, i) => ({ model: records[i].model, weight: c.weight, ...(c.front ? { front: c.front } : {}), ...(c.margin !== undefined ? { margin: c.margin } : {}), bounds: records[i].bounds }));
   } else {
     out.on = { ...rule.on };
     if (out.on.path !== undefined) out.on.path = ids(out.on.path);

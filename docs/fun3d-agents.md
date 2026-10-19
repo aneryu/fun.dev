@@ -133,7 +133,7 @@ loads as instanced parts, lights its lamps once per copy and yields one marker p
 
 ```js
 for (const rule of data.rules()) console.log(rule.id, rule.kind, rule.models);
-const floor = data.run("floor_layout", { seed: run });          // rows per model, tile space
+const floor = data.run("floor_layout", { seed: run });          // rows per model, tile space; a lots rule also returns its lots
 for (const { model, rows, tints } of floor.placed)
   for (const [i, [x, y, z, rx, ry, rz, s]] of rows.entries())
     models.place(files.get(model), { position: [x, y, z], rotation: quaternionFromDegrees(rx, ry, rz), scale: s, tint: tints?.[i] });

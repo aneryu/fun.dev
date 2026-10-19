@@ -810,7 +810,7 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
               nodes: c.nodes.map((n) => n.id),
               copies: c.nodes.reduce((sum, n) => sum + (n.copies?.length ?? 0), 0),
               ...(c.nodes.some((n) => n.mesh) ? { triangles: c.nodes.reduce((sum, n) => sum + (n.mesh?.faces.length ?? 0), 0) } : {}),
-              ...(c.nodes.report ? (c.nodes.some((n) => n.mesh) ? { sweep: c.nodes.report } : { assembly: c.nodes.report }) : {}),
+              ...(c.nodes.report ? { [{ assemble: "assembly", sweep: "sweep", lots: "lots" }[rules.find((r) => r.id === c.rule)?.kind] ?? "report"]: c.nodes.report } : {}),
             })),
           persistence: draft.persistence,
         };
@@ -819,12 +819,14 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
       }
     },
     map({ size = 512, overlays, helpers = false, ...options } = {}) {
-      const revision = store.revision;
+      const revision = store.revision, tile = store.snapshot().tile;
       const [shot] = viewport.renderViews(["top"], size, {
         helpers,
         focus: false,
         ...options,
         overlays: { data: true, ...(overlays ?? {}) },
+        // The tile grid rides on maps of a tiled project unless asked away (overlays.tiles).
+        ...(tile && (overlays?.tiles ?? true) ? { tileGrid: { size: tile.size, span: tile.span ?? [1, 1] } } : {}),
       });
       const cam = shot.camera,
         box = viewport.bounds();

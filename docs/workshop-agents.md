@@ -223,6 +223,15 @@ await ws.apply([
 await ws.sample({ path: "lane", every: 25, height: 2, file: "walk.png" });   // walk-01.png, walk-02.png … looking ahead along the lane
 ```
 
+A street of buildings is a `lots` rule: parcels along a road, each taking a library model that
+fits its frontage and faces the road, optionally as zones for the game:
+
+```js
+await ws.rule({ id: "lots", kind: "lots", seed: "block", on: { path: "avenue" }, width: [14, 20], depth: 24, gap: [2, 2], zones: true,
+  candidates: [{ model: "city_office_midrise_01", weight: 2 }, { model: "city_retail_residential_01", weight: 3 }, { model: "cafe_01", margin: 2 }] });
+await ws.derive();                        // copies on the lots' front line facing the road; lot zones with side, width, depth, model
+```
+
 `on` is `{ path, spacing, offset, sides }`, `{ zone, spacing, jitter, margin }` or `{ grid: { cells,
 spacing, origin } }`; the audit says when a rule is stale or not yet derived.
 

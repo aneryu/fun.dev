@@ -744,3 +744,39 @@ test("a grid part: painted by rect, cells and zone, walls at level steps, the au
   assert.deepEqual([cut.origin, cut.size], [[-10, 0, -10], [10, 10]], "cells whose centres fall in the tile");
   assert.equal(worldData(t).cell(5, 9).level, 2);
 });
+
+test("lots line a street with models fitting and facing the road, as zones too; the map draws the tile grid", async () => {
+  fresh("street", { size: [40, 40], span: [3, 3] });
+  api.apply([
+    { op: "create", id: "slab", kind: "box", material: "wood", position: [0, -0.05, 0], options: { size: [60, 0.1, 60] }, tags: ["ground"] },
+    { op: "create", id: "main", kind: "path", tags: ["road"], path: { points: [[-25, 0, 0], [25, 0, 0]], kind: "road", lanes: 2 } },
+    { op: "create", id: "block", kind: "zone", area: { polygon: [[-20, 2], [20, 2], [20, 30], [-20, 30]], y: [-1, 5] } },
+  ]);
+  // The lamp is 0.3 m across: lots 2 m wide with a metre's margin fit it exactly.
+  api.apply([{ op: "rule", definition: { id: "houses", kind: "lots", seed: 2, on: { path: "main" }, width: [2.4, 2.4], depth: 3, offset: 4, gap: [1, 1], zones: true, bounds: "block", candidates: [{ model: "test_lamp_01", front: "-z" }] } }]);
+  assert.throws(() => api.apply([{ op: "rule", definition: { id: "bad", kind: "lots", on: { path: "main" }, candidates: [{ model: "test_lamp_01", front: "up" }] } }]), /one of \+z/);
+  const derived = await api.derive({}, { ifRevision: api.inspect().revision });
+  const houses = derived.derived.find((d) => d.rule === "houses");
+  assert.ok(houses.copies >= 10 && houses.copies <= 12, `lots inside the block on the right side only (bounds): ${houses.copies}`);
+  const part = api.inspect({ id: "houses" }).node;
+  assert.ok(part.copies.every(([x, y, z, , yaw]) => z > 4 && z < 5 && y === 0 && yaw === 0 && Math.abs(x) < 20), "the lamp's -z front sits on the front line at z = 4 (+ its half depth), facing the road without a turn");
+  const zones = api.getProject().nodes.filter((n) => n.zone && n.derived?.rule === "houses");
+  assert.equal(zones.length, houses.copies);
+  assert.ok(zones.every((z) => z.tags.includes("lot") && z.params.side === "right" && z.params.width === 2.4 && z.params.model === "test_lamp_01@v001"));
+  const data = worldData(await fun3d.load(await api.exportTile({ encoding: "buffer" }), { resolve: () => fun3d.load(lampFun3d) }));
+  assert.ok(data.zones("lot").length === zones.length && data.zones("lot")[0].contains([data.zones("lot")[0].params.distance - 25, 1, 5.5]), "lot zones export with their parameters");
+  // A sweep on the street widens the default offset to half its width plus 2 m.
+  api.apply([{ op: "rule", definition: { id: "road", kind: "sweep", on: { path: "main" }, profile: { preset: "road", lanes: 2 }, step: 10 } }, { op: "rule", definition: { id: "shops", kind: "lots", seed: 2, on: { path: "main" }, sides: "left", width: [3, 3], depth: 3, candidates: [{ model: "test_lamp_01" }] } }]);
+  const again = await api.derive({}, { ifRevision: api.inspect().revision });
+  assert.equal(again.derived.find((d) => d.rule === "shops").lots.offset, 5.5, "7 m of asphalt: the front line sits 5.5 m out");
+  const shops = api.inspect({ id: "shops" }).node;
+  assert.ok(shops.copies.every(([, , z, , yaw]) => z < -5.5 && z > -7 && yaw === 0), "left side: behind the front line at z = -5.5, the +z front already facing the road");
+  // Runtime lots: the rule rides in the tile and lays the same lots in the game.
+  api.apply([{ op: "rule", definition: { id: "live", kind: "lots", bake: false, seed: 5, on: { tag: "road" }, sides: "right", width: [3, 3], depth: 4, start: 30, candidates: [{ model: "test_lamp_01" }] } }]);
+  const live = worldData(await fun3d.load(await api.exportTile({ encoding: "buffer" }), { resolve: () => fun3d.load(lampFun3d) })).run("live");
+  assert.ok(live.lots.length >= 5 && live.placed[0].rows.length === live.lots.length, `lots at play time: ${live.lots.length}`);
+  assert.ok(live.placed[0].rows.every(([, , z]) => z > 5.5), "the runtime rule took the sweep's offset");
+  // The map carries the tile grid of a tiled project.
+  const withGrid = brightness(api.map({ size: 160 }).dataUrl), without = brightness(api.map({ size: 160, overlays: { tiles: false } }).dataUrl);
+  assert.ok(withGrid.colours > without.colours, "tile lines add their colour to the map");
+});

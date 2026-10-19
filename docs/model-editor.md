@@ -1013,7 +1013,8 @@ violet until loaded) over everything; `observe` takes `overlays: { data: false }
 them out. The map and the audit are for agents:
 
 - `funEditor.map({ size })` renders the top view with the overlays and returns `metresPerPixel`
-  and the scene's bounds (`ws.map({ file })`).
+  and the scene's bounds (`ws.map({ file })`); a tiled project (`tile`) gets its tile grid drawn
+  over the map, the span's extent heavier (`overlays: { tiles: false }` leaves it out).
 - `funEditor.sample({ path, every, start, end, height, look, limit, size })` renders a
   walkthrough: a perspective frame every `every` metres along a path part, the camera `height`
   (1.6 m) above it looking `ahead`, `back`, `left`, `right` or at a point, up to `limit` (12)
@@ -1242,3 +1243,33 @@ await ws.apply([
   level, height }`, `gridPath(a, b, { walkable, diagonal, climb, types })` an A* route over the
   cells (four neighbours, or eight; level steps up to `climb`, 1), `grids()` the maps, and
   `height(x, z)` falls back to a cell's floor. Sample: `examples/worlds/keep.mjs`.
+
+### Lots: parcels along a street
+
+A `lots` rule lays parcels one after another along path parts and puts a library model on each
+that fits, facing the road (`kit/lots.js`, shared with the runtime):
+
+```js
+await ws.rule({ id: "lots", kind: "lots", seed: "block", on: { path: "avenue" }, width: [14, 20], depth: 24, gap: [2, 2], zones: true,
+  candidates: [{ model: "city_office_midrise_01", weight: 2 }, { model: "cafe_01", margin: 2 }, { model: "barn_01", front: "-z" }] });
+await ws.derive();
+```
+
+- `on`: `{ path }`, `{ paths }` or `{ tag }`; `sides` `both` (default), `left` or `right` of the
+  direction of travel; `width` `[min, max]` (frontage, [10, 16]); `depth` a number or range
+  (12); `gap` between lots ([0, 0]); `start` and `end` metres along the path; `bounds` a zone
+  the lot centres must lie in; `avoid` as for scatter; `ground: true` takes each lot's height
+  from the terrain or grid under it (lots off the ground are dropped), else the path's.
+- `offset`: from the path's centreline to the lots' front line; by default half the width of
+  the sweep that covers the path plus 2 m, or 5.5 m when the path is not swept.
+- `candidates`: library models with `weight`, `front` (`+z` by default, `-z`, `+x`, `-x`: the
+  model's side that faces the road) and `margin` (free space on each side inside the lot, 1 m).
+  A lot draws by weight among the candidates whose footprint fits its frontage (with margins)
+  and depth; the model stands with its front edge on the front line, centred on the lot; a lot
+  nothing fits stays empty.
+- `zones: true` derives a zone part per lot (`<target>_lot_<n>`, tagged `lot`, params `side`,
+  `distance`, `width`, `depth`, `model`, `yaw`), up to 64 per rule, so the game knows its
+  parcels; `derive` reports `lots: { lots, empty, offset }`.
+- `bake: false` leaves the rule for the game: `worldData(tile).run(id)` returns the rows per
+  model and the `lots`. Sample: `examples/worlds/block.mjs`. Blueprint buildings sized to
+  their lots are later.
