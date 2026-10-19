@@ -1,0 +1,38 @@
+{
+  "name": "fundev-workshop",
+  "version": "0.1.0",
+  "description": "The fun.dev workshop for AI agents: build 3D models from scripts or over MCP in Node, without a browser or GPU, and export GLB.",
+  "type": "module",
+  "bin": {
+    "fundev-workshop": "bin/fundev-workshop.mjs"
+  },
+  "exports": {
+    ".": "./workshop.mjs"
+  },
+  "files": [
+    "bin/",
+    "workshop.mjs",
+    "README.md",
+    "THIRD_PARTY_LICENSES.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "UNLICENSED",
+  "homepage": "https://fun.dev/editor/guide",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aneryu/fun.dev.git",
+    "directory": "packages/fundev-workshop"
+  },
+  "keywords": [
+    "3d",
+    "gltf",
+    "glb",
+    "modeling",
+    "low-poly",
+    "mcp",
+    "agents",
+    "three.js"
+  ]
+}

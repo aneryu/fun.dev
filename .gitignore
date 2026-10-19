@@ -16,3 +16,7 @@ test-results/
 !/sources/README.md
 !/sources/sources.lock
 /.assets-state.json
+
+# Built by npm run workshop:npm
+packages/fundev-workshop/workshop.mjs
+packages/fundev-workshop/THIRD_PARTY_LICENSES.md

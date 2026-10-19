@@ -684,8 +684,11 @@ directly under the export root, the library's static parts.
 
 ## Agents without the repository
 
+The npm package `fundev-workshop` (`npx -y fundev-workshop --run model.mjs`, or `--mcp`) and
 `tools/fundev-workshop.mjs` (published at `https://static.fun.dev/tools/fundev-workshop.mjs`)
-needs Node 22 or newer and nothing else. It is a small launcher: `tools/workshop.json` names
+carry the same workshop file and need Node 22 or newer and nothing else. The package ships it
+(`packages/fundev-workshop/`, filled by `npm run workshop:npm`; release: bump its version,
+run that, `npm publish packages/fundev-workshop`). The site's file is a small launcher: `tools/workshop.json` names
 the current workshop file (`workshop-<sha256>.mjs`, the CLI / MCP adapter below with the
 workshop's own modules, the software renderer, Three.js and the geometry kernel's
 WebAssembly in one file), which it downloads, checks against the SHA-256, caches
@@ -704,8 +707,9 @@ workshop, or `--url`), `--gpu` there draws on the GPU, `--cdp` attaches to an op
 these need Playwright beside the launcher or in the working directory.
 
 ```sh
+npx -y fundev-workshop --guide              # the quick reference, from npm
 curl -O https://static.fun.dev/tools/fundev-workshop.mjs
-node fundev-workshop.mjs --guide            # the quick reference
+node fundev-workshop.mjs --guide            # the same, from the site
 node fundev-workshop.mjs --run model.mjs     # build a model from a script
 node fundev-workshop.mjs --mcp --session model.json --artifacts out/
 ```

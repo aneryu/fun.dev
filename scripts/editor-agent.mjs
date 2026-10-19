@@ -56,11 +56,12 @@ for (let i = 0; i < args.length; i++) {
       throw new Error("Missing " + args[i]);
     config[key] = args[++i];
   } else if (args[i] === "--help") {
-    const tool = defaultUrl ? "fundev-workshop.mjs" : "scripts/editor-agent.mjs";
+    // Published as the npm package fundev-workshop and as the site's fundev-workshop.mjs.
+    const tool = defaultUrl ? "npx -y fundev-workshop" : "node scripts/editor-agent.mjs";
     console.log(
       [
-        `node ${tool} --run model.mjs        build a model from a script (--guide prints the quick reference)`,
-        `node ${tool} [--mcp] [--session state.json] [--project model.funmodel.glb|.json] [--artifacts directory]`,
+        `${tool} --run model.mjs        build a model from a script (--guide prints the quick reference)`,
+        `${tool} [--mcp] [--session state.json] [--project model.funmodel.glb|.json] [--artifacts directory]`,
         "The workshop runs in Node: no browser, GPU or WebGL; views draw in software.",
         `--browser drives a real page instead (${defaultUrl ?? "the local preview"}; --url another), --gpu draws on the GPU,`,
         "--cdp http://127.0.0.1:9222 --url <exact editor tab URL> attaches to an open browser. These need Playwright:",

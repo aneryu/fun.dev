@@ -11,15 +11,15 @@ In the repository: `node scripts/editor-agent.mjs --run model.mjs`
 Without it, with nothing but Node 22 or newer:
 
 ```sh
-curl -O https://static.fun.dev/tools/fundev-workshop.mjs
-node fundev-workshop.mjs --run model.mjs
+npx -y fundev-workshop --run model.mjs          # the npm package
+# or the single file: curl -O https://static.fun.dev/tools/fundev-workshop.mjs
+#                     node fundev-workshop.mjs --run model.mjs
 ```
 
-The file is a small launcher: it fetches the current workshop, checks it, caches it and
-runs it (offline, the cached one). The workshop runs in Node itself: no browser, GPU or
-WebGL; views draw in software, exactly as the web workshop draws without WebGL. `--browser`
-drives a real page instead and needs `npm i playwright && npx playwright install chromium`;
-`--gpu` draws on the GPU there.
+The workshop runs in Node itself: no browser, GPU or WebGL; views draw in software, exactly
+as the web workshop draws without WebGL. MCP: `npx -y fundev-workshop --mcp --session
+model.json --artifacts out`. `--browser` drives a real page instead and needs `npm i
+playwright && npx playwright install chromium`; `--gpu` draws on the GPU there.
 
 The run prints one JSON line: the validation summary, statistics and files written. On an
 error it prints `{ ok: false, error }` (code, message, commandIndex, path, suggestion) and
