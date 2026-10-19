@@ -751,6 +751,8 @@ export function normalizeRule(value, path = "definition") {
   if (value.parent !== undefined && value.parent !== null) rule.parent = identifier(value.parent, `${path}.parent`);
   const tags = normalizeTags(value.tags, `${path}.tags`);
   if (tags.length) rule.tags = tags;
+  // bake false: the rule rides in the tile for the game to run at play time (kit/world.js).
+  if (value.bake === false) rule.bake = false;
   if (rule.kind === "assemble") {
     normalizeAssembleRule(value, rule, path);
     if (value.avoid !== undefined && value.avoid !== null) rule.avoid = normalizeAvoid(value.avoid, path);

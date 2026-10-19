@@ -166,6 +166,7 @@ export function deriveNodes(project, rule, records, inputs = ruleInputs(project,
 export function ruleStatus(project) {
   return (project.rules ?? []).map((rule) => {
     const parts = project.nodes.filter((n) => n.derived?.rule === rule.id);
+    if (rule.bake === false) return { id: rule.id, state: "runtime", parts: parts.map((n) => n.id) };
     if (!parts.length) return { id: rule.id, state: "underived", parts: [] };
     let inputs;
     try {
@@ -177,4 +178,41 @@ export function ruleStatus(project) {
     const current = parts.every((n) => n.derived.hash === hash);
     return { id: rule.id, state: current ? "current" : "stale", parts: parts.map((n) => n.id) };
   });
+}
+
+/**
+ * A runtime rule as a tile carries it (docs/worlds.md §5): the rule with its models pinned
+ * and, for assembly, each piece's bounds and socket frames resolved, keep-outs by solids as
+ * boxes in tile space. Paths and zones stay references: the tile's tables hold them by id.
+ */
+export function runtimeRule(project, rule, records, ids = (id) => id) {
+  const out = { id: ids(rule.id), kind: rule.kind, seed: rule.seed ?? 1, target: rule.target ?? rule.id, ...(rule.tags ? { tags: rule.tags } : {}) };
+  const avoid = { paths: [], polygons: [], boxes: [] };
+  let solids = null;
+  for (const a of rule.avoid ?? []) {
+    if (a.path !== undefined) avoid.paths.push({ path: ids(a.path), width: a.width });
+    else if (a.zone !== undefined) avoid.polygons.push(ids(a.zone));
+    else {
+      solids ??= solidBounds(project);
+      const wanted = new Set(a.nodes.flatMap((id) => [...descendants(project, id)]));
+      for (const s of solids) if (wanted.has(s.id)) avoid.boxes.push({ min: s.min.map(round), max: s.max.map(round) });
+    }
+  }
+  if (avoid.paths.length || avoid.polygons.length || avoid.boxes.length) out.avoid = avoid;
+  if (rule.kind === "assemble") {
+    out.pieces = rule.pieces.map((piece, i) => {
+      const resolved = assemblyPiece(piece, records[i], i);
+      return { model: records[i].model, weight: piece.weight, bounds: resolved.bounds, sockets: resolved.sockets, ...(piece.closer ? { closer: true } : {}), ...(piece.start ? { start: true } : {}) };
+    });
+    for (const key of ["mates", "start", "at", "yaw", "count", "frontier", "sequence", "close", "tolerance"]) if (rule[key] !== undefined) out[key] = rule[key];
+    if (rule.from !== undefined) out.from = rule.from;
+    if (rule.bounds) out.bounds = ids(rule.bounds);
+  } else {
+    out.on = { ...rule.on };
+    if (out.on.path !== undefined) out.on.path = ids(out.on.path);
+    if (out.on.zone !== undefined) out.on.zone = ids(out.on.zone);
+    for (const key of ["y", "yaw", "scale"]) if (rule[key] !== undefined) out[key] = rule[key];
+    out.candidates = rule.candidates.map((c, i) => ({ model: records[i].model, weight: c.weight, ...(c.tints ? { tints: c.tints } : {}), bounds: records[i].bounds }));
+  }
+  return out;
 }

@@ -369,6 +369,45 @@ test("an assembly rule grows a kit inside a zone from the library's pieces", asy
   assert.throws(() => api.apply([{ op: "rule", definition: { id: "bad", kind: "assemble", pieces: [{ model: "test_lamp_01", sockets: { x: "road" } }] } }]), /side shorthand/);
 });
 
+test("a rule with bake false rides in the tile and runs in the game with the tile's data", async () => {
+  fresh("floor", { size: [20, 20] });
+  api.apply([
+    { op: "create", id: "lot", kind: "zone", area: { polygon: [[-6, -6], [6, -6], [6, 6], [-6, 6]], y: [0, 3] } },
+    { op: "create", id: "lane", kind: "path", path: { points: [[-6, 0, 0], [6, 0, 0]] } },
+    { op: "create", id: "kiosk", kind: "box", material: "wood", position: [3, 1, 3], options: { size: [2, 2, 2] } },
+    { op: "rule", definition: { id: "props", kind: "scatter", bake: false, seed: 4, on: { zone: "lot", spacing: 2, jitter: 0.3 }, avoid: [{ path: "lane", width: 2 }, { nodes: ["kiosk"] }], candidates: [{ model: "test_lamp_01" }] } },
+    { op: "rule", definition: { id: "tiles", kind: "assemble", bake: false, seed: 1, bounds: "lot", count: 12, pieces: [{ model: "test_lamp_01", sockets: { n: "a", s: "a", e: "a", w: "a" }, start: true }, { model: "test_lamp_01", sockets: { n: "a", s: "a" }, weight: 3 }] } },
+    { op: "rule", definition: { id: "baked", kind: "scatter", on: { path: "lane", spacing: 3 }, candidates: [{ model: "test_lamp_01" }] } },
+  ]);
+  const derived = await api.derive({}, { ifRevision: api.inspect().revision });
+  assert.deepEqual(derived.derived.map((d) => d.rule), ["baked"], "runtime rules are not baked");
+  await assert.rejects(api.derive({ id: "props" }), /bake: false/);
+  assert.deepEqual(api.audit().findings.filter((f) => /rule/.test(f.code)), [], "runtime rules are never stale");
+  const exported = await api.exportTile();
+  assert.equal(exported.report.rules, 2);
+  const tile = await api.exportTile({ encoding: "buffer" });
+  assert.deepEqual(await fun3d.validate(tile), []);
+  const model = await fun3d.load(tile, { resolve: () => fun3d.load(lampFun3d) });
+  const carried = model.extensions["fun3d.rules"];
+  assert.deepEqual(carried.map((r) => r.id), ["props", "tiles"]);
+  assert.equal(carried[0].candidates[0].model, "test_lamp_01@v001", "models are pinned");
+  assert.equal(carried[0].avoid.boxes.length, 1, "keep-outs by solids become boxes");
+  assert.ok(carried[1].pieces[0].sockets.n.position, "pieces carry their socket frames");
+  const data = worldData(model);
+  assert.deepEqual(data.rules().map((r) => [r.id, r.kind]), [["props", "scatter"], ["tiles", "assemble"]]);
+  const props = data.run("props");
+  assert.ok(props.placed[0].rows.length > 8, `rows at play time: ${props.placed[0].rows.length}`);
+  assert.ok(props.placed[0].rows.every(([x, , z]) => Math.abs(z) > 1 && !(x >= 2 && x <= 4 && z >= 2 && z <= 4)), "off the lane and the kiosk");
+  assert.deepEqual(data.run("props").placed, props.placed, "the rule's seed makes the same rows");
+  assert.notDeepEqual(data.run("props", { seed: 9 }).placed, props.placed, "another seed, other rows");
+  const tiles = data.run("tiles", { seed: 2 });
+  assert.ok(tiles.placed.reduce((n, p) => n + p.rows.length, 0) >= 6 && tiles.placed.reduce((n, p) => n + p.rows.length, 0) <= 12, JSON.stringify(tiles.placed.map((p) => p.rows.length)));
+  assert.ok(tiles.placed.every((p) => p.rows.every(([x, , z]) => Math.abs(x) < 6 && Math.abs(z) < 6)), "inside the lot");
+  assert.throws(() => data.run("nope"), /no rule nope/);
+  const world = await api.exportWorld({ name: "Floor" });
+  assert.deepEqual(world.manifest.rules, { runtime: ["props", "tiles"] });
+});
+
 test("unknown models and stale revisions are refused", async () => {
   await assert.rejects(api.place({ model: "no_such_model", id: "x" }), /not in the model library/);
   await assert.rejects(api.place({ model: "test_lamp_01", id: "x" }, { ifRevision: 1 }), /Project changed/);

@@ -107,7 +107,15 @@ const lap = data.path("lap"); lap.at(0.5).position; lap.nearest(position).distan
 `world.json` of a one-tile world lists the tile and the models' files with their SHA-256; a
 game build pins them like any model. A model node with `placements` (a scatter rule's copies)
 loads as instanced parts, lights its lamps once per copy and yields one marker per copy
-(`id#index`).
+(`id#index`). Rules the workshop left for play time (`fun3d.rules`) run in the game:
+
+```js
+for (const rule of data.rules()) console.log(rule.id, rule.kind, rule.models);
+const floor = data.run("floor_layout", { seed: run });          // rows per model, tile space
+for (const { model, rows, tints } of floor.placed)
+  for (const [i, [x, y, z, rx, ry, rz, s]] of rows.entries())
+    models.place(files.get(model), { position: [x, y, z], rotation: quaternionFromDegrees(rx, ry, rz), scale: s, tint: tints?.[i] });
+```
 
 ## What to check
 

@@ -526,7 +526,9 @@ them draws the scene and ignores the data.
 ```
 
 Markers are nodes with `tags` and `fun3d.params`; `kit/world.js` reads markers, zones and
-paths from a loaded file (`worldData(model)`). The converter turns a GLB's `socket_<name>`
+paths from a loaded file (`worldData(model)`). `fun3d.rules` carries up to 64 scatter or
+assembly rules for play time, their models pinned (and among the refs), evaluated by
+`worldData(model).run(id, { seed })`. The converter turns a GLB's `socket_<name>`
 empties into their parent's `sockets` (4.1), so kit pieces mate at run time as in the workshop. Caps: zones 1024 with polygons of 256 points,
 path points 65 536 and edges 4096, parameters 4 KB per node, 16 variant axes per copy.
 

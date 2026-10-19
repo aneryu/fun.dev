@@ -377,8 +377,12 @@ from a script, reviewed like library models.
    a chain with a `sequence`, kept inside a zone and clear of what stands, adjacency-consistent
    (no road into a wall), dead ends capped by closers. Samples: `examples/worlds/street-grid.mjs`
    (the city_streets kit grown from a crossing) and `examples/worlds/walled-garden.mjs`
-   (retaining walls chained around a lawn by sequence). Still to come: `assemble` at run time
-   through the kit, and the library's kit records as structured agreements.
+   (retaining walls chained around a lawn by sequence). Rules at play time are built too: a
+   rule with `bake: false` is not derived in the workshop but rides in the tile
+   (`fun3d.rules`, models pinned and among the refs, pieces with their bounds and socket
+   frames, keep-outs by solids as boxes) and `worldData(tile).run(id, { seed })` evaluates it
+   in the game with the same code, over the tile's paths and zones, returning rows per model
+   for `models.place`. Still to come: the library's kit records as structured agreements.
 3. **Ground, sweeps, navigation, tiles.** `fun3d.terrain` and `fun3d.grid`, terrain ops, `sweep`
    for roads and tracks (帝都's generator generalised), `lots`, `fun3d.navmesh`, the manifest with
    streaming and far files, `sample`, full budgets. Samples: a racing track, an island, 帝都 M1's

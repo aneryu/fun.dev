@@ -738,6 +738,8 @@ modelDefinitions.rule = obj(
   {
     id: string,
     kind: { enum: ["scatter", "assemble"] },
+    // false: the rule rides in the tile for the game to run at play time.
+    bake: boolean,
     // Assembly: pieces with sockets grown from a start piece.
     pieces: {
       type: "array",

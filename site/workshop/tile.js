@@ -9,6 +9,7 @@ import { buildModel } from "./viewport.js";
 import { worldMatrix, point } from "./spatial.js";
 import { solidBounds } from "./audit.js";
 import { statistics } from "./document.js";
+import { runtimeRule } from "./rules.js";
 
 const round = (v) => Math.round(v * 1e6) / 1e6;
 
@@ -22,7 +23,7 @@ export function sceneBounds(project) {
   };
 }
 
-export async function exportTile(project, { name = project.name } = {}) {
+export async function exportTile(project, { name = project.name, runtime = [] } = {}) {
   const model = buildModel(project);
   try {
     // The root's name must not collide with a part's id.
@@ -109,6 +110,18 @@ export async function exportTile(project, { name = project.name } = {}) {
     const extensions = { "fun3d.tile": { bounds, ...(project.tile ? { size: [...project.tile.size] } : {}) } };
     if (zones.length) extensions["fun3d.zones"] = zones;
     if (edges.length) extensions["fun3d.paths"] = { points: { stream: Float32Array.from(points), format: "float32x3" }, edges };
+    // Rules the game runs: pinned models (also among the refs, so a build fetches them),
+    // ids as the tile's tables name them.
+    if (runtime.length) {
+      const names = new Map();
+      for (const node of project.nodes) if (node.zone || node.path) names.set(node.id, await idFromName(node.id));
+      const ids = (id) => names.get(id) ?? id;
+      extensions["fun3d.rules"] = [];
+      for (const { rule, records } of runtime) {
+        for (const record of records) if (!refs.has(record.model)) refs.set(record.model, `m${refs.size}`);
+        extensions["fun3d.rules"].push(runtimeRule(project, rule, records, ids));
+      }
+    }
     const writer = createWriter({ THREE });
     const bytes = await writer.write(model.root, {
       kind: "model",
@@ -130,6 +143,7 @@ export async function exportTile(project, { name = project.name } = {}) {
         markers: stats.markers,
         zones: zones.length,
         paths: edges.length,
+        rules: runtime.length,
         meshes: stats.meshes,
         triangles: stats.triangles,
       },

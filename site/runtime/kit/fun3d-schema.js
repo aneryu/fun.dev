@@ -595,6 +595,21 @@ function validateSceneExtensions(manifest, { uses, streams, nodes, caps, out }) 
       }
     }
   }
+  const rules = extensions["fun3d.rules"];
+  if (rules !== undefined) {
+    if (!Array.isArray(rules) || rules.length > 64) out.push(`extensions["fun3d.rules"] is an array of up to 64 rules`);
+    else {
+      const ids = new Set();
+      rules.forEach((r, i) => {
+        const path = `extensions["fun3d.rules"][${i}]`;
+        if (!r || typeof r !== "object" || !isId(r.id) || !["scatter", "assemble"].includes(r.kind)) { out.push(`${path} needs an id and a kind of scatter or assemble`); return; }
+        if (ids.has(r.id)) out.push(`${path} repeats the id "${r.id}"`);
+        ids.add(r.id);
+        const models = r.kind === "assemble" ? r.pieces : r.candidates;
+        if (!Array.isArray(models) || !models.length || models.some((m) => !m || typeof m.model !== "string")) out.push(`${path} needs ${r.kind === "assemble" ? "pieces" : "candidates"} with models`);
+      });
+    }
+  }
   const tile = extensions["fun3d.tile"];
   if (tile !== undefined) {
     if (!tile || typeof tile !== "object") out.push(`extensions["fun3d.tile"] is an object`);

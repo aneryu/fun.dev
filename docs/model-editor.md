@@ -1110,3 +1110,11 @@ await funEditor.derive({ id: "streets" }, { ifRevision });
 
 The result is one placed part with copies per piece model, stamped like a scatter rule's;
 `derive` reports the pieces placed, the sockets left open and the ones nothing could fill.
+
+A rule with `bake: false` (scatter or assemble) is for the game instead: `derive` leaves it
+alone, the audit never calls it stale, and `exportTile` writes it into the tile's
+`fun3d.rules` with its models pinned and listed among the refs, its pieces' bounds and socket
+frames resolved and its keep-outs by solids as boxes; `exportWorld` lists it under
+`rules.runtime`. In the game, `worldData(tile).run(id, { seed })` evaluates it with the same
+code over the tile's paths and zones and returns rows per model (a dungeon floor per run, a
+runner's next segments) for `models.place`.

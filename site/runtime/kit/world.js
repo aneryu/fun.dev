@@ -7,7 +7,10 @@
 //   data.zone("safe_1").contains([x, y, z]);
 //   const lap = data.path("lap"); lap.at(0.5); lap.nearest(p); lap.length
 
-const ZONES = "fun3d.zones", PATHS = "fun3d.paths", PARAMS = "fun3d.params";
+import { evaluateScatter } from "./scatter.js";
+import { evaluateAssembly } from "./assemble.js";
+
+const ZONES = "fun3d.zones", PATHS = "fun3d.paths", PARAMS = "fun3d.params", RULES = "fun3d.rules";
 
 function polygonContains(polygon, x, z) {
   let inside = false;
@@ -120,7 +123,50 @@ export function worldData(model) {
     for (const edge of table.edges ?? []) paths.push(pathOf(edge, points));
   }
   const byTag = (list, tag) => (tag === undefined ? [...list] : list.filter((x) => x.tags.includes(tag)));
+  // Rules the workshop left for play time (bake: false): the same evaluators, the tile's
+  // paths and zones as their inputs, rows in the tile's space, per model.
+  const rules = extensions[RULES] ?? [];
+  const polygonOf = (zone) => {
+    const shape = zone.shape ?? {};
+    if (shape.polygon) return shape.polygon;
+    if (shape.box) {
+      const { center = [0, 0, 0], halfExtents = [0, 0, 0] } = shape.box;
+      return [[center[0] - halfExtents[0], center[2] - halfExtents[2]], [center[0] + halfExtents[0], center[2] - halfExtents[2]], [center[0] + halfExtents[0], center[2] + halfExtents[2]], [center[0] - halfExtents[0], center[2] + halfExtents[2]]];
+    }
+    if (shape.sphere) { const { center = [0, 0, 0], radius = 0 } = shape.sphere, out = []; for (let i = 0; i < 32; i++) out.push([center[0] + radius * Math.cos((i / 32) * Math.PI * 2), center[2] + radius * Math.sin((i / 32) * Math.PI * 2)]); return out; }
+    return [];
+  };
+  const inputsOf = (rule) => {
+    const inputs = { paths: {}, polygons: {}, zoneY: {}, avoid: { paths: [], polygons: [], boxes: [...(rule.avoid?.boxes ?? [])] } };
+    const path = (id) => { const p = paths.find((x) => x.id === id); if (!p) throw new Error(`rule ${rule.id}: the tile has no path ${id}`); return { points: p.points.slice(0, p.closed ? -1 : undefined), closed: p.closed }; };
+    const zone = (id) => { const z = zones.find((x) => x.id === id); if (!z) throw new Error(`rule ${rule.id}: the tile has no zone ${id}`); return z; };
+    if (rule.kind === "assemble") { if (rule.bounds) inputs.polygons[rule.bounds] = polygonOf(zone(rule.bounds)); }
+    else {
+      if (rule.on.path !== undefined) inputs.paths[rule.on.path] = path(rule.on.path);
+      if (rule.on.zone !== undefined) { const z = zone(rule.on.zone); inputs.polygons[rule.on.zone] = polygonOf(z); inputs.zoneY[rule.on.zone] = z.shape?.y ?? [0, 0]; }
+    }
+    for (const a of rule.avoid?.paths ?? []) inputs.avoid.paths.push({ ...path(a.path), width: a.width });
+    for (const id of rule.avoid?.polygons ?? []) inputs.avoid.polygons.push(polygonOf(zone(id)));
+    return inputs;
+  };
+  const run = (id, { seed } = {}) => {
+    const rule = rules.find((r) => r.id === id);
+    if (!rule) throw new Error(`the tile has no rule ${id}`);
+    const inputs = inputsOf(rule), models = rule.kind === "assemble" ? rule.pieces : rule.candidates;
+    let rows, tints = models.map(() => null), report = {};
+    if (rule.kind === "assemble") {
+      const result = evaluateAssembly({ ...rule, bounds: rule.bounds ? inputs.polygons[rule.bounds] : undefined, avoid: inputs.avoid }, rule.pieces, seed ?? rule.seed);
+      rows = result.rows;
+      report = { placed: result.placed, open: result.open, stuck: result.stuck };
+    } else ({ rows, tints } = evaluateScatter(rule, inputs, seed ?? rule.seed));
+    return {
+      id: rule.id, kind: rule.kind, tags: [...(rule.tags ?? [])], ...report,
+      placed: models.map((m, i) => ({ model: m.model, rows: rows[i], tints: tints[i] })).filter((p) => p.rows.length),
+    };
+  };
   return {
+    rules: () => rules.map((r) => ({ id: r.id, kind: r.kind, tags: [...(r.tags ?? [])], models: (r.kind === "assemble" ? r.pieces : r.candidates).map((m) => m.model) })),
+    run,
     markers: (tag) => byTag(markers, tag),
     marker: (id) => markers.find((m) => m.id === id) ?? null,
     zones: (tag) => byTag(zones, tag),

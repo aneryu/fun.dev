@@ -33,7 +33,7 @@ import { auditProject } from "./audit.js";
 import { exportTile } from "./tile.js";
 import { exportWorld } from "./world-export.js";
 import { resolvePlacement, ensurePlaced } from "./placed.js";
-import { ruleInputs, deriveNodes, ruleModels } from "./rules.js";
+import { ruleInputs, deriveNodes, ruleModels, runtimeRule } from "./rules.js";
 import { fromBase64, toBase64 } from "./glb.js";
 import { projectFile, projectFilename } from "./project-file.js";
 import { materialUsage } from "./materials.js";
@@ -747,8 +747,11 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
       check(options);
       const revision = store.revision,
         project = store.snapshot();
-      const rules = (project.rules ?? []).filter((r) => (id ? r.id === id : ids ? ids.includes(r.id) : true));
-      if (id && !rules.length) throw new ModelError(`Unknown rule: ${id}`, "not_found", "id");
+      const chosen = (project.rules ?? []).filter((r) => (id ? r.id === id : ids ? ids.includes(r.id) : true));
+      if (id && !chosen.length) throw new ModelError(`Unknown rule: ${id}`, "not_found", "id");
+      if (id && chosen[0].bake === false) throw new ModelError(`Rule ${id} runs in the game (bake: false); derive does not bake it`, "invalid", "id");
+      // Runtime rules ride in the tile instead of being baked here.
+      const rules = chosen.filter((r) => r.bake !== false);
       if (!rules.length) throw new ModelError("The project has no rules to derive", "not_found", "rules");
       const records = new Map();
       for (const rule of rules)
@@ -797,12 +800,25 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
         bounds: box.min?.toArray ? { min: box.min.toArray(), max: box.max.toArray() } : box,
       };
     },
+    // Rules that run in the game: their models resolved in the library for the tile.
+    async runtimeRules(p) {
+      const rules = (p.rules ?? []).filter((r) => r.bake === false);
+      if (!rules.length) return [];
+      const records = new Map();
+      for (const rule of rules) for (const model of ruleModels(rule)) if (!records.has(model)) records.set(model, await resolvePlacement({ model }));
+      const templates = await Promise.allSettled([...records.values()].map((record) => ensurePlaced(record)));
+      [...records.values()].forEach((record, i) => {
+        const template = templates[i].status === "fulfilled" ? templates[i].value : null;
+        if (template?.sockets && Object.keys(template.sockets).length) record.sockets = template.sockets;
+      });
+      return rules.map((rule) => ({ rule, records: ruleModels(rule).map((model) => records.get(model)) }));
+    },
     async exportTile({ encoding = "base64", name } = {}) {
       if (!["buffer", "base64"].includes(encoding)) throw new Error("Use buffer or base64 encoding");
       commitPending();
       const p = store.snapshot(),
         revision = store.revision,
-        { bytes, report } = await exportTile(p, { name });
+        { bytes, report } = await exportTile(p, { name, runtime: await api.runtimeRules(p) });
       return encoding === "base64"
         ? {
             revision,
@@ -818,7 +834,7 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
       commitPending();
       const p = store.snapshot(),
         revision = store.revision,
-        { manifest, files, report } = await exportWorld(p, { name });
+        { manifest, files, report } = await exportWorld(p, { name, runtime: await api.runtimeRules(p) });
       return {
         revision,
         manifest,

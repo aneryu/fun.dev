@@ -15,17 +15,18 @@ export const DEFAULT_ENVIRONMENT = {
   fog: null,
 };
 
-export async function exportWorld(project, { name = project.name } = {}) {
-  const { bytes, report } = await exportTile(project, { name });
+export async function exportWorld(project, { name = project.name, runtime = [] } = {}) {
+  const { bytes, report } = await exportTile(project, { name, runtime });
   const wanted = new Map();
   const missing = [];
-  for (const node of project.nodes) {
-    if (!node.place || wanted.has(node.place.model)) continue;
-    if (!node.place.derived) {
-      missing.push(node.place.model);
+  const needed = [...project.nodes.filter((n) => n.place).map((n) => n.place), ...runtime.flatMap(({ records }) => records)];
+  for (const place of needed) {
+    if (wanted.has(place.model)) continue;
+    if (!place.derived) {
+      if (!missing.includes(place.model)) missing.push(place.model);
       continue;
     }
-    wanted.set(node.place.model, node.place.derived);
+    wanted.set(place.model, place.derived);
   }
   if (missing.length) {
     const error = new ModelError(`No .fun3d yet for ${missing.join(", ")}`, "not_found", "models");
@@ -63,6 +64,7 @@ export async function exportWorld(project, { name = project.name } = {}) {
     tiles: [{ x: 0, z: 0, file: "tiles/0_0.fun3d", sha256: await sha256(bytes), bytes: bytes.length }],
     models,
     environment: DEFAULT_ENVIRONMENT,
+    ...(runtime.length ? { rules: { runtime: runtime.map(({ rule }) => rule.id) } } : {}),
   };
   files.unshift({ path: "world.json", bytes: new TextEncoder().encode(JSON.stringify(manifest, null, 2)) });
   return { manifest, files, report };

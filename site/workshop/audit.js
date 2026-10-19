@@ -124,7 +124,7 @@ export function auditProject(project, { ground = 0, budget = {} } = {}) {
 
   // Rules whose inputs changed since they were derived, or never derived.
   for (const status of ruleStatus(project))
-    if (status.state !== "current")
+    if (status.state !== "current" && status.state !== "runtime")
       findings.push({
         code: status.state === "underived" ? "underived-rule" : "stale-rule",
         severity: "warning",
