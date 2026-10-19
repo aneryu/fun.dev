@@ -688,7 +688,8 @@ The npm package `fundev-workshop` (`npx -y fundev-workshop --run model.mjs`, or 
 `tools/fundev-workshop.mjs` (published at `https://static.fun.dev/tools/fundev-workshop.mjs`)
 carry the same workshop file and need Node 22 or newer and nothing else. The package ships it
 (`packages/fundev-workshop/`, filled by `npm run workshop:npm`; release: bump its version,
-run that, `npm publish ./packages/fundev-workshop`). The site's file is a small launcher: `tools/workshop.json` names
+run that, `npm publish ./packages/fundev-workshop`). The site's file is a small launcher:
+`tools/workshop.json` names
 the current workshop file (`workshop-<sha256>.mjs`, the CLI / MCP adapter below with the
 workshop's own modules, the software renderer, Three.js and the geometry kernel's
 WebAssembly in one file), which it downloads, checks against the SHA-256, caches
