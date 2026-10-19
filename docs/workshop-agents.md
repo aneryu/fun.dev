@@ -195,6 +195,28 @@ library upload folder. A new blueprint is a module in `site/workshop/blueprints.
 
 Full reference: [model editor](model-editor.md) and the workshop's `/workshop/guide`.
 
+### Preview quality
+
+```js
+await ws.observe(["perspective", "front"], {
+  file: "preview.png", report: "preview.json", size: 1536,
+  antialias: "ssaa2", shadows: true, lighting: "studio", exposure: 1,
+});
+```
+
+`ssaa2` (default) samples 2×2 per pixel at every output size; `ssaa4` uses 4×4.
+`native` uses one software sample or the GPU renderer's native MSAA. GPU captures
+keep native MSAA in addition to the selected supersampling. More than 16,777,216
+supersamples is an error, never a silent downgrade (2048 px with `ssaa2` fits;
+2048 px with `ssaa4` does not). The same controls work in MCP `observe`, `preview`
+and `recipeStage`, and in the page's **Save view** dialog.
+
+The optional JSON report records the image paths, camera, backend, sampling,
+exposure, fixed `studio-v1` light setup and shadow bounds. Use the recorded camera
+and lighting when comparing an exported model in a game; different game lighting
+will produce different pictures. Image quality and geometric resemblance still
+need visual review. A PNG alone is not evidence that a model matches its reference.
+
 ### Automatic local vertex symmetry
 
 For an already symmetric independent mesh, enable persistent vertex pairs with

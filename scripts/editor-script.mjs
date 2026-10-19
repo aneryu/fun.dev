@@ -123,7 +123,7 @@ export function scriptApi(invoke, base) {
         written.push(await write(resolve(dirname(path(file)), `${basename(file, extname(file))}-${String(i + 1).padStart(2, "0")}${extname(file) || ".png"}`), Buffer.from(shot.dataUrl.split(",")[1], "base64")));
       return { files: written, frames: result.observations.map((s) => ({ view: s.view, distance: s.distance, position: s.position })) };
     },
-    async observe(names = ["perspective"], { file = "view.png", ...options } = {}) {
+    async observe(names = ["perspective"], { file = "view.png", report, ...options } = {}) {
       const result = await call("observe", { names, ...options });
       const written = [];
       for (const shot of result.observations) {
@@ -138,6 +138,7 @@ export function scriptApi(invoke, base) {
           ),
         );
       }
+      if (report) await write(report, JSON.stringify(result.observations.map(({ dataUrl, ...metadata }, i) => ({ ...metadata, file: written[i] })), null, 2) + '\n');
       return written;
     },
     async exportGLB({ file = "model.glb", ...options } = {}) {

@@ -52,6 +52,8 @@ if (args.includes("--verify")) {
       "tests/editor-import.test.mjs",
       "tests/editor-vertex-symmetry.test.mjs",
       "tests/workshop-bridge.test.mjs",
+      "tests/editor-node.test.mjs",
+      "tests/editor-soft-renderer.test.mjs",
     ],
     { cwd: root, stdio: "inherit" },
   );
@@ -62,6 +64,8 @@ if (args.includes("--verify")) {
     browser = await launch();
   try {
     await editorChecks({ browser, base: server.base });
+    const { editorQualityChecks } = await import('./browser/editor-quality.mjs');
+    await editorQualityChecks({ browser, base: server.base });
     await editorAdapterChecks();
     const { editorBridgeChecks } = await import("./browser/editor-bridge.mjs");
     await editorBridgeChecks({ browser, base: server.base });

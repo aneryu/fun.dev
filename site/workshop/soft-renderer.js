@@ -963,8 +963,8 @@ export function resolve({ width, height, color, ss }, exposure = 1, out = null) 
 /**
  * A renderer for the viewport that draws in software into canvas's 2D context.
  * `environment` ({ top, bottom, intensity }) is the sky-over-ground ambient the GPU path
- * builds as a PMREM environment. `render` draws one frame at full quality (supersampled when
- * small enough); `renderInteractive` draws a quick low-resolution frame and refines it once
+ * builds as a PMREM environment. `render` draws one frame at the configured sample count;
+ * `renderInteractive` draws a quick low-resolution frame and refines it once
  * the view rests, for orbiting and dragging.
  */
 export function createSoftRenderer(canvas, THREE) {
@@ -1006,6 +1006,7 @@ export function createSoftRenderer(canvas, THREE) {
     toneMappingExposure: 1,
     shadowMap: { enabled: false, type: THREE.PCFShadowMap },
     environment: null,
+    supersampling: 2,
     onDeviceLost: null,
     onError: null,
     async init() {
@@ -1031,10 +1032,10 @@ export function createSoftRenderer(canvas, THREE) {
     },
     getSize: (target) => target.set(width, height),
     getDrawingBufferSize: (target) => target.set(canvas.width, canvas.height),
-    // One finished frame: two samples per pixel side up to about a megapixel.
+    // Explicit sampling: increasing output size must never silently remove AA.
     render(scene, camera) {
       clearTimeout(refine);
-      present(scene, camera, 1, canvas.width * canvas.height <= 1.1e6 ? 2 : 1);
+      present(scene, camera, 1, renderer.supersampling);
     },
     // Moving views: a quarter-megapixel frame now, the finished one when the view rests.
     renderInteractive(scene, camera) {
@@ -1042,11 +1043,11 @@ export function createSoftRenderer(canvas, THREE) {
       const pixels = canvas.width * canvas.height,
         scale = Math.min(1, Math.sqrt(250000 / Math.max(1, pixels)));
       if (scale >= 1) {
-        present(scene, camera, 1, 1);
+        present(scene, camera, 1, renderer.supersampling);
         return;
       }
       present(scene, camera, scale, 1);
-      refine = setTimeout(() => present(scene, camera, 1, 1), 250);
+      refine = setTimeout(() => present(scene, camera, 1, renderer.supersampling), 250);
     },
   };
   return renderer;

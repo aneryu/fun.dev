@@ -393,6 +393,7 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
           ? {
               observations: viewport
                 .renderProject(project, views, size, {
+                  ...options,
                   ids: [id],
                   helpers: false,
                   overlays: { wire: true, selection: true },
@@ -488,6 +489,7 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
           ? {
               observations: viewport
                 .renderProject(result.project, views, size, {
+                  ...options,
                   visibility: "all",
                   helpers: false,
                 })

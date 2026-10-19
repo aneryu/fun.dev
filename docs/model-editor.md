@@ -649,6 +649,26 @@ rejected with `pending_input`; an agent cannot overwrite a human's staged edit.
 
 ## Reproducible observations and export
 
+Observations have explicit quality controls: `antialias:"native"|"ssaa2"|"ssaa4"`
+(default `ssaa2`), `shadows` (default true), `lighting:"studio"`, and `exposure`
+(0.1–4, default 1). They also apply to preview and recipe-stage observations.
+The software renderer averages supersamples in linear light before tone mapping;
+GPU captures retain native MSAA and downsample a larger rendered canvas. Output
+dimensions stay as requested. Neither path changes its sampling tier when an image
+crosses a megapixel. Captures exceeding 16,777,216 supersamples fail before rendering
+and suggest reducing size or sampling. Interactive software views may draw fewer
+pixels while moving, then refine with their configured sampling when idle.
+
+Each observation returns `quality` with backend, supersampling, configured native
+samples, exposure, and the versioned `studio-v1` light/environment, shadow camera,
+background and color-space settings. The directional light follows model bounds;
+its direction and intensities do not depend on image size. Observation changes are
+restored even if a capture fails. The **Save view** dialog exposes these settings;
+scripts can pass `report:"preview.json"` to `ws.observe` to save the metadata beside
+their PNGs. The focused browser gate replays exported road geometry through the
+game asset loader with the recorded camera and studio setup. This checks that
+delivery agrees under matched conditions, not that arbitrary games use that lighting.
+
 `renderViews(names, options)` additionally accepts `ids`, `visibility:"all"`,
 `shading:"material"|"clay"|"silhouette"|"ids"`, `helpers`,
 `overlays:{wire,selection}` and an explicit `camera:{position,target,up?,projection?,

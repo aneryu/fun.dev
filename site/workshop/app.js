@@ -1180,17 +1180,42 @@ async function start() {
     ]);
     refresh();
   };
-  $("#screenshot").onclick = () =>
-    act(() => {
-      const shot = viewport.renderViews(["current"], 1024)[0];
-      download(
-        `${filename(store.snapshot().name)}-view.png`,
-        Uint8Array.from(atob(shot.dataUrl.split(",")[1]), (s) =>
-          s.charCodeAt(0),
-        ),
-        "image/png",
-      );
-    }, "edDownloaded");
+  $("#screenshot").onclick = () => {
+    const field = (key, control, id) => {
+      control.id = id;
+      const label = text('label', t(key));
+      label.htmlFor = id;
+      if (control.type === 'checkbox') { label.className = 'check'; label.prepend(control); }
+      else label.append(control);
+      return label;
+    };
+    const size = text('select', ''), aa = text('select', ''), shadows = document.createElement('input'), exposure = document.createElement('input');
+    for (const value of [300, 768, 1024, 1536, 2048]) {
+      const option = text('option', `${value} px`); option.value = value; size.append(option);
+    }
+    size.value = '1024';
+    for (const [value, key] of [['native', 'edPreviewNative'], ['ssaa2', 'edPreview2x'], ['ssaa4', 'edPreview4x']]) {
+      const option = text('option', t(key)); option.value = value; aa.append(option);
+    }
+    aa.value = 'ssaa2';
+    shadows.type = 'checkbox'; shadows.checked = true;
+    exposure.type = 'number'; exposure.min = '0.1'; exposure.max = '4'; exposure.step = '0.1'; exposure.value = '1';
+    const save = text('button', t('edScreenshot'));
+    const errorMessage = text('p', '');
+    errorMessage.id = 'preview-error'; errorMessage.setAttribute('role', 'alert');
+    save.id = 'preview-save';
+    save.onclick = () => act(() => {
+      try {
+        const shot = viewport.renderViews(['current'], Number(size.value), {
+          antialias: aa.value, shadows: shadows.checked, lighting: 'studio', exposure: Number(exposure.value),
+        })[0];
+        download(`${filename(store.snapshot().name)}-view.png`, Uint8Array.from(atob(shot.dataUrl.split(',')[1]), s => s.charCodeAt(0)), 'image/png');
+        $('#info-dialog').close();
+      } catch (error) { errorMessage.textContent = error.message; return false; }
+    }, 'edDownloaded');
+    info(t('edScreenshot'), [field('edPreviewSize', size, 'preview-size'), field('edPreviewAA', aa, 'preview-aa'),
+      field('edPreviewShadows', shadows, 'preview-shadows'), field('edPreviewExposure', exposure, 'preview-exposure'), text('p', t('edPreviewStudio')), errorMessage, save]);
+  };
   $("#draft-retry").onclick = () =>
     draft.retry().catch((e) => status(e.message, true));
   $("#draft-copy").onclick = () =>

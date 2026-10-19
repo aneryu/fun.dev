@@ -21,6 +21,7 @@ import { nodePoints } from "./spatial.js";
 import { placedTemplate, ensurePlaced } from "./placed.js";
 import { terrainMesh, terrainBounds, hexToLinear } from "../runtime/kit/terrain.js";
 import { gridMesh } from "../runtime/kit/grid.js";
+import { STUDIO, previewQuality } from "./preview-quality.js";
 
 function indexAttributes(positions, normals) {
   const uniquePositions = [],
@@ -71,7 +72,7 @@ export function createMaterial(m) {
 // Ambient light as a sky above a ground: on painted surfaces it is exactly a hemisphere
 // light, and as an environment it gives metal and glass something to reflect (without
 // one, full metal renders black). The library's stage does the same (site/model-viewer.js).
-function sky(renderer, top, bottom, intensity) {
+export function createPreviewEnvironment(renderer, top = STUDIO.skyColor, bottom = STUDIO.groundColor, intensity = STUDIO.environmentIntensity) {
   const scene = new THREE.Scene(),
     parts = [];
   for (const [color, start] of [
@@ -506,17 +507,17 @@ export async function createViewport(
     proxy = new THREE.Object3D();
   scene.add(proxy, transform.getHelper());
   transform.setSize(0.8);
-  const key = new THREE.DirectionalLight(0xffffff, 2.4);
+  const key = new THREE.DirectionalLight(STUDIO.keyColor, STUDIO.keyIntensity);
   key.position.set(-3, 7, 5);
   key.castShadow = true;
-  key.shadow.mapSize.set(1024, 1024);
-  key.shadow.bias = -0.0003;
+  key.shadow.mapSize.set(STUDIO.shadowMapSize, STUDIO.shadowMapSize);
+  key.shadow.bias = STUDIO.shadowBias;
   scene.add(key, key.target);
   // The software renderer takes the same sky as two colours instead of a PMREM texture.
-  const environment = software ? null : sky(renderer, 0xffffff, 0x657180, 1.8);
+  const environment = software ? null : createPreviewEnvironment(renderer);
   scene.environment = environment?.texture ?? null;
   if (software)
-    renderer.environment = { top: 0xffffff, bottom: 0x657180, intensity: 1.8 };
+    renderer.environment = { top: STUDIO.skyColor, bottom: STUDIO.groundColor, intensity: STUDIO.environmentIntensity };
   const grid = new THREE.GridHelper(20, 40, 0x77818a, 0xaab0b6);
   grid.material.transparent = true;
   grid.material.opacity = 0.4;
@@ -1653,6 +1654,8 @@ export async function createViewport(
         throw new Error("Choose 1–6 named views");
       if (!Number.isInteger(size) || size < 64 || size > 2048)
         throw new Error("Image size must be 64–2048");
+      const quality = previewQuality(options, size, Math.max(...names.map(name => name === 'current'
+        ? Math.max(64, Math.min(2048, Math.round(size / (canvas.clientWidth / canvas.clientHeight)))) : size)));
       if (
         options.ids &&
         (!Array.isArray(options.ids) ||
@@ -1676,9 +1679,19 @@ export async function createViewport(
         helper: transform.getHelper().visible,
         highlights: highlights.visible,
         wires: wires.visible,
+        shadows: renderer.shadowMap.enabled,
+        shadowIntensity: key.shadow.intensity,
+        exposure: renderer.toneMappingExposure,
+        supersampling: renderer.supersampling,
       };
       const temporary = [];
       try {
+        // Three caches shadow nodes across frames. Keep the GPU pipeline alive;
+        // toggling its global enable flag leaves cached nodes without a map.
+        if (software) renderer.shadowMap.enabled = quality.shadows;
+        else key.shadow.intensity = quality.shadows ? 1 : 0;
+        renderer.toneMappingExposure = quality.exposure;
+        if (software) renderer.supersampling = quality.scale;
         if (options.ids || options.visibility === "all")
           viewState = {
             hidden: new Set(),
@@ -1791,7 +1804,7 @@ export async function createViewport(
                   ),
                 )
               : size;
-          renderer.setSize(size, height, false);
+          renderer.setSize(size * (software ? 1 : quality.scale), height * (software ? 1 : quality.scale), false);
           const pose = options.camera;
           const shot =
             name === "current" && !pose
@@ -1872,18 +1885,39 @@ export async function createViewport(
           shot.updateMatrixWorld();
           showReferences(options.references ? name : "");
           renderer.render(scene, shot);
+          let image = canvas;
+          if (!software && quality.scale > 1) {
+            image = document.createElement('canvas');
+            image.width = size; image.height = height;
+            const context = image.getContext('2d');
+            context.imageSmoothingEnabled = true;
+            context.imageSmoothingQuality = 'high';
+            context.drawImage(canvas, 0, 0, size, height);
+          }
           return {
             view: name,
             width: size,
             height,
             mimeType: "image/png",
-            dataUrl: canvas.toDataURL("image/png"),
+            dataUrl: image.toDataURL("image/png"),
+            quality: {
+              ...quality, backend, supersamplesPerPixel: quality.scale ** 2,
+              configuredNativeSamples: software ? 1 : renderer.samples,
+              lightingSetup: { ...STUDIO, keyPosition: key.position.toArray(), keyTarget: key.target.position.toArray(),
+                shadowCamera: { left: key.shadow.camera.left, right: key.shadow.camera.right, top: key.shadow.camera.top,
+                  bottom: key.shadow.camera.bottom, near: key.shadow.camera.near, far: key.shadow.camera.far },
+                background: '#d7d9db', toneMapping: 'ACESFilmic', outputColorSpace: 'srgb' },
+            },
             camera: cameraInfo(shot, target),
             shading,
             observation,
           };
         });
       } finally {
+        renderer.shadowMap.enabled = previous.shadows;
+        key.shadow.intensity = previous.shadowIntensity;
+        renderer.toneMappingExposure = previous.exposure;
+        if (software) renderer.supersampling = previous.supersampling;
         viewState = previous.viewState;
         shading = previous.shading;
         wireframe = previous.wireframe;

@@ -19,6 +19,12 @@ const object = (properties = {}, required = []) => ({
 });
 const ids = { type: "array", items: str, minItems: 1 };
 const origin = { enum: ["world", "asset-root", "ground-center"] };
+const quality = {
+  antialias: { enum: ["native", "ssaa2", "ssaa4"] },
+  shadows: bool,
+  lighting: { enum: ["studio"] },
+  exposure: { type: "number", minimum: 0.1, maximum: 4 },
+};
 const render = {
   views: {
     type: "array",
@@ -36,6 +42,7 @@ const render = {
     maxItems: 6,
   },
   size: { type: "integer", minimum: 64, maximum: 2048 },
+  ...quality,
   ids,
   visibility: { enum: ["session", "all"] },
   shading: { enum: ["material", "clay", "silhouette", "ids"] },
@@ -74,7 +81,7 @@ const render = {
 const definitions = [
   [
     "blueprints",
-    "List the parametric blueprints (id, version, title, parameter schema). Build one with apply [{op:'blueprint', id, params?, root?}]; live parameters follow assemblyParameters, structural ones rebuild.",
+    "List blueprints and parameter schemas. Build with op:blueprint; edit live values with assemblyParameters, rebuild structural ones.",
     object(),
     true,
   ],
@@ -146,6 +153,7 @@ const definitions = [
         views: render.names,
         size: render.size,
         detail: { enum: ["summary", "full"] },
+        ...quality,
       },
       ["commands", "ifRevision"],
     ),
@@ -223,6 +231,7 @@ const definitions = [
         id: str,
         index: { type: "integer", minimum: 0, maximum: 32 },
         query: recipeStageQuerySchema,
+        ...quality,
         views: render.names,
         size: render.size,
         ifRevision: revision,
@@ -330,7 +339,7 @@ const definitions = [
   ],
   [
     "place",
-    "Place a library model by reference: model is an id or id@vNNN, id names the part; parent, position, rotation, scale, tags, params, variants, tint as for create. The part keeps the library's bounds only.",
+    "Place a library reference (model: id or id@vNNN); id names the part. Keeps bounds, not geometry. Other fields follow create.",
     object(
       {
         model: str,
@@ -354,31 +363,31 @@ const definitions = [
   ],
   [
     "derive",
-    "Run rules (one with id, some with ids, else all): resolves their models, evaluates each from its seed and replaces what it derived before.",
+    "Resolve models and rerun seeded rules, replacing previous results. Select id, ids, or all by default.",
     object({ id: str, ids: { type: "array", items: str, minItems: 1 }, label: str, ifRevision: revision }, ["ifRevision"]),
     false,
   ],
   [
     "map",
-    "A top-down map with zones, paths, markers and the tile grid; overlays.nav adds the walkable raster. Returns the image, metres per pixel and the bounds.",
+    "Top-down zones, paths, markers and tiles; overlays.nav adds navigation. Returns image, scale and bounds.",
     object({ size: render.size, ids, shading: render.shading, helpers: bool, visibility: render.visibility, overlays: object({ data: bool, tiles: bool, nav: bool }) }),
     true,
   ],
   [
     "audit",
-    "What a picture cannot show: overlaps, floating or buried parts, parts outside the tile(s), unconverted models, stale rules, unreachable markers, budgets (per tile in a world). Findings carry suggestions.",
+    "Audit overlap, floating/buried/outside parts, unconverted models, stale rules, unreachable markers and tile budgets; suggests fixes.",
     object({ ground: num, budget: object({ triangles: num }) }),
     true,
   ],
   [
     "exportTile",
-    "The scene as one .fun3d tile (geometry, placed references, markers, zones, paths, terrain, grids, the project in the editing section). Under --artifacts when set.",
+    "Export one .fun3d tile with geometry, references, scene data and editable source. Honors --artifacts.",
     object({ name: str }),
     true,
   ],
   [
     "exportWorld",
-    "A world: world.json, tiles cut by tile.size (+ far files), world.fun3d (markers, zones, paths, rules), the source project, placed models' .fun3d. far: { minSize, step } | false. Under --artifacts when set.",
+    "Export world.json, tiles and far files, world.fun3d scene data, source and placed models. far configures LOD; honors --artifacts.",
     object({ name: str, far: { oneOf: [object({ minSize: num, step: num }), bool] } }),
     true,
   ],
@@ -391,7 +400,7 @@ const definitions = [
   ["references", "List reference images (without image data).", object(), true],
   [
     "exportProject",
-    "Return the project file: a GLB of the model carrying the editable project in its FUNDEV_workshop extension (.funmodel.glb). The adapter writes it to --artifacts when set.",
+    "Export .funmodel.glb: GLB with editable FUNDEV_workshop source. Honors --artifacts.",
     object(),
     true,
   ],
@@ -473,7 +482,7 @@ export function toolInvocation(name, args = {}) {
   if (method === "preview")
     return {
       method,
-      args: [commands, { ifRevision, views, size, detail: rest.detail }],
+      args: [commands, { ifRevision, views, size, ...rest }],
     };
   if (method === "observe") {
     // preview calls them views; both names are accepted here.

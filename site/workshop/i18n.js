@@ -1,5 +1,13 @@
 import { messages } from "../i18n.js";
 const additions = {
+  edPreviewSize: ['图像宽度', 'Image width'],
+  edPreviewAA: ['抗锯齿', 'Antialiasing'],
+  edPreviewNative: ['原生（软件无抗锯齿，GPU 保留 MSAA）', 'Native (software: none; GPU: MSAA)'],
+  edPreview2x: ['2×2 超采样', '2×2 supersampling'],
+  edPreview4x: ['4×4 超采样', '4×4 supersampling'],
+  edPreviewShadows: ['阴影', 'Shadows'],
+  edPreviewExposure: ['曝光', 'Exposure'],
+  edPreviewStudio: ['固定工作室光照，不随图像尺寸变化。超出采样预算会提示调整，不会自动降质。', 'Fixed studio lighting at every image size. Over-budget images require a smaller size or lower sampling; quality never drops automatically.'],
   edAgentDirectHint: ["启动本机服务，把连接码粘贴到这里。Agent 将操作当前工程，修改实时显示。", "Start the local service and paste its connection code here. The agent edits this project live."],
   edAgentCode: ["本机连接码", "Local connection code"],
   edAgentConnect: ["连接当前工程", "Connect this project"],

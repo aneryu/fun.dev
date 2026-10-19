@@ -17,6 +17,33 @@ test("opens with the example duck and the software renderer", () => {
   assert.equal(state.persistence.backend, "memory");
 });
 
+test('observation sampling survives the old megapixel boundary, with explicit settings and atomic restoration', () => {
+  const before = api.getProject(), revision = api.inspect().revision;
+  const options = { helpers: false, shadows: false, lighting: 'studio' };
+  const small = api.renderViews(['perspective'], { ...options, size: 1024 })[0];
+  const large = api.renderViews(['perspective'], { ...options, size: 1056 })[0];
+  for (const shot of [small, large]) {
+    assert.equal(shot.quality.supersamplesPerPixel, 4);
+    assert.equal(shot.quality.backend, 'software');
+    assert.equal(decodePNG(Buffer.from(shot.dataUrl.split(',')[1], 'base64')).width, shot.width);
+  }
+  assert.deepEqual(small.quality.lightingSetup, large.quality.lightingSetup);
+  const standard = api.renderViews(['perspective'], { size: 128 })[0];
+  assert.notEqual(api.renderViews(['perspective'], { size: 128, shadows: false })[0].dataUrl, standard.dataUrl);
+  const native = api.renderViews(['perspective'], { size: 128, antialias: 'native', shadows: false, exposure: 2 })[0];
+  assert.equal(native.quality.supersamplesPerPixel, 1);
+  assert.notEqual(native.dataUrl, standard.dataUrl);
+  const high = api.renderViews(['perspective'], { size: 128, antialias: 'ssaa4' })[0];
+  assert.equal(high.quality.supersamplesPerPixel, 16);
+  assert.throws(() => api.renderViews(['front'], { size: 2048, antialias: 'ssaa4' }), /samples/);
+  assert.throws(() => api.renderViews(['front'], { exposure: 0 }), /Exposure/);
+  assert.throws(() => api.renderViews(['front'], { antialias: 'toString' }), /Antialias/);
+  assert.throws(() => api.renderViews(['front'], { shadows: false, exposure: 2, camera: { position: [0,0,0], target: [0,0,0] } }), /Degenerate/);
+  assert.equal(api.renderViews(['perspective'], { size: 128 })[0].dataUrl, standard.dataUrl);
+  assert.equal(api.inspect().revision, revision);
+  assert.deepEqual(api.getProject(), before);
+});
+
 test("builds, observes, exports and imports like the page", async () => {
   api.loadProject(
     { format: "fun.dev/model", version: 1, name: "node", materials: [{ id: "wood", name: "wood", color: "#c9a27a", roughness: 0.6 }], nodes: [] },
