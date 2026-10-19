@@ -16,9 +16,15 @@ yellow field, dark simple marks, and very small touches of beak orange and water
 blue.
 
 The page should feel lightweight, curious, and personal. Prefer one strong idea
-over a collection of polished portfolio components. The homepage retains the
-original centered “Code for / − work. / + fun.” composition and introductory
-line, with a Games link in the header. The separate `/games/` lobby uses the
+over a collection of polished portfolio components. The homepage (2026-10-19)
+puts the original “Code for / − work. / + fun.” composition, one introductory
+line and one Duck Ink button on the left of the first screen, and a model from
+the library on the right, picked at random and turning on the yellow itself like
+a toy on a desk (no frame; it casts a soft ink shadow), with a small label below
+(name, links, another one). Phones stack them. Below, three plain entries
+(Workshop, Models, Docs) under one ink rule, then one muted line of what was made
+with them. No boxes beyond the button and the install command's cream inset.
+The separate `/games/` lobby uses the
 `fun.dev` wordmark, a quiet Workshop link, a language switch, and a simple game list. A game with a cover
 shows it as a small square thumbnail in place of its row number; the list stays a
 single column of rows, never a card grid. Avoid introductory
@@ -73,7 +79,8 @@ signal that the site must look like a terminal.
 
 - Use a full-viewport yellow canvas.
 - Keep the `fun.dev` wordmark in the top-left corner.
-- Center the original typographic hero on the homepage.
+- On the homepage the headline and the model share the first screen (two columns
+  on wide screens, stacked on phones); header and content share one width.
 - On `/games/`, keep the game list directly beneath the header.
 - Preserve generous empty space; do not fill the page to prove it has content.
 - Design for mobile first, then adapt to desktop. Keep labels short and controls comfortably sized.

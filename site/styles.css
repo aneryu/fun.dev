@@ -1,70 +1,10 @@
-:root {
-  color-scheme: light;
-  --duck-yellow: #ffd43b;
-  --duck-ink: #211f17;
-  --duck-brown: #5c5133;
-  --beak-deep: #9c3a12;
-  --water-deep: #064f67;
-  --focus-blue: #004e89;
-  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html {
-  min-width: 20rem;
-  background: var(--duck-yellow);
-}
-
-body {
-  min-height: 100vh;
-  min-height: 100dvh;
-  margin: 0;
-  overflow-x: hidden;
-  display: grid;
-  grid-template-rows: auto 1fr;
-  color: var(--duck-ink);
-  background: var(--duck-yellow);
-  font-family: var(--font-mono);
-  line-height: 1.5;
-}
-
-a {
-  color: inherit;
-}
-
-a:focus-visible {
-  outline: 3px solid var(--focus-blue);
-  outline-offset: 4px;
-}
-
-.site-header {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  padding: clamp(1.25rem, 3vw, 2rem);
-  font-size: 0.75rem;
-}
-
-.wordmark {
-  font-weight: 700;
-  text-decoration: none;
-}
-
-main {
-  display: grid;
-  place-items: center;
-  padding: 2rem 1.5rem 6rem;
-}
-
-.hero {
-  position: relative;
-  z-index: 1;
-  width: min(100%, 64rem);
-  text-align: center;
-}
+/* The homepage and /docs (DESIGN.md). Tokens and the header come from platform.css. */
+.home-page { min-height: 100dvh; display: flex; flex-direction: column; }
+.home-page main { flex: 1; display: grid; gap: clamp(3rem, 8vw, 4.5rem); width: min(100% - 2.5rem, 44rem); padding-bottom: clamp(3rem, 8vw, 5rem); }
+.home-page .home-main, .home-page .site-header.page-width { width: min(100% - 3rem, 68rem); }
+.home-nav { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 0 0.9rem; font-size: 0.75rem; }
+.home-nav > a { display: inline-flex; align-items: center; min-height: 44px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .diff {
   width: fit-content;
@@ -76,69 +16,63 @@ main {
   letter-spacing: -0.055em;
   text-wrap: balance;
 }
+.diff > * { display: block; text-decoration: none; }
+.diff > *::before { display: inline-block; width: 1.25em; color: currentColor; font-weight: 400; }
+.context::before { content: "  "; white-space: pre; }
+.diff del { color: var(--beak-deep); }
+.diff del::before { content: "− "; }
+.diff del span { text-decoration: line-through; text-decoration-thickness: 0.055em; }
+.diff ins { color: var(--water-deep); font-weight: 700; }
+.diff ins::before { content: "+ "; }
+.intro { max-width: 42ch; margin: clamp(1.5rem, 4vw, 2.5rem) auto 0; color: var(--duck-brown); font-size: clamp(0.95rem, 2.1vw, 1.1rem); text-wrap: balance; }
 
-.diff > * {
-  display: block;
-  text-decoration: none;
-}
+/* Home: the headline and a library model share the first screen, the model standing on the
+   yellow like a toy on a desk with a small label; three plain entries below. */
+.home-main { display: grid; gap: clamp(2rem, 5vw, 3rem); padding-bottom: clamp(2.5rem, 6vw, 4rem); }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: clamp(1.5rem, 4vw, 3rem); min-height: min(34rem, 66vh); }
+.hero-copy { display: grid; gap: clamp(1.25rem, 3vw, 2rem); justify-items: start; }
+.home-main .diff { margin: 0; font-size: clamp(2rem, 5.2vw, 4.25rem); }
+.home-main .intro { margin: 0; max-width: 28ch; text-align: left; font-size: clamp(1rem, 1.8vw, 1.2rem); }
+.hero-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 1.5rem; font-size: 0.9rem; }
+.hero-actions > a:not(.button-link) { display: inline-flex; align-items: center; min-height: 44px; }
+.specimen { margin: 0; display: grid; gap: 0.25rem; justify-items: center; }
+.specimen-stage { position: relative; width: 100%; aspect-ratio: 4 / 3; max-width: 36rem; }
+.specimen-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: pan-y; cursor: grab; }
+.specimen-label { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0 0.75rem; min-height: 44px; font-size: 0.8rem; color: var(--duck-brown); text-align: center; }
+.specimen-label strong { color: var(--duck-ink); }
+.specimen-label a { margin-inline: 0.1rem; }
+.text-button { min-height: 44px; padding: 0 0.25rem; border: 0; background: transparent; color: var(--duck-ink); text-decoration: underline; text-underline-offset: 0.25em; font-size: inherit; }
+.entries { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.5rem clamp(1.5rem, 4vw, 3rem); padding-top: 1.5rem; border-top: 2px solid var(--duck-ink); }
+.entry { display: grid; align-content: start; gap: 0.5rem; }
+.entry h2 { font-size: 1.15rem; }
+.entry h2 a { text-decoration: none; }
+.entry h2 a::after { content: " →"; }
+.entry h2 a:hover { text-decoration: underline; }
+.entry p { font-size: 0.85rem; color: var(--duck-brown); }
+.command { display: inline-flex; align-items: center; width: fit-content; max-width: 100%; margin-top: 0.25rem; background: var(--duck-cream); color: var(--duck-ink); }
+.command code { padding: 0.35rem 0.6rem; font-size: 0.8rem; overflow-wrap: anywhere; }
+.copy-button { min-height: 2.25rem; border: 0; border-left: 1px solid var(--duck-brown); padding-inline: 0.6rem; background: transparent; font-size: 0.75rem; }
+.made { font-size: 0.8rem; }
+.button-link { display: inline-flex; align-items: center; min-height: 44px; padding: 0.5rem 1.1rem; background: var(--duck-ink); color: var(--duck-yellow); text-decoration: none; font-weight: 700; }
+.button-link:hover { text-decoration: underline; }
 
-.diff > *::before {
-  display: inline-block;
-  width: 1.25em;
-  color: currentColor;
-  font-weight: 400;
-}
-
-.context::before {
-  content: "  ";
-  white-space: pre;
-}
-
-.diff del {
-  color: var(--beak-deep);
-}
-
-.diff del::before {
-  content: "− ";
-}
-
-.diff del span {
-  text-decoration: line-through;
-  text-decoration-thickness: 0.055em;
-}
-
-.diff ins {
-  color: var(--water-deep);
-  font-weight: 700;
-}
-
-.diff ins::before {
-  content: "+ ";
-}
-
-.intro {
-  max-width: 42ch;
-  margin: clamp(2rem, 5vw, 3.25rem) auto 0;
-  color: var(--duck-brown);
-  font-size: clamp(0.95rem, 2.1vw, 1.1rem);
-  text-wrap: balance;
-}
+/* /docs */
+.home-section { display: grid; gap: 0.75rem; padding-top: 1.25rem; border-top: 2px solid var(--duck-ink); }
+.home-section h2 { font-size: clamp(1.25rem, 3.5vw, 1.6rem); }
+.code-block { margin: 0; padding: 0.75rem 0.9rem; overflow-x: auto; border: 2px solid var(--duck-ink); background: var(--duck-cream); font-size: 0.8rem; line-height: 1.5; }
+.docs-links { margin: 0; padding-left: 1.25rem; }
+.docs-links li { padding-block: 0.35rem; }
+.home-footer { width: min(100% - 3rem, 68rem); margin-inline: auto; padding-block: 2rem; font-size: 0.75rem; }
 
 @media (hover: hover) {
-  .wordmark:hover {
-    text-decoration: underline;
-    text-decoration-color: var(--beak-deep);
-    text-decoration-thickness: 0.35em;
-    text-underline-offset: -0.12em;
-  }
+  .wordmark:hover { text-decoration: underline; text-decoration-color: var(--beak-deep); text-decoration-thickness: 0.35em; text-underline-offset: -0.12em; }
 }
-
 @media (max-width: 36rem) {
-  .diff {
-    font-size: clamp(1.45rem, 7.5vw, 2.25rem);
-  }
-}
+  .diff { font-size: clamp(1.45rem, 7.5vw, 2.25rem); }
+  .page-width { width: min(100% - 2.5rem, 72rem); }
+  .home-page .site-header { flex-direction: column; align-items: flex-start; gap: 0.25rem; padding-block: 1.5rem 2rem; }
+  .home-nav { justify-content: flex-start; }
+  .hero-grid { grid-template-columns: 1fr; min-height: 0; }
+  .entries { grid-template-columns: 1fr; }
 
-/* The homepage keeps its original composition; Games is its only new entry. */
-.games-entry { margin-left: auto; display: inline-flex; align-items: center; min-height: 44px; padding-inline: 0.5rem; }
-.games-entry + .games-entry { margin-left: 0; }
+}

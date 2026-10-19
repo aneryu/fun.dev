@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="fun.dev 工坊：让 agent 用代码造 3D 模型。" data-i18n-content="docsIntro">
+    <meta name="theme-color" content="#ffd43b">
+    <link rel="canonical" href="https://fun.dev/docs">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <script src="/i18n-boot.js"></script>
+    <link rel="stylesheet" href="/platform.css">
+    <link rel="stylesheet" href="/styles.css">
+    <script type="module" src="/docs.js"></script>
+    <title>fun.dev — Docs</title>
+  </head>
+  <body class="home-page">
+    <header class="site-header page-width">
+      <a class="wordmark" href="/" aria-label="fun.dev 首页" data-i18n-aria="home" data-language-link>fun.dev</a>
+      <nav class="home-nav" aria-label="fun.dev">
+        <a href="/editor/" data-i18n="workshop" data-language-link>工坊</a>
+        <a href="/models" data-i18n="models" data-language-link>模型库</a>
+        <a href="/games" data-i18n="games" data-language-link>游戏</a>
+        <a href="/docs" aria-current="page" data-i18n="docs" data-language-link>文档</a>
+        <select class="language-toggle" id="language-toggle" aria-label="语言" data-i18n-aria="language" hidden><option value="auto" data-i18n="languageAuto">自动</option><option value="zh" lang="zh-CN">中文</option><option value="en" lang="en">English</option></select>
+      </nav>
+    </header>
+    <main class="page-width">
+      <section class="home-section" aria-labelledby="docs-title">
+        <h1 id="docs-title" data-i18n="docsTitle">给 agent 用</h1>
+        <p data-i18n="docsIntro">工坊是一个 Node 程序，agent 用脚本或 MCP 调它造模型；只要 Node 22，不要浏览器和显卡。</p>
+      </section>
+
+      <section class="home-section" aria-labelledby="script-title">
+        <h2 id="script-title" data-i18n="docsScript">一个脚本造一个模型</h2>
+        <p data-i18n="docsScriptLine">写 model.mjs，运行，看预览图，改，再运行。</p>
+        <pre class="code-block"><code>npx -y fundev-workshop --run model.mjs</code></pre>
+        <pre class="code-block"><code>// model.mjs
+export default async function (ws) {
+  await ws.load({ name: "crate_01", materials: [
+    { id: "mat_wood", color: "#c89969", roughness: 0.8 },
+  ] });
+  await ws.apply([
+    { op: "create", id: "crate_01", kind: "group" },
+    { op: "create", id: "body", kind: "box", parent: "crate_01", material: "mat_wood",
+      position: [0, 0.25, 0], options: { size: [0.5, 0.5, 0.5], bevel: 0.01 } },
+  ]);
+  await ws.observe(["perspective"], { file: "preview.png" });
+  await ws.exportGLB({ file: "model.glb", origin: "ground-center" });
+}</code></pre>
+      </section>
+
+      <section class="home-section" aria-labelledby="mcp-title">
+        <h2 id="mcp-title" data-i18n="docsMcp">MCP</h2>
+        <p data-i18n="docsMcpLine">加进 Claude Code、Codex、Cursor 等的 MCP 配置，agent 就有了 fun_editor_* 这一组工具。</p>
+        <pre class="code-block"><code>{
+  "mcpServers": {
+    "fundev-workshop": {
+      "command": "npx",
+      "args": ["-y", "fundev-workshop", "--mcp", "--session", "model.json", "--artifacts", "out"]
+    }
+  }
+}</code></pre>
+      </section>
+
+      <section class="home-section" aria-labelledby="library-title">
+        <h2 id="library-title" data-i18n="docsLibrary">模型库</h2>
+        <p data-i18n="docsLibraryLine">先找现成的再改：搜索、打开、派生，都是 CC0。</p>
+        <pre class="code-block"><code>const { models } = await ws.librarySearch({ query: "street lamp" });
+await ws.openLibraryModel(models[0].id);      // edit or derive from it
+await ws.openLibraryModel("city_taxi_01", { mode: "add" });   // assemble a scene</code></pre>
+      </section>
+
+      <section class="home-section" aria-labelledby="more-title">
+        <h2 id="more-title" data-i18n="docsMore">更多</h2>
+        <ul class="docs-links">
+          <li><a href="/editor/guide" data-i18n="docsGuide" data-language-link>一页速查（命令、形状、约定）</a></li>
+          <li><a href="https://github.com/aneryu/fun.dev/blob/main/docs/library-api.md" data-i18n="docsLibraryApi">模型库 API</a></li>
+          <li><a href="https://www.npmjs.com/package/fundev-workshop" data-i18n="docsNpm">npm 包</a></li>
+        </ul>
+      </section>
+    </main>
+    <footer class="home-footer muted">
+      <a href="https://github.com/aneryu/fun.dev">GitHub</a>
+    </footer>
+  </body>
+</html>

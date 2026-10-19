@@ -12,7 +12,7 @@ function stage() {
   const sun = new THREE.DirectionalLight(0xffffff, 2.2);
   sun.position.set(3, 5, 4);
   scene.add(sun);
-  return { scene, camera: new THREE.PerspectiveCamera(35, 1, 0.01, 1000) };
+  return { scene, sun, camera: new THREE.PerspectiveCamera(35, 1, 0.01, 1000) };
 }
 
 // Ambient light as a sky above a ground: on painted surfaces it is exactly a hemisphere light, and
@@ -118,12 +118,16 @@ export async function renderThumbnail(bytes, size = 512) {
 
 // A turntable for one model: drag to turn, pinch or scroll to zoom. It renders only while
 // something moves, and turns by itself unless motion is reduced.
-export function createViewer(container) {
+// ground: the model casts a soft shadow on whatever is behind the canvas (the homepage's yellow).
+export function createViewer(container, { ground = false } = {}) {
   const renderer = new THREE.WebGPURenderer({ antialias: true, alpha: true });
+  renderer.shadowMap.enabled = ground;
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   const ready = renderer.init();
   container.append(renderer.domElement);
-  const { scene, camera } = stage();
+  const { scene, camera, sun } = stage();
+  const floor = ground ? new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.ShadowMaterial({ color: 0x211f17, opacity: 0.22 })) : null;
+  if (floor) { floor.receiveShadow = true; scene.add(floor); sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); sun.shadow.radius = 4; }
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.autoRotate = !matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -170,6 +174,19 @@ export function createViewer(container) {
       model = gltf.scene;
       scene.add(model);
       const { center, radius, distance } = frame(camera, model);
+      if (floor) {
+        // The floor under the model's lowest point; the sun's shadow box hugs the model.
+        model.traverse((node) => { if (node.isMesh) node.castShadow = true; });
+        const bottom = new THREE.Box3().setFromObject(model).min.y;
+        floor.position.set(center.x, bottom, center.z);
+        floor.scale.setScalar(radius * 6);
+        sun.position.copy(center).add(new THREE.Vector3(3, 5, 4).normalize().multiplyScalar(radius * 4));
+        sun.target.position.copy(center);
+        sun.target.updateMatrixWorld();
+        Object.assign(sun.shadow.camera, { left: -radius * 2, right: radius * 2, top: radius * 2, bottom: -radius * 2, near: radius * 0.5, far: radius * 10 });
+        sun.shadow.camera.updateProjectionMatrix();
+        sun.shadow.bias = -0.0005;
+      }
       controls.target.copy(center);
       controls.minDistance = radius * 0.5;
       controls.maxDistance = distance * 4;

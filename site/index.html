@@ -1,41 +1,79 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="fun.dev — Little games, made for fun.">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="fun.dev — 让 agent 用代码造 3D。" data-i18n-content="homeIntro">
     <meta name="theme-color" content="#ffd43b">
-
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://fun.dev/">
     <meta property="og:title" content="fun.dev — Code for work. Code for fun.">
-    <meta property="og:description" content="Little games, made for fun.">
-
+    <meta property="og:description" content="让 agent 用代码造 3D。">
     <link rel="canonical" href="https://fun.dev/">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <script src="/i18n-boot.js"></script>
+    <link rel="stylesheet" href="/platform.css">
     <link rel="stylesheet" href="/styles.css">
-
+    <script type="module" src="/home.js"></script>
     <title>fun.dev — Code for work. Code for fun.</title>
   </head>
-  <body>
-    <header class="site-header">
-      <a class="wordmark" href="/" aria-label="fun.dev home">fun.dev</a>
-      <a class="games-entry" href="/games">Games ↗</a>
-      <a class="games-entry" href="/models">Models ↗</a>
+  <body class="home-page">
+    <header class="site-header page-width">
+      <a class="wordmark" href="/" aria-label="fun.dev 首页" data-i18n-aria="home" data-language-link>fun.dev</a>
+      <nav class="home-nav" aria-label="fun.dev">
+        <a href="/editor/" data-i18n="workshop" data-language-link>工坊</a>
+        <a href="/models" data-i18n="models" data-language-link>模型库</a>
+        <a href="/games" data-i18n="games" data-language-link>游戏</a>
+        <a href="/docs" data-i18n="docs" data-language-link>文档</a>
+        <select class="language-toggle" id="language-toggle" aria-label="语言" data-i18n-aria="language" hidden><option value="auto" data-i18n="languageAuto">自动</option><option value="zh" lang="zh-CN">中文</option><option value="en" lang="en">English</option></select>
+      </nav>
     </header>
-
-    <main>
-      <section class="hero" aria-labelledby="hero-title">
-        <h1 class="diff" id="hero-title" aria-label="Code for work. Code for fun.">
-          <span class="context">Code for</span>
-          <del><span>work.</span></del>
-          <ins>fun.</ins>
-        </h1>
-
-        <p class="intro">Things I make for fun.</p>
+    <main class="page-width home-main">
+      <section class="hero-grid" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <h1 class="diff" id="hero-title" aria-label="Code for work. Code for fun.">
+            <span class="context">Code for</span>
+            <del><span>work.</span></del>
+            <ins>fun.</ins>
+          </h1>
+          <p class="intro" data-i18n="homeIntro">让 agent 用代码造 3D。</p>
+          <p class="hero-actions">
+            <a class="button-link" href="/docs" data-i18n="useAgent" data-language-link>给你的 agent 用</a>
+            <a href="/models" data-i18n="browseModels" data-language-link>逛模型库</a>
+          </p>
+        </div>
+        <figure class="specimen">
+          <div class="specimen-stage" id="model-stage"></div>
+          <figcaption class="specimen-label" aria-live="polite">
+            <span id="model-caption"></span>
+            <button type="button" class="text-button" id="another-model" data-i18n="anotherModel" hidden>换一个</button>
+          </figcaption>
+        </figure>
       </section>
+
+      <section class="entries" aria-label="fun.dev">
+        <div class="entry">
+          <h2><a href="/editor/" data-i18n="workshop" data-language-link>工坊</a></h2>
+          <p data-i18n="workshopLine">一个 Node 程序，脚本或 MCP 都能调；在你自己的电脑上跑，不要浏览器和显卡。</p>
+          <p class="command"><code id="install-command">npx -y fundev-workshop</code><button type="button" class="copy-button" data-copy="install-command" data-i18n="copy">复制</button></p>
+        </div>
+        <div class="entry">
+          <h2><a href="/models" data-i18n="models" data-language-link>模型库</a></h2>
+          <p id="models-line" data-i18n="modelsIntro">CC0 模型，随便用，也能拿去改。</p>
+        </div>
+        <div class="entry">
+          <h2><a href="/docs" data-i18n="docs" data-language-link>文档</a></h2>
+          <p data-i18n="docsLine">装上，写一个脚本，造出第一个模型。</p>
+        </div>
+      </section>
+
+      <p class="made muted" data-i18n="madeLine">用它做的：我在帝都打工的日子（施工中）</p>
     </main>
+    <footer class="home-footer muted">
+      <span data-i18n="credits">模型 CC0</span>
+      · <a href="https://github.com/aneryu/fun.dev">GitHub</a>
+    </footer>
   </body>
 </html>
