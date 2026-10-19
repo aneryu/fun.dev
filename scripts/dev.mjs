@@ -5,6 +5,8 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPreviewServer, listen } from "./preview-server.mjs";
 import { sync } from "./blobs.mjs";
+import { fixtureGames, gamesRoot } from "./local-games.mjs";
+import { existsSync } from "node:fs";
 
 // Development only: rebuild dist/ on source changes and reload open pages.
 // The reload script is injected by this server and never written into dist/.
@@ -14,12 +16,16 @@ if (extra.length || (id && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id))) {
   console.error("Usage: npm run dev [-- <game-id>]");
   process.exit(1);
 }
+// Games come from the games directory (FUNDEV_GAMES or ../fundev-games); without one, the
+// platform's test game.
+if (!existsSync(gamesRoot())) process.env.FUNDEV_GAMES = fixtureGames;
+const games = gamesRoot();
 if (id) {
-  try { await access(new URL(`games/${id}/game.json`, root)); }
-  catch { console.error(`Unknown game: games/${id}/game.json does not exist.`); process.exit(1); }
+  try { await access(join(games, id, "game.json")); }
+  catch { console.error(`Unknown game: ${join(games, id, "game.json")} does not exist.`); process.exit(1); }
 }
 
-// Bring games/<id>/assets/ and sources/ up to date with their locks (never edits a lock).
+// Bring each game's assets/ and sources/ up to date with their locks (never edits a lock).
 const { problems } = await sync({ mode: "restore" });
 for (const problem of problems) console.warn(problem);
 
@@ -37,7 +43,7 @@ self.addEventListener("activate", (event) => event.waitUntil((async () => {
 `;
 
 function build() {
-  // An empty origin overrides .env, so dev always serves the local games/ sources.
+  // An empty origin overrides .env, so dev always serves the local game sources.
   const env = { ...process.env, FUNDEV_GAME_ORIGIN: "", FUNDEV_TRANSFER: "", FUNDEV_NO_SW: "1" };
   return new Promise((done) => {
     spawn("npm", ["run", "--silent", "build"], { cwd: fileURLToPath(root), env, stdio: "inherit" })
@@ -88,7 +94,8 @@ setInterval(() => {
     try { readdirSync(directory); } catch { watcher.close(); watchers.delete(directory); }
   }
 }, 5000).unref();
-for (const directory of ["site", "games", "scripts", "skills"]) watchTree(fileURLToPath(new URL(`${directory}/`, root)));
+for (const directory of ["site", "scripts", "skills"]) watchTree(fileURLToPath(new URL(`${directory}/`, root)));
+watchTree(games + "/");
 
 await rebuild();
 const server = createPreviewServer({
@@ -118,4 +125,4 @@ const server = createPreviewServer({
 });
 const { port, host } = await listen(server);
 const page = id ? `games/${id}?debug=1` : "";
-console.log(`Dev: http://127.0.0.1:${port}/${page} (listening on ${host}:${port}; rebuilding on changes to site/, games/, scripts/, skills/)`);
+console.log(`Dev: http://127.0.0.1:${port}/${page} (listening on ${host}:${port}; rebuilding on changes to site/, scripts/, skills/ and ${games})`);

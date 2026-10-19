@@ -4,6 +4,7 @@ import { copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 
 import { homedir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gamesRoot } from "./local-games.mjs";
 
 // Binary files stay out of Git. A collection is a directory of real files plus a lock committed
 // to Git: one "<sha256> <size> <path>" line per file, sorted by path, so parallel branches that
@@ -13,15 +14,17 @@ export const root = fileURLToPath(new URL("../", import.meta.url));
 export const cacheRoot = process.env.FUNDEV_BLOBS || join(homedir(), ".cache", "fundev-blobs");
 const statePath = (base) => join(base, ".assets-state.json");
 
-// games/<id>/assets/ (lock games/<id>/assets.lock, paths like "assets/x.glb") and the shared
-// sources/ library (lock sources/sources.lock).
-export async function collections(base = root) {
+// Each game's assets/ (lock <id>/assets.lock, paths like "assets/x.glb"; games live in the games
+// directory, local-games.mjs) and the shared sources/ library (lock sources/sources.lock).
+export async function collections(base = root, games = gamesRoot()) {
   const list = [];
-  for (const entry of (await readdir(join(base, "games"), { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
-    if (!entry.isDirectory()) continue;
-    const game = join(base, "games", entry.name);
+  const entries = (await exists(games)) ? await readdir(games, { withFileTypes: true }) : [];
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+    const game = join(games, entry.name);
     const present = await exists(join(game, "assets")) || await exists(join(game, "assets.lock"));
-    if (present) list.push({ name: `games/${entry.name}`, base: game, directory: "assets", lock: join(game, "assets.lock") });
+    // Named by its path from this checkout: worktrees of the same game keep separate states.
+    if (present) list.push({ name: relative(base, game) || entry.name, base: game, directory: "assets", lock: join(game, "assets.lock") });
   }
   list.push({ name: "sources", base: join(base, "sources"), directory: "", lock: join(base, "sources", "sources.lock"), skip: new Set(["README.md", "sources.lock"]) });
   return list;
@@ -110,12 +113,12 @@ async function loadState(base) {
 //   mode "restore" only bring files up to date with the locks (npm run dev)
 //   mode "check"   change nothing; report differences (npm run verify)
 // prefer: "lock" | "local" resolves conflicts.
-export async function sync({ mode = "sync", prefer = null, log = console.log, base = root } = {}) {
+export async function sync({ mode = "sync", prefer = null, log = console.log, base = root, games = gamesRoot() } = {}) {
   const state = await loadState(base);
   const problems = [];
   const changes = [];
   const missing = [];
-  for (const collection of await collections(base)) {
+  for (const collection of await collections(base, games)) {
     const lock = await readLock(collection);
     const known = state[collection.name] ?? {};
     const files = await walk(join(collection.base, collection.directory), collection.base, collection.skip);
@@ -181,9 +184,9 @@ export async function sync({ mode = "sync", prefer = null, log = console.log, ba
 }
 
 // Every blob referenced by a lock in this checkout.
-export async function referenced(base = root) {
+export async function referenced(base = root, games = gamesRoot()) {
   const hashes = new Map();
-  for (const collection of await collections(base)) {
+  for (const collection of await collections(base, games)) {
     for (const [path, entry] of await readLock(collection)) hashes.set(entry.hash, { ...entry, label: `${collection.name}/${path}` });
   }
   return hashes;

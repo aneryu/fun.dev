@@ -31,7 +31,7 @@ export async function fun3dChecks({ browser, base }) {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
-  await page.goto(`${base}/games/muyu`);
+  await page.goto(`${base}/games/probe`);
   const report = await page.evaluate(async (list) => {
     const { run } = await import("/fun3d-check/page.js");
     return run({ samples: list });

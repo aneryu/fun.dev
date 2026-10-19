@@ -4,10 +4,10 @@ Little games, made for fun (做着玩的小游戏，点开就玩). A personal We
 one Three.js container runs versioned game bundles; games do not ship their own HTML pages.
 Each game plays at `/games/<id>`, so page analytics count every game on its own path.
 
-The catalog includes **敲木鱼 / Wooden Fish** (`muyu`): tap the wooden fish for merit,
-keep a steady beat to reach samadhi, collect twelve relics and draw a daily fortune lot.
-Everything on the site and in the game supports Chinese and English. Its self-contained
-source, tools and tests are documented in [the game README](games/muyu/README.md).
+Game sources live in the private `fundev-games` repository beside this one; the next game is
+**我在帝都打工的日子 / one day day**. The earlier games (Wooden Fish, Slap, Seal Carving and
+the unreleased ones) were retired on 2026-10-19; their code is on the branch
+`archive/games-2026-10-19`. Everything on the site supports Chinese and English.
 
 ## Develop, test, release
 
@@ -44,9 +44,11 @@ reference commands and operations. Requires Node.js 22+ and `tar`.
   offline play for games opened before. The build writes the precache list.
 - `site/404.html`: not-found page, also for unknown game IDs. The production build reads the
   R2 catalog for the game pages and stops if it is unavailable.
-- `games/<id>/`: each game's source, one directory per game; `game.json` holds its
-  catalog metadata, version, and runtime file list. Local builds generate the
-  preview catalog and bundles from it; production reads the independent R2 catalog.
+- Games: one directory per game in the games repository (`FUNDEV_GAMES`, else
+  `../fundev-games`); `game.json` holds its catalog metadata, version, and runtime file list.
+  Local builds generate the preview catalog and bundles from it; production reads the
+  independent R2 catalog. `tests/fixture-games/probe/` is the platform's own test game,
+  used by `npm run verify` and never published.
 - `sources/`: shared library of asset pipeline inputs. It and each game's `assets/`
   are not in Git; locks record them and `npm run assets` syncs them
   ([docs/assets.md](docs/assets.md)).
@@ -75,8 +77,7 @@ uses Pages Functions and D1 as a temporary relay.
 
 Supported games save automatically in IndexedDB without registration. Ordinary
 play, reload, focus, and reconnection create no remote account, Cookie, or
-progress API request. Wooden Fish uses the optional `context.progress`
-capability. The service worker also lets visitors reopen the site and games they
+progress API request. Games use the optional `context.progress` capability. The service worker also lets visitors reopen the site and games they
 played before without a network connection.
 
 In **My progress / 我的进度**, choose **Transfer to another device**, open the
@@ -122,9 +123,9 @@ reported aggregate usage; there is no gameplay analytics.
 
 ## Add a game
 
-Create `games/<id>/` with `game.js` exporting `createGame(context)` and a
-`game.json` manifest, develop it with `npm run dev -- <id>`, and ship it with
-`npm run release`, which publishes changed games to the R2 catalog. See
+Create `<id>/` in the games repository with `game.js` exporting `createGame(context)` and a
+`game.json` manifest, develop it with `npm run dev -- <id>` here, commit it there, and ship it
+with `npm run release`, which publishes changed games to the R2 catalog. See
 [the bundle contract](docs/game-bundles.md) and [game registry](docs/game-registry.md).
 
 ## Language

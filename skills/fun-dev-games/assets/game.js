@@ -1,4 +1,4 @@
-// Optional starter for games/<id>/game.js (API v2): a cube that turns on tap or Space,
+// Optional starter for <id>/game.js in the games repository (API v2): a cube that turns on tap or Space,
 // with a HUD counter drawn by the platform kit. Replace the gameplay freely.
 export const options = [
   { id: "speed", section: "settings", type: "choice", default: "normal", label: { zh: "转速", en: "Speed" },

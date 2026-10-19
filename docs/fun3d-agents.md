@@ -48,7 +48,7 @@ wheeled vehicles; the rest of the manifest is accepted, kept and reported.
 ```
 
 The build converts each pinned version through the profile (cached by source and converter) and
-writes `games/<id>/models.lock`; commit it with `game.json`. Files are served as
+writes `<id>/models.lock` in the games repository; commit it with `game.json`. Files are served as
 `models/<id>@<version>.fun3d` blobs.
 
 ```js

@@ -13,8 +13,10 @@ Options panel that renders the game's declared settings and cheats. Do not add
 game-specific platform APIs for counters, buttons, inventories, etc.; use the
 runtime kit through `context.runtime()` for shared helpers.
 
-Game sources live in the fun.dev repository, one directory per game at
-`games/<id>/`, so platform contract changes and every game upgrade together.
+Game sources live in the private `fundev-games` repository, one directory per game
+at `<id>/`, checked out beside the fun.dev platform checkout (`FUNDEV_GAMES`, else
+`../fundev-games`). Platform contract changes have no compatibility window: every
+game is ported before the platform's major release.
 Locate the fun.dev checkout and read its current AGENTS.md and DESIGN.md. The
 reference platform repository is https://github.com/aneryu/fun.dev; do not assume
 it exists at a particular local path. Inspect the implementation if its contract
@@ -39,10 +41,13 @@ directory (keep tooling in `dev/`). Their exported runtime must be browser ESM
 with `game.js` exporting `createGame(context)`, listed with its assets in
 `game.json`. Iterate with `npm run dev -- <id>`, which rebuilds and reloads the
 local platform; the public site does not connect to local servers. Run
-`npm run verify` for the lifecycle checks of every game and the platform.
+`npm run verify -- --games=../fundev-games --game=<id>` from the platform checkout
+for the game's lifecycle checks (plain `npm run verify` checks the platform with its
+own test game).
 
 When several agents build games at once, follow the checkout's
-`docs/parallel-games.md`: one game per agent, its own `games/<id>/` only.
+`docs/parallel-games.md`: one game per agent, its own `<id>/` only, in its own
+worktree of the games repository.
 
 Read [the trust boundary](references/security.md) before integrating game code.
 

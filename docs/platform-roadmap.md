@@ -26,14 +26,20 @@ show it. The decisions:
   shading, no textures). Formats, project files and command schemas must leave
   room for UVs, textures and realism later.
 - **Games** leave this public repository for one private repository,
-  `fundev-games`. The platform API becomes versioned with a compatibility
-  window (the player supports the current and the previous major version),
-  replacing "all games upgrade together" in [Scope](#scope). The publisher
-  becomes a CLI that the games repository calls. Later: game bundles uploaded
-  through the console with review, open to outside developers.
-- **帝都** (the Beijing driving game) is the main showcase and the stress test
-  for the toolchain. The layers of the showcase are still to be decided, before
-  the site redesign.
+  `fundev-games`, checked out beside it; the platform's tools build, test and
+  publish them from there (`FUNDEV_GAMES`, else `../fundev-games`). There is
+  **no compatibility window**: as before, every game is ported before a
+  platform contract upgrade, which may cause a short outage (revised the same
+  day; a window comes back when outside games arrive). Later: the tools as an
+  npm package, and game bundles uploaded through the console with review, open
+  to outside developers.
+- **The earlier games are retired** (Wooden Fish, Slap, Seal Carving, and the
+  unreleased Clock Out, Slap Puppet and Cyber Muyu): unpublished, code on the
+  branch `archive/games-2026-10-19` and tags `archive/game-<name>`.
+- **我在帝都打工的日子 / one day day** (id `one-day-day`, formerly 帝都/Didu; the
+  city in it is still 帝都) is the only game, the main showcase and the stress
+  test for the toolchain. The layers of the showcase are still to be decided,
+  before the site redesign.
 - **Model library**: public and read-only, CC0; agents search, download and
   derive through an API. Uploads and review stay internal. Later: outside
   uploads with review.
@@ -42,7 +48,7 @@ show it. The decisions:
   the user's machine. The web workshop is for people to look and adjust. Later:
   a hosted API.
 - **Site**: the homepage presents the toolchain (workshop, library, agent
-  docs) with 帝都 as what it made, in the playful tone; games stay at
+  docs) with one day day as what it made, in the playful tone; games stay at
   `/games/<id>`; `/editor/` becomes `/workshop/` without the old address.
 
 ### Disposition of existing work
@@ -53,9 +59,9 @@ show it. The decisions:
 | Model library, console, review | Mainline (public read-only) |
 | `.fun3d` and runtime (kit, light slots, physics) | Mainline, as the one-stop path |
 | Player and host API | Maintained; gains versioning |
-| 帝都 (`game/didu`, `game/didu-fun3d`) | Moves to `fundev-games`; main showcase |
-| Wooden Fish, Slap, Seal Carving | Move to `fundev-games`; maintenance only |
-| Clock Out, Slap Puppet, Cyber Muyu branches | Move to `fundev-games`; Later |
+| one day day (`game/didu` and `game/didu-fun3d` merged) | In `fundev-games`; main showcase |
+| Wooden Fish, Slap, Seal Carving | Retired: unpublished, archived |
+| Clock Out, Slap Puppet, Cyber Muyu branches | Retired: archived |
 | Workshop stage 4: skeletons and animation (low-poly characters) | Next after the early phase |
 | Workshop stage 3: UVs, textures, baking | Later |
 | Realistic humans, MetaHuman (archive branches) | Stay archived |
@@ -70,7 +76,7 @@ The early phase ends when all three hold:
    following only the homepage's agent docs, install the package and build
    models that pass library review (a lamp post, a sedan, a building), unaided
    and at no more cost than the Blender route.
-2. 帝都 M1 (a drivable Beijing block: road kit, vehicles, building families,
+2. one day day M1 (a drivable block of 帝都: road kit, vehicles, building families,
    signals) is made entirely with the toolchain; no model comes from Blender.
 3. The library and Beijing pipelines no longer use Blender; they report gaps
    in the toolchain instead of working around them.
@@ -86,8 +92,10 @@ need appears.
    `cdn.fun.dev` became the R2 content origin with CORS for every site, platform files moved to
    `static.fun.dev`; [library API](library-api.md); `librarySearch`, `libraryModel`,
    `openLibraryModel` and project `sources` in the workshop).
-3. Versioned platform API with the compatibility window; games move to
-   `fundev-games`; the publisher becomes a CLI; `games/` leaves this repository.
+3. Games move to `fundev-games` and `games/` leaves this repository (done
+   2026-10-19, without a compatibility window: the tools take the games
+   directory; the platform tests with its own game, `tests/fixture-games/probe`;
+   the earlier games are retired).
 4. Site redesign: toolchain homepage, `/workshop/`, agent docs (after the
    showcase layers are decided).
 5. The outside-agent acceptance test (exit criterion 1).

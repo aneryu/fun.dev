@@ -233,10 +233,10 @@ The old v1 local draft is migrated on the first successful save; its original ke
 is retained. Separate draft copies use their own URL key and writer lock.
 
 Keep the editable JSON (`getProject()`, saved as `.funmodel.json`) beside a game's development
-scripts, for example `games/<id>/dev/models/duck.funmodel.json`, so source edits are
+scripts, for example `<id>/dev/models/duck.funmodel.json` in the games repository, so source edits are
 reviewable in Git; project files are binary and, like other source binaries, belong in
 `sources/` with their lock ([assets](assets.md)).
-The runtime export goes to `games/<id>/assets/duck.glb`; list it in `game.json`,
+The runtime export goes to `<id>/assets/duck.glb`; list it in `game.json`,
 bump the game version when shipping a change, then run `npm run assets` and keep
 the lock in sync. No new game or binary asset is added by the workshop itself.
 

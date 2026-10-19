@@ -676,7 +676,7 @@ except references, which refuse the load.
   (`"models": { "<id>": "v003" }, "modelFormat": "fun3d"`, one format per game; game-local
   assets may stay GLB); the build derives each pinned version (cached by source and converter
   in the blob cache, so later and offline builds convert nothing) and writes
-  `games/<id>/models.lock` with hash, size and path of every derived file — commit it with
+  `<id>/models.lock` (in the games repository) with hash, size and path of every derived file — commit it with
   `game.json` — later with the closure of references (the build will inflate each pinned
   manifest to collect them and verify skeleton hashes); paths are
   `models/<id>@<version>.fun3d`, served as blobs like every asset. Game-local GLBs convert at
@@ -747,7 +747,7 @@ only with the stated restriction).
 | Release | Runtime implements | Loader behaviour with the rest |
 | --- | --- | --- |
 | 1 | container, schema, validator; nodes with meshes, sockets, tags, placements with tint; geometries with groups, flat groups, geometry LOD, morph targets; `pbr` and `unlit` with `emitter` and `tint`; images and textures (webp, png, jpeg, ktx2); skeletons and skinned meshes; clips with node channels on the same bone ids; batching; lights with slots (`kit/lights.js`, 2026-10-19); physics static and dynamic bodies, wheeled vehicles; `models.lock`; agent one-pager (`docs/fun3d-agents.md`); `verify fun3d` with synthetic scenarios, batched/single parity and real files | variants, group LOD, constraints, kinematic bodies, ragdolls, characters, material and light channels, events, additive and masks: ignored with a warning; refs: refused; `transmission`, extension features: dropped to the base |
-| 2 | references, retargeting, ragdolls, characters, constraints and kinematic bodies, variants, group LOD, material and light channels through proxies, events, additive clips and masks, `transmission`; direct `.fun3d` uploads; 准点下班 adopts | extension features: dropped to the base |
+| 2 | references, retargeting, ragdolls, characters, constraints and kinematic bodies, variants, group LOD, material and light channels through proxies, events, additive clips and masks, `transmission`; direct `.fun3d` uploads | extension features: dropped to the base |
 | 3 | workshop: `.fun3d` save and open with editing sections, GLB export, physics commands; library pages on `.fun3d` | — |
 | later | extensions as needed, each with its producer and consumer: `fun3d.wind`, `fun3d.clearcoat`, `fun3d.decals`, `fun3d.hair`, `fun3d.skin`, `fun3d.softbody`, `fun3d.vat`, `fun3d.nodes`, `fun3d.clusters`, `fun3d.heightfield`, `fun3d.motorcycle`, `fun3d.tracked`, `fun3d.buoyancy`, `fun3d.decomposition`, texture arrays; appendix A items as they find producers | — |
 

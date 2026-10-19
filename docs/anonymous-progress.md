@@ -41,7 +41,7 @@ See [README](../README.md#local-transfer-preview) for commands and activation st
 
 Implementation: `site/progress/` owns browser storage, queue, and UI;
 `server/progress.js` implements the API; `migrations/` defines D1 storage.
-Wooden Fish 1.1.0 integrates the capability; 1.0.0 remains unchanged.
+Wooden Fish 1.1.0 (a game since abandoned) integrated the capability; 1.0.0 remained unchanged.
 The main My progress action is a one-use device connection link; backup codes,
 manual sync, export/import, and deletion are inside More options. Failures mark
 the menu button with `!` and an accessible status label. The game keeps its viewport.
@@ -303,7 +303,7 @@ Add `context.launchReason` with `open` or `restart` so a game can distinguish
 resuming after reload from restarting its current run. Recovery, conflict
 selection, and starting after a reset open the selected snapshot with `open`.
 Games with unlocks preserve them when handling `restart`; Wooden Fish simply
-retains its merit because it has no separate run. Older hosts default to `open`.
+retained its merit because it had no separate run. Older hosts default to `open`.
 
 Old bundles remain compatible. New bundles feature-detect the capability when
 used with an older host and expose session-only play accurately. The current
@@ -441,7 +441,7 @@ snapshot in bounded history; mark a branch resolved only in the same transaction
 as selection. Another device writing during selection causes a fresh conflict
 rather than forced overwrite.
 
-Wooden Fish initially uses this snapshot policy. If devices independently move
+Wooden Fish initially used this snapshot policy. If devices independently move
 from 100 to 110 and 107, neither 110 nor 217 preserves all distinct knocks. A
 future increment protocol would need operation identity, deduplication, and a
 reset generation to produce 117 safely; it is not a generic JSON merge rule.

@@ -12,31 +12,37 @@ npm run release              # ship to fun.dev (plan → confirm → execute →
 Setup once: Node.js 22+, `npm ci`, `npx playwright install chromium`, and
 `npx wrangler login` (an account with access to the `fundev` Pages project, the
 `fundev-games` and `fundev-sources` R2 buckets and the production D1 database).
-Binary files are not in Git: on a new machine, `npm run assets -- --pull` fetches
-them (see [assets](assets.md)). `.env` is optional; see
+Game sources live in the private repository `fundev-games`
+(GitHub `aneryu/fundev-games`), checked out beside this one (`~/fundev` and
+`~/fundev-games`); the platform's tools find it through `FUNDEV_GAMES`, else as
+`../fundev-games`. Without it there are no local games. Binary files are not in Git:
+on a new machine, `npm run assets -- --pull` fetches them (see [assets](assets.md)). `.env` is optional; see
 [Credentials](#credentials).
 
 ## 1. Develop
 
 ```sh
 npm run dev                  # http://127.0.0.1:8000, rebuilds and reloads on save
-npm run dev -- muyu          # prints the player URL for one game, with ?debug=1
+npm run dev -- <id>          # prints the player URL for one game, with ?debug=1
 ```
 
 - Platform code: `site/` (pages, player, host and runtime kit), `scripts/build.mjs`.
-- Games: `games/<id>/` with `game.js`, `game.json` (metadata, version, runtime
-  `files`) and optional `dev/`, `README.md`, `package.json` (never published). See
+- Games: `<id>/` in the games repository with `game.js`, `game.json` (metadata,
+  version, runtime `files`) and optional `dev/`, `README.md` (never published). See
   [game bundles](game-bundles.md) for the contract; the
   `skills/fun-dev-games/assets/game.js` starter is a working example.
-- The dev server uses the production headers (CSP), local `games/` sources, and
+- The dev server uses the production headers (CSP), the games directory's sources
+  (the platform's test game `tests/fixture-games/probe/` when there is none), and
   never registers the service worker. Other devices on the LAN can open the
   machine's address; `PORT` and `HOST` change where it listens.
 - Change a game's `version` in `game.json` when its code or assets change: each
   version is an immutable release once published.
-- `games/<id>/assets/` and `sources/` are not in Git. After adding or changing such
-  files, or after a merge, run `npm run assets` and commit the changed locks; see
+- A game's `<id>/assets/` and this repository's `sources/` are not in Git. After
+  adding or changing such files, or after a merge, run `npm run assets` and commit
+  the changed locks (in whichever repository they belong to); see
   [assets](assets.md). `npm run dev` restores missing files on start.
-- `npm test` (~20 s) runs only the unit tests, including each game's `dev/` tests.
+- `npm test` (~20 s) runs only the platform's unit tests. A game's own tests run in
+  the games repository, e.g. `node --test <id>/dev/*.test.mjs`.
 - `npm run fun3d -- inspect|validate|convert` works with `.fun3d` model files
   ([docs/fun3d-agents.md](fun3d-agents.md)); `npm run derive` builds a model from a
   blueprint or a project's parameters into a library upload folder
@@ -48,13 +54,14 @@ npm run dev -- muyu          # prints the player URL for one game, with ?debug=1
 
 ## 2. Verify
 
-`npm run verify` builds once and runs, in one Chromium:
+`npm run verify` builds once with the platform's own test game
+`tests/fixture-games/probe/` (id `probe`, never published) and runs, in one Chromium:
 
 | Suite | Checks |
 | --- | --- |
 | assets | `npm run assets -- --check`: every file matches its lock |
-| unit | `node --test`: catalog, publisher, CSP, kit, game pages, progress protocol with local D1, model library API and review with local D1/R2, game tests |
-| smoke | every game at phone and desktop size: runs, not blank, language switch, menu pause/resume, restart, clean exit, no console errors |
+| unit | `node --test`: catalog, publisher, CSP, kit, game pages, progress protocol with local D1, model library API and review with local D1/R2 |
+| smoke | the test game at phone and desktop size: runs, not blank, language switch, menu pause/resume, restart, clean exit, no console errors |
 | kit | text/HUD placement, pointer/keyboard/joystick, glTF with embedded textures, Draco/KTX2 and the MediaPipe vision runtime under the player CSP |
 | fun3d | `.fun3d` models: written, loaded, drawn alone and in batches (compared pixel for pixel), roles and tints, Jolt vehicles and bodies, clips; with `FUNDEV_FUN3D_SAMPLES=<dir of GLBs>` also real files converted in the browser |
 | player | loading bar, announcements, options/settings/cheats, mute, share, restart, debug panel, rotation prompt, API mismatch |
@@ -62,7 +69,8 @@ npm run dev -- muyu          # prints the player URL for one game, with ?debug=1
 | editor | desktop editing, single-writer drafts, parametric shapes, agent transactions, observations and GLB round trip through the runtime kit |
 
 `npm run verify -- smoke player` runs only some browser suites;
-`npm run verify -- smoke --game=<id>` smoke-tests a single game;
+`npm run verify -- --games=../fundev-games` smoke-tests the real games instead (the
+smoke suite only, unless others are named), `--game=<id>` a single one of them;
 `npm run verify -- --transfer` adds the slower account-transfer test (local D1 with
 `wrangler pages dev`). Screenshots go to `test-results/`. It also prints each game's
 download size (first load and `lazy/`), for information. Commit when it passes.
@@ -83,14 +91,17 @@ npm run release -- --yes     # same, without the prompt
 npm run release -- --check   # only the live checks against fun.dev
 ```
 
-`release` refuses a dirty tree or another branch. It reads the live state and
+`release` refuses a dirty tree or another branch, and uncommitted changes in the
+games repository (games are published as committed); it never publishes the test
+game. It reads the live state and
 prints a plan: which commit fun.dev runs, pending D1 migrations, whether the
 cleanup Worker changed (or is missing), which games differ from the R2 catalog
 (by content hash), and whether the website needs deploying (site code changed or
 games were published, which refreshes the game pages and sitemap). After confirmation:
 
 1. `verify` (plus the transfer test when progress, player, server, functions or
-   migrations changed). Failure stops before any remote change. Then back up new
+   migrations changed), then the smoke test of each game about to be published.
+   Failure stops before any remote change. Then back up new
    asset and source blobs to the private `fundev-sources` bucket.
 2. Apply pending D1 migrations.
 3. Deploy the cleanup Worker if it changed or does not exist.
@@ -110,7 +121,8 @@ commit and another `npm run release`.
 
 ### API version changes
 
-The platform runs a single game API version. When a commit changes it (and
+The platform runs a single game API version, with no compatibility window: every
+game is ported before the platform's major release. When a commit changes it (and
 every game's `apiVersion`), the plan says so: between step 4 and step 6 the old
 site cannot read the new catalog, for a few minutes. Rolling Pages back to a
 deployment with another API version shows the same error until rolled forward.
@@ -118,8 +130,8 @@ deployment with another API version shows the same error until rolled forward.
 ### Removing a game
 
 `npm run game:remove -- <id>` deletes its catalog entry (assets remain, running
-sessions continue). Also delete `games/<id>/`, or the next release publishes it
-again.
+sessions continue). Also delete `<id>/` from the games repository, or the next
+release publishes it again.
 
 ## Credentials
 
@@ -136,7 +148,7 @@ again.
 | Command | Purpose |
 | --- | --- |
 | `npm run assets` | Sync binary files with their locks; `--check`, `--use-lock`/`--use-local`, `--push`/`--pull` ([assets](assets.md)) |
-| `npm run build` | Local build into `dist/` (games from `games/`, transfer off) |
+| `npm run build` | Local build into `dist/` (games from the games directory, transfer off) |
 | `npm run build:production` | Production build (R2 catalog origin, transfer on) |
 | `npm run preview` | Serve `dist/` with the production headers |
 | `npm run game:remove -- <id>` | Remove a game from the live catalog |

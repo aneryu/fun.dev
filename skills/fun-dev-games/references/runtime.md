@@ -3,7 +3,8 @@
 The platform creates a session and awaits `createGame(context)`. A game module's
 top level must not allocate session resources or start gameplay; modules are
 cached and restarting calls the factory again. The platform runs one API version
-and every game upgrades with it; `game.json` must say `"apiVersion": 3`.
+and every game is ported before the platform's major release (there is no
+compatibility window); `game.json` must say `"apiVersion": 3`.
 
 | Context | Meaning |
 | --- | --- |
@@ -154,4 +155,4 @@ already accepted saves finish. The platform owns local identity and the account-
 
 Restart preserves progress. Clear-progress is a separate confirmed player
 command. Keep gameplay usable without the capability and state that saving is
-unavailable. Wooden Fish 1.2.0 is the reference integration.
+unavailable.

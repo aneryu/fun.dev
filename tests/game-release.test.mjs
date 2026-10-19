@@ -6,9 +6,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { prepareRelease, publishRelease, unregisterGame } from "../scripts/game-release.mjs";
 import { gameOrigin } from "../scripts/game-origin.mjs";
-import { loadLocalGames, localCatalog } from "../scripts/local-games.mjs";
+import { fixtureGames, loadLocalGames, localCatalog } from "../scripts/local-games.mjs";
 
-const manifest = fileURLToPath(new URL("../games/muyu/game.json", import.meta.url));
+const manifest = fileURLToPath(new URL("fixture-games/probe/game.json", import.meta.url));
 function memoryStore() {
   const objects = new Map(); let sequence = 0;
   return {
@@ -108,10 +108,10 @@ test("source origin configuration rejects URL injection and local endpoints", ()
   for(const value of ["http://games.example.com","https://x.example.com/a","https://user@x.example.com","https://127.0.0.1","https://x.localhost","https://x.example.com:443/a","https://x.example.com?q=1"]) assert.throws(()=>gameOrigin(value));
 });
 test("local game sources build an unhashed preview catalog and require matching directory IDs", async () => {
-  const releases = await loadLocalGames();
+  const releases = await loadLocalGames(fixtureGames);
   const ids = releases.map((entry) => entry.game.id);
   assert.deepEqual(ids, [...ids].sort(), "sorted by ID");
-  const release = releases.find((entry) => entry.game.id === "muyu");
+  const release = releases.find((entry) => entry.game.id === "probe");
   assert.ok(release);
   assert.ok(release.assets.every((asset) => !/^(?:dev\/|package\.json|README\.md)/.test(asset.path)));
   assert.equal(localCatalog([release])[0].release, undefined);

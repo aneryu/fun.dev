@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { chromium } from 'playwright';
+import { fixtureGames } from './local-games.mjs';
 
 const temporary = await mkdtemp(join(tmpdir(), 'fundev-progress-browser-'));
 const env = { ...process.env, CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false', WRANGLER_SEND_METRICS: 'false', FUNDEV_NO_SW: '1' };
@@ -16,7 +17,7 @@ const origin = `https://localhost:${port}`;
 let server, browser, output = '';
 const cli = 'node_modules/wrangler/bin/wrangler.js';
 try {
-  execFileSync('npm', ['run', 'build'], { env: { ...env, FUNDEV_GAME_ORIGIN: '', FUNDEV_TRANSFER: '1' }, stdio: 'pipe' });
+  execFileSync('npm', ['run', 'build'], { env: { ...env, FUNDEV_GAMES: fixtureGames, FUNDEV_GAME_ORIGIN: '', FUNDEV_TRANSFER: '1' }, stdio: 'pipe' });
   execFileSync(process.execPath, [cli, 'd1', 'migrations', 'apply', 'DB', '--local', '--persist-to', temporary, '--env-file', '/dev/null'], { env, stdio: 'pipe' });
   server = spawn(process.execPath, [cli, 'pages', 'dev', '--persist-to', temporary, '--port', String(port), '--env-file', '/dev/null', '--binding', 'TRANSFER_ENABLED=true', '--binding', `TRANSFER_ORIGIN=${origin}`], { env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   for (const stream of [server.stdout, server.stderr]) stream.on('data', chunk => { output = (output + chunk).slice(-12000); });
@@ -24,7 +25,7 @@ try {
   assert.ok(output.includes('Ready on'), output);
   browser = await chromium.launch({ args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const errors = [];
-  async function makePage(context, url = `${origin}/games/muyu?lang=en`) {
+  async function makePage(context, url = `${origin}/games/probe?lang=en`) {
     const page = await context.newPage(); page.setDefaultTimeout(15000);
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error' && !message.text().includes('net::ERR_INTERNET_DISCONNECTED') && !message.text().includes('status of 409 (Conflict)')) errors.push(message.text()); });
@@ -67,7 +68,7 @@ try {
   await action(b,'receive'); await merit(b,3); assert.equal(claims,1);
   const saved = await b.evaluate(async()=>{const {openLocal}=await import('/progress/local.js');const local=await openLocal();const rows=await local.all();local.close();return rows;});
   assert.ok(saved.some(row=>row.gameId==='other-game'&&row.snapshot.data.merit===88));
-  assert.ok(saved.some(row=>row.gameId==='muyu'&&row.snapshot.data.merit===1),'previous target profile retained');
+  assert.ok(saved.some(row=>row.gameId==='probe'&&row.snapshot.data.merit===1),'previous target profile retained');
   await a.bringToFront(); await action(a,'retry'); assert.match(await a.locator('#progress-status').innerText(),/Transferred/);
   await action(a,'close'); await a.reload(); await menu(a); assert.match(await a.locator('#progress-status').innerText(),/Transferred/);
   // The new device can play offline without progress API traffic.

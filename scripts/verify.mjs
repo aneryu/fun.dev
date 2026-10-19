@@ -9,24 +9,31 @@ import { editorChecks } from "./browser/editor.mjs";
 import { fun3dChecks } from "./browser/fun3d.mjs";
 import { smoke } from "./browser/smoke.mjs";
 import { sync } from "./blobs.mjs";
-import { loadLocalGames } from "./local-games.mjs";
+import { fixtureGames, loadLocalGames } from "./local-games.mjs";
 
 // Everything checkable locally, with one build and one browser:
 //   npm run verify                      unit tests + all browser suites
 //   npm run verify -- smoke player      only the named browser suites (plus unit tests)
 //   npm run verify -- --transfer        also the slower account-transfer test (wrangler pages dev)
 //   npm run verify -- smoke --game=<id> smoke-test one game only (for parallel game work)
+//   npm run verify -- --games=../fundev-games   smoke-test real games (default: the platform's
+//                                       test game in tests/fixture-games, which the other suites use)
 //   npm run verify -- --webgpu          browser suites on this machine's GPU, games forced to WebGPU
 //   npm run verify -- --skip=editor,kit  leave out browser suites (the release skips what its change cannot touch)
 const args = process.argv.slice(2);
 const skipped = new Set(args.find((arg) => arg.startsWith("--skip="))?.slice("--skip=".length).split(",").filter(Boolean) ?? []);
 const only = args.find((arg) => arg.startsWith("--game="))?.slice("--game=".length);
+const gamesArg = args.find((arg) => arg.startsWith("--games="))?.slice("--games=".length);
+// Builds, asset checks and loadLocalGames below read this directory.
+process.env.FUNDEV_GAMES = gamesArg ? resolve(gamesArg) : fixtureGames;
 const suites = { smoke: null, kit: kitChecks, fun3d: fun3dChecks, player: playerChecks, site: siteChecks, editor: editorChecks };
+// Real games run their smoke test only; the platform suites need the test game.
 const selected = args.filter((arg) => !arg.startsWith("--"));
+if (gamesArg && !selected.length) selected.push("smoke");
 const webgpu = args.includes("--webgpu");
-const unknown = [...selected.filter((name) => !(name in suites)), ...[...skipped].filter((name) => !(name in suites)), ...args.filter((arg) => arg.startsWith("--") && !["--transfer", "--webgpu"].includes(arg) && !arg.startsWith("--game=") && !arg.startsWith("--skip="))];
+const unknown = [...selected.filter((name) => !(name in suites)), ...[...skipped].filter((name) => !(name in suites)), ...args.filter((arg) => arg.startsWith("--") && !["--transfer", "--webgpu"].includes(arg) && !arg.startsWith("--game=") && !arg.startsWith("--games=") && !arg.startsWith("--skip="))];
 if (unknown.length) {
-  console.error(`Unknown: ${unknown.join(", ")}. Usage: npm run verify [-- ${Object.keys(suites).join("|")} ...] [--game=<id>] [--transfer] [--webgpu] [--skip=<suite>,...]`);
+  console.error(`Unknown: ${unknown.join(", ")}. Usage: npm run verify [-- ${Object.keys(suites).join("|")} ...] [--game=<id>] [--games=<dir>] [--transfer] [--webgpu] [--skip=<suite>,...]`);
   process.exit(1);
 }
 const results = [];
@@ -50,7 +57,7 @@ await step("unit tests", () => {
   if (spawnSync(process.execPath, ["--test"], { cwd: root, stdio: "inherit" }).status !== 0) throw new Error("Unit tests failed.");
 });
 await step("local build", () => {
-  // Local games/ sources; the service worker stays on for the offline check (other suites block it).
+  // Local game sources; the service worker stays on for the offline check (other suites block it).
   execFileSync("npm", ["run", "--silent", "build"], { cwd: root, stdio: "inherit", env: { ...process.env, FUNDEV_GAME_ORIGIN: "", FUNDEV_TRANSFER: "", FUNDEV_NO_SW: "" } });
 });
 if (results.every(([, status]) => status === "ok" || status === "skip")) {
@@ -58,7 +65,7 @@ if (results.every(([, status]) => status === "ok" || status === "skip")) {
   const browser = await launch({ webgpu });
   try {
     const games = JSON.parse(await readFile(resolve(dist, "games.json"), "utf8")).filter((game) => !only || game.id === only);
-    if (only && !games.length) results.push([`no game "${only}" in games/`, "FAIL", 0]);
+    if (only && !games.length) results.push([`no game "${only}" in ${process.env.FUNDEV_GAMES}`, "FAIL", 0]);
     else for (const [name, run] of Object.entries(suites)) {
       if ((selected.length && !selected.includes(name)) || skipped.has(name)) { if (skipped.has(name)) results.push([`browser: ${name}`, "skip", 0]); continue; }
       await step(`browser: ${name}`, () => name === "smoke" ? smoke({ browser, base: server.base, games, renderer: webgpu ? "webgpu" : "" }) : run({ browser, base: server.base, dist }));

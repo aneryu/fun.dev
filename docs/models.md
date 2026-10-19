@@ -234,7 +234,7 @@ A game declares its library models in `game.json`, pinned by version:
 and loads them like its own files: `context.asset("models/desk_chair_01.glb")`. With
 `"modelFormat": "fun3d"` beside `models`, the build converts each pinned version to
 [.fun3d](model-format.md) (`models/<id>@<version>.fun3d`, the runtime kit loads it batched with
-physics) and writes `games/<id>/models.lock`, committed with `game.json`. Preparing a
+physics) and writes `<id>/models.lock` in the games repository, committed with `game.json`. Preparing a
 release (`scripts/library-models.mjs`, used by every build and the publisher) looks each one up in
 `library/<id>.json`, fetches the blob into the shared cache (`~/.cache/fundev-blobs`, with copies
 of the page data, so builds also work offline) and adds it to the release's blob map. The release pins the
@@ -292,5 +292,5 @@ Deferred for future consideration, not rejected:
 - Adding models from the repository through `assets.lock` instead of addresses.
 - A public query API (search, paging) once the library reaches thousands of models.
 - Validating the library with a real game built from it (skipped on 2026-10-17: until then the
-  design may drift from what games need). Clock Out is realistic; the library is stylised.
+  design may drift from what games need).
 - A scheduled agent that reviews new uploads without being asked.

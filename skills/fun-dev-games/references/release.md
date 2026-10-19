@@ -13,19 +13,22 @@ files) and do not import them statically.
 
 ## Independent game publication
 
-Create `games/<id>/game.json` beside the game entry with `id` (matching the
+Game sources live in the private `fundev-games` repository beside the fun.dev
+checkout (`FUNDEV_GAMES`, else `../fundev-games`). Create `<id>/game.json` there
+beside the game entry with `id` (matching the
 directory name), `version`, `apiVersion: 3`, `title`, `description`, `category`,
 `platforms`, optional `orientation`/`howToPlay`/`cover`/`keepAwake`, and an
 explicit `files` array including `game.js` (and the cover). The publisher also
 uploads a `files.json` list for offline caching. Text supports
 both zh/en translations. Publish only reviewed runtime files. Bump `version` for
-each release; Git keeps earlier versions.
+each release; the games repository's Git history keeps earlier versions.
 
 From the fun.dev checkout, read `docs/workflow.md`. Inspect a release with
-`node scripts/publish-game.mjs publish games/my-game/game.json --dry-run`.
-Only when publication is authorized, commit on `main` and run
-`npm run release`: it publishes changed games, deploys the site if needed, and
-checks fun.dev afterwards. `npm run game:remove -- my-game` removes a game.
+`node scripts/publish-game.mjs publish ../fundev-games/my-game/game.json --dry-run`
+and smoke-test it with `npm run verify -- --games=../fundev-games --game=my-game`.
+Only when publication is authorized, commit the game in the games repository and
+the platform on `main`, then run `npm run release`: it publishes changed games
+(each smoke-tested first), deploys the site if needed, and checks fun.dev afterwards. `npm run game:remove -- my-game` removes a game.
 
 The publisher uses the local `npx wrangler login` session (bucket `fundev-games`,
 or `R2_BUCKET`). Never embed Cloudflare credentials in browser code.
@@ -36,8 +39,8 @@ an older saved bundle. No Pages build, deploy or Git push is part of registratio
 
 A one-time website deployment must configure `FUNDEV_GAME_ORIGIN`, the trusted
 public HTTPS resource origin, with CORS and caching configured on R2. Subsequent
-game releases need no website deployment. Local builds bundle `games/` with a
-generated catalog; production builds with a remote origin bundle no games.
+game releases need no website deployment. Local builds bundle the games directory
+with a generated catalog; production builds with a remote origin bundle no games.
 
 Verify browser loading, resource paths, mobile/desktop, touch/keyboard,
 pause/resume, restart and cleanup. Check `/games/?lang=zh`, `/games/?lang=en`
@@ -52,7 +55,7 @@ available Wrangler CLI; do not install a framework or add Workers configuration
 to a purely static Pages site.
 
 Deploy only with `npm run release` (with the user's authorization). It refuses a
-dirty tree or another branch, prints the plan (D1 migrations, cleanup Worker,
+dirty tree, another branch, or uncommitted changes in the games repository, prints the plan (D1 migrations, cleanup Worker,
 games, website) before changing anything, verifies locally, smoke-tests the
 production build against the live catalog, deploys `dist/` from
 `npm run build:production`, checks fun.dev, and pushes. `npm run release -- --check`

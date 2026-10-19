@@ -1,0 +1,31 @@
+{
+  "id": "probe",
+  "version": "1.0.0",
+  "apiVersion": 3,
+  "title": {
+    "zh": "探针",
+    "en": "Probe"
+  },
+  "description": {
+    "zh": "平台测试用的游戏",
+    "en": "The platform's test game"
+  },
+  "category": {
+    "zh": "测试",
+    "en": "Test"
+  },
+  "platforms": [
+    "mobile",
+    "desktop"
+  ],
+  "orientation": "any",
+  "howToPlay": {
+    "zh": "点击画面或按空格、回车点一下探针，功德 +1。",
+    "en": "Tap anywhere, or press Space or Enter, to tap the probe: merit +1."
+  },
+  "cover": "assets/cover.png",
+  "files": [
+    "game.js",
+    "assets/cover.png"
+  ]
+}

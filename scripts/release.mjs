@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { API_VERSION } from "../site/catalog.js";
 import { dist, launch, proxy, root, serve } from "./browser/harness.mjs";
@@ -8,7 +8,8 @@ import { liveCheck } from "./browser/live.mjs";
 import { smoke } from "./browser/smoke.mjs";
 import { publishRelease } from "./game-release.mjs";
 import { createWranglerStore } from "./r2-wrangler-store.mjs";
-import { loadLocalGames } from "./local-games.mjs";
+import { gamesRoot, isFixtureRoot, loadLocalGames } from "./local-games.mjs";
+import { existsSync } from "node:fs";
 import { pendingBackups, pushBlobs } from "./assets.mjs";
 
 // One-command release: npm run release [-- --yes] | [-- --check]
@@ -45,6 +46,10 @@ if (args.includes("--check")) {
 
 // ── Plan (read-only) ─────────────────────────────────────────────────────────
 if (git("status", "--porcelain")) fail("Commit or stash your changes first: a release deploys exactly one commit.");
+// Games are published from the games repository (FUNDEV_GAMES or ../fundev-games), committed too.
+const games = gamesRoot();
+if (isFixtureRoot(games)) fail("The platform's test game is never published; point FUNDEV_GAMES at the games repository.");
+if (existsSync(join(games, ".git")) && execFileSync("git", ["status", "--porcelain"], { cwd: games, encoding: "utf8" }).trim()) fail(`Commit or stash the changes in ${games} first: games are published as committed.`);
 const branch = git("rev-parse", "--abbrev-ref", "HEAD");
 if (branch !== "main") fail(`Releases ship the main branch (current: ${branch}). Merge into main first.`);
 const head = git("rev-parse", "HEAD");
@@ -78,7 +83,7 @@ const consoleChanged = consoleMissing || touches(/^server\/|^console\/|^site\/mo
 
 const backups = await pendingBackups();
 const remoteCatalog = await catalogNow();
-const local = await loadLocalGames();
+const local = await loadLocalGames(games);
 const publish = local.filter(({ game }) => remoteCatalog.find((entry) => entry.id === game.id)?.release !== game.release);
 const remoteOnly = remoteCatalog.filter((entry) => !local.some(({ game }) => game.id === entry.id));
 const apiChange = publish.some(({ game }) => remoteCatalog.find((entry) => entry.id === game.id)?.apiVersion !== game.apiVersion && remoteCatalog.some((entry) => entry.id === game.id));
@@ -86,7 +91,7 @@ const deploySite = siteChanged || publish.length > 0; // new releases also refre
 
 console.log(`
 Release plan for ${head.slice(0, 7)} (live site: ${deployed ?? "unknown"})
-  1. verify locally            unit tests + browser checks${transferChanged ? " + account transfer" : ""}${skipSuites.length ? ` (without ${skipSuites.join(", ")}: untouched)` : ""}
+  1. verify locally            unit tests + browser checks${transferChanged ? " + account transfer" : ""}${skipSuites.length ? ` (without ${skipSuites.join(", ")}: untouched)` : ""}${publish.length ? `, smoke ${publish.map(({ game }) => game.id).join(", ")}` : ""}
      back up assets           ${backups.length ? `${backups.length} new files to the private bucket` : "all backed up"}
   2. D1 migrations             ${pendingMigrations ? `apply pending migrations (${pendingDatabases.map(([binding]) => binding).join(", ")})` : "none pending"}
   3. cleanup Worker            ${workerChanged ? (workerMissing ? "deploy (not deployed yet)" : "redeploy (server code changed)") : "unchanged"}
@@ -95,7 +100,7 @@ Release plan for ${head.slice(0, 7)} (live site: ${deployed ?? "unknown"})
   5. production build + smoke  against the live catalog
   6. website                   ${deploySite ? `deploy to Pages (${changed ? `${changed.length} files changed` : "first tracked release"})` : "unchanged, skip deploy"}
   7. live checks on ${SITE}, then git push`);
-if (remoteOnly.length) console.log(`  note: in the live catalog but not in games/: ${remoteOnly.map((game) => game.id).join(", ")} (left untouched; npm run game:remove -- <id>)`);
+if (remoteOnly.length) console.log(`  note: in the live catalog but not in ${games}: ${remoteOnly.map((game) => game.id).join(", ")} (left untouched; npm run game:remove -- <id>)`);
 if (apiChange) console.log(`  note: games change API version: the live lobby cannot read the catalog from step 4 until step 6 (a few minutes).`);
 if (!publish.length && !deploySite && !workerChanged && !consoleChanged && !pendingMigrations && !backups.length) {
   console.log("\nNothing to release. Run npm run release -- --check to re-check fun.dev.");
@@ -113,6 +118,10 @@ if (!args.includes("--yes")) {
 const step = (title) => console.log(`\n▶ ${title}`);
 step("Verify locally");
 if (spawnSync(process.execPath, ["scripts/verify.mjs", ...(transferChanged ? ["--transfer"] : []), ...(skipSuites.length ? [`--skip=${skipSuites.join(",")}`] : [])], { cwd: root, stdio: "inherit" }).status !== 0) fail("Local verification failed; nothing was changed remotely.");
+// The platform suites use the test game; games about to be published get their smoke test here.
+for (const { game } of publish) {
+  if (spawnSync(process.execPath, ["scripts/verify.mjs", "smoke", `--games=${games}`, `--game=${game.id}`], { cwd: root, stdio: "inherit" }).status !== 0) fail(`${game.id} failed its smoke test; nothing was changed remotely.`);
+}
 
 if (backups.length) {
   step("Back up assets");

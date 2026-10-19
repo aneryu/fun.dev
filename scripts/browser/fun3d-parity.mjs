@@ -31,7 +31,7 @@ export async function parity({ directory, gpu = false, only = null, limit = Infi
     page.setDefaultTimeout(0);
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.goto(`${server.base}/games/muyu`);
+    await page.goto(`${server.base}/games/probe`);
     const result = await page.evaluate(async ({ list, worst }) => (await import("/fun3d-parity/page.js")).run({ files: list, worst }), { list: files.map((m) => ({ id: m.id })), worst });
     await mkdir(results, { recursive: true });
     await writeFile(resolve(results, "fun3d-parity.png"), Buffer.from(result.sheet, "base64"));

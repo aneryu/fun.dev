@@ -2,8 +2,8 @@
 
 Status: decided on 2026-10-16 and implemented. Binary files are not in Git. This
 covers two separate layers: how players receive game assets (a platform concern
-that games do not see) and how this repository stores binary files (tooling for
-whoever builds games here).
+that games do not see) and how this repository and the games repository store
+binary files (tooling for whoever builds games).
 
 ## Delivery: content-addressed blobs
 
@@ -52,8 +52,13 @@ them lists each file as `<sha256> <size> <path>`, one per line, sorted.
 
 | Collection | Files | Lock | Contents |
 | --- | --- | --- | --- |
-| a game's runtime assets | `games/<id>/assets/` | `games/<id>/assets.lock` | what the game ships |
+| a game's runtime assets | `<id>/assets/` in the games repository | `<id>/assets.lock` there | what the game ships |
 | the source library | `sources/` | `sources/sources.lock` | pipeline inputs shared by all games: textures, HDRIs, models, `.blend` projects (see [sources/README.md](../sources/README.md)) |
+
+Game sources live in the private `fundev-games` repository beside the platform
+(`FUNDEV_GAMES`, else `../fundev-games`); `npm run assets`, run from the platform
+checkout, syncs every game there as well as this repository's `sources/`, and each
+lock is committed in its own repository.
 
 File contents live in a content-addressed cache shared by every checkout and
 worktree on the machine, `~/.cache/fundev-blobs` (`FUNDEV_BLOBS` overrides it).

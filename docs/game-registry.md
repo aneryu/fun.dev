@@ -39,13 +39,15 @@ Registering, updating and removing compatible games does not.
 
 ## Publish and register
 
-Each game's source directory `games/<id>/` has a `game.json` beside `game.js`:
+Each game's source directory `<id>/` in the private `fundev-games` repository
+(`FUNDEV_GAMES`, else `../fundev-games` beside the platform) has a `game.json` beside
+`game.js`:
 
 ```json
 {
   "id": "my-game",
   "version": "1.0.0",
-  "apiVersion": 2,
+  "apiVersion": 3,
   "title": {"zh": "我的游戏", "en": "My game"},
   "description": {"zh": "一句话玩法", "en": "One-line description"},
   "category": "Puzzle",
@@ -56,11 +58,12 @@ Each game's source directory `games/<id>/` has a `game.json` beside `game.js`:
 ```
 
 `npm run release` publishes every game whose content differs from the live
-catalog (see [workflow](workflow.md)); `npm run game:remove -- my-game` removes an
+catalog from the games directory, which must have no uncommitted changes (see
+[workflow](workflow.md)); `npm run game:remove -- my-game` removes an
 entry; its page `/games/my-game` and sitemap entry go with the next website deploy. To inspect a release without publishing:
 
 ```sh
-node scripts/publish-game.mjs publish games/my-game/game.json --dry-run
+node scripts/publish-game.mjs publish ../fundev-games/my-game/game.json --dry-run
 ```
 
 The dry run needs no credentials and prints the exact file list, size and hash.
@@ -91,7 +94,7 @@ cleanup is a separate deliberate task. The publisher does not delete assets.
 
 Removal hides the game after the next catalog fetch, not from already running
 sessions or anyone holding its public asset URL. Roll back by publishing the
-previous version's `games/<id>/` from Git history. Each lobby visit/player load fetches the live
+previous version's `<id>/` from the games repository's Git history. Each lobby visit/player load fetches the live
 catalog; an already open lobby must be refreshed to see changes.
 
 Do not write the catalog by hand with unconditional `wrangler r2 object put`;
@@ -108,10 +111,11 @@ Cross-origin files still execute inside the fun.dev document. Only publish
 trusted games; this is deployment independence, not isolation from DOM/storage.
 R2 write access (the Wrangler login) therefore grants the ability to publish code run on fun.dev.
 
-`npm run build`, `npm run dev` and `npm run verify` bundle the local `games/`
-sources and catalog; `npm run build:production` reads the R2 catalog. During
+`npm run build` and `npm run dev` bundle the local games directory's sources and
+catalog (`npm run verify` uses the platform's test game `tests/fixture-games/probe/`
+unless given `--games=<dir>`); `npm run build:production` reads the R2 catalog. During
 `npm run release`, the production build is smoke-tested against the live R2
-catalog through a local proxy, because R2 CORS admits only the public origins. It does not connect the online
+catalog through a local proxy, since the production build names the public origins. It does not connect the online
 site to a local server. Production must explicitly configure the remote origin.
 
 Sources: [R2 public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/),

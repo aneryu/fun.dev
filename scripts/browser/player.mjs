@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { results } from "./harness.mjs";
 
-// Player features from API v2 with the Wooden Fish reference game.
+// Player features from API v2 with the platform's test game (tests/fixture-games/probe).
 
 export async function playerChecks({ browser, base, dist }) {
   const catalog = JSON.parse(await readFile(resolve(dist, "games.json"), "utf8"));
@@ -16,7 +16,7 @@ export async function playerChecks({ browser, base, dist }) {
     page.setDefaultTimeout(20000);
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
-    await page.goto(`${base}/games/muyu?lang=en${query}`);
+    await page.goto(`${base}/games/probe?lang=en${query}`);
     return page;
   }
   const running = (page) => page.waitForFunction(() => document.querySelector("#player-message").hidden && document.querySelector(".game-surface canvas"));
@@ -34,7 +34,7 @@ export async function playerChecks({ browser, base, dist }) {
 
   // Options: how to play, platform sound/haptics, settings and player cheats; debug items hidden.
   await page.locator("#menu-toggle").click(); await page.locator("#open-options").click();
-  assert.match(await page.locator("#how-to-play-text").textContent(), /strike the wooden fish/);
+  assert.match(await page.locator("#how-to-play-text").textContent(), /tap the probe/);
   assert.equal(await page.locator("#options-debug").isHidden(), true);
   assert.equal(await page.locator("#player-message").isVisible(), true, "opening options pauses the game");
   await page.locator("#option-merit-1000").click();
@@ -43,7 +43,7 @@ export async function playerChecks({ browser, base, dist }) {
   await page.locator("#close-options").click();
   await running(page);
   assert.equal(await merit(page), 1001, "cheat action reaches the game");
-  assert.deepEqual(await page.evaluate(() => [JSON.parse(localStorage.getItem("fun.dev.settings.muyu")).rings, JSON.parse(localStorage.getItem("fun.dev.audio")).muted]), [false, true]);
+  assert.deepEqual(await page.evaluate(() => [JSON.parse(localStorage.getItem("fun.dev.settings.probe")).rings, JSON.parse(localStorage.getItem("fun.dev.audio")).muted]), [false, true]);
 
   // Share text comes from the game and notes cheats; without Web Share the link is copied.
   // The site's Permissions-Policy forbids clipboard reads, so record the write instead.
@@ -54,7 +54,7 @@ export async function playerChecks({ browser, base, dist }) {
   await page.locator("#menu-toggle").click(); await page.locator("#share").click();
   await page.waitForFunction(() => document.querySelector("#action-status").textContent.includes("copied"));
   const shared = await page.evaluate(() => window.__copied);
-  assert.match(shared, /1001 merit and 0\/12 relics on Wooden Fish at fun\.dev \(with cheats\) http:\/\/127\.0\.0\.1:\d+\/games\/muyu\?lang=en$/);
+  assert.match(shared, /1001 merit on Probe at fun\.dev \(with cheats\) http:\/\/127\.0\.0\.1:\d+\/games\/probe\?lang=en$/);
 
   // Restart keeps settings and saved merit, and starts a session without cheats.
   await page.locator("#menu-toggle").click(); await page.locator("#restart").click();
@@ -89,7 +89,7 @@ export async function playerChecks({ browser, base, dist }) {
   await recorderContext.route("**/games.json", (route) => route.fulfill({ json: catalog.map((game) => ({ ...game, recording: true })) }));
   // A light stand-in game keeps software rendering fast: a red square above the middle, which the
   // recorder centres through recordingFocus(), on a blue ground; a green badge sits top left.
-  await recorderContext.route("**/games/muyu/*/game.js", (route) => route.fulfill({ contentType: "text/javascript", body: `
+  await recorderContext.route("**/games/probe/*/game.js", (route) => route.fulfill({ contentType: "text/javascript", body: `
     export function createGame({ THREE, scene, camera, track }) {
       scene.background = new THREE.Color(0x2040ff);
       const square = new THREE.Mesh(track(new THREE.PlaneGeometry(0.6, 0.6)), track(new THREE.MeshBasicMaterial({ color: 0xff0000 })));
@@ -118,7 +118,7 @@ export async function playerChecks({ browser, base, dist }) {
   rec.setDefaultTimeout(20000);
   rec.on("pageerror", (error) => errors.push(error.message));
   rec.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
-  await rec.goto(`${base}/games/muyu?lang=en`);
+  await rec.goto(`${base}/games/probe?lang=en`);
   await running(rec);
   await rec.locator("#menu-toggle").click();
   assert.equal(await rec.locator("#record").textContent(), "Record video");
@@ -155,7 +155,7 @@ export async function playerChecks({ browser, base, dist }) {
   assert.ok(near(clip.border, [33, 31, 23]), `the badge has an ink frame: ${clip.border}`);
   assert.ok(near(clip.below, [32, 64, 255]), `the game background surrounds it: ${clip.below}`);
   assert.equal(clip.src, "blob:");
-  assert.match(clip.file, /^muyu-\d{14}\.webm$/);
+  assert.match(clip.file, /^probe-\d{14}\.webm$/);
   assert.match(clip.note, /^0:0[12] · The video stays on this device/);
   await rec.screenshot({ path: resolve(results, "player-recording.png") });
   await rec.locator("#record-discard").click();

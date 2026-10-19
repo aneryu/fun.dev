@@ -24,13 +24,16 @@ seriously.
 The site uses plain HTML, CSS, and JavaScript, with a small Node.js build that
 copies static assets and the pinned Three.js runtime into `dist/`. The shared
 player loads game bundles using the contract in `docs/game-bundles.md`.
-Game sources live in `games/<id>/` until they move to the private
-`fundev-games` repository (roadmap step 3); planned capabilities and their
-order are in `docs/platform-roadmap.md`. Binary files (`games/<id>/assets/`,
+Game sources live in the private `fundev-games` repository, checked out beside
+this one (`../fundev-games`, or `FUNDEV_GAMES`); the platform's tools build,
+test and publish them from there. `npm run verify` tests the platform with its
+own test game, `tests/fixture-games/probe/`; real games are smoke-tested with
+`npm run verify -- --games=../fundev-games`. Planned capabilities and their
+order are in `docs/platform-roadmap.md`. Binary files (each game's `assets/`,
 `sources/`) are not in Git: run `npm run assets` after changing them and commit
 the locks (`docs/assets.md`). When several agents work at once, follow
 `docs/parallel-games.md` (one game per agent and worktree; only the coordinator
-merges into `main` and releases).
+merges and releases).
 Do not introduce a framework unless the task benefits materially from it.
 
 ## Development Principles

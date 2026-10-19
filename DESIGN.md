@@ -139,8 +139,7 @@ On every screen the page gives way to the game: the game fills the available dyn
 viewport, the menu button floats at the top left and the site link, back link and title
 live in the menu; respect display cutouts and safe areas in both orientations. Short
 action messages show briefly over the bottom of the game. Orientation prompts apply to
-phones and small windows only. Wooden Fish
-(敲木鱼) uses the yellow canvas, brown wood, and simple dark text without neon effects.
+phones and small windows only.
 All of it stays keyboard accessible, including the return to the lobby.
 Loading, pause, and error messages are plain text in a high-contrast inset.
 Game options (how to play, sound and haptics, settings, cheats) open in a dialog

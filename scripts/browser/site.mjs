@@ -6,7 +6,7 @@ import { results, running, watch as watchErrors } from "./harness.mjs";
 // Lobby covers, game pages and redirects, the 404 page, the manifest, and offline play through the
 // service worker (the verify build keeps it enabled; other suites block it per context).
 
-const { version } = JSON.parse(readFileSync(new URL("../../games/muyu/game.json", import.meta.url), "utf8"));
+const { version } = JSON.parse(readFileSync(new URL("../../tests/fixture-games/probe/game.json", import.meta.url), "utf8"));
 
 export async function siteChecks({ browser, base }) {
   const errors = [];
@@ -23,21 +23,21 @@ export async function siteChecks({ browser, base }) {
 
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, serviceWorkers: "block" });
   // Game pages are share pages too: crawler-visible tags and a canonical address, then the game.
-  const html = await (await fetch(`${base}/games/muyu`)).text();
-  assert.match(html, /<meta property="og:title" content="敲木鱼">/);
-  assert.match(html, /<link rel="canonical" href="https:\/\/fun.dev\/games\/muyu">/);
-  assert.match(html, /<meta property="og:image" content="[^"]+\/games\/muyu\/[\d.]+\/assets\/cover\.jpg">/);
-  assert.match(await (await fetch(`${base}/sitemap.xml`)).text(), /<loc>https:\/\/fun.dev\/games\/muyu<\/loc>/);
+  const html = await (await fetch(`${base}/games/probe`)).text();
+  assert.match(html, /<meta property="og:title" content="探针">/);
+  assert.match(html, /<link rel="canonical" href="https:\/\/fun.dev\/games\/probe">/);
+  assert.match(html, /<meta property="og:image" content="[^"]+\/games\/probe\/[\d.]+\/assets\/cover\.png">/);
+  assert.match(await (await fetch(`${base}/sitemap.xml`)).text(), /<loc>https:\/\/fun.dev\/games\/probe<\/loc>/);
   // Addresses have no trailing slash.
-  for (const [from, to] of [["/games/", "/games"], ["/games/muyu/?lang=en", "/games/muyu?lang=en"]]) {
+  for (const [from, to] of [["/games/", "/games"], ["/games/probe/?lang=en", "/games/probe?lang=en"]]) {
     const moved = await fetch(`${base}${from}`, { redirect: "manual" });
     assert.equal(moved.status, 301, from);
     assert.equal(new URL(moved.headers.get("location"), base).pathname + new URL(moved.headers.get("location"), base).search, to);
   }
   const share = watch(await context.newPage());
-  await share.goto(`${base}/games/muyu?lang=en`);
+  await share.goto(`${base}/games/probe?lang=en`);
   await running(share);
-  assert.equal(await share.title(), "Wooden Fish — fun.dev");
+  assert.equal(await share.title(), "Probe — fun.dev");
   await share.close();
   assert.equal((await fetch(`${base}/games/not-built-yet`)).status, 404);
   const unknown = await fetch(`${base}/no-such-page`);
@@ -56,7 +56,7 @@ export async function siteChecks({ browser, base }) {
   const page = watch(await pwa.newPage());
   await page.goto(`${base}/games?lang=en`);
   await page.evaluate(() => navigator.serviceWorker.ready);
-  await page.goto(`${base}/games/muyu?lang=en`);
+  await page.goto(`${base}/games/probe?lang=en`);
   await running(page);
   assert.ok(await page.evaluate(() => !!navigator.serviceWorker.controller), "the worker controls the player");
   await page.locator(".game-surface canvas").focus();
@@ -65,14 +65,14 @@ export async function siteChecks({ browser, base }) {
   await page.waitForFunction(async (version) => {
     const cache = await caches.open("releases-v2");
     const cached = (await cache.keys()).map((request) => new URL(request.url).pathname);
-    const list = await cache.match(`${location.origin}/games/muyu/${version}/files.json`);
+    const list = await cache.match(`${location.origin}/games/probe/${version}/files.json`);
     const index = await cache.match(`${location.origin}/__sw/cache-index`);
     if (!list || !index) return false;
     const { files, blobs } = await list.json();
     const { entries, sizes } = await index.json();
-    const entry = entries.find((item) => item.key === `muyu/${version}/`);
+    const entry = entries.find((item) => item.key === `probe/${version}/`);
     // assets/ files are cached at their content-addressed /blobs/ address.
-    const paths = files.map((file) => (blobs[file] ? `/blobs/${blobs[file]}` : `/games/muyu/${version}/${file}`));
+    const paths = files.map((file) => (blobs[file] ? `/blobs/${blobs[file]}` : `/games/probe/${version}/${file}`));
     return paths.every((path) => cached.includes(path) && entry?.urls.includes(`${location.origin}${path}`) && sizes[`${location.origin}${path}`] > 0);
   }, version, { polling: 250 });
   await pwa.setOffline(true);
@@ -80,7 +80,7 @@ export async function siteChecks({ browser, base }) {
   await running(page);
   assert.ok((await page.locator(".game-surface canvas").getAttribute("aria-label")).includes("MERIT 1."), "progress survives offline reload");
   await page.goto(`${base}/games?lang=en`);
-  await page.waitForFunction(() => [...document.querySelectorAll(".game-item h3")].some((title) => title.textContent === "Wooden Fish"));
+  await page.waitForFunction(() => [...document.querySelectorAll(".game-item h3")].some((title) => title.textContent === "Probe"));
   await page.screenshot({ path: resolve(results, "lobby-offline.png") });
   await pwa.close();
 
