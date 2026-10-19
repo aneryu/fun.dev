@@ -154,7 +154,7 @@ hostnames, [edge](edge.md); empty = same-origin),
 ## Operations
 
 - Production: Pages project `fundev` (direct upload to the production environment from Git `main`, domains
-  `fun.dev`, `cdn.fun.dev`, `api.fun.dev`, `fundev.pages.dev`; `fun.dev` itself is served by the CN2
+  `fun.dev`, `static.fun.dev`, `api.fun.dev`, `fundev.pages.dev`; `fun.dev` itself is served by the CN2
   server, see [edge](edge.md)); R2 bucket `fundev-games` at `games.fun.dev`;
   private R2 bucket `fundev-sources` (blob backups, no public domain);
   D1 `fundev-progress-production`; Worker `fundev-transfer-cleanup-production`

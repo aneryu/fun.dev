@@ -1,6 +1,6 @@
 # fun.dev on the CN2 server (docs/edge.md). It serves documents only: pages, the service worker
-# and the manifest, fetched uncached from the Pages project at cdn.fun.dev. Everything else
-# redirects to cdn.fun.dev. The server keeps no files, cache or secrets.
+# and the manifest, fetched uncached from the Pages project at static.fun.dev. Everything else
+# redirects to static.fun.dev. The server keeps no files, cache or secrets.
 
 (edge) {
 	@document {
@@ -20,5 +20,5 @@
 }
 
 fun.dev {
-	import edge cdn.fun.dev
+	import edge static.fun.dev
 }

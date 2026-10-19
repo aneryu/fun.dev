@@ -9,8 +9,8 @@ still serves every other file.
 
 | Hostname | Served by | Content |
 | --- | --- | --- |
-| `fun.dev` | CN2 server `45.194.22.14` (Caddy, DNS only) | pages, `/sw.js`, `/manifest.webmanifest`, `/robots.txt`, `/sitemap.xml`; everything else redirects (308) to `cdn.fun.dev` |
-| `cdn.fun.dev` | Pages project `fundev` (custom domain, proxied) | platform files: CSS, JS, icons, Three.js, `/runtime/` |
+| `fun.dev` | CN2 server `45.194.22.14` (Caddy, DNS only) | pages, `/sw.js`, `/manifest.webmanifest`, `/robots.txt`, `/sitemap.xml`; everything else redirects (308) to `static.fun.dev` |
+| `static.fun.dev` | Pages project `fundev` (custom domain, proxied) | platform files: CSS, JS, icons, Three.js, `/runtime/` |
 | `api.fun.dev` | Pages project `fundev` (custom domain, proxied) | the transfer API, `/api/transfers/*` |
 | `console.fun.dev` | Worker `fundev-console` (custom domain, behind Cloudflare Access) | the model library console: upload and review ([models](models.md)) |
 | `games.fun.dev` | R2 (unchanged) | game releases and blobs |
@@ -22,7 +22,7 @@ Cloudflare: 1.2 s, up to 3.3 s. Resolvers that have cached the record skip the D
 
 ## How it works
 
-- `npm run build:production` sets `FUNDEV_ASSET_ORIGIN=https://cdn.fun.dev` and
+- `npm run build:production` sets `FUNDEV_ASSET_ORIGIN=https://static.fun.dev` and
   `FUNDEV_API_ORIGIN=https://api.fun.dev`. The build points the pages' scripts, stylesheets and
   icons at the asset origin. Module imports are root-relative, so everything they import loads
   from there too. Runtime paths come from `import.meta.url`, never from the page's address.
@@ -37,7 +37,7 @@ Cloudflare: 1.2 s, up to 3.3 s. Resolvers that have cached the record skip the D
   `TRANSFER_ORIGIN`, and answers its CORS preflight. Other pages of the site, including games on
   `games.fun.dev`, are refused. `CF-Connecting-IP` is still the visitor's address.
 - The server, `config/Caddyfile`: an uncached reverse proxy for documents (GET/HEAD only) to
-  `cdn.fun.dev`, and a 308 redirect for every other path. It stores no files, cache or
+  `static.fun.dev`, and a 308 redirect for every other path. It stores no files, cache or
   secrets, so a release never touches it, and it can be rebuilt from this file.
 
 The workshop's `/editor/` and `/editor/guide` also use the document proxy;
@@ -52,12 +52,12 @@ the next thing to improve (a mainland-friendly asset origin is one variable away
 
 ## Setup (in order)
 
-1. **Cloudflare**: in the Pages project `fundev`, add the custom domains `cdn.fun.dev` and
+1. **Cloudflare**: in the Pages project `fundev`, add the custom domains `static.fun.dev` and
    `api.fun.dev` and wait until both are active. In the zone's WAF, make sure the server's
    address `45.194.22.14` is not challenged (Bot Fight Mode or custom rules): every page request
    comes from it.
 2. **Release** this code (`npm run release`). `fun.dev` still points to Pages; its pages now load
-   files from `cdn.fun.dev` and call `api.fun.dev`, which the live checks verify.
+   files from `static.fun.dev` and call `api.fun.dev`, which the live checks verify.
 3. **Switch**: change the `fun.dev` DNS record to `A 45.194.22.14`, DNS only (grey cloud), then
    right away install the Caddyfile and start Caddy. Caddy obtains the certificate as soon as
    Let's Encrypt resolves the new address, usually within a minute; visitors with the old
@@ -105,7 +105,7 @@ Routing destination, so the address stays out of this repository. Deploy changes
 
 - Single point of failure: if the server is down, `fun.dev` is down everywhere; roll back as
   above. `fun.dev` itself no longer has Cloudflare's DDoS protection.
-- Pages are reachable on `cdn.fun.dev` and `api.fun.dev` too; their canonical links name
+- Pages are reachable on `static.fun.dev` and `api.fun.dev` too; their canonical links name
   `fun.dev`.
 - Cloudflare Web Analytics injected the beacon on the proxied `fun.dev`; check after the switch
   whether pages still report (see README, Analytics).

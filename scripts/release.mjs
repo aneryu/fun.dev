@@ -17,7 +17,7 @@ import { pendingBackups, pushBlobs } from "./assets.mjs";
 // against the live catalog → Pages deploy → checks on fun.dev → git push.
 const SITE = "https://fun.dev";
 const GAME_ORIGIN = "https://games.fun.dev";
-const ASSET_ORIGIN = "https://cdn.fun.dev";
+const ASSET_ORIGIN = "https://static.fun.dev";
 const API_ORIGIN = "https://api.fun.dev";
 const PROJECT = "fundev";
 const args = process.argv.slice(2);
