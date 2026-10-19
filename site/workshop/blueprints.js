@@ -153,7 +153,93 @@ const buildingBlock = {
   },
 };
 
-export const BLUEPRINTS = [lampPost, railing, buildingBlock];
+// ── Chinese roof: a curved hip, gable-hip or pyramid roof with upturned corners ───────────
+// One loft of rectangular rings from the eave up to the ridge (concave: shallow at the eave,
+// steep at the top), an eave band below, and a displacement that lifts the corners, so the
+// 帝都 landmarks and the library's temples, gates and pavilions share one roof. The part's
+// origin is the bottom of the eave band; the eave's top edge lies `eave` above it, so place
+// the roof with its origin at the wall top less the eave. The ridge runs along X: give the
+// longer side as the width (turn the roof for the other way).
+const chineseRoof = {
+  id: "chinese-roof",
+  version: 1,
+  title: { zh: "中式屋顶", en: "Chinese roof" },
+  description: { zh: "庑殿、歇山或攒尖的曲面屋顶，檐口翘角；宽深、高度、出檐、翘角和檐厚可随时调，屋顶式样和分段数在生成时定。", en: "A curved hip, gable-hip or pyramid roof with upturned corners; width, depth, height, overhang, upturn and eave thickness stay adjustable, the style and ring count are fixed when built." },
+  params: {
+    width: { value: 12, min: 1, max: 200, unit: "m", label: { zh: "宽（脊向）", en: "Width (along the ridge)" } },
+    depth: { value: 8, min: 1, max: 200, unit: "m", label: { zh: "深", en: "Depth" } },
+    height: { value: 4, min: 0.2, max: 60, unit: "m", label: { zh: "檐到脊高", en: "Eave to ridge" } },
+    overhang: { value: 1.5, min: 0, max: 20, unit: "m", label: { zh: "出檐", en: "Overhang" } },
+    upturn: { value: 0.8, min: 0, max: 10, unit: "m", label: { zh: "翘角", en: "Corner upturn" } },
+    eave: { value: 0.5, min: 0.02, max: 5, unit: "m", label: { zh: "檐厚", en: "Eave thickness" } },
+    inset: { value: 1, min: 0, max: 50, unit: "m", label: { zh: "上层内收（重檐）", en: "Upper body inset (skirt)" } },
+    kind: { value: "hip", options: ["hip", "gable-hip", "pyramid", "skirt"], structural: true, label: { zh: "式样", en: "Style" } },
+    rings: { value: 5, min: 2, max: 12, integer: true, structural: true, label: { zh: "分段", en: "Rings" } },
+  },
+  materials: [
+    { id: "mat_roof_tile", name: "Roof tile", color: "#3d7a5c", roughness: 0.6 },
+    { id: "mat_roof_ridge", name: "Roof ridge", color: "#2f5e48", roughness: 0.6 },
+  ],
+  build({ kind, rings }, { root, id, values }) {
+    const r = (name) => ({ $param: name }),
+      lerp = (a, b, s) => (s <= 0 ? a : s >= 1 ? b : op("add", op("mul", a, 1 - s), op("mul", b, s))),
+      // The eave ring is the body plus the overhang on every side; the ridge is their difference.
+      across = op("add", r("width"), op("mul", r("overhang"), 2)),
+      along = op("add", r("depth"), op("mul", r("overhang"), 2)),
+      ridge = op("sub", r("width"), r("depth")),
+      gableAt = 0.45;
+    const sections = [
+      { at: 0, scale: [across, along] },
+      { at: r("eave"), scale: [across, along] },
+    ];
+    // skirt: the lower roof of a double-eave building, a ring of slopes from the eave up to
+    // the upper body (the body less the inset); its flat top hides inside that body.
+    const upperX = op("sub", r("width"), op("mul", r("inset"), 2)),
+      upperZ = op("sub", r("depth"), op("mul", r("inset"), 2));
+    for (let k = 1; k <= rings; k++) {
+      const s = k / rings,
+        x =
+          kind === "pyramid"
+            ? lerp(across, 0.02, s)
+            : kind === "skirt"
+              ? lerp(across, upperX, s)
+              : kind === "gable-hip" && s > gableAt
+                ? lerp(across, ridge, gableAt)
+                : lerp(across, ridge, s),
+        z = kind === "skirt" ? lerp(along, upperZ, s) : lerp(along, 0.02, s);
+      sections.push({ at: op("add", r("eave"), op("mul", r("height"), kind === "skirt" ? s ** 1.5 : s ** 1.7)), scale: [x, z] });
+    }
+    // Corners lift by the upturn: strongest at the eave ring's corners, fading up the slope.
+    const v = (name) => ({ $var: name }),
+      fn = (name, ...args) => ({ $expr: name, args }),
+      corner = (axis) => fn("abs", fn("sub", fn("mul", 2, v(axis)), 1)),
+      curl = fn("mul", fn("pow", fn("mul", corner("u"), corner("w")), 3), fn("pow", fn("sub", 1, v("t")), 2));
+    // A unit square with six points a side, so the eave bends up only near its corners.
+    const profile = [];
+    for (const [ax, az, bx, bz] of [[-0.5, -0.5, 0.5, -0.5], [0.5, -0.5, 0.5, 0.5], [0.5, 0.5, -0.5, 0.5], [-0.5, 0.5, -0.5, -0.5]])
+      for (let k = 0; k < 6; k++) profile.push([ax + ((bx - ax) * k) / 6, az + ((bz - az) * k) / 6]);
+    const live = ["width", "depth", "height", "overhang", "upturn", "eave", "inset"];
+    const recipe = {
+      parameters: Object.fromEntries(live.map((key) => [key, { value: values[key], min: this.params[key].min, max: this.params[key].max }])),
+      generator: { kind: "loft", material: "mat_roof_tile", options: { profile, sections } },
+      steps: [{ op: "displace", amount: r("upturn"), along: "y", mode: "formula", expr: curl }],
+    };
+    const commands = [
+      { op: "create", id: root, kind: "group" },
+      { op: "create", id: id("roof"), kind: "loft", parent: root, material: "mat_roof_tile", options: { profile, sections: [{ at: 0, scale: [15, 11] }, { at: 0.5, scale: [15, 11] }, { at: 4.5, scale: [4, 0.02] }] } },
+      { op: "recipe", id: id("roof"), definition: recipe },
+    ];
+    const bindings = [{ id: id("roof"), recipeValues: Object.fromEntries(live.map((key) => [key, p(key)])) }];
+    if (kind === "hip" || kind === "gable-hip") {
+      // The ridge beam along X, a little longer than the ridge, capped at the ends.
+      commands.push({ op: "create", id: id("ridge"), kind: "box", parent: root, material: "mat_roof_ridge", position: [0, 4.8, 0], options: { size: [4.6, 0.6, 0.7], bevel: 0.08 } });
+      bindings.push({ id: id("ridge"), options: { size: [op("add", ridge, 0.6), 0.6, 0.7], bevel: 0.08 }, position: [0, op("add", r("eave"), op("add", r("height"), 0.2)), 0] });
+    }
+    return { commands, bindings };
+  },
+};
+
+export const BLUEPRINTS = [lampPost, railing, buildingBlock, chineseRoof];
 
 /** The blueprints' ids, titles and parameter schemas, for agents and the UI. */
 export function listBlueprints() {

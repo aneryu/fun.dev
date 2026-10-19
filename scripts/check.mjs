@@ -45,7 +45,8 @@ async function walk(directory) {
       const result = spawnSync(process.execPath, ["--check", path], { encoding: "utf8" });
       if (result.status !== 0) errors.push(result.stderr || `Cannot check ${path}`);
       // Only literal module references can be checked without executing a bundle.
-      for (const match of text.matchAll(/\b(?:from\s*|import\s*\(\s*|import\s*)["']([^"']+)["']/g)) {
+      // An import's `from` stands apart from its quote; a field named "from" does not.
+      for (const match of text.matchAll(/\b(?:from\s+|import\s*\(\s*|import\s+)["']([^"']+)["']/g)) {
         if (!match[1].startsWith(".") && !match[1].startsWith("/")) {
           errors.push(`${relative(root, path)}: browser-unresolved import ${match[1]}`);
         } else await checkReference(path, match[1]);

@@ -49,6 +49,7 @@ import {
   separateParts,
   joinParts,
 } from "./edit-ops.js";
+import { SHAPE_EDITS, shapeMesh, proportionalMove, normalizeFalloff, facePlanar } from "./deform.js";
 import {
   removeMaterial,
   purgeMaterials,
@@ -205,6 +206,7 @@ export function normalizeProject(input) {
           "extrude",
           "revolve",
           "sweep",
+          "loft",
           "torus",
           "capsule",
         ].includes(g.kind)
@@ -1238,11 +1240,7 @@ export function validateProject(input, budget = {}) {
       for (const face of faces) {
         const n = normal(vertices, face.vertices),
           origin = vertices[face.vertices[0]];
-        if (
-          face.vertices.some(
-            (i) => Math.abs(dot(sub(vertices[i], origin), n)) > 1e-5,
-          )
-        )
+        if (!facePlanar(vertices, face.vertices))
           warnings.push({ code: "nonplanar", node: node.id, face: face.id });
         face.vertices.forEach((a, i) => {
           const b = face.vertices[(i + 1) % face.vertices.length],
@@ -1710,10 +1708,23 @@ function selectionTransform(project, command) {
       fail("Edit the source or unlink this part before editing geometry");
     delete node.generator;
     delete node.recipe;
-    const local = multiply(inverse(world), multiply(m, world));
-    for (const i of indices)
-      node.mesh.vertices[i] = point(local, node.mesh.vertices[i]);
-  } else worldTransform(project, ids, m);
+    const local = multiply(inverse(world), multiply(m, world)),
+      falloff = normalizeFalloff(command.falloff);
+    if (!falloff)
+      for (const i of indices)
+        node.mesh.vertices[i] = point(local, node.mesh.vertices[i]);
+    else {
+      // Proportional editing: the falloff radius is measured in the command's space.
+      const measured =
+        command.space === "local"
+          ? node.mesh.vertices
+          : node.mesh.vertices.map((v) => point(world, v));
+      proportionalMove(node.mesh, measured, indices, (i, p) => point(local, p), falloff);
+    }
+  } else {
+    if (command.falloff !== undefined) fail("falloff needs a component selection", "falloff");
+    worldTransform(project, ids, m);
+  }
 }
 function synchronize(project) {
   for (const node of project.nodes) synchronizeVertices(node);
@@ -1799,6 +1810,7 @@ function selectionSummary(project, command) {
     "weld",
     "fill",
     "solidify",
+    ...SHAPE_EDITS,
   ].includes(command.op)
     ? { scope: "mesh", kind: "faces", count: node.mesh.faces.length }
     : null;
@@ -2278,6 +2290,7 @@ function run(project, command) {
       "applyScale",
       "boolean",
       ...MESH_EDITS,
+      ...SHAPE_EDITS,
       "separate",
       "join",
     ].includes(command.op)
@@ -2899,7 +2912,7 @@ function run(project, command) {
       if (command.enabled === false) delete node.vertexSymmetry;
       else { node.vertexSymmetry = vertexSymmetry(node, command); delete node.generator; delete node.recipe; }
       break;
-    case "vertices":
+    case "vertices": {
       if (
         !node.mesh ||
         !Array.isArray(command.changes) ||
@@ -2908,13 +2921,29 @@ function run(project, command) {
         fail("Expected vertex changes on a mesh");
       delete node.generator;
       delete node.recipe;
+      const targets = new Map();
       for (const { index, position } of command.changes) {
         if (node.vertexSymmetry?.pairs.some(pair => pair[1] === index)) fail("Edit the source side or disable vertex symmetry first");
         if (!Number.isInteger(index) || !node.mesh.vertices[index])
           fail("Unknown vertex index");
-        node.mesh.vertices[index] = vector(position);
+        targets.set(index, vector(position));
       }
+      const falloff = normalizeFalloff(command.falloff);
+      if (!falloff) {
+        for (const [index, position] of targets) node.mesh.vertices[index] = position;
+        break;
+      }
+      // Proportional editing: the others follow the nearest changed vertex's move.
+      const before = node.mesh.vertices;
+      proportionalMove(
+        node.mesh,
+        before,
+        [...targets.keys()],
+        (i, p, j) => (targets.has(i) ? targets.get(i) : add(p, sub(targets.get(j), before[j]))),
+        falloff,
+      );
       break;
+    }
     case "extrude":
     case "inset":
     case "bevel":
@@ -3019,6 +3048,32 @@ function run(project, command) {
       // A weld that merged nothing keeps the part exactly as it was, parametric too.
       if (output.unchanged) {
         node.mesh.vertices = vertices;
+        if (generator) node.generator = generator;
+        if (recipe) node.recipe = recipe;
+      }
+      return output;
+    }
+    case "deform":
+    case "displace":
+    case "smooth":
+    case "subdivide":
+    case "triangulate": {
+      // Shape edits (deform.js) work in the part's own metres unless space is world; a
+      // component selection limits them, the rest following by the falloff.
+      if (!node.mesh) fail("Select a mesh");
+      const components = command.vertices || command.faces || command.edges;
+      if (!["subdivide", "triangulate"].includes(command.op) && command.falloff !== undefined && !components)
+        fail("falloff needs a component selection", "falloff");
+      const { generator, recipe } = node;
+      delete node.generator;
+      delete node.recipe;
+      const selected = components && command.op !== "triangulate" ? selectionVertices(node, command) : undefined,
+        m = command.space === "world" ? worldMatrix(project, node.id) : identity();
+      transformMesh(node.mesh, m);
+      const output = shapeMesh(node.mesh, { ...command, selected }, { limits: LIMITS });
+      transformMesh(node.mesh, inverse(m));
+      // A triangulation that split nothing keeps the part as it was, parametric too.
+      if (output.unchanged) {
         if (generator) node.generator = generator;
         if (recipe) node.recipe = recipe;
       }
@@ -3199,6 +3254,7 @@ export function evaluateTransaction(
             "loopCut",
             "boolean",
             ...MESH_EDITS,
+            ...SHAPE_EDITS,
             "separate",
             "join",
           ].includes(command.op))

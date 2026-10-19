@@ -290,6 +290,7 @@ const props = {
       "extrude",
       "revolve",
       "sweep",
+      "loft",
       "torus",
       "capsule",
       "mesh",
@@ -326,8 +327,10 @@ const props = {
       segments: segmentsValue,
       bevelSegments: { type: "integer", minimum: 1, maximum: 16 },
       rings: segmentsValue,
-      // Spheres: [from, to] degrees of latitude (domes, bowls).
+      // Spheres: [from, to] degrees of latitude (domes, bowls); geodesic: an icosphere with
+      // that many splits instead of the lathe sphere.
       latitude: pair,
+      geodesic: { type: "integer", minimum: 0, maximum: 5 },
       // Tori: the tube's radius and its segments.
       tube: number,
       tubeSegments: segmentsValue,
@@ -351,6 +354,24 @@ const props = {
       pathSegments: { type: "integer" },
       scale: {
         oneOf: [number, { type: "array", items: number, minItems: 2, maxItems: 2 }],
+      },
+      // Lofts: closed sections along the axis (at = height) or the path (at = 0–1), each
+      // with its own profile or the loft's, scaled, turned and shifted.
+      sections: {
+        type: "array",
+        minItems: 2,
+        maxItems: 64,
+        items: {
+          type: "object",
+          properties: {
+            profile: outline,
+            at: number,
+            scale: { oneOf: [number, pair] },
+            rotation: number,
+            offset: pair,
+          },
+          additionalProperties: false,
+        },
       },
     },
     additionalProperties: false,
@@ -437,6 +458,43 @@ const props = {
   },
   ior: { oneOf: [{ type: "number", minimum: 1, maximum: 3 }, { type: "null" }] },
   doubleSided: { oneOf: [boolean, { type: "null" }] },
+  // Shape edits (deform.js): deform kinds along an axis range, displacement fields, smoothing
+  // and subdivision, and the falloff of proportional editing.
+  amount: { oneOf: [number, pair] },
+  direction: { enum: ["x", "y", "z"] },
+  from: number,
+  power: { type: "number", minimum: 0.05, maximum: 20 },
+  along: { oneOf: [{ enum: ["normal", "x", "y", "z"] }, vector] },
+  noise: {
+    type: "object",
+    properties: {
+      scale: number,
+      octaves: { type: "integer", minimum: 1, maximum: 8 },
+      persistence: number,
+      lacunarity: number,
+      seed: { oneOf: [number, string] },
+    },
+    additionalProperties: false,
+  },
+  expr: { $ref: "#/$defs/formula" },
+  iterations: { type: "integer", minimum: 1, maximum: 100 },
+  factor: { type: "number", minimum: 0, maximum: 1 },
+  volume: boolean,
+  levels: { type: "integer", minimum: 1, maximum: 3 },
+  falloff: {
+    oneOf: [
+      number,
+      {
+        type: "object",
+        properties: {
+          radius: number,
+          shape: { enum: ["smooth", "sphere", "root", "sharp", "linear", "constant", "inverseSquare"] },
+        },
+        required: ["radius"],
+        additionalProperties: false,
+      },
+    ],
+  },
   definition: object,
   values: object,
   action: { enum: ["append", "update", "patch", "remove", "move"] },
@@ -459,6 +517,7 @@ props.shape = {
         "extrude",
         "revolve",
         "sweep",
+        "loft",
         "torus",
         "capsule",
       ],
@@ -496,7 +555,7 @@ const specs = {
   derived: ["rule nodes", ""],
   transform: [
     "",
-    "id ids vertices faces edges topology select translation rotation scale pivot space matrix",
+    "id ids vertices faces edges topology select translation rotation scale pivot space matrix falloff",
   ],
   dimensions: ["id size", ""],
   applyScale: ["id", ""],
@@ -511,7 +570,12 @@ const specs = {
   symmetry: ["id newId axis", "name offset space linked idMap replace"],
   vertexSymmetry: ["id", "axis offset side enabled"],
   unlink: ["id", ""],
-  vertices: ["id changes", "topology"],
+  vertices: ["id changes", "topology falloff"],
+  deform: ["id kind", "amount angle direction axis from to pivot power space select faces edges vertices topology falloff"],
+  displace: ["id amount", "mode along axis from to pivot power noise expr seed space select faces edges vertices topology falloff"],
+  smooth: ["id", "iterations factor volume space select faces edges vertices topology falloff"],
+  subdivide: ["id", "levels smooth"],
+  triangulate: ["id", "faces select topology"],
   extrude: ["id distance", "faces face select topology space"],
   inset: ["id distance", "faces face select topology space"],
   bevel: ["id distance", "edges select topology space"],
@@ -563,6 +627,7 @@ for (const c of commandSchema.oneOf) {
     inset: "faces",
     extrude: "faces",
     paint: "faces",
+    triangulate: "faces",
   }[c.properties.op.const];
   if (kind && c.properties.select)
     c.properties.select = {
@@ -571,6 +636,16 @@ for (const c of commandSchema.oneOf) {
     };
   if (c.properties.op.const === "detachBinding")
     c.properties.mode = { enum: ["keep", "inherit"] };
+  // Shape edits reuse field names with their own ranges: kind, angle, to and mode.
+  if (c.properties.op.const === "deform") {
+    c.properties.kind = { enum: ["taper", "bend", "twist", "shear", "stretch"] };
+    c.properties.angle = { type: "number", minimum: -3600, maximum: 3600 };
+    c.properties.to = number;
+  }
+  if (c.properties.op.const === "displace") {
+    c.properties.mode = { enum: ["uniform", "noise", "gradient", "formula"] };
+    c.properties.to = number;
+  }
 }
 const obj = (properties, required = []) => ({
   type: "object",
@@ -620,6 +695,11 @@ const steps = commandSchema.oneOf
       "bridge",
       "connect",
       "solidify",
+      "deform",
+      "displace",
+      "smooth",
+      "subdivide",
+      "triangulate",
     ].includes(c.properties.op.const),
   )
   .map((c) => {
@@ -679,6 +759,23 @@ export const modelDefinitions = {
       ),
     ],
   },
+  // A displacement formula (deform.js): per-vertex variables and functions, as data.
+  formula: {
+    oneOf: [
+      number,
+      obj({ $var: { enum: ["x", "y", "z", "nx", "ny", "nz", "u", "v", "w", "r", "t", "a", "noise"] } }, ["$var"]),
+      obj({ $param: string, factor: number, offset: number }, ["$param"]),
+      obj(
+        {
+          $expr: {
+            enum: ["add", "sub", "mul", "div", "pow", "mod", "min", "max", "abs", "sign", "sqrt", "floor", "round", "sin", "cos", "atan2", "clamp", "smoothstep", "lerp"],
+          },
+          args: { type: "array", items: { $ref: "#/$defs/formula" }, minItems: 1, maxItems: 8 },
+        },
+        ["$expr", "args"],
+      ),
+    ],
+  },
   parameters: {
     type: "object",
     additionalProperties: obj(
@@ -704,6 +801,7 @@ export const modelDefinitions = {
                   "extrude",
                   "revolve",
                   "sweep",
+                  "loft",
                   "torus",
                   "capsule",
                 ],
@@ -1095,10 +1193,19 @@ export function capabilities({ detail = "full", command } = {}) {
       "tileGridOnMaps",
       "junctions",
       "navigation",
+      "loft",
+      "deformers",
+      "displacement",
+      "formulaDisplacement",
+      "smoothing",
+      "subdivision",
+      "triangulate",
+      "geodesicSpheres",
+      "proportionalEditing",
     ],
     unsupported: [
       "UV textures",
-      "subdivision",
+      "sculpt brushes",
       "rigging",
       "animation",
       "inter-object collision validation",

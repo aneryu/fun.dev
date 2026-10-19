@@ -141,6 +141,69 @@ export async function editorGeneratorChecks({ browser, base }) {
     assert.ok(smooth < flat / 2, `smooth vertices share their normals: ${smooth} vs ${flat}`);
     await page.locator("#smooth").uncheck();
     assert.equal(await page.evaluate((id) => funEditor.inspect({ id }).node.smooth ?? null, torus), null);
+    // Loft sections from the dialog, edited again; a geodesic sphere.
+    await page.locator("#add").click();
+    await page.locator("#kind").selectOption("loft");
+    for (const field of ["outline", "sections", "axis", "round"])
+      assert.equal(await page.locator(`#${field}-field`).isHidden(), false, field);
+    assert.equal(await page.locator("#path-field").isHidden(), true);
+    await page.locator("#sections").fill("0, 1\n0.5, 1.4\n1, 0.6");
+    await page.locator("#sections").dispatchEvent("change");
+    await submit();
+    const loft = await page.evaluate(() => funEditor.inspect().selection.id);
+    node = await page.evaluate((id) => funEditor.inspect({ id }).node, loft);
+    assert.equal(node.generator.kind, "loft");
+    assert.deepEqual(node.generator.options.sections, [{ at: 0, scale: 1 }, { at: 0.5, scale: 1.4 }, { at: 1, scale: 0.6 }]);
+    assert.equal(node.generator.options.smooth, true);
+    await page.locator("#parameters").click();
+    assert.equal(await page.locator("#sections").inputValue(), "0, 1\n0.5, 1.4\n1, 0.6");
+    await page.locator("#sections-smooth").uncheck();
+    await submit();
+    node = await page.evaluate((id) => funEditor.inspect({ id }).node, loft);
+    assert.equal(node.generator.options.smooth, false, "the dialog edits a loft again");
+    await page.locator("#add").click();
+    await page.locator("#kind").selectOption("sphere");
+    assert.equal(await page.locator("#geodesic-field").isHidden(), false);
+    await page.locator("#geodesic").fill("1");
+    await page.locator("#geodesic").dispatchEvent("change");
+    await submit();
+    const ball = await page.evaluate(() => funEditor.inspect().selection.id);
+    node = await page.evaluate((id) => funEditor.inspect({ id, detail: "full" }).node, ball);
+    assert.equal(node.generator.options.geodesic, 1);
+    assert.equal(node.mesh.faces.length, 80, "an icosphere of one split");
+    // The deform panel previews in the viewport and applies one undoable command.
+    await page.evaluate((id) => funEditor.select(id), loft);
+    const straight = await page.evaluate((id) => funEditor.inspect({ id, detail: "full" }).node.mesh.vertices, loft);
+    await page.locator("#deform-tools summary").click();
+    await page.locator("#deform-kind").selectOption("bend");
+    await page.locator("#deform-amount").fill("60");
+    await page.locator("#deform-amount").dispatchEvent("input");
+    const revision = await page.evaluate(() => funEditor.inspect().revision);
+    assert.deepEqual(await page.evaluate((id) => funEditor.inspect({ id, detail: "full" }).node.mesh.vertices, loft), straight, "a preview does not change the draft");
+    await page.locator("#deform-apply").click();
+    assert.equal(await page.evaluate(() => funEditor.inspect().revision), revision + 1);
+    const bent = await page.evaluate((id) => funEditor.inspect({ id, detail: "full" }).node.mesh.vertices, loft);
+    assert.notDeepEqual(bent, straight, "the bend applied");
+    assert.equal(await page.evaluate((id) => funEditor.inspect({ id }).node.generator ?? null, loft), null, "a deformed loft is a mesh now");
+    await page.locator("#undo").click();
+    assert.deepEqual(await page.evaluate((id) => funEditor.inspect({ id, detail: "full" }).node.mesh.vertices, loft), straight, "one undo step");
+    // Proportional editing: the toggle shows its settings; a numeric vertex move drags the
+    // neighbours along, a plain one does not.
+    await page.locator("#proportional").click();
+    assert.equal(await page.locator("#proportional-settings").isHidden(), false);
+    await page.locator("#proportional-radius").fill("0.6");
+    await page.locator("#proportional-radius").dispatchEvent("change");
+    await page.locator("#selection-mode").selectOption("vertex");
+    await page.locator("#vertex").selectOption("0");
+    const y = page.locator('[data-vector="vertex"] input').nth(1);
+    await y.fill(String(Number(await y.inputValue()) + 0.3));
+    await y.press("Enter");
+    const dragged = await page.evaluate((id) => funEditor.inspect({ id, detail: "full" }).node.mesh.vertices, loft);
+    const movedCount = dragged.filter((v, i) => straight[i].some((c, k) => Math.abs(c - v[k]) > 1e-9)).length;
+    assert.ok(movedCount > 1, `proportional editing moves the neighbours too (${movedCount})`);
+    await page.locator("#proportional").click();
+    assert.equal(await page.locator("#proportional-settings").isHidden(), true);
+    await page.locator("#selection-mode").selectOption("object");
     await page.screenshot({ path: resolve(results, "editor-round-shapes.png") });
     assert.deepEqual(errors, []);
   } finally {

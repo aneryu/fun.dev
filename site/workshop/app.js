@@ -95,6 +95,9 @@ const lengthFields = [
   "box-bevel",
   "round",
   "weld-distance",
+  "proportional-radius",
+  "deform-from",
+  "deform-to",
 ];
 const distanceValue = (id) => Number($("#" + id).value) * unitFactor();
 function vectorValue(name) {
@@ -675,6 +678,10 @@ async function start() {
     $("#parameters").hidden = !shapeGenerator(n);
     $("#group-note").hidden = !!n.mesh;
     $("#mesh-properties").hidden = !n.mesh;
+    for (const id of ["deform-apply", "subdivide", "relax", "triangulate"])
+      $("#" + id).disabled =
+        linked || selectionLocked || !draft.writable || !geometryEditable || !n.mesh;
+    $("#deform-tools").hidden = selection.mode !== "object";
     $("#context-tools").hidden = !n.mesh;
     $("#material-tools").hidden =
       !paintTargets().length || ["edge", "vertex"].includes(selection.mode);
@@ -936,6 +943,7 @@ async function start() {
             op: "vertices",
             id: n.id,
             changes: [{ index: selection.vertex, position: value }],
+            ...(currentFalloff() ? { falloff: currentFalloff() } : {}),
           },
         ];
     }
@@ -1405,6 +1413,23 @@ async function start() {
       `${$("#snap-step").selectedOptions[0].textContent} · ${$("#snap-angle").value}°`;
   }
   $("#snap-step").onchange = $("#snap-angle").onchange = updateSnap;
+  // Proportional editing: component transforms (gizmo and numeric) carry a falloff.
+  function currentFalloff() {
+    if ($("#proportional").getAttribute("aria-pressed") !== "true") return null;
+    const radius = Number($("#proportional-radius").value) * unitFactor();
+    return radius > 0 ? { radius, shape: $("#proportional-shape").value } : null;
+  }
+  function updateFalloff() {
+    $("#proportional-settings").hidden =
+      $("#proportional").getAttribute("aria-pressed") !== "true";
+    viewport.setFalloff(currentFalloff());
+  }
+  $("#proportional").onclick = () => {
+    const b = $("#proportional");
+    b.setAttribute("aria-pressed", String(b.getAttribute("aria-pressed") !== "true"));
+    updateFalloff();
+  };
+  $("#proportional-radius").onchange = $("#proportional-shape").onchange = updateFalloff;
   function refreshUnitLabels() {
     for (const el of all("[data-length-unit]")) el.textContent = lengthUnit;
     for (const el of all("[data-i18n]")) {
@@ -1756,15 +1781,17 @@ async function start() {
       "inner-radius": ["cylinder", "cone"].includes(kind),
       tube: kind === "torus",
       latitude: kind === "sphere",
-      axis: ["cylinder", "cone", "torus", "capsule", "lathe", "revolve"].includes(kind),
+      axis: ["cylinder", "cone", "torus", "capsule", "lathe", "revolve", "loft"].includes(kind),
       height: ["cylinder", "cone", "capsule"].includes(kind),
       rings: ["sphere", "capsule"].includes(kind),
       segment: [...ROUND_KINDS, "lathe", "revolve"].includes(kind),
-      outline: ["extrude", "lathe", "revolve", "sweep"].includes(kind),
+      outline: ["extrude", "lathe", "revolve", "sweep", "loft"].includes(kind),
       depth: kind === "extrude",
-      round: ["extrude", "revolve", "sweep", "cylinder", "cone"].includes(kind),
+      round: ["extrude", "revolve", "sweep", "loft", "cylinder", "cone"].includes(kind),
       angle: ["revolve", "cylinder", "cone", "sphere", "torus"].includes(kind),
       path: kind === "sweep",
+      sections: kind === "loft",
+      geodesic: kind === "sphere",
     }))
       $("#" + field + "-field").hidden = !visible;
     $('label[for="radius"]').textContent = t(kind === "torus" ? "edRingRadius" : "edRadius");
@@ -1774,6 +1801,7 @@ async function start() {
         lathe: "edLatheHint",
         revolve: "edRevolveHint",
         sweep: "edSweepHint",
+        loft: "edLoftHint",
       }[kind] ?? "edOutlineHint",
     );
     if (reset) {
@@ -1782,10 +1810,14 @@ async function start() {
           lathe: cupProfile,
           revolve: "0.35, -0.08\n0.55, -0.08\n0.55, 0.08\n0.35, 0.08",
           sweep: "-0.04, -0.04\n0.04, -0.04\n0.04, 0.04\n-0.04, 0.04",
+          loft: '{ "circle": 0.3 }',
         }[kind] ?? "-0.5, -0.5\n0.5, -0.5\n0.3, 0.3\n0, 0.6\n-0.3, 0.3",
         1 / unitFactor(),
       );
       $("#round").value = kind === "sweep" ? 0.03 / unitFactor() : 0;
+      $("#sections").value = scalePath("0, 0.6\n0.3, 1\n0.8, 0.4\n1, 0.5", 1 / unitFactor());
+      $("#sections-smooth").checked = true;
+      $("#geodesic").value = "";
       $("#angle").value = 360;
       // Tori and capsules start with "auto" segments (empty fields); the rest as before.
       const auto = ["torus", "capsule"].includes(kind);
@@ -1811,8 +1843,27 @@ async function start() {
         1 / unitFactor(),
       );
     }
-    if (["lathe", "extrude", "revolve", "sweep"].includes(kind)) profile.draw();
+    if (["lathe", "extrude", "revolve", "sweep", "loft"].includes(kind)) profile.draw();
   }
+  // Loft sections: one per line, "height, scale[, turn]" (height in the length unit).
+  function parseSections(text) {
+    return text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [at, scale, rotation] = line.split(/[,\s]+/).map(Number);
+        return {
+          at: at * unitFactor(),
+          ...(Number.isFinite(scale) ? { scale } : {}),
+          ...(Number.isFinite(rotation) ? { rotation } : {}),
+        };
+      });
+  }
+  const formatSections = (sections) =>
+    sections
+      .map((s) => [s.at / unitFactor(), s.scale ?? 1, ...(s.rotation ? [s.rotation] : [])].map((v) => Number(Number(v).toPrecision(12))).join(", "))
+      .join("\n");
   // Outline and path text: one point per line (x, y[, corner radius] or x, y, z), or a
   // line of JSON for an arc, a curve, or (alone) a whole shape. Lengths follow the length
   // unit; angles, segment counts and sides do not.
@@ -1886,15 +1937,20 @@ async function start() {
     if ([...ROUND_KINDS, "lathe", "revolve"].includes(kind))
       opts.segments = countValue("segments");
     if (
-      ["cylinder", "cone", "torus", "capsule", "lathe", "revolve"].includes(kind) &&
+      ["cylinder", "cone", "torus", "capsule", "lathe", "revolve", "loft"].includes(kind) &&
       $("#shape-axis").value !== "y"
     )
       opts.axis = $("#shape-axis").value;
-    if (["lathe", "extrude", "revolve", "sweep"].includes(kind))
+    if (["lathe", "extrude", "revolve", "sweep", "loft"].includes(kind))
       opts[kind === "extrude" ? "points" : "profile"] = parseItems($("#outline").value);
+    if (kind === "loft") {
+      opts.sections = parseSections($("#sections").value);
+      opts.smooth = $("#sections-smooth").checked;
+    }
+    if (kind === "sphere" && $("#geodesic").value !== "") opts.geodesic = Number($("#geodesic").value);
     if (kind === "extrude") opts.depth = distanceValue("depth");
     // A zero radius keeps plain outlines (and their face IDs) unchanged.
-    if (["extrude", "revolve", "sweep"].includes(kind))
+    if (["extrude", "revolve", "sweep", "loft"].includes(kind))
       opts.round = distanceValue("round");
     if (kind === "revolve") opts.angle = Number($("#angle").value);
     else if (
@@ -2078,6 +2134,9 @@ async function start() {
       $("#outline").value = formatItems(o.profile ?? o.points ?? []);
       $("#path").value = formatItems(o.path ?? []);
       $("#path-smooth").checked = o.smooth === true;
+      $("#sections").value = o.sections ? formatSections(o.sections) : "";
+      $("#sections-smooth").checked = o.smooth === true;
+      $("#geodesic").value = o.geodesic ?? "";
     } else {
       setVector("primitiveSize", [1, 1, 1]);
       $("#box-bevel").value = 0;
@@ -2107,6 +2166,74 @@ async function start() {
   $("#smooth").onchange = applySmoothing;
   $("#smooth-angle").onchange = () => {
     if ($("#smooth").checked) applySmoothing();
+  };
+  // The deform panel previews in the viewport as the fields change and applies one command.
+  const deformDefaults = { taper: 0.5, bend: 45, twist: 45, shear: 0.2, stretch: 1.5 };
+  let deformPreviewing = false;
+  function deformCommand() {
+    const kind = $("#deform-kind").value,
+      amount = Number($("#deform-amount").value),
+      command = { op: "deform", id: selection.id, kind, axis: $("#deform-axis").value };
+    if (["bend", "twist"].includes(kind)) command.angle = amount;
+    else command.amount = kind === "shear" ? amount * unitFactor() : amount;
+    if (["bend", "shear"].includes(kind)) command.direction = $("#deform-direction").value;
+    for (const key of ["from", "to"])
+      if ($("#deform-" + key).value !== "") command[key] = distanceValue("deform-" + key);
+    return command;
+  }
+  function deformLabels() {
+    const kind = $("#deform-kind").value;
+    $("#deform-amount-label").textContent = t(
+      { taper: "edTaperAmount", bend: "edBendAngle", twist: "edTwistAngle", shear: "edShearAmount", stretch: "edStretchAmount" }[kind],
+    );
+    $("#deform-direction-field").hidden = !["bend", "shear"].includes(kind);
+  }
+  function cancelDeform() {
+    if (!deformPreviewing) return;
+    deformPreviewing = false;
+    viewport.setProject(store.snapshot());
+  }
+  function previewDeform() {
+    if (!$("#deform-tools").open || !selection.id || selection.mode !== "object" || $("#deform-apply").disabled) return;
+    try {
+      const next = evaluateCommands(store.snapshot(), [deformCommand()]);
+      viewport.setProject(next);
+      deformPreviewing = true;
+      status(t("edDeformPreview"));
+    } catch (error) {
+      cancelDeform();
+      status(error.message, true);
+    }
+  }
+  for (const id of ["deform-axis", "deform-direction", "deform-amount", "deform-from", "deform-to"])
+    $("#" + id).addEventListener("input", previewDeform);
+  $("#deform-kind").onchange = () => {
+    $("#deform-amount").value = deformDefaults[$("#deform-kind").value];
+    deformLabels();
+    previewDeform();
+  };
+  $("#deform-tools").addEventListener("toggle", () => {
+    if ($("#deform-tools").open) {
+      deformLabels();
+      previewDeform();
+    } else cancelDeform();
+  });
+  $("#deform-cancel").onclick = cancelDeform;
+  $("#deform-apply").onclick = () => {
+    const command = deformCommand();
+    deformPreviewing = false;
+    if (flushPending()) apply([command]);
+  };
+  const faceScope = () =>
+    selection.mode === "face" && selection.faces.length ? { faces: selection.faces } : {};
+  $("#subdivide").onclick = () => {
+    if (flushPending()) apply([{ op: "subdivide", id: selection.id, levels: 1 }]);
+  };
+  $("#relax").onclick = () => {
+    if (flushPending()) apply([{ op: "smooth", id: selection.id, iterations: 1, factor: 0.5, ...faceScope() }]);
+  };
+  $("#triangulate").onclick = () => {
+    if (flushPending()) apply([{ op: "triangulate", id: selection.id, ...faceScope() }]);
   };
   $("#add").onclick = () => shapeDialog();
   $("#parameters").onclick = () => shapeDialog(true);
@@ -2302,6 +2429,7 @@ async function start() {
       r: '[data-transform="rotate"]',
       s: '[data-transform="scale"]',
       x: "xray",
+      o: "proportional",
     };
     const control = shortcuts[e.key.toLowerCase()];
     if (control) {

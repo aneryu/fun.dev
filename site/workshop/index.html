@@ -219,6 +219,21 @@
               <option value="mm">mm</option>
             </select></label
           >
+          <button id="proportional" aria-pressed="false" data-i18n="edProportional">
+            比例编辑 O
+          </button>
+          <label id="proportional-settings" hidden
+            ><span data-i18n="edProportionalRadius">半径</span
+            ><input id="proportional-radius" type="number" min="0.001" step="any" value="0.5" />
+            <select id="proportional-shape" aria-label="Falloff">
+              <option value="smooth" data-i18n="edFalloffSmooth">平滑</option>
+              <option value="sphere" data-i18n="edFalloffSphere">球形</option>
+              <option value="root" data-i18n="edFalloffRoot">根式</option>
+              <option value="sharp" data-i18n="edFalloffSharp">尖锐</option>
+              <option value="linear" data-i18n="edFalloffLinear">线性</option>
+              <option value="constant" data-i18n="edFalloffConstant">恒定</option>
+            </select></label
+          >
           <span id="grid-label" class="small"></span>
         </div>
         <div class="stage">
@@ -374,6 +389,61 @@
                 ><span data-i18n="edCrease">折角（度）</span
                 ><input id="smooth-angle" type="number" value="60" min="1" max="180" step="1"
               /></label>
+            </div>
+            <details id="deform-tools">
+              <summary data-i18n="edDeform">变形</summary>
+              <div class="pair">
+                <label
+                  ><span data-i18n="edDeformKind">方式</span
+                  ><select id="deform-kind">
+                    <option value="taper" data-i18n="edTaper">收分</option>
+                    <option value="bend" data-i18n="edBend">弯曲</option>
+                    <option value="twist" data-i18n="edTwist">扭转</option>
+                    <option value="shear" data-i18n="edShear">错切</option>
+                    <option value="stretch" data-i18n="edStretch">拉伸</option>
+                  </select></label
+                ><label
+                  ><span data-i18n="edDeformAxis">轴</span
+                  ><select id="deform-axis">
+                    <option>x</option>
+                    <option selected>y</option>
+                    <option>z</option>
+                  </select></label
+                >
+              </div>
+              <div class="pair">
+                <label id="deform-direction-field" hidden
+                  ><span data-i18n="edDeformDirection">朝向</span
+                  ><select id="deform-direction">
+                    <option selected>x</option>
+                    <option>y</option>
+                    <option>z</option>
+                  </select></label
+                ><label
+                  ><span id="deform-amount-label" data-i18n="edTaperAmount">末端比例</span
+                  ><input id="deform-amount" type="number" step="any" value="0.5"
+                /></label>
+              </div>
+              <div class="pair">
+                <label
+                  ><span data-i18n="edDeformFrom">起点（空=最低）</span
+                  ><input id="deform-from" type="number" step="any"
+                /></label>
+                <label
+                  ><span data-i18n="edDeformTo">终点（空=最高）</span
+                  ><input id="deform-to" type="number" step="any"
+                /></label>
+              </div>
+              <button id="deform-apply" data-i18n="edDeformApply">应用变形</button
+              ><button id="deform-cancel" data-i18n="edDeformCancel">还原预览</button>
+              <p class="small muted" data-i18n="edDeformHint">
+                改动即时预览，应用后才写入工程；范围沿所选轴，用当前长度单位。
+              </p>
+            </details>
+            <div id="shape-edit-tools">
+              <button id="subdivide" data-i18n="edSubdivide">细分一级</button
+              ><button id="relax" data-i18n="edRelax">松弛</button
+              ><button id="triangulate" data-i18n="edTriangulate">三角化</button>
             </div>
             <section id="face-tools" hidden>
               <label for="face" data-i18n="edFaceId">选择面</label
@@ -621,6 +691,7 @@
             <option value="lathe" data-i18n="edLathe">旋转成型</option>
             <option value="revolve" data-i18n="edRevolve">截面旋转</option>
             <option value="sweep" data-i18n="edSweep">沿路径扫掠</option>
+            <option value="loft" data-i18n="edLoft">多截面放样</option>
             <option value="group" data-i18n="edGroup">空部件 / 挂点</option>
           </select>
           <div id="size-field">
@@ -674,6 +745,10 @@
               <input id="latitude-start" type="number" value="-90" min="-90" max="90" step="any" aria-label="from" />
               <input id="latitude-end" type="number" value="90" min="-90" max="90" step="any" aria-label="to" />
             </div>
+          </div>
+          <div id="geodesic-field" hidden>
+            <label for="geodesic" data-i18n="edGeodesic">测地细分（空=经纬球）</label
+            ><input id="geodesic" type="number" min="0" max="5" step="1" />
           </div>
           <div id="axis-field" hidden>
             <label for="shape-axis" data-i18n="edAxis">朝向（轴）</label
@@ -782,6 +857,20 @@
               ><input type="checkbox" id="path-smooth" checked /><span
                 data-i18n="edPathSmooth"
                 >平滑路径</span
+              ></label
+            >
+          </div>
+          <div id="sections-field" hidden>
+            <label for="sections"
+              ><span data-i18n="edSections">截面，每行 高度, 比例[, 旋转度数]</span> (<span
+                data-length-unit
+                >m</span
+              >)</label
+            ><textarea id="sections" rows="4" spellcheck="false"></textarea
+            ><label class="check"
+              ><input type="checkbox" id="sections-smooth" checked /><span
+                data-i18n="edSectionsSmooth"
+                >平滑过渡</span
               ></label
             >
           </div>

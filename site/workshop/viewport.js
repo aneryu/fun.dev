@@ -1146,6 +1146,8 @@ export async function createViewport(
       }
     render();
   }
+  // Proportional editing: a falloff set by the page rides on component transforms.
+  let falloff = null;
   function transformCommand(delta) {
     return {
       op: "transform",
@@ -1157,6 +1159,7 @@ export async function createViewport(
           : selection.mode === "edge"
             ? { edges: selection.edges }
             : { faces: selection.faces }),
+      ...(falloff && selection.mode !== "object" ? { falloff } : {}),
       matrix: delta,
     };
   }
@@ -1586,6 +1589,9 @@ export async function createViewport(
         value ? THREE.MathUtils.degToRad(degrees) : null,
       );
       transform.setScaleSnap(value ? 0.1 : null);
+    },
+    setFalloff(value) {
+      falloff = value ? { radius: value.radius, shape: value.shape } : null;
     },
     setShading(value) {
       if (!["material", "clay", "silhouette"].includes(value))

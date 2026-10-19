@@ -48,6 +48,11 @@ const allowed = new Set([
   "bridge",
   "connect",
   "solidify",
+  "deform",
+  "displace",
+  "smooth",
+  "subdivide",
+  "triangulate",
 ]);
 export function normalizeRecipe(input) {
   const r = structuredClone(input);
@@ -73,6 +78,7 @@ export function normalizeRecipe(input) {
       "lathe",
       "revolve",
       "sweep",
+      "loft",
       "torus",
       "capsule",
       "mesh",
@@ -195,6 +201,25 @@ export function editRecipeStep(input, command) {
           "changes",
           "material",
           "topology",
+          "kind",
+          "amount",
+          "angle",
+          "direction",
+          "from",
+          "to",
+          "power",
+          "mode",
+          "along",
+          "noise",
+          "expr",
+          "seed",
+          "iterations",
+          "factor",
+          "volume",
+          "levels",
+          "smooth",
+          "falloff",
+          "thickness",
         ].includes(key)
       )
         throw new ModelError("Unsupported step field: " + key);
@@ -270,12 +295,22 @@ export function recipeValue(value, parameters, context = {}, depth = 0) {
           : parameters[value.$param].value) *
           (value.factor ?? 1) +
         (value.offset ?? 0);
+    } else if ("$var" in value) {
+      // A formula variable (deform.js): evaluated per vertex when the step runs.
+      return value;
     } else if ("$expr" in value) {
-      if (!Array.isArray(value.args) || value.args.length !== 2)
-        throw new ModelError("Expressions need two operands");
-      const [a, b] = value.args.map(next);
-      if (![a, b].every(Number.isFinite))
-        throw new ModelError("Expression operands must be numbers");
+      // Formulas (displace expr) use more functions and per-vertex variables: their
+      // parameters are substituted here and the tree is left for the step to evaluate.
+      if (!Array.isArray(value.args) || !value.args.length)
+        throw new ModelError("Expressions need operands");
+      const args = value.args.map(next);
+      if (
+        !["add", "sub", "mul", "div"].includes(value.$expr) ||
+        args.length !== 2 ||
+        !args.every(Number.isFinite)
+      )
+        return { $expr: value.$expr, args };
+      const [a, b] = args;
       switch (value.$expr) {
         case "add":
           n = a + b;

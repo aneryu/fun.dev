@@ -261,6 +261,10 @@ export function resolveComponents(
       bridge: ["faces", "edges"],
       connect: ["vertices"],
       separate: ["faces"],
+      deform: ["faces", "edges", "vertices"],
+      displace: ["faces", "edges", "vertices"],
+      smooth: ["faces", "edges", "vertices"],
+      triangulate: ["faces"],
     }[c.op] ?? [];
   const requireKind = (kind) => {
     if (selectionOnly) return;

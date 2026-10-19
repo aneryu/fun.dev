@@ -3,6 +3,8 @@ import {
   extrudeShape,
   revolveShape,
   sweepShape,
+  loftShape,
+  geodesicSphere,
   revolveContours,
   expandOutline,
   roundOutline,
@@ -347,6 +349,8 @@ function roundShape(kind, options, material) {
     return latheRows(profile, count, material);
   }
   if (kind === "sphere") {
+    // geodesic: an icosphere of that many splits (generators.js); the lathe sphere otherwise.
+    if (options.geodesic !== undefined) return geodesicSphere(options, material);
     const radius = number(options.radius ?? 0.5, 0.001, 1000, "radius"),
       count = segmentCount(options.segments, radius, 8),
       rings =
@@ -542,6 +546,7 @@ export function primitive(kind, options = {}, material = "yellow") {
     return extrudeShape(options, material);
   if (kind === "revolve") return orient(revolveShape(options, material), options.axis);
   if (kind === "sweep") return sweepShape(options, material);
+  if (kind === "loft") return loftShape(options, material);
   if (kind === "extrude") {
     const points = options.points ?? [
       [-0.5, -0.5],

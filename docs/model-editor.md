@@ -86,6 +86,15 @@ tapered legs; Planter has an editable profile with a returning inner wall.
   points within the weld distance (in vertex mode only the selection); Separate moves
   the selected faces, or in object mode every loose piece, into new parts; Join parts
   merges the other selected parts into the active one.
+- Shaping (2026-10-20): **Proportional** (O) in the toolbar gives every component move,
+  rotation, scale and numeric vertex edit a falloff (radius in the length unit; smooth,
+  sphere, root, sharp, linear or constant), so the neighbours follow. The **Deform** panel
+  of a mesh part tapers, bends, twists, shears or stretches it along an axis with a live
+  preview in the viewport and one undoable command on Apply; beside it **Subdivide once**
+  (Catmull–Clark), **Relax** (one smoothing pass, on the selected faces when there are
+  any) and **Triangulate** (the part, or the selected faces). The add-shape dialog offers
+  **Loft sections** (one closed profile, sections as "height, scale[, turn]" lines, smooth
+  or faceted) and a **geodesic** field on spheres.
 - Reparenting keeps world appearance by default, including nonuniform parent
   transforms. Affine shear that cannot be represented by TRS is baked into geometry
   and the generator basis, with child transforms preserved. Set `keepWorld:false`
@@ -141,6 +150,21 @@ Beyond boxes, spheres, cylinders, cones, outlines and lathes (`site/workshop/gen
   (`pathSegments` per span); `closed` joins the ends without caps; `scale` sets the end
   size. Pipes, handrails, rails, cables, frames. Curved sweeps keep slightly non-planar
   quads, which validation reports as warnings.
+- **loft** (2026-10-20): closed sections one after another along an axis or a 3D path,
+  skinned by quads (two triangles where a quad twists) and capped: towers, hulls, vases,
+  handles. `sections: [{ profile?, at?, scale?, rotation?, offset? }, …]` (2–64): each
+  section's outline (or the loft's `profile`), its `at` (a height along `axis`, `"y"` by
+  default; a 0–1 fraction of the `path`'s length when a path is given), a `scale` (number or
+  [x, y]), a turn about the axis in degrees and a sideways `offset`; without `at` the sections
+  spread evenly over `height` (1 m) or the path. Outlines with the same number of points
+  correspond point by point as written; otherwise they are aligned by arc length to one shared
+  point layout (corners keep their places; outlines after the first start at the corner nearest
+  in direction to the first one's start), so a square meets a circle corner by corner within the
+  64-point cap. `smooth` runs a Catmull–Rom curve through the sections
+  (`pathSegments` rings per span, 6) for a smooth silhouette; `caps: false` leaves the ends
+  open; `round` fillets the outlines' corners. For axis y a section's X is the part's X and
+  its Y the part's Z; for z they are X and Y (as an extrusion's); for x they are Y and Z.
+  Section values take recipe expressions, so a tower's taper can be a parameter.
 - **array** command: `count` copies stepped by `rotation` about `pivot`, then `offset`, in
   the parent's coordinates (the pivot defaults to the part's origin; give one for radial
   arrays). Copies are linked parts named `<id>_2`, `<id>_3`… with their descendants
@@ -185,6 +209,13 @@ control makes linked or independent copies of the selected part.
   too); the viewport, observations, the software renderer and exported GLB normals all use
   it. GLB import reads the file's normals: edges whose normals agree on both sides were
   smooth, and the part gets a crease just above the sharpest of them (95th percentile).
+
+- **Geodesic spheres** (2026-10-20): `geodesic: n` (0–5) builds an icosphere instead of the
+  lathe sphere: an icosahedron with a vertex at each pole, every triangle split four ways n
+  times and pushed to the radius, so the facets are all about one size (20 · 4ⁿ of them: the
+  low-poly rock, crown and ball base, and what `displace` noise and `smooth` shading want).
+  `latitude` and `angle` still cut it, flat where cut, through the kernel. Spheres without
+  the option rebuild exactly as before.
 
 ## Project files and GLB import
 
@@ -354,10 +385,70 @@ would be invalid. Weld distances and solidify thickness are world meters unless
 - `separate {id, newId, faces|select|loose:true}` moves faces, or every loose part
   after the first (`newId`, `newId-2`, …), into new parts with the same parent and
   transform. `join {id, with:[ids]}` moves other parts into this part's coordinates and
-  consumes them; their children and mirrors stay. Parts that touch or overlap are
-  refused: boolean union makes one clean solid instead.
+  consumes them; their children and mirrors stay. Parts that touch or overlap stay
+  separate shells (a `shell-overlap` warning); boolean union makes one clean solid instead.
 
 All but separate and join are also recipe steps.
+
+## Deformers, displacement, smoothing and subdivision
+
+Shape edits (2026-10-20, `site/workshop/deform.js`) move a part's vertices without changing
+its faces, so face IDs and component references stay valid; `subdivide` and `triangulate`
+rebuild the faces. They work in the part's own metres unless `space: "world"`, are recipe
+steps with the same fields (so a bend angle or a bump height can be a parameter), and take
+a component selection (`select`, `faces`, `edges` or `vertices`) plus a `falloff` so the
+rest of the mesh follows the selection:
+
+- `deform {id, kind, axis?, from?, to?, pivot?, power?, amount | angle, direction?}`: along
+  `axis` (y) the range from `from` to `to` (the part's extent by default) ramps the effect
+  from nothing to full (`power` bends the ramp); what lies beyond `to` takes the full
+  effect. `taper` scales the two lateral axes about the `pivot` line to `amount` (a factor or
+  [across, along]) at the end; `twist` turns them by `angle` degrees; `shear` shifts them by
+  `amount` metres towards `direction`; `stretch` scales the range along the axis by
+  `amount`; `bend` turns the range into an arc of `angle` degrees towards `direction` (the
+  first lateral axis by default), what lies beyond continuing straight along the arc's end.
+- `displace {id, amount, mode?, along?, axis?, from?, to?, power?, noise?, expr?, seed?}` moves
+  every vertex along its normal (`along: "x" | "y" | "z"` or a vector instead) by `amount`
+  metres times a field: `uniform` (1: an inflate, or a deflate when negative), `gradient` (0
+  at `from`, 1 at `to` along `axis`), `noise` (fractal value noise in −1..1 over
+  `noise: { scale, octaves, persistence, lacunarity, seed }`, deterministic by seed; the
+  low-poly rock and crown) or `formula`. A formula is data, never a script: a number,
+  `{ $var }` or `{ $expr, args }` nested (`add sub mul div pow mod min max abs sign sqrt
+  floor round sin cos atan2 clamp smoothstep lerp`, angles in degrees) over the variables
+  `x y z` (position), `nx ny nz` (normal), `u v w` (0–1 within the bounds), `r` (distance
+  from the axis line), `t` (0–1 along the range), `a` (angle around the axis, degrees) and
+  `noise`; recipe parameters (`{ $param }`) are substituted first. The result reports
+  `nonplanarFaces` when quads bent: triangulate them, or leave them for export to split.
+- `smooth {id, iterations?, factor?, volume?}` relaxes vertices towards the mean of their
+  neighbours (`factor` 0.5 per iteration); points on an open rim follow their rim neighbours
+  only; `volume: true` follows each step with a slightly larger step back (Taubin), so the
+  mesh keeps its size. Vertices at one position (unwelded seams) move as one.
+- `subdivide {id, levels?, smooth?}` splits every face into a quad per corner, 1–3 levels:
+  Catmull–Clark positions (`smooth`, the default) round the mesh (boundaries follow the
+  curve rule, so a plate stays a plate), `smooth: false` keeps every point where it is (the
+  grid a displacement or a sculpt wants). Growth is checked against the limits first; new
+  faces take their parent's material; set the part's `smooth` shading to see it round.
+- `triangulate {id, faces | select}` splits quads and n-gons (all, or the selected faces)
+  into the triangles export would choose, as faces of their own, so bent quads render as
+  the author saw them.
+- `falloff: { radius, shape }` (or a radius) on `transform`, `vertices` and the shape edits
+  above is proportional editing: selected vertices move fully, the others by their distance
+  to the nearest selected one within `radius` (in the command's space): `smooth` (default),
+  `sphere`, `root`, `sharp`, `linear`, `constant` or `inverseSquare`.
+
+```js
+await ws.apply([
+  { op: "create", id: "tower", kind: "loft", options: { profile: { rect: { size: [8, 8], round: 1 } },
+    sections: [{ at: 0, scale: 1.2 }, { at: 6, scale: 1 }, { at: 40, scale: 0.6 }, { at: 48, scale: 0.75 }], smooth: true } },
+  { op: "deform", id: "tower", kind: "twist", angle: 30, from: 6, to: 48 },
+  { op: "create", id: "rock", kind: "sphere", options: { radius: 0.6, geodesic: 2 }, smooth: 70 },
+  { op: "displace", id: "rock", amount: 0.12, mode: "noise", noise: { scale: 0.5, seed: "rock" } },
+  { op: "deform", id: "rock", kind: "taper", amount: [1.3, 0.8] },
+  { op: "create", id: "pipe", kind: "cylinder", options: { radius: 0.05, height: 2, segments: 12 } },
+  { op: "subdivide", id: "pipe", levels: 2, smooth: false },
+  { op: "deform", id: "pipe", kind: "bend", angle: 90, from: 0.5, to: 1 },
+]);
+```
 
 ## Limits and verification
 
@@ -370,7 +461,8 @@ storage and incremental history are stage 2). Generated topology may change face
 when its segment counts change; inspect again after parameter updates.
 
 The validator checks IDs, indices, hierarchy/link cycles, degenerate polygons and
-material references. It reports non-planar polygons, open/nonmanifold/inconsistent
+material references. It reports non-planar polygons (a fold above 1% of the face's size,
+about a degree between its triangles; flatter quads on curved surfaces pass), open/nonmanifold/inconsistent
 edges and optional budgets. GUI diagnostics locate the offending part/face. Draw
 calls count mesh/material groups, excluding helpers, shadows and renderer passes.
 Surface checks additionally detect triangle self-intersections (including coplanar
@@ -508,7 +600,7 @@ offset:0}`; no script strings are evaluated. Up to 32 steps operate on this mesh
 in local meters, using semantic selections. Supported steps: transform, vertices,
 inset, extrude, bevel, cut, loopCut, paint, mirror, boolean, array (copies merged into this
 mesh, so a count can be a parameter), deleteComponents, dissolve, weld, fill, bridge,
-connect and solidify. A recipe is rebuilt
+connect, solidify, deform, displace, smooth, subdivide and triangulate. A recipe is rebuilt
 atomically; other objects and the node's transform are retained, and linked copies
 update. Pivot/reparent/apply-scale bakes are retained in its affine basis.
 Whole-mesh `transform` steps transform every vertex immediately, so later cuts and

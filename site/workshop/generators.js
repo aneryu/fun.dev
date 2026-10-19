@@ -1,9 +1,9 @@
 // Shape generators beyond the basic primitives: extrusions with holes and rounded corners,
 // revolved sections and profiles swept along a path. mesh.js primitive() dispatches here,
 // so recipes, assemblies, boolean shapes and saved projects all rebuild them.
-import { fail, number, add, sub, mul, dot, cross } from "./mesh.js";
+import { fail, number, add, sub, mul, dot, cross, triangulate } from "./mesh.js";
 import { kernel } from "./kernel.js";
-import { polygonize } from "./solid.js";
+import { polygonize, toSolid } from "./solid.js";
 
 function count(value, min, max, path) {
   const result = number(value, min, max, path);
@@ -512,21 +512,11 @@ function rotate(v, axis, angle) {
   );
 }
 
-// A closed profile swept along a path. Frames are rotation-minimising (double reflection),
-// so the profile never flips or twists on a 3D path; sharp polyline corners are mitred to
-// keep the full thickness. Profile x runs along the frame's side, y along its up vector;
-// a level path keeps up = +Y.
-export function sweepShape(options, material) {
-  const { radius, segments } = rounding(options);
-  let profile = contour(options.profile, "profile", radius, segments);
-  if (profile.length > 64)
-    fail("The profile exceeds 64 points once rounded and sampled; lower roundSegments or segments", "profile");
-  if (area(profile) < 0) profile = [...profile].reverse();
-  const closed = flag(options.closed, false, "closed"),
-    caps = flag(options.caps, true, "caps") && !closed,
-    smooth = flag(options.smooth, false, "smooth"),
-    per = count(options.pathSegments ?? 6, 1, 32, "pathSegments");
-  let path = expandOutline(options.path, { path: "path", dims: 3, min: 2, max: 256, closed: false }).points;
+// The frames of a sweep path: its sampled points (smoothed through the given ones when
+// `smooth`), unit tangents bisecting the corners, rotation-minimising up vectors (a closed
+// path spreads its twist), mitre stretch per corner and the length along the path.
+function sweepFrames(value, { closed, smooth, per }) {
+  let path = expandOutline(value, { path: "path", dims: 3, min: 2, max: 256, closed: false }).points;
   if (closed && path.length < 3) fail("A closed path needs 3 points", "path");
   if (smooth && path.length > 2) path = catmullRom(path, closed, per);
   path = path.filter(
@@ -537,11 +527,6 @@ export function sweepShape(options, material) {
   if (closed && Math.hypot(...sub(path[0], path.at(-1))) < 1e-9) path.pop();
   if (path.length < 2) fail("The sweep path needs two distinct points", "path");
   if (path.length > 1024) fail("The sweep path exceeds 1024 samples", "path");
-  const scaleEnd = Array.isArray(options.scale)
-    ? options.scale
-    : [options.scale ?? 1, options.scale ?? 1];
-  if (scaleEnd.length !== 2) fail("scale is a number or [x, y]", "scale");
-  scaleEnd.forEach((v) => number(v, 0.001, 1000, "scale"));
   const m = path.length,
     segmentsCount = closed ? m : m - 1,
     dirs = Array.from({ length: segmentsCount }, (_, i) =>
@@ -599,6 +584,29 @@ export function sweepShape(options, material) {
     for (let i = 1; i < m; i++)
       ups[i] = rotate(ups[i], tangents[i], (twist * lengths[i]) / total);
   }
+  return { path, m, segmentsCount, tangents, ups, mitres, lengths, total };
+}
+
+// A closed profile swept along a path. Frames are rotation-minimising (double reflection),
+// so the profile never flips or twists on a 3D path; sharp polyline corners are mitred to
+// keep the full thickness. Profile x runs along the frame's side, y along its up vector;
+// a level path keeps up = +Y.
+export function sweepShape(options, material) {
+  const { radius, segments } = rounding(options);
+  let profile = contour(options.profile, "profile", radius, segments);
+  if (profile.length > 64)
+    fail("The profile exceeds 64 points once rounded and sampled; lower roundSegments or segments", "profile");
+  if (area(profile) < 0) profile = [...profile].reverse();
+  const closed = flag(options.closed, false, "closed"),
+    caps = flag(options.caps, true, "caps") && !closed,
+    smooth = flag(options.smooth, false, "smooth"),
+    per = count(options.pathSegments ?? 6, 1, 32, "pathSegments");
+  const { path, m, segmentsCount, tangents, ups, mitres, lengths } = sweepFrames(options.path, { closed, smooth, per });
+  const scaleEnd = Array.isArray(options.scale)
+    ? options.scale
+    : [options.scale ?? 1, options.scale ?? 1];
+  if (scaleEnd.length !== 2) fail("scale is a number or [x, y]", "scale");
+  scaleEnd.forEach((v) => number(v, 0.001, 1000, "scale"));
   const vertices = [],
     n = profile.length;
   for (let i = 0; i < m; i++) {
@@ -628,4 +636,337 @@ export function sweepShape(options, material) {
     vertices,
     faces: faces.map((vertices, i) => ({ id: `f${i}`, vertices, material })),
   };
+}
+
+// A loft: closed sections one after another along an axis (or a 3D path), skinned by quads
+// (two triangles where a quad is not flat) and capped at both ends: towers, hulls, vases,
+// handles, anything that changes shape as it rises. Sections share one point layout (see
+// alignOutlines), each stands at its `at` (a height along the axis, a 0–1 fraction of the
+// path), scaled, turned about the axis and shifted sideways; `smooth` runs a Catmull–Rom
+// curve through the sections (`pathSegments` rings per span) instead of straight skins.
+// For axis y a section's X is the part's X and its Y the part's Z; for z they are X and Y
+// (as an extrusion's); for x they are Y and Z.
+export function loftShape(options, material) {
+  const { radius, segments } = rounding(options),
+    sections = options.sections;
+  if (!Array.isArray(sections) || sections.length < 2 || sections.length > 64)
+    fail("sections needs 2–64 entries", "sections");
+  const outlines = sections.map((s, i) => {
+    if (!s || typeof s !== "object" || Array.isArray(s))
+      fail("A section is { profile, at, scale, rotation, offset }", `sections.${i}`);
+    const spec = s.profile ?? options.profile;
+    if (spec === undefined) fail("Give every section a profile, or the loft one profile", `sections.${i}.profile`);
+    let o = contour(spec, s.profile !== undefined ? `sections.${i}.profile` : "profile", radius, segments);
+    if (Math.abs(area(o)) < 1e-12) fail("A section has no area", `sections.${i}.profile`);
+    if (area(o) < 0) o = [...o].reverse();
+    return o;
+  });
+  const aligned = alignOutlines(outlines),
+    rings2 = aligned.map((o, i) => {
+      const s = sections[i],
+        at = `sections.${i}`,
+        sc = Array.isArray(s.scale) ? pair(s.scale, `${at}.scale`) : [s.scale ?? 1, s.scale ?? 1];
+      sc.forEach((v) => number(v, 0.001, 1000, `${at}.scale`));
+      const rot = (number(s.rotation ?? 0, -3600, 3600, `${at}.rotation`) * Math.PI) / 180,
+        off = s.offset === undefined ? [0, 0] : pair(s.offset, `${at}.offset`),
+        c = Math.cos(rot),
+        sn = Math.sin(rot);
+      return o.map(([x, y]) => [x * sc[0] * c - y * sc[1] * sn + off[0], x * sc[0] * sn + y * sc[1] * c + off[1]]);
+    });
+  const ats = sections.map((s, i) => (s.at === undefined ? undefined : number(s.at, -1000, 1000, `sections.${i}.at`))),
+    given = ats.filter((v) => v !== undefined).length;
+  if (given && given !== ats.length) fail("Give at for every section, or for none", "sections");
+  const usePath = options.path !== undefined,
+    smooth = flag(options.smooth, false, "smooth"),
+    per = count(options.pathSegments ?? 6, 1, 32, "pathSegments"),
+    caps = flag(options.caps, true, "caps"),
+    n = aligned[0].length,
+    count3 = sections.length;
+  let stations; // 0–1 along the loft per section
+  if (usePath) {
+    stations = given ? ats : sections.map((_, i) => i / (count3 - 1));
+    stations.forEach((v, i) => {
+      if (v < 0 || v > 1) fail("Along a path, at is a fraction of its length from 0 to 1", `sections.${i}.at`);
+      if (i && v <= stations[i - 1]) fail("at must increase from section to section", `sections.${i}.at`);
+    });
+  } else {
+    const height = number(options.height ?? 1, 0.001, 1000, "height"),
+      heights = given ? ats : sections.map((_, i) => (height * i) / (count3 - 1));
+    heights.forEach((v, i) => {
+      if (i && v <= heights[i - 1] + 1e-9) fail("at must increase from section to section", `sections.${i}.at`);
+    });
+    stations = heights;
+  }
+  const span = stations.at(-1) - stations[0];
+  // Interpolates the section rings at a station fraction s in [0, 1] of the whole loft:
+  // straight between neighbours, or a Catmull–Rom curve through them (point by point, in 3D
+  // for an axis loft so the silhouette is smooth in height too).
+  const ringOf = (i) => rings2[i],
+    station = (i) => (stations[i] - stations[0]) / span,
+    reflect = (a, b) => a.map((p, k) => p.map((v, d) => 2 * v - b[k][d])),
+    between = (f) => {
+      let i = 0;
+      while (i < count3 - 2 && station(i + 1) <= f) i++;
+      const s = (f - station(i)) / (station(i + 1) - station(i));
+      return { i, s };
+    };
+  const place = usePath
+    ? null
+    : (() => {
+        const k = ["x", "y", "z"].indexOf(options.axis ?? "y");
+        if (k < 0) fail('axis is "x", "y" or "z"', "axis");
+        const [u, v] = [[1, 2], [0, 2], [0, 1]][k];
+        return (point2, at) => {
+          const p = [0, 0, 0];
+          p[k] = at;
+          p[u] = point2[0];
+          p[v] = point2[1];
+          return p;
+        };
+      })();
+  const rings = [];
+  if (!usePath) {
+    const ring3 = (i) => ringOf(i).map((p) => place(p, stations[i]));
+    if (!smooth) for (let i = 0; i < count3; i++) rings.push(ring3(i));
+    else {
+      const R = (j) => (j < 0 ? reflect(ring3(0), ring3(1)) : j >= count3 ? reflect(ring3(count3 - 1), ring3(count3 - 2)) : ring3(j));
+      for (let i = 0; i < count3 - 1; i++) {
+        const [p0, p1, p2, p3] = [R(i - 1), R(i), R(i + 1), R(i + 2)];
+        for (let k = 0; k < per; k++) {
+          const s = k / per;
+          rings.push(p1.map((_, q) => catmull3(p0[q], p1[q], p2[q], p3[q], s)));
+        }
+      }
+      rings.push(ring3(count3 - 1));
+    }
+  } else {
+    const { path, m, tangents, ups, mitres, lengths } = sweepFrames(options.path, { closed: false, smooth, per }),
+      total = lengths.at(-1),
+      shape2 = (f) => {
+        const { i, s } = between(f);
+        if (!smooth) return ringOf(i).map((p, q) => [p[0] + (ringOf(i + 1)[q][0] - p[0]) * s, p[1] + (ringOf(i + 1)[q][1] - p[1]) * s]);
+        const R = (j) => (j < 0 ? reflect(ringOf(0), ringOf(1)) : j >= count3 ? reflect(ringOf(count3 - 1), ringOf(count3 - 2)) : ringOf(j));
+        const [p0, p1, p2, p3] = [R(i - 1), R(i), R(i + 1), R(i + 2)];
+        return p1.map((_, q) => catmull3(p0[q], p1[q], p2[q], p3[q], s));
+      };
+    // Samples: the path's points, plus the stations where the sections stand.
+    const samples = path.map((p, i) => ({ f: lengths[i] / total, p, t: tangents[i], up: ups[i], mitre: mitres[i] }));
+    for (let i = 0; i < count3; i++) {
+      const f = station(i);
+      if (samples.some((s) => Math.abs(s.f - f) < 1e-9)) continue;
+      let j = 0;
+      while (j < m - 2 && lengths[j + 1] / total <= f) j++;
+      const s = (f - lengths[j] / total) / ((lengths[j + 1] - lengths[j]) / total),
+        lerp = (a, b) => add(mul(a, 1 - s), mul(b, s));
+      samples.push({ f, p: lerp(path[j], path[j + 1]), t: unit(lerp(tangents[j], tangents[j + 1])), up: unit(lerp(ups[j], ups[j + 1])), mitre: null });
+    }
+    samples.sort((a, b) => a.f - b.f);
+    for (const sample of samples) {
+      const side = unit(cross(sample.up, sample.t)),
+        shape = shape2(sample.f);
+      rings.push(
+        shape.map(([x, y]) => {
+          let w = add(mul(side, x), mul(sample.up, y));
+          if (sample.mitre) w = add(w, mul(sample.mitre.direction, dot(w, sample.mitre.direction) * (sample.mitre.factor - 1)));
+          return add(sample.p, w);
+        }),
+      );
+    }
+  }
+  if (rings.length * n > 30000) fail(`The loft would have ${rings.length * n} vertices; the cap is 30000`, "sections");
+  const vertices = rings.flat(),
+    ring = (i) => Array.from({ length: n }, (_, k) => i * n + k),
+    faces = [];
+  const cap = (ids) => {
+    if (ids.length <= 64) return [ids];
+    return triangulate(vertices, ids);
+  };
+  if (caps) faces.push(...cap([...ring(0)].reverse()), ...cap(ring(rings.length - 1)));
+  for (let i = 0; i + 1 < rings.length; i++) {
+    const a = ring(i),
+      b = ring(i + 1);
+    for (let k = 0; k < n; k++) {
+      const quad = [a[k], a[(k + 1) % n], b[(k + 1) % n], b[k]],
+        [p, q, r, s] = quad.map((id) => vertices[id]),
+        n1 = cross(sub(q, p), sub(r, p)),
+        n2 = cross(sub(r, p), sub(s, p)),
+        l1 = Math.hypot(...n1),
+        l2 = Math.hypot(...n2);
+      // A twisted quad (its two triangles more than 2° apart) becomes two triangles along its
+      // shorter diagonal; a vanishing one (an apex) becomes the triangle that remains.
+      if (l1 < 1e-14 || l2 < 1e-14) {
+        const distinct = quad.filter((id, j) => quad.findIndex((other) => Math.hypot(...sub(vertices[other], vertices[id])) < 1e-9) === j);
+        if (distinct.length >= 3) faces.push(distinct);
+        continue;
+      }
+      if (dot(n1, n2) / (l1 * l2) < Math.cos((2 * Math.PI) / 180)) {
+        const short = Math.hypot(...sub(r, p)) <= Math.hypot(...sub(s, q));
+        faces.push(...(short ? [[quad[0], quad[1], quad[2]], [quad[0], quad[2], quad[3]]] : [[quad[0], quad[1], quad[3]], [quad[1], quad[2], quad[3]]]));
+      } else faces.push(quad);
+    }
+  }
+  // Faces point outward whatever the axis or path: flip them all when the volume is negative.
+  let volume = 0;
+  for (const face of faces)
+    for (const [a, b, c] of face.length === 3 ? [face] : triangulate(vertices, face)) {
+      const [p, q, r] = [a, b, c].map((i) => vertices[i]);
+      volume += p[0] * (q[1] * r[2] - q[2] * r[1]) - p[1] * (q[0] * r[2] - q[2] * r[0]) + p[2] * (q[0] * r[1] - q[1] * r[0]);
+    }
+  const oriented = volume < 0 ? faces.map((f) => [...f].reverse()) : faces;
+  return { vertices, faces: oriented.map((vertices, i) => ({ id: `f${i}`, vertices, material })) };
+}
+// Uniform Catmull–Rom between p1 and p2 at s, in any dimension.
+function catmull3(p0, p1, p2, p3, s) {
+  return p1.map((_, d) => {
+    const a = p0[d], b = p1[d], c = p2[d], e = p3[d];
+    return 0.5 * (2 * b + (-a + c) * s + (2 * a - 5 * b + 4 * c - e) * s * s + (-a + 3 * b - 3 * c + e) * s * s * s);
+  });
+}
+// Outlines with the same number of points correspond point by point, as written (a roof's
+// cross-sections sampled the same way at every station). Otherwise they are resampled to one
+// shared set of points: every corner keeps its place at its fraction of the outline's length,
+// the fractions of all outlines are pooled, and each outline is sampled at the pool, so a
+// square meets a circle corner by corner; outlines after the first then start at the corner
+// nearest in direction (from the centroid) to the first outline's start, so the loft does not
+// twist.
+export function alignOutlines(outlines) {
+  if (outlines.every((o) => o.length === outlines[0].length)) return outlines;
+  const centre = (o) => o.reduce(([x, y], p) => [x + p[0] / o.length, y + p[1] / o.length], [0, 0]),
+    first = outlines[0],
+    c0 = centre(first),
+    a0 = Math.atan2(first[0][1] - c0[1], first[0][0] - c0[0]);
+  const turned = outlines.map((o, k) => {
+    if (!k) return o;
+    const c = centre(o);
+    let best = 0,
+      bestDiff = Infinity;
+    o.forEach((p, i) => {
+      let d = Math.abs(Math.atan2(p[1] - c[1], p[0] - c[0]) - a0);
+      d = Math.min(d, 2 * Math.PI - d);
+      if (d < bestDiff - 1e-12) {
+        bestDiff = d;
+        best = i;
+      }
+    });
+    return [...o.slice(best), ...o.slice(0, best)];
+  });
+  const params = turned.map((o) => {
+    const cum = [0];
+    for (let i = 0; i < o.length; i++) {
+      const b = o[(i + 1) % o.length];
+      cum.push(cum[i] + Math.hypot(b[0] - o[i][0], b[1] - o[i][1]));
+    }
+    const total = cum.at(-1);
+    if (total < 1e-12) fail("An outline has no length", "sections");
+    return cum.map((v) => v / total);
+  });
+  const pooled = params.flatMap((cum) => cum.slice(0, -1)).sort((a, b) => a - b),
+    shared = [];
+  for (const t of pooled) if (!shared.length || t - shared.at(-1) > 1e-6) shared.push(t);
+  if (shared.length > 64)
+    fail(`The sections share ${shared.length} points once aligned; the cap is 64. Simplify the outlines or give them matching points`, "sections");
+  return turned.map((o, k) =>
+    shared.map((t) => {
+      const cum = params[k];
+      let i = 0;
+      while (i < o.length - 1 && cum[i + 1] <= t + 1e-12) i++;
+      const a = o[i],
+        b = o[(i + 1) % o.length],
+        width = cum[i + 1] - cum[i],
+        f = width > 1e-12 ? (t - cum[i]) / width : 0;
+      return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+    }),
+  );
+}
+
+// A geodesic sphere: an icosahedron with a vertex at each pole, every triangle split into
+// four `geodesic` times with the new points pushed out to the radius, so the facets are all
+// about the same size (the low-poly rock, crown and ball base). latitude and angle cut it
+// through the kernel, flat where cut, like the lathe sphere's domes, bowls and wedges.
+export function geodesicSphere(options, material) {
+  const radius = number(options.radius ?? 0.5, 0.001, 1000, "radius"),
+    level = count(options.geodesic, 0, 5, "geodesic"),
+    angle = number(options.angle ?? 360, 1, 360, "angle"),
+    latitude = options.latitude ?? [-90, 90];
+  if (
+    !Array.isArray(latitude) ||
+    latitude.length !== 2 ||
+    latitude.some((v) => !Number.isFinite(v) || v < -90 || v > 90) ||
+    latitude[0] >= latitude[1]
+  )
+    fail("latitude is [from, to] in degrees, −90 ≤ from < to ≤ 90", "latitude");
+  const tilt = Math.atan(0.5),
+    vertices = [[0, 1, 0]];
+  for (let i = 0; i < 5; i++) {
+    const a = (2 * Math.PI * i) / 5;
+    vertices.push([Math.cos(tilt) * Math.cos(a), Math.sin(tilt), -Math.cos(tilt) * Math.sin(a)]);
+  }
+  for (let i = 0; i < 5; i++) {
+    const a = (2 * Math.PI * (i + 0.5)) / 5;
+    vertices.push([Math.cos(tilt) * Math.cos(a), -Math.sin(tilt), -Math.cos(tilt) * Math.sin(a)]);
+  }
+  vertices.push([0, -1, 0]);
+  let faces = [];
+  for (let i = 0; i < 5; i++) {
+    const a = 1 + i,
+      b = 1 + ((i + 1) % 5),
+      c = 6 + i,
+      d = 6 + ((i + 1) % 5);
+    faces.push([0, b, a], [a, b, c], [b, d, c], [c, d, 11]);
+  }
+  for (let l = 0; l < level; l++) {
+    const cache = new Map(),
+      mid = (i, j) => {
+        const key = i < j ? `${i}:${j}` : `${j}:${i}`;
+        if (cache.has(key)) return cache.get(key);
+        const p = add(vertices[i], vertices[j]);
+        vertices.push(mul(p, 1 / Math.hypot(...p)));
+        cache.set(key, vertices.length - 1);
+        return vertices.length - 1;
+      },
+      next = [];
+    for (const [a, b, c] of faces) {
+      const ab = mid(a, b),
+        bc = mid(b, c),
+        ca = mid(c, a);
+      next.push([a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]);
+    }
+    faces = next;
+  }
+  // Outward faces: the corner order above is checked by the volume's sign.
+  let volume = 0;
+  for (const [a, b, c] of faces) {
+    const [p, q, r] = [a, b, c].map((i) => vertices[i]);
+    volume += p[0] * (q[1] * r[2] - q[2] * r[1]) - p[1] * (q[0] * r[2] - q[2] * r[0]) + p[2] * (q[0] * r[1] - q[1] * r[0]);
+  }
+  if (volume < 0) faces = faces.map((f) => [f[0], f[2], f[1]]);
+  const scaled = vertices.map((v) => mul(v, radius)),
+    mesh = { vertices: scaled, faces: faces.map((vertices, i) => ({ id: `f${i}`, vertices, material })) };
+  const [from, to] = latitude;
+  if (angle >= 360 && from === -90 && to === 90) return mesh;
+  // Cut by a slab between the latitudes and a wedge of the angle, both oversized.
+  const { Manifold, CrossSection } = kernel(),
+    big = 4 * radius,
+    rad = (deg) => (deg * Math.PI) / 180,
+    bottom = radius * Math.sin(rad(from)),
+    top = radius * Math.sin(rad(to));
+  const solid = toSolid(mesh),
+    slab = Manifold.cube([big, top - bottom, big], true).translate([0, (top + bottom) / 2, 0]),
+    pieces = [solid, slab];
+  if (angle < 360) {
+    const section = new CrossSection([[[0, -big], [big, -big], [big, big], [0, big]]], "EvenOdd"),
+      arc = Math.max(3, Math.round((64 * angle) / 360)),
+      turned = section.revolve(arc, angle),
+      wedge = turned.rotate([-90, 0, 0]);
+    section.delete();
+    turned.delete();
+    pieces.push(wedge);
+  }
+  const result = Manifold.intersection(pieces);
+  for (const piece of pieces) piece.delete();
+  try {
+    return solidMesh(result, material);
+  } finally {
+    result.delete();
+  }
 }

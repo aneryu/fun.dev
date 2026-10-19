@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { loadKernel } from "../site/workshop/kernel.js";
 import { primitive, triangulate, cornerNormals } from "../site/workshop/mesh.js";
 import { importedSmoothing } from "../site/workshop/import-glb.js";
-import { emptyProject, evaluateCommands, normalizeProject } from "../site/workshop/document.js";
+import { emptyProject, evaluateCommands, normalizeProject, createStore } from "../site/workshop/document.js";
 import { expandOutline, autoSegments } from "../site/workshop/generators.js";
 
 // Round shapes and outline items (docs/workshop-agents.md "Shapes", "Outlines and paths").
@@ -254,4 +254,46 @@ test("imports keep the smoothing of the file's normals", () => {
   });
   assert.equal(importedSmoothing(positions, triangles, flat), 0, "faceted files stay flat");
   assert.equal(importedSmoothing(positions, triangles, null), 0, "no normals: flat");
+});
+
+test("lofts: sections along an axis or a path, aligned by points or by arc length, smooth or faceted", () => {
+  // A square frustum: V = h/3 (A1 + A2 + √(A1 A2)).
+  const frustum = primitive("loft", { profile: { rect: [2, 2] }, sections: [{ at: 0 }, { at: 1.5, scale: 0.5 }] }, "m");
+  near(solid(frustum, "frustum loft"), (1.5 / 3) * (4 + 1 + 2), 1e-9, "frustum volume");
+  assert.equal(frustum.faces.length, 6, "two caps and four planar sides stay quads");
+  assert.deepEqual(bounds(frustum)[1], [0, 1.5]);
+  // A square meeting a circle: resampled to one layout, twisted quads split into triangles.
+  const blend = primitive("loft", { sections: [{ at: 0, profile: { rect: [1, 1] } }, { at: 1, profile: { circle: 0.5 } }] }, "m");
+  solid(blend, "square to circle");
+  assert.ok(blend.faces.some((f) => f.vertices.length === 3), "twisted quads become triangles");
+  // Sections with the same point count correspond point by point, however they turn.
+  const sq = (a) => [0, 1, 2, 3].map((i) => [Math.cos(a + (i * Math.PI) / 2) * 0.5, Math.sin(a + (i * Math.PI) / 2) * 0.5]);
+  const twisted = primitive("loft", { sections: [{ at: 0, profile: sq(0) }, { at: 1, profile: sq(Math.PI / 4) }] }, "m");
+  solid(twisted, "twisted square");
+  assert.equal(twisted.vertices.length, 8, "no resampling when the counts agree");
+  // A smooth vase: rings between the sections, closed, within its sections' bounds.
+  const vase = primitive("loft", { profile: { circle: 0.3 }, smooth: true, pathSegments: 4, sections: [{ at: 0, scale: 0.6 }, { at: 0.3, scale: 1 }, { at: 0.8, scale: 0.4 }, { at: 1, scale: 0.5 }] }, "m");
+  solid(vase, "vase");
+  const n = expandOutline({ circle: 0.3 }, { path: "p" }).points.length;
+  assert.equal(vase.vertices.length, n * (3 * 4 + 1), "four rings per span plus the last section");
+  assert.deepEqual(bounds(vase)[1].map((v) => +v.toFixed(9)), [0, 1]);
+  // Along a path: the sections stand at fractions of its length in its frames.
+  const bent = primitive("loft", { profile: { rect: [0.2, 0.1] }, path: [[0, 0, 0], [0, 1, 0], [1, 2, 0]], sections: [{ scale: 1 }, { scale: 2 }] }, "m");
+  solid(bent, "path loft");
+  assert.ok(bounds(bent)[0][1] > 0.9 && bounds(bent)[1][1] > 1.9, "reaches the path's end");
+  // Other axes: for z the section is X and Y, as an extrusion's.
+  const along = primitive("loft", { profile: { rect: [2, 1] }, axis: "z", sections: [{ at: -1 }, { at: 1 }] }, "m");
+  assert.deepEqual(bounds(along).map((b) => b.map((v) => +v.toFixed(9))), [[-1, 1], [-0.5, 0.5], [-1, 1]]);
+  assert.throws(() => primitive("loft", { profile: { circle: 0.3 }, sections: [{ at: 1 }, { at: 0 }] }, "m"), /must increase/);
+  assert.throws(() => primitive("loft", { sections: [{ at: 0 }, { at: 1 }] }, "m"), /profile/);
+  assert.throws(() => primitive("loft", { profile: { circle: 0.3 }, sections: [{ at: 0 }] }, "m"), /2–64/);
+  // Section values take recipe expressions, so a taper can be a parameter.
+  const store = createStore(emptyProject("Loft"));
+  store.apply([
+    { op: "create", id: "l", kind: "loft", options: { profile: { circle: 0.3 }, sections: [{ at: 0 }, { at: 1, scale: 0.5 }] } },
+    { op: "recipe", id: "l", definition: { parameters: { top: { value: 0.5, min: 0.01, max: 3 } }, generator: { kind: "loft", options: { profile: { circle: 0.3 }, sections: [{ at: 0 }, { at: 1, scale: { $param: "top" } }] } }, steps: [] } },
+    { op: "recipeParameters", id: "l", values: { top: 2 } },
+  ]);
+  const top = store.snapshot().nodes[0].mesh.vertices.filter((v) => v[1] > 0.99);
+  near(Math.max(...top.map((v) => Math.hypot(v[0], v[2]))), 0.6, 1e-9, "the top ring follows the parameter");
 });

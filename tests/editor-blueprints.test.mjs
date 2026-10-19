@@ -100,6 +100,6 @@ test("blueprint parameters are checked, roots are chosen, and the contract knows
   assert.equal(store.snapshot().materials.filter((m) => m.id === "mat_lamp").length, 1);
   assert.ok(commandsSchema.items.oneOf.some((c) => c.properties.op.const === "blueprint"), "the command schema lists blueprint");
   const listed = listBlueprints();
-  assert.deepEqual(listed.map((b) => b.id), ["lamp-post", "railing", "building-block"]);
+  assert.deepEqual(listed.map((b) => b.id), ["lamp-post", "railing", "building-block", "chinese-roof"]);
   assert.equal(listed[0].params.height.unit, "m");
 });

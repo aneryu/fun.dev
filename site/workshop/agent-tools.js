@@ -139,13 +139,13 @@ const definitions = [
   ],
   [
     "query",
-    "Find faces, edges or vertices by geometry. For another page pass offset=nextOffset, topology and ifRevision from the first page.",
+    "Find faces, edges or vertices by geometry; page on with offset=nextOffset, topology and ifRevision.",
     querySchema,
     true,
   ],
   [
     "preview",
-    "Evaluate without changing the draft: compact proposed nodes/bounds, materials, results and validation; optional views render the proposal; detail:'full' adds the complete project mesh.",
+    "Dry run: proposed nodes/bounds, materials, results and validation without touching the draft; views render the proposal; detail:'full' adds the full mesh.",
     object(
       {
         commands: { ...commandsSchema, $defs: undefined },
@@ -161,7 +161,7 @@ const definitions = [
   ],
   [
     "apply",
-    "Atomically apply commands. Components need query refs or an explicit topology token. Use operationId for retries within this session.",
+    "Apply commands atomically. Components need query refs or a topology token; operationId makes a retry safe.",
     object(
       {
         commands: { ...commandsSchema, $defs: undefined },

@@ -108,7 +108,7 @@ export default async function (ws) {
 | kind | options |
 | --- | --- |
 | box | `size:[x,y,z]`, `bevel?`, `bevelSegments?` (rounded) |
-| sphere | `radius`, `segments`, `rings`; `latitude:[from,to]?` degrees (−90…90: `[0,90]` a dome, `[-90,0]` a bowl), `angle?` (a wedge) |
+| sphere | `radius`, `segments`, `rings`; `latitude:[from,to]?` degrees (−90…90: `[0,90]` a dome, `[-90,0]` a bowl), `angle?` (a wedge); `geodesic?` (0–5: an icosphere of even facets instead, for rocks and crowns) |
 | cylinder, cone | `radius`, `height`, `segments`; `radiusTop?` (a frustum; a cone's is 0), `innerRadius?` (a tube; the bore runs parallel to the outside), `round?` (rim radius), `roundSegments?`, `angle?` |
 | torus | `radius` (ring centre line), `tube` (tube radius), `segments`, `tubeSegments`, `angle?` (an elbow) |
 | capsule | `radius`, `height` (total, ≥ 2 × radius), `segments`, `rings` (per end) |
@@ -116,6 +116,7 @@ export default async function (ws) {
 | extrude | `points` outline in local XY (may be concave), `depth` (centred on Z), `holes?`, `round?`, `roundSegments?` |
 | revolve | `profile` closed section with x ≥ 0, `angle` (degrees), `segments` |
 | sweep | `profile` closed section, `path` (3D items), `smooth?`, `pathSegments?`, `caps?` |
+| loft | `profile` closed section, `sections:[{ at, scale?, rotation?, offset?, profile? }, …]` (`at`: height along `axis`, or 0–1 of `path`), `smooth?` (a curve through the sections), `height?`, `caps?`: towers, vases, hulls; a square meets a circle corner by corner |
 | mesh | top-level `mesh: { vertices, faces:[{ id, vertices, material }] }` |
 | group | no geometry: a pivot or container |
 
@@ -176,8 +177,37 @@ body with wheel-arch notches is one concave outline.
 - Faces and edges: `extrude`/`inset {id, distance, select}`, `bevel {id, distance, select}`,
   `cut {id, axis, offset, space}`, `solidify {id, thickness}`, `weld`, `fill`, `dissolve`,
   `join {id, with}`, `separate {id, newId, loose:true}`, `deleteComponents {id, select}`.
+- Shape (in the part's own metres; `space:"world"` otherwise): `deform {id, kind:"taper"|"bend"|"twist"|"shear"|"stretch",
+  axis?, from?, to?, amount | angle, direction?}`, `displace {id, amount, mode?:"uniform"|"noise"|"gradient"|"formula",
+  along?:"normal"|"x"|"y"|"z", noise?:{scale, seed}, expr?}` (uniform = inflate), `smooth {id, iterations?, factor?, volume?}`,
+  `subdivide {id, levels?, smooth?}` (Catmull–Clark; `smooth:false` keeps the shape), `triangulate {id, faces?}`.
+  All take `select`/`faces`/`vertices` and `falloff:{radius, shape?}` (proportional editing), as do `transform` and `vertices`.
 - Selectors: `{ kind:"faces"|"edges"|"vertices", space:"world", normal?:[x,y,z], at?:{axis,
   value}, boundary?:{axis, side:"min"|"max"}, largest?, crease?:degrees }`.
+
+## Shaping: lofts, deformers, displacement
+
+```js
+// A tapered, slightly twisted tower from one rounded square; a rock; a bent pipe.
+await ws.apply([
+  { op: "create", id: "tower", kind: "loft", material: "mat_concrete", options: { profile: { rect: { size: [8, 8], round: 1 } },
+    sections: [{ at: 0, scale: 1.2 }, { at: 6, scale: 1 }, { at: 40, scale: 0.6 }, { at: 48, scale: 0.75 }], smooth: true } },
+  { op: "deform", id: "tower", kind: "twist", angle: 30, from: 6, to: 48 },
+  { op: "create", id: "rock", kind: "sphere", material: "mat_rock", smooth: 70, options: { radius: 0.6, geodesic: 2 } },
+  { op: "displace", id: "rock", amount: 0.12, mode: "noise", noise: { scale: 0.5, seed: "rock" } },
+  { op: "deform", id: "rock", kind: "taper", amount: [1.3, 0.8] },
+  { op: "create", id: "pipe", kind: "cylinder", material: "mat_steel", options: { radius: 0.05, height: 2, segments: 12 } },
+  { op: "subdivide", id: "pipe", levels: 2, smooth: false },             // rings to bend across
+  { op: "deform", id: "pipe", kind: "bend", angle: 90, from: 0.5, to: 1 },
+]);
+```
+
+- `deform` ramps along `axis` from `from` to `to` (the part's extent by default); beyond
+  `to` the full effect continues. `bend` and `shear` go towards `direction`.
+- `displace` moves along the normals by `amount` × a field; `mode: "formula"` takes an
+  expression tree such as `{ $expr: "mul", args: [{ $expr: "sin", args: [{ $expr: "mul", args: [{ $var: "a" }, 6] }] }, { $var: "t" }] }`
+  over `x y z nx ny nz u v w r t a noise` (never a script). Bent quads are reported; `triangulate` settles them.
+- Everything here is a recipe step too, so a blueprint can bind a bend angle to a parameter.
 
 ## Blueprints: parametric families
 

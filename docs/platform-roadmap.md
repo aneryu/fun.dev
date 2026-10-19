@@ -237,7 +237,14 @@ previews anywhere and edits in the workshop. Libraries: manifold-3d (solids), la
    mesh storage and incremental history, subdivision (smooth shading came early, with
    round shapes and curves in outlines, 2026-10-19), procedural shaping
    (displace, inflate, smooth, soft selection, voxel remesh, decimate), scatter and
-   instancing, scene assembly from library models.
+   instancing, scene assembly from library models. Editing tier A (decided 2026-10-20, after
+   the 帝都 landmark scripts fell back to hand-written vertices twelve times): lofts,
+   deformers (taper, bend, twist, shear, stretch), displacement (uniform, noise, gradient,
+   formulas as data), smoothing, Catmull–Clark subdivision, triangulate, geodesic spheres and
+   proportional editing, all recipe steps, with three page controls (proportional editing, a
+   deform panel, loft in the add dialog). Tier B follows: low-poly sculpting with six brushes
+   on binary mesh storage with per-part validation and incremental history (about 200 000
+   triangles); high-poly sculpting with normal baking waits for stage 3.
 3. **UVs, textures and baking**: corner attributes (two UV sets, vertex colours), unwrapping
    and packing, textures embedded in GLB, AO/normal/colour baking and direct-light
    lightmaps, compression, LOD chains, colliders.
