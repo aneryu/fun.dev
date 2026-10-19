@@ -82,7 +82,7 @@ export async function editorGeneratorChecks({ browser, base }) {
       const exported = await funEditor.exportGLB({ encoding: "base64", origin: "ground-center", rootName: "lamp_ROOT", mergeStatic: "auto" });
       return { listed, tall, short, stamp: funEditor.inspect().assemblies[0].blueprint, bytes: exported.data.length, validation: funEditor.validate().errors.length };
     });
-    assert.deepEqual(blueprint.listed, ["lamp-post", "railing", "building-block"]);
+    assert.deepEqual(blueprint.listed, ["lamp-post", "railing", "building-block", "chinese-roof"]);
     assert.ok(Math.abs(blueprint.tall.max[1] - 7) < 0.05 && Math.abs(blueprint.short.max[1] - 4) < 0.05, `the lamp follows its height: ${JSON.stringify([blueprint.tall.max, blueprint.short.max])}`);
     assert.deepEqual(blueprint.stamp, { id: "lamp-post", version: 1, params: { arms: 2 } });
     assert.equal(blueprint.validation, 0);
@@ -188,7 +188,9 @@ export async function editorGeneratorChecks({ browser, base }) {
     await page.locator("#undo").click();
     assert.deepEqual(await page.evaluate((id) => funEditor.inspect({ id, detail: "full" }).node.mesh.vertices, loft), straight, "one undo step");
     // Proportional editing: the toggle shows its settings; a numeric vertex move drags the
-    // neighbours along, a plain one does not.
+    // neighbours along. Component edits need a converted mesh, as everywhere in the page.
+    await page.locator("#convert").click();
+    assert.equal(await page.evaluate((id) => funEditor.inspect({ id }).node.generator ?? null, loft), null);
     await page.locator("#proportional").click();
     assert.equal(await page.locator("#proportional-settings").isHidden(), false);
     await page.locator("#proportional-radius").fill("0.6");

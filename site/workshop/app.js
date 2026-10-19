@@ -678,9 +678,11 @@ async function start() {
     $("#parameters").hidden = !shapeGenerator(n);
     $("#group-note").hidden = !!n.mesh;
     $("#mesh-properties").hidden = !n.mesh;
+    // Whole-part shape edits detach a generator themselves (as the agent commands do), so
+    // they need a mesh part that is not linked, locked or driven, not a converted one.
     for (const id of ["deform-apply", "subdivide", "relax", "triangulate"])
       $("#" + id).disabled =
-        linked || selectionLocked || !draft.writable || !geometryEditable || !n.mesh;
+        !n.mesh || linked || selectionLocked || !draft.writable || !!driven;
     $("#deform-tools").hidden = selection.mode !== "object";
     $("#context-tools").hidden = !n.mesh;
     $("#material-tools").hidden =
@@ -1805,15 +1807,18 @@ async function start() {
       }[kind] ?? "edOutlineHint",
     );
     if (reset) {
-      $("#outline").value = scaleOutline(
-        {
-          lathe: cupProfile,
-          revolve: "0.35, -0.08\n0.55, -0.08\n0.55, 0.08\n0.35, 0.08",
-          sweep: "-0.04, -0.04\n0.04, -0.04\n0.04, 0.04\n-0.04, 0.04",
-          loft: '{ "circle": 0.3 }',
-        }[kind] ?? "-0.5, -0.5\n0.5, -0.5\n0.3, 0.3\n0, 0.6\n-0.3, 0.3",
-        1 / unitFactor(),
-      );
+      // A loft starts from a circle (a JSON line, in metres); the others from point lists.
+      $("#outline").value =
+        kind === "loft"
+          ? formatItems({ circle: 0.3 })
+          : scaleOutline(
+              {
+                lathe: cupProfile,
+                revolve: "0.35, -0.08\n0.55, -0.08\n0.55, 0.08\n0.35, 0.08",
+                sweep: "-0.04, -0.04\n0.04, -0.04\n0.04, 0.04\n-0.04, 0.04",
+              }[kind] ?? "-0.5, -0.5\n0.5, -0.5\n0.3, 0.3\n0, 0.6\n-0.3, 0.3",
+              1 / unitFactor(),
+            );
       $("#round").value = kind === "sweep" ? 0.03 / unitFactor() : 0;
       $("#sections").value = scalePath("0, 0.6\n0.3, 1\n0.8, 0.4\n1, 0.5", 1 / unitFactor());
       $("#sections-smooth").checked = true;
