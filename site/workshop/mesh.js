@@ -409,8 +409,15 @@ function roundShape(kind, options, material) {
           : number(options.innerRadius, 0, 1000, "innerRadius"),
       round = number(options.round ?? 0, 0, 1000, "round"),
       roundSegments = wholeNumber(options.roundSegments ?? 3, 1, 16, "roundSegments");
+    // rows: rings along the height (the rings a bend or a taper works across).
+    const rows = options.rows === undefined ? 1 : wholeNumber(options.rows, 1, 64, "rows");
     if (angle === 360 && !inner && !round)
-      return latheRows([[radius, -h], [top, h]], count, material);
+      return latheRows(
+        Array.from({ length: rows + 1 }, (_, k) => [radius + ((top - radius) * k) / rows, -h + (2 * h * k) / rows]),
+        count,
+        material,
+      );
+    if (rows > 1) fail("rows applies to plain cylinders and cones (no innerRadius, round or angle)", "rows");
     let section, radii;
     if (inner) {
       // The bore runs parallel to the outside: the wall keeps its thickness.

@@ -152,7 +152,7 @@ Beyond boxes, spheres, cylinders, cones, outlines and lathes (`site/workshop/gen
   quads, which validation reports as warnings.
 - **loft** (2026-10-20): closed sections one after another along an axis or a 3D path,
   skinned by quads (two triangles where a quad twists) and capped: towers, hulls, vases,
-  handles. `sections: [{ profile?, at?, scale?, rotation?, offset? }, …]` (2–64): each
+  handles. `sections: [{ profile?, at?, scale?, rotation?, offset? }, …]` (2–256): each
   section's outline (or the loft's `profile`), its `at` (a height along `axis`, `"y"` by
   default; a 0–1 fraction of the `path`'s length when a path is given), a `scale` (number or
   [x, y]), a turn about the axis in degrees and a sideways `offset`; without `at` the sections
@@ -179,7 +179,8 @@ control makes linked or independent copies of the selected part.
 
 ### Round shapes, curves in outlines, smooth shading (2026-10-19)
 
-- **Cylinders and cones** take `radiusTop` (frustums; a cone is the case 0),
+- **Cylinders and cones** take `rows` (2026-10-20: rings along the height, the rows a bend,
+  a taper or a twist works across; plain cylinders and cones only), `radiusTop` (frustums; a cone is the case 0),
   `innerRadius` (tubes, rings, washers; the bore runs parallel to the outside so the wall
   keeps its thickness), `round` (rim radius, `roundSegments`) and `angle` (half pipes,
   pie slices). **Spheres** take `latitude: [from, to]` (domes, bowls, flat where cut) and
@@ -402,20 +403,26 @@ rest of the mesh follows the selection:
 - `deform {id, kind, axis?, from?, to?, pivot?, power?, amount | angle, direction?}`: along
   `axis` (y) the range from `from` to `to` (the part's extent by default) ramps the effect
   from nothing to full (`power` bends the ramp); what lies beyond `to` takes the full
-  effect. `taper` scales the two lateral axes about the `pivot` line to `amount` (a factor or
-  [across, along]) at the end; `twist` turns them by `angle` degrees; `shear` shifts them by
-  `amount` metres towards `direction`; `stretch` scales the range along the axis by
-  `amount`; `bend` turns the range into an arc of `angle` degrees towards `direction` (the
-  first lateral axis by default), what lies beyond continuing straight along the arc's end.
+  effect. The lateral axes are the two others in x y z order (x and z for y). `taper` scales
+  them about the `pivot` line to `amount` (a factor, or [first, second] of the lateral axes)
+  at the end; `twist` turns them by `angle` degrees (positive: a positive rotation about the
+  axis); `shear` shifts them by `amount` metres towards `direction`; `stretch` scales the
+  range along the axis by `amount` from `from`; `bend` turns the range into an arc of
+  `angle` degrees towards `direction` (the first lateral axis by default: x for y) of radius
+  (to − from) / angle in radians, the neutral line through the `pivot`, what lies beyond
+  continuing straight along the arc's end. Rings are what a deformer works across: give
+  cylinders `rows`, cut planes, or subdivide.
 - `displace {id, amount, mode?, along?, axis?, from?, to?, power?, noise?, expr?, seed?}` moves
   every vertex along its normal (`along: "x" | "y" | "z"` or a vector instead) by `amount`
   metres times a field: `uniform` (1: an inflate, or a deflate when negative), `gradient` (0
   at `from`, 1 at `to` along `axis`), `noise` (fractal value noise in −1..1 over
-  `noise: { scale, octaves, persistence, lacunarity, seed }`, deterministic by seed; the
-  low-poly rock and crown) or `formula`. A formula is data, never a script: a number,
+  `noise: { scale, octaves, persistence, lacunarity, seed }`: `scale` is the largest feature's
+  size in metres (1), `octaves` 3, `persistence` 0.5, `lacunarity` 2, deterministic by
+  `seed` (a number or a string); the low-poly rock and crown) or `formula`. A formula is data, never a script: a number,
   `{ $var }` or `{ $expr, args }` nested (`add sub mul div pow mod min max abs sign sqrt
   floor round sin cos atan2 clamp smoothstep lerp`, angles in degrees) over the variables
-  `x y z` (position), `nx ny nz` (normal), `u v w` (0–1 within the bounds), `r` (distance
+  `x y z` (position in the command's space: the part's own, or world with `space:"world"`),
+  `nx ny nz` (normal), `u v w` (0–1 within the bounds), `r` (distance
   from the axis line), `t` (0–1 along the range), `a` (angle around the axis, degrees) and
   `noise`; recipe parameters (`{ $param }`) are substituted first. The result reports
   `nonplanarFaces` when quads bent: triangulate them, or leave them for export to split.
@@ -444,9 +451,8 @@ await ws.apply([
   { op: "create", id: "rock", kind: "sphere", options: { radius: 0.6, geodesic: 2 }, smooth: 70 },
   { op: "displace", id: "rock", amount: 0.12, mode: "noise", noise: { scale: 0.5, seed: "rock" } },
   { op: "deform", id: "rock", kind: "taper", amount: [1.3, 0.8] },
-  { op: "create", id: "pipe", kind: "cylinder", options: { radius: 0.05, height: 2, segments: 12 } },
-  { op: "subdivide", id: "pipe", levels: 2, smooth: false },
-  { op: "deform", id: "pipe", kind: "bend", angle: 90, from: 0.5, to: 1 },
+  { op: "create", id: "pipe", kind: "cylinder", options: { radius: 0.05, height: 2, segments: 12, rows: 16 } },
+  { op: "deform", id: "pipe", kind: "bend", angle: 90, from: 0, to: 1 },
 ]);
 ```
 

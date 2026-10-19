@@ -327,6 +327,8 @@ const props = {
       segments: segmentsValue,
       bevelSegments: { type: "integer", minimum: 1, maximum: 16 },
       rings: segmentsValue,
+      // Cylinders and cones: rows of rings along the height, for bends and tapers.
+      rows: { type: "integer", minimum: 1, maximum: 64 },
       // Spheres: [from, to] degrees of latitude (domes, bowls); geodesic: an icosphere with
       // that many splits instead of the lathe sphere.
       latitude: pair,
@@ -360,7 +362,7 @@ const props = {
       sections: {
         type: "array",
         minItems: 2,
-        maxItems: 64,
+        maxItems: 256,
         items: {
           type: "object",
           properties: {

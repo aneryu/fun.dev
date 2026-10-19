@@ -78,10 +78,13 @@ export default async function (ws) {
   same; materials need `id` and `color`.
 - `ws.apply(commands)` runs one atomic batch and returns `{ revision, changed, idMaps }`.
   `ws.validate()` returns `{ errors, warnings }`. `ws.inspect({ id })`, `ws.query({ id, kind,
-  … })` read geometry. `ws.observe(names, { file, size, references })` writes PNGs (one name:
-  `file`; several: `file` with `-<view>` added). `ws.exportGLB({ file, … })` returns the
-  export report. Also `ws.importGLB({ file })`, `ws.exportProject({ file })`,
-  `ws.setReference({ view, file, width, center })`, `ws.call(method, args)` for anything else.
+  … })` read geometry. `ws.observe(names, { file, size, references, ids, shading, camera, … })`
+  writes PNGs (one name: `file`; several: `file` with `-<view>` added; the other options are
+  `renderViews`'s). `ws.exportGLB({ file, … })` returns the export report (`triangles`,
+  `bounds`, `mergeGroups`, `bytes`, `validation`); the run prints what the script returns as
+  `result`, so end with `return ws.exportGLB(…)`. Also `ws.importGLB({ file })`,
+  `ws.exportProject({ file })`, `ws.setReference({ view, file, width, center })`,
+  `ws.call(method, args)` for anything else. `console.log` is fine: the result is the last line.
 - The public CC0 model library: `ws.librarySearch({ query, type, tags })` finds models (ids,
   sizes in metres, versions); `ws.openLibraryModel(id)` opens one to edit or derive from (its
   workshop project when it has one), `ws.openLibraryModel(id, { mode: "add" })` adds its parts
@@ -109,7 +112,7 @@ export default async function (ws) {
 | --- | --- |
 | box | `size:[x,y,z]`, `bevel?`, `bevelSegments?` (rounded) |
 | sphere | `radius`, `segments`, `rings`; `latitude:[from,to]?` degrees (−90…90: `[0,90]` a dome, `[-90,0]` a bowl), `angle?` (a wedge); `geodesic?` (0–5: an icosphere of even facets instead, for rocks and crowns) |
-| cylinder, cone | `radius`, `height`, `segments`; `radiusTop?` (a frustum; a cone's is 0), `innerRadius?` (a tube; the bore runs parallel to the outside), `round?` (rim radius), `roundSegments?`, `angle?` |
+| cylinder, cone | `radius`, `height`, `segments`; `radiusTop?` (a frustum; a cone's is 0), `innerRadius?` (a tube; the bore runs parallel to the outside), `round?` (rim radius), `roundSegments?`, `angle?`, `rows?` (rings along the height, for a bend or a taper to work across) |
 | torus | `radius` (ring centre line), `tube` (tube radius), `segments`, `tubeSegments`, `angle?` (an elbow) |
 | capsule | `radius`, `height` (total, ≥ 2 × radius), `segments`, `rings` (per end) |
 | lathe | `profile` from the axis back to the axis as `[r,y]` items (outline items below), `segments` (around Y) |
@@ -121,7 +124,8 @@ export default async function (ws) {
 | group | no geometry: a pivot or container |
 
 - Round shapes stand on their local Y axis, centred on their position (cylinders, cones,
-  capsules and spheres reach half their height below it); `axis: "x" | "z"` lays cylinders,
+  capsules and spheres reach half their height below it, so a 2 m cylinder stands on the ground
+  at `position: [0, 1, 0]`, or `{ op: "ground", id }` lifts a part onto y = 0); `axis: "x" | "z"` lays cylinders,
   cones, tori, capsules, lathes and revolves along that axis instead. Partial `angle`s
   start on +X and turn like a positive rotation about the axis (+X towards −Z), with flat ends.
 - `segments` (and `rings`, `tubeSegments`) take a whole number or `"auto"`: about 2 mm from
@@ -147,8 +151,8 @@ segments that continue from the last point:
 ```
 
 A whole 2D outline (or hole) may be one shape: `{ circle: r }` or `{ circle: { radius,
-center } }`, `{ ellipse: [rx, ry] }`, `{ rect: { size: [w, h], round } }`, `{ polygon: {
-sides, radius } }` (a corner points up). Path items are 3D: `[x, y, z]`, `{ arc: { center,
+center, segments } }`, `{ ellipse: [rx, ry] }`, `{ rect: { size: [w, h], round } }`, `{ polygon: {
+sides, radius } }` (a corner points up); their `segments` default to `"auto"`. Path items are 3D: `[x, y, z]`, `{ arc: { center,
 axis, angle, rise? } }` (`rise` along the axis makes a helix), `{ arc: { through, to } }`,
 `{ bezier: { controls, to } }`. Arcs and curves take `segments` (default `"auto"`).
 
@@ -166,7 +170,8 @@ body with wheel-arch notches is one concave outline.
 ## Commands for `ws.apply`
 
 - Parts: `set {id, position?, rotation?, scale?, parent?, name?}`, `rename {id, newId}`,
-  `delete {id}`, `group {ids, newId}`, `pivot {id, offset}`.
+  `delete {id}`, `group {ids, newId}`, `pivot {id, offset}`, `ground {id}` (onto y = 0),
+  `align {ids, axis, mode:"min"|"center"|"max"}`, `dimensions {id, size}`, `applyScale {id}`.
 - Copies: `duplicate {id, newId, offset?, linked?, replace?:["front","rear"], idMap?}`,
   `symmetry {id, newId, axis:"x", space:"world", replace:["_l","_r"]}` (a linked mirror,
   children renamed by `replace`), `array {id, count, offset?, rotation?, pivot?, merge?}`.
@@ -175,39 +180,57 @@ body with wheel-arch notches is one concave outline.
   options, position?, rotation?, material?}}` (tools are used up; cut faces take the tool's
   material).
 - Faces and edges: `extrude`/`inset {id, distance, select}`, `bevel {id, distance, select}`,
-  `cut {id, axis, offset, space}`, `solidify {id, thickness}`, `weld`, `fill`, `dissolve`,
+  `cut {id, axis, offset, space}` (a plane in world metres unless `space:"local"`), `solidify {id, thickness}`, `weld`, `fill`, `dissolve`,
   `join {id, with}`, `separate {id, newId, loose:true}`, `deleteComponents {id, select}`.
 - Shape (in the part's own metres; `space:"world"` otherwise): `deform {id, kind:"taper"|"bend"|"twist"|"shear"|"stretch",
   axis?, from?, to?, amount | angle, direction?}`, `displace {id, amount, mode?:"uniform"|"noise"|"gradient"|"formula",
   along?:"normal"|"x"|"y"|"z", noise?:{scale, seed}, expr?}` (uniform = inflate), `smooth {id, iterations?, factor?, volume?}`,
   `subdivide {id, levels?, smooth?}` (Catmull–Clark; `smooth:false` keeps the shape), `triangulate {id, faces?}`.
-  All take `select`/`faces`/`vertices` and `falloff:{radius, shape?}` (proportional editing), as do `transform` and `vertices`.
+  deform, displace and smooth take `select`/`faces`/`vertices` and `falloff:{radius, shape?}` (proportional editing), as do `transform` and `vertices`; triangulate takes faces.
 - Selectors: `{ kind:"faces"|"edges"|"vertices", space:"world", normal?:[x,y,z], at?:{axis,
-  value}, boundary?:{axis, side:"min"|"max"}, largest?, crease?:degrees }`.
+  value, tolerance?}, boundary?:{axis, side:"min"|"max"}, largest?, crease?:degrees }` (world
+  space by default; a selector takes every match).
 
 ## Shaping: lofts, deformers, displacement
 
 ```js
-// A tapered, slightly twisted tower from one rounded square; a rock; a bent pipe.
+// A tapered, slightly twisted tower from one rounded square; a rock; a pipe bent 90° in its
+// upper half; a hollow vase. All stand on the ground.
 await ws.apply([
   { op: "create", id: "tower", kind: "loft", material: "mat_concrete", options: { profile: { rect: { size: [8, 8], round: 1 } },
     sections: [{ at: 0, scale: 1.2 }, { at: 6, scale: 1 }, { at: 40, scale: 0.6 }, { at: 48, scale: 0.75 }], smooth: true } },
   { op: "deform", id: "tower", kind: "twist", angle: 30, from: 6, to: 48 },
-  { op: "create", id: "rock", kind: "sphere", material: "mat_rock", smooth: 70, options: { radius: 0.6, geodesic: 2 } },
-  { op: "displace", id: "rock", amount: 0.12, mode: "noise", noise: { scale: 0.5, seed: "rock" } },
-  { op: "deform", id: "rock", kind: "taper", amount: [1.3, 0.8] },
-  { op: "create", id: "pipe", kind: "cylinder", material: "mat_steel", options: { radius: 0.05, height: 2, segments: 12 } },
-  { op: "subdivide", id: "pipe", levels: 2, smooth: false },             // rings to bend across
-  { op: "deform", id: "pipe", kind: "bend", angle: 90, from: 0.5, to: 1 },
+  { op: "create", id: "rock", kind: "sphere", material: "mat_rock", smooth: 70, position: [12, 0.6, 0], options: { radius: 0.6, geodesic: 2 } },
+  { op: "displace", id: "rock", amount: 0.12, mode: "noise", noise: { scale: 0.5, seed: "rock" } },   // scale: the lumps' size in metres
+  { op: "deform", id: "rock", kind: "taper", amount: [1.3, 0.8] },                                     // [x, z] factors at the top
+  { op: "ground", id: "rock" },
+  { op: "create", id: "pipe", kind: "cylinder", material: "mat_steel", position: [16, 1, 0], options: { radius: 0.05, height: 2, segments: 12, rows: 16 } },  // rows: rings to bend across
+  { op: "deform", id: "pipe", kind: "bend", angle: 90, from: 0, to: 1, direction: "x" },             // its upper metre (the part's own y 0–1) turns into a quarter circle of radius 2/π
+  { op: "create", id: "vase", kind: "loft", material: "mat_clay", smooth: true, position: [20, 0, 0], options: { profile: { circle: 0.1 }, smooth: true,
+    sections: [{ at: 0, scale: 0.6 }, { at: 0.15, scale: 1.2 }, { at: 0.34, scale: 0.4 }, { at: 0.4, scale: 0.5 }] } },
+  { op: "deleteComponents", id: "vase", select: { kind: "faces", normal: [0, 1, 0] } },             // open the mouth…
+  { op: "solidify", id: "vase", thickness: 0.006 },                                                  // …and give it a wall
 ]);
 ```
 
-- `deform` ramps along `axis` from `from` to `to` (the part's extent by default); beyond
-  `to` the full effect continues. `bend` and `shear` go towards `direction`.
-- `displace` moves along the normals by `amount` × a field; `mode: "formula"` takes an
-  expression tree such as `{ $expr: "mul", args: [{ $expr: "sin", args: [{ $expr: "mul", args: [{ $var: "a" }, 6] }] }, { $var: "t" }] }`
-  over `x y z nx ny nz u v w r t a noise` (never a script). Bent quads are reported; `triangulate` settles them.
+- `deform` ramps along `axis` (`"y"`) from `from` to `to` (the part's extent by default), in
+  the part's own metres; beyond `to` the full effect continues. `taper`'s `amount` is the
+  scale at `to` (a factor, or `[across, along]`: the two other axes in x y z order). `twist`
+  turns by `angle` at `to` (positive = a positive rotation about the axis). `bend` turns the
+  range into an arc of `angle` towards `direction` (the first other axis, x for y) of radius
+  `(to − from) / angle` in radians; `shear` shifts by `amount` metres towards `direction`;
+  `stretch` scales the range from `from`.
+- `displace` moves along the normals by `amount` × a field: `uniform` (1), `gradient` (0 at
+  `from`, 1 at `to`), `noise` (−1..1; `noise.scale` is the largest feature's size in metres,
+  `octaves` 3, `persistence` 0.5, `lacunarity` 2, `seed`) or `formula`: an expression tree such
+  as `{ $expr: "mul", args: [{ $expr: "sin", args: [{ $expr: "mul", args: [{ $var: "a" }, 6] }] }, { $var: "t" }] }`
+  over `x y z` (the part's own coordinates, or world with `space:"world"`), `nx ny nz u v w r t
+  a noise` (never a script). Bent quads are reported; `triangulate` settles them.
+- `smooth` is three things: the relax op, a part's smooth shading (`smooth: 70` on create/set)
+  and a loft's or sweep's `options.smooth` (a curve through the sections or path points).
 - Everything here is a recipe step too, so a blueprint can bind a bend angle to a parameter.
+- Overlapping shells only warn (`shell-overlap`), but faces that lie in one plane flicker; let
+  a part end inside its neighbour rather than on its surface.
 
 ## Blueprints: parametric families
 

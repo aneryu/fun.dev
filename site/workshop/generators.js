@@ -649,8 +649,8 @@ export function sweepShape(options, material) {
 export function loftShape(options, material) {
   const { radius, segments } = rounding(options),
     sections = options.sections;
-  if (!Array.isArray(sections) || sections.length < 2 || sections.length > 64)
-    fail("sections needs 2–64 entries", "sections");
+  if (!Array.isArray(sections) || sections.length < 2 || sections.length > 256)
+    fail("sections needs 2–256 entries", "sections");
   const outlines = sections.map((s, i) => {
     if (!s || typeof s !== "object" || Array.isArray(s))
       fail("A section is { profile, at, scale, rotation, offset }", `sections.${i}`);

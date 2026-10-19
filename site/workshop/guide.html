@@ -680,7 +680,7 @@ const file = await funEditor.exportGLB({ encoding: "base64" });</pre
         (more than one bevel segment rounds every edge and corner; the six flat
         sides keep IDs f0–f5); sphere
         <code>{radius:.5,segments:8,rings:6}</code>; cylinder/cone
-        <code>{radius:.5,height:1,segments:8}</code>; outline extrusion
+        <code>{radius:.5,height:1,segments:8,rows:1}</code> (rows: rings along the height); outline extrusion
         <code>{points:[[x,y],…],depth:.5}</code>; lathe
         <code>{profile:[[radius,height],…],segments:8}</code>. Ordered lathe
         profiles may return down an inner wall; use axis endpoints to close a
@@ -904,8 +904,9 @@ await ws.load({ name: "Keep", nav: { cell: 1, radius: 0.5 } });                 
           formula), <code>smooth</code>, <code>subdivide</code>, <code>triangulate</code>, and
           <code>falloff</code> on transform, vertices and the shape edits — all recipe steps.
           Example: a rounded-square tower lofted through four sections and twisted 30° above
-          its base; a geodesic sphere displaced by seeded noise into a rock; a cylinder
-          subdivided twice and bent 90° in its upper half.
+          its base; a geodesic sphere displaced by seeded noise into a rock; a cylinder with
+          sixteen rows bent 90° over its upper half (<code>rows</code> on cylinders and cones
+          are the rings a bend works across).
         </p>
         <h2>Blueprints · 蓝图</h2>
         <p>

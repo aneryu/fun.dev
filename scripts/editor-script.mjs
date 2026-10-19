@@ -234,7 +234,7 @@ export async function runScript(file, invoke) {
   const module = await import(pathToFileURL(script).href);
   if (typeof module.default !== "function")
     throw new Error("A model script exports a default async function (ws)");
-  await module.default(ws);
+  const returned = await module.default(ws);
   const state = await ws.inspect();
   const result = {
     ok: true,
@@ -242,6 +242,8 @@ export async function runScript(file, invoke) {
     stats: state.stats,
     validation: await ws.validate(),
     files,
+    // What the script returns (an export report, usually) comes out with the run.
+    ...(returned !== undefined ? { result: returned } : {}),
   };
   // A scene (placed models, markers, zones or paths) carries its audit too.
   const { placed = 0, markers = 0, zones = 0, paths = 0 } = state.stats;

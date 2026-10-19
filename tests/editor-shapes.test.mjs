@@ -286,7 +286,7 @@ test("lofts: sections along an axis or a path, aligned by points or by arc lengt
   assert.deepEqual(bounds(along).map((b) => b.map((v) => +v.toFixed(9))), [[-1, 1], [-0.5, 0.5], [-1, 1]]);
   assert.throws(() => primitive("loft", { profile: { circle: 0.3 }, sections: [{ at: 1 }, { at: 0 }] }, "m"), /must increase/);
   assert.throws(() => primitive("loft", { sections: [{ at: 0 }, { at: 1 }] }, "m"), /profile/);
-  assert.throws(() => primitive("loft", { profile: { circle: 0.3 }, sections: [{ at: 0 }] }, "m"), /2–64/);
+  assert.throws(() => primitive("loft", { profile: { circle: 0.3 }, sections: [{ at: 0 }] }, "m"), /2–256/);
   // Section values take recipe expressions, so a taper can be a parameter.
   const store = createStore(emptyProject("Loft"));
   store.apply([
@@ -296,4 +296,16 @@ test("lofts: sections along an axis or a path, aligned by points or by arc lengt
   ]);
   const top = store.snapshot().nodes[0].mesh.vertices.filter((v) => v[1] > 0.99);
   near(Math.max(...top.map((v) => Math.hypot(v[0], v[2]))), 0.6, 1e-9, "the top ring follows the parameter");
+});
+
+test("cylinders and cones take rows: rings along the height for bends and tapers", () => {
+  const ribbed = primitive("cylinder", { radius: 0.5, height: 2, segments: 8, rows: 4 }, "m");
+  solid(ribbed, "ribbed cylinder");
+  assert.equal(ribbed.vertices.length, 8 * 5, "five rings");
+  assert.deepEqual([...new Set(ribbed.vertices.map((v) => +v[1].toFixed(9)))].sort((a, b) => a - b), [-1, -0.5, 0, 0.5, 1]);
+  const cone = primitive("cone", { radius: 0.5, radiusTop: 0.1, height: 1, segments: 8, rows: 2 }, "m");
+  solid(cone, "ribbed frustum");
+  assert.ok(cone.vertices.some((v) => Math.abs(v[1]) < 1e-9 && Math.abs(Math.hypot(v[0], v[2]) - 0.3) < 1e-9), "the middle ring is halfway in radius");
+  assert.equal(primitive("cylinder", { radius: 0.5, height: 2, segments: 8 }, "m").vertices.length, 16, "no rows by default");
+  assert.throws(() => primitive("cylinder", { radius: 0.5, height: 2, rows: 3, angle: 90 }, "m"), /rows applies/);
 });

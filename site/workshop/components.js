@@ -286,13 +286,11 @@ export function resolveComponents(
         "Use a selector or explicit components, not both",
         "selection",
       );
-    const result = queryComponents(project, { ...c.select, id: c.id });
-    if (!result.items.length || result.truncated)
-      throw new ModelError(
-        "Selection is empty or truncated",
-        "selection",
-        `nodes.${c.id}`,
-      );
+    // A selector takes every match (a page limit is for inspection, not for editing).
+    const { limit, offset, ...select } = c.select;
+    const result = queryComponents(project, { ...select, id: c.id }, { complete: true });
+    if (!result.items.length)
+      throw new ModelError("Selection is empty", "selection", `nodes.${c.id}`);
     c[result.kind] = result.items.map((v) => v.ref);
     delete c.select;
   }
