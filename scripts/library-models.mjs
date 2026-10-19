@@ -16,7 +16,7 @@ import { blobPath, cached, cacheRoot, formatLock, parseLock, storeBlob } from ".
 const ID = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
 const VERSION = /^v\d{3}$/;
 export const FORMATS = ["glb", "fun3d"];
-export const libraryOrigin = () => process.env.FUNDEV_MODELS_ORIGIN || "https://games.fun.dev";
+export const libraryOrigin = () => process.env.FUNDEV_MODELS_ORIGIN || "https://cdn.fun.dev";
 const details = new Map();
 
 async function loadDetail(id) {

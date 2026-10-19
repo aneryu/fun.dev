@@ -12,7 +12,7 @@ try {
     if (flags.includes("--dry-run")) {
       for (const asset of release.assets) console.log(`  ${asset.path}${asset.blob ? ` → blobs/${asset.blob}` : ""}`);
     } else {
-      store = createWranglerStore(undefined, { publicOrigin: "https://games.fun.dev" });
+      store = createWranglerStore(undefined, { publicOrigin: "https://cdn.fun.dev" });
       await publishRelease(store, release);
       console.log("Published bundle and registered game in R2. Website deployment unchanged.");
     }

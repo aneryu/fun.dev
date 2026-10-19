@@ -155,7 +155,7 @@ hostnames, [edge](edge.md); empty = same-origin),
 
 - Production: Pages project `fundev` (direct upload to the production environment from Git `main`, domains
   `fun.dev`, `static.fun.dev`, `api.fun.dev`, `fundev.pages.dev`; `fun.dev` itself is served by the CN2
-  server, see [edge](edge.md)); R2 bucket `fundev-games` at `games.fun.dev`;
+  server, see [edge](edge.md)); R2 bucket `fundev-games` at `cdn.fun.dev` (`games.fun.dev` is an older alias of the same bucket, kept so addresses copied before 2026-10-19 still work);
   private R2 bucket `fundev-sources` (blob backups, no public domain);
   D1 `fundev-progress-production`; Worker `fundev-transfer-cleanup-production`
   (hourly; no HTTP endpoint). The model library ([models](models.md)): D1 `fundev-models`,

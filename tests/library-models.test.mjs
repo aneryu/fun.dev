@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { boxGLB } from "./helpers/models.mjs";
 
-// A stand-in for games.fun.dev: one model's page data and its blob. The blob cache is a fresh folder.
+// A stand-in for cdn.fun.dev: one model's page data and its blob. The blob cache is a fresh folder.
 const glb = Buffer.from(boxGLB({ size: [0.5, 0.9, 0.5] }));
 const sha = createHash("sha256").update(glb).digest("hex");
 const detail = { licence: "CC0-1.0", id: "desk_chair_01", name: { zh: "书椅", en: "Desk chair" }, type: "prop", kit: null, tags: [], listed: true, versions: [{ version: "v002", files: { "model.glb": { sha256: sha, size: glb.length } }, stats: {} }] };

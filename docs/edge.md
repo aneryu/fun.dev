@@ -13,7 +13,7 @@ still serves every other file.
 | `static.fun.dev` | Pages project `fundev` (custom domain, proxied) | platform files: CSS, JS, icons, Three.js, `/runtime/` |
 | `api.fun.dev` | Pages project `fundev` (custom domain, proxied) | the transfer API, `/api/transfers/*` |
 | `console.fun.dev` | Worker `fundev-console` (custom domain, behind Cloudflare Access) | the model library console: upload and review ([models](models.md)) |
-| `games.fun.dev` | R2 (unchanged) | game releases and blobs |
+| `cdn.fun.dev` | R2 bucket `fundev-games` (custom domain; `games.fun.dev` is an older alias) | immutable content for every origin: game releases and `games.json`, blobs, the model library (`/library/`) |
 
 Measured from 15 mainland probes after the switch (HTTPS, `/games`): through the server a median
 of 0.71 s (14/15), of which DNS lookup was most (0.15–0.48 s, the zone's nameservers are
@@ -35,7 +35,7 @@ Cloudflare: 1.2 s, up to 3.3 s. Resolvers that have cached the record skip the D
   (scripts, styles, images, connections) and the API origin (connections).
 - The transfer API checks that a request was sent to `TRANSFER_API_ORIGIN` from a page on
   `TRANSFER_ORIGIN`, and answers its CORS preflight. Other pages of the site, including games on
-  `games.fun.dev`, are refused. `CF-Connecting-IP` is still the visitor's address.
+  `cdn.fun.dev`, are refused. `CF-Connecting-IP` is still the visitor's address.
 - The server, `config/Caddyfile`: an uncached reverse proxy for documents (GET/HEAD only) to
   `static.fun.dev`, and a 308 redirect for every other path. It stores no files, cache or
   secrets, so a release never touches it, and it can be rebuilt from this file.

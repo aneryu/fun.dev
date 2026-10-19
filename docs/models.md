@@ -9,9 +9,9 @@ Who it is for, in order: agents making games (a catalog they can search and mode
 the owner (browsing and managing), and visitors (a public showcase with CC0 downloads).
 
 ```
-upload  ──▶ console.fun.dev 上传 (Access)   ──▶ D1 fundev-models; files: games.fun.dev/blobs/<sha256>.<ext>
+upload  ──▶ console.fun.dev 上传 (Access)   ──▶ D1 fundev-models; files: cdn.fun.dev/blobs/<sha256>.<ext>
 review  ──▶ npm run models (maintainer), console.fun.dev 审核 (owner)  ──▶ listed in D1, snapshots rewritten
-pages   ◀── games.fun.dev/library/index.<zh|en>.json, games.fun.dev/library/<id>.json
+pages   ◀── cdn.fun.dev/library/index.<zh|en>.json, cdn.fun.dev/library/<id>.json
 games   ◀── game.json "models" → pinned blobs at models/<id>.glb
 ```
 
@@ -192,7 +192,7 @@ on the web. A plan is one reviewed file, applied in order and published once:
 ## Publishing
 
 D1 is the only source of truth. The public library is a snapshot of it in `fundev-games`, served
-from `games.fun.dev` with a 60 s cache, and **the server rewrites it in the same request as every
+from `cdn.fun.dev` with a 60 s cache, and **the server rewrites it in the same request as every
 change to what is listed** (approving, unlisting, editing a listed model or its kit, replacing a
 listed thumbnail), so no client step can leave it behind:
 
@@ -218,7 +218,7 @@ larger (see Later).
 
 Both are static pages from the build (`site/models.html`, and `site/model.html`, which
 `_redirects` serves at every `/models/<id>`), so a listing is live within the cache time. The 3D view is `site/model-viewer.js`, shared with the
-console. Model files must not require Draco, KTX2 or meshopt decoders; uploads reject them.
+The pages, the workshop and any other site or tool can read the library: the bucket answers `GET`/`HEAD` from every origin (`config/r2-cors.json`), because everything in it is public.
 The pages work on `fun.dev` only: `games.fun.dev` allows that origin, not `cdn.fun.dev`.
 
 ## Using a model in a game
@@ -250,7 +250,7 @@ bundles](game-bundles.md)). The
 one-time `npm run models -- retype <id>[,<id>...] vehicle` fixes vehicles that were typed `prop`
 before the type existed, so their derived files get a wheeled vehicle.
 
-A model's public address (`games.fun.dev/blobs/<sha256>.glb`, copied from its page) also works
+A model's public address (`cdn.fun.dev/blobs/<sha256>.glb`, copied from its page) also works
 anywhere and never changes, but is not cached with a game.
 
 ## Code

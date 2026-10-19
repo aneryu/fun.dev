@@ -2,7 +2,7 @@
   "rules": [
     {
       "allowed": {
-        "origins": ["https://fun.dev", "https://fundev.pages.dev"],
+        "origins": ["*"],
         "methods": ["GET", "HEAD"],
         "headers": ["*"]
       },

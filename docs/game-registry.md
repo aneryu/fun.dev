@@ -5,7 +5,7 @@ The public website and games have separate release lifecycles:
 - Pages serves the homepage, lobby and shared Three.js container.
 - A dedicated R2 bucket serves `games.json` and immutable bundles through a
   configured HTTPS custom domain. The provisioned bucket is `fundev-games`,
-  with custom domain `games.fun.dev`.
+  with custom domain `cdn.fun.dev` (`games.fun.dev`, its first domain, stays attached as an alias).
 - A local publisher writes through the logged-in Wrangler CLI. The browser
   has read-only access. There is no public registration API or server database.
 
@@ -13,9 +13,10 @@ The public website and games have separate release lifecycles:
 
 1. Create a dedicated bucket and connect an HTTPS custom domain. Do not use the
    rate-limited `r2.dev` development endpoint for production.
-2. Apply `config/r2-cors.json` using Wrangler. It permits only `GET`/`HEAD`
-   from `https://fun.dev` and `https://fundev.pages.dev`.
-   Add exact preview origins only when needed; do not allow browser writes.
+2. Apply `config/r2-cors.json` using Wrangler. It permits `GET`/`HEAD` from
+   every origin: the bucket holds only public files (releases, blobs, the CC0
+   model library), which other sites and agents' tools may load. Never allow
+   browser writes.
 3. Bypass CDN caching for `/games.json`. Its object metadata is also `no-store`.
    Do not override it with a Cache Everything rule. Versioned assets use
    `public, max-age=31536000, immutable`; old releases remain available.

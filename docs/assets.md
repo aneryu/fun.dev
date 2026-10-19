@@ -10,7 +10,7 @@ whoever builds games here).
 The bundle contract is unchanged: a game is a directory of real files and calls
 `asset("assets/x.glb")`. When a release is published (and in every local build),
 each file under `assets/` is stored once by content, at
-`games.fun.dev/blobs/<sha256>.<ext>`. The release's `files.json` maps each path to
+`cdn.fun.dev/blobs/<sha256>.<ext>`. The release's `files.json` maps each path to
 its blob; the host reads it before `createGame` and resolves `asset()` through it.
 
 - An unchanged file keeps its address across versions and games, so a new
@@ -96,7 +96,6 @@ the main checkout.
 Deferred for future consideration, not rejected:
 
 - Deleting blobs no release or lock references any more (public and private).
-- A separate `cdn.fun.dev` domain.
 - A machine-readable licence list per file, checked on release.
 - An automatic compression pipeline (KTX2, Draco, WebP) and size budgets.
 - A cache management view for players, and showing download sizes in the lobby.

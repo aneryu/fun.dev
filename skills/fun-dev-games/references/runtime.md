@@ -77,14 +77,14 @@ fun.dev keeps a CC0 library of 3D models (props, modular building pieces) at
 https://fun.dev/models. To choose, search its index rather than reading it whole:
 
 ```sh
-curl -s https://games.fun.dev/library/index.en.json | grep -i -E 'chair|stool'   # or index.zh.json
+curl -s https://cdn.fun.dev/library/index.en.json | grep -i -E 'chair|stool'   # or index.zh.json
 ```
 
 The index has a `fields` header and one model per line: `id`, `name`, `description` (what it
 is, how it looks, where it fits), `type`, `kit`, `tags`, `size` in metres (width, height,
 depth), the newest `version`, and the thumbnail's SHA-256. `kits` describes each kit's fitting
 agreement (module width, storey height and so on) for pieces made to fit together. A model's
-full data, with every version, its files and triangles, is `https://games.fun.dev/library/<id>.json`.
+full data, with every version, its files and triangles, is `https://cdn.fun.dev/library/<id>.json`.
 
 Declare the models a game uses in `game.json`, pinned by version:
 
