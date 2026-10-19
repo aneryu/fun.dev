@@ -37,9 +37,13 @@ show it. The decisions:
   unreleased Clock Out, Slap Puppet and Cyber Muyu): unpublished, code on the
   branch `archive/games-2026-10-19` and tags `archive/game-<name>`.
 - **我在帝都打工的日子 / one day day** (id `one-day-day`, formerly 帝都/Didu; the
-  city in it is still 帝都) is the only game, the main showcase and the stress
-  test for the toolchain. The layers of the showcase are still to be decided,
-  before the site redesign.
+  city in it is still 帝都) is the only game and the stress test for the
+  toolchain. Its city is rebuilt **without real data** (decided 2026-10-19): a
+  hand-written macro plan, near-identical in layout (central axis, ring roads,
+  main roads by course, water, landmarks, district character), and everything
+  below it generated; no OpenStreetMap data or anything derived from it enters
+  the generator, so neither ODbL nor map review applies. The homepage does not
+  depend on it.
 - **Model library**: public and read-only, CC0; agents search, download and
   derive through an API. Uploads and review stay internal. Later: outside
   uploads with review.
@@ -47,9 +51,11 @@ show it. The decisions:
   (engine and software renderer, no browser) and an MCP mode; computation runs on
   the user's machine. The web workshop is for people to look and adjust. Later:
   a hosted API.
-- **Site**: the homepage presents the toolchain (workshop, library, agent
-  docs) with one day day as what it made, in the playful tone; games stay at
-  `/games/<id>`; `/editor/` becomes `/workshop/` without the old address.
+- **Site**: the homepage presents the toolchain in the playful tone: the
+  headline beside a library model turning on the page, entries for the
+  workshop, the library and the agent docs, and a line of what was made with
+  them; games stay at `/games/<id>`; `/editor/` becomes `/workshop/` without the
+  old address.
 
 ### Disposition of existing work
 
@@ -59,7 +65,7 @@ show it. The decisions:
 | Model library, console, review | Mainline (public read-only) |
 | `.fun3d` and runtime (kit, light slots, physics) | Mainline, as the one-stop path |
 | Player and host API | Maintained; gains versioning |
-| one day day (`game/didu` and `game/didu-fun3d` merged) | In `fundev-games`; main showcase |
+| one day day (`game/didu` and `game/didu-fun3d` merged) | In `fundev-games`; city rebuilt without real data |
 | Wooden Fish, Slap, Seal Carving | Retired: unpublished, archived |
 | Clock Out, Slap Puppet, Cyber Muyu branches | Retired: archived |
 | Workshop stage 4: skeletons and animation (low-poly characters) | Next after the early phase |
@@ -96,8 +102,8 @@ need appears.
    2026-10-19, without a compatibility window: the tools take the games
    directory; the platform tests with its own game, `tests/fixture-games/probe`;
    the earlier games are retired).
-4. Site redesign: toolchain homepage, `/workshop/`, agent docs (after the
-   showcase layers are decided).
+4. Site redesign: toolchain homepage, `/workshop/`, agent docs (homepage and
+   `/docs` done 2026-10-19; the `/workshop/` rename is still to do).
 5. The outside-agent acceptance test (exit criterion 1).
 
 ## Scope
