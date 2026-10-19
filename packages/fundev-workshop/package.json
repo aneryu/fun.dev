@@ -1,6 +1,6 @@
 {
   "name": "fundev-workshop",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "The fun.dev workshop for AI agents: build 3D models from scripts or over MCP in Node, without a browser or GPU, and export GLB.",
   "type": "module",
   "bin": {
@@ -13,12 +13,13 @@
     "bin/",
     "workshop.mjs",
     "README.md",
+    "LICENSE",
     "THIRD_PARTY_LICENSES.md"
   ],
   "engines": {
     "node": ">=22"
   },
-  "license": "UNLICENSED",
+  "license": "MIT",
   "homepage": "https://fun.dev/workshop/guide",
   "repository": {
     "type": "git",

@@ -21,7 +21,8 @@
     "fun3d": "node scripts/fun3d.mjs",
     "derive": "node scripts/derive.mjs",
     "editor:agent": "node scripts/editor-agent.mjs",
-    "workshop:npm": "node scripts/build-npm.mjs"
+    "workshop:npm": "node scripts/build-npm.mjs",
+    "runtime:npm": "node scripts/build-runtime.mjs"
   },
   "engines": {
     "node": ">=22"

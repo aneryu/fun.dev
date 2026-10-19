@@ -110,7 +110,9 @@ data.gridPath(spawn, keep, { diagonal: true });         // A* over walkable cell
 data.walkable(x, z); data.walk(spawn, goal);            // the baked walkable raster (fun3d.navgrid): { found, points, length }; world.walk crosses tiles
 ```
 
-`data.height(x, z)` and `data.surface(x, z)` read the tile's terrains (`fun3d.terrain`: the
+Outside this repository the same modules come from the npm package `fundev-runtime`
+(`import { createFun3d, createModels, worldData, createWorld } from "fundev-runtime"`, Three.js
+injected, MIT). `data.height(x, z)` and `data.surface(x, z)` read the tile's terrains (`fun3d.terrain`: the
 field, its surface table with friction and tags, its water level); the terrain's mesh has a
 static body already. `world.json` lists the world's tiles (`x`, `z`, file, SHA-256, bounds,
 a `far` file), its `data` file (`world.fun3d`: the markers, zones, paths and runtime rules of

@@ -19,5 +19,6 @@ test-results/
 # Built by npm run workshop:npm
 packages/fundev-workshop/workshop.mjs
 packages/fundev-workshop/THIRD_PARTY_LICENSES.md
+packages/fundev-runtime/kit/
 scripts/fun-probe/model.fun3d
 scripts/fun-probe/model-meshopt.fun3d

@@ -13,7 +13,7 @@ Node 22 or newer.
 ```sh
 npx -y fundev-workshop --guide            # the one-page quick reference
 npx -y fundev-workshop --run model.mjs    # one JSON line: validation, statistics, files
-npx -y fundev-workshop --run scene.mjs    # scenes too: library models placed by reference, markers, zones, paths, map, audit, .fun3d tiles
+npx -y fundev-workshop --run scene.mjs    # scenes and worlds too: library models placed by reference, scatter, kits, terrain, grids, roads, lots, navigation; map, audit, .fun3d tiles and world.json
 ```
 
 ```js
@@ -66,3 +66,5 @@ between runs; `--artifacts` writes pictures, GLBs and project files and returns 
 
 No licence is granted yet (`UNLICENSED`). The bundled Three.js (MIT) and manifold-3d
 (Apache-2.0) keep their own licences: see `THIRD_PARTY_LICENSES.md`.
+
+MIT. Games load what the workshop exports with [fundev-runtime](https://www.npmjs.com/package/fundev-runtime).

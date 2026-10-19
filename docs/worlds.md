@@ -305,10 +305,12 @@ software renderer gains instanced meshes so the Node runtime draws the same thin
 
 ## 7. Runtime
 
-The runtime kit ships as an npm package (name and licence to decide, section 13) holding the
-modules of [format section 7](model-format.md#7-runtime) plus `kit/world.js` and
-`kit/assemble.js`, with three.js as a peer dependency, for WebGPU and WebGL 2. The fun.dev
-player uses the same package.
+The runtime kit ships as the npm package `fundev-runtime` (MIT, decided 2026-10-19;
+`packages/fundev-runtime/`, filled by `npm run runtime:npm`) holding the modules of
+[format section 7](model-format.md#7-runtime) plus the scene modules (`kit/world.js`,
+`kit/scatter.js`, `kit/assemble.js`, `kit/terrain.js`, `kit/grid.js`, `kit/sweep.js`,
+`kit/lots.js`, `kit/nav.js`), with three.js as a peer dependency, for WebGPU and WebGL 2. The
+fun.dev player uses the same modules.
 
 ```js
 const world = await createWorld({ fun3d, models, physics, read: assets.arrayBuffer, json: assets.json }, "worlds/island/world.json");
@@ -489,14 +491,13 @@ the early phase's acceptance test.
 
 ## 13. Open questions for the owner
 
-1. The runtime package's name and licence (the workshop is `UNLICENSED` until a licence is
-   chosen; a runtime meant for other people's projects needs one).
-2. Navmesh generation: a maintained Recast build for Node is the recommendation (a new,
-   workshop-and-build-only dependency), against writing a simpler walkable-surface extractor.
-3. Whether scenes and worlds enter the public library in the first release or stay game-local
-   until the review flow has handled a few.
-4. Reference depth two for tiles, or inlining skeleton bases at build.
-5. The budget numbers in section 9, to set after measuring on a phone.
+1. Decided 2026-10-19: `fundev-runtime` and `fundev-workshop`, both MIT.
+2. Decided 2026-10-19: the walkable raster (section 4) first; Recast when it is not enough.
+3. Decided 2026-10-19: scenes and worlds stay game-local until the review flow has handled a
+   few; the library's `scene` and `world` types wait.
+4. Reference depth two for tiles stands.
+5. The budget numbers in section 9 stay as estimates until a game on this layer is measured on
+   a phone.
 
 ## Appendix A. Later, not in the first release
 

@@ -1,0 +1,40 @@
+{
+  "name": "fundev-runtime",
+  "version": "0.1.0",
+  "description": "The fun.dev runtime kit for three.js: load and write .fun3d models, place them batched and instanced, stream worlds of tiles, read markers, zones, paths, terrain, grids and the walkable raster, run scatter, assembly and lot rules at play time, route over roads, walk.",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./kit/*": "./kit/*"
+  },
+  "files": [
+    "index.js",
+    "kit/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "three": ">=0.170.0"
+  },
+  "license": "MIT",
+  "homepage": "https://fun.dev/docs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aneryu/fun.dev.git",
+    "directory": "packages/fundev-runtime"
+  },
+  "keywords": [
+    "3d",
+    "three.js",
+    "fun3d",
+    "worlds",
+    "tiles",
+    "streaming",
+    "navigation",
+    "procedural",
+    "agents"
+  ]
+}
