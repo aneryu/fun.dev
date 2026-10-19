@@ -2,10 +2,10 @@ import test, { before } from "node:test";
 import assert from "node:assert/strict";
 import { createStore, emptyProject, validateProject, normalizeProject, measure, statistics, duckProject, LIMITS } from "../site/workshop/document.js";
 import { loadKernel } from "../site/workshop/kernel.js";
-import { DenseMesh, DENSE_FROM, packMesh, unpackMesh, isDense, denseCounts, encodeDense, decodeDense } from "../site/workshop/dense.js";
+import { DenseMesh, DENSE_FROM, packMesh, unpackMesh, isDense, denseCounts, encodeDense, decodeDense, denseData } from "../site/workshop/dense.js";
 import { queryComponents } from "../site/workshop/components.js";
 import { commandsSchema, validateSchema, capabilities } from "../site/workshop/agent-contract.js";
-import { DabSampler, mirrors } from "../site/workshop/sculpt.js";
+import { DabSampler, mirrors, Sculptor, StrokeRunner } from "../site/workshop/sculpt.js";
 
 // Dense meshes and sculpting (docs/model-editor.md "Dense meshes and sculpting").
 before(() => loadKernel());
@@ -215,6 +215,19 @@ test("strokes: dabs along the points, incremental equals batch, mirrors, world s
   for (const p of points) pieces.push(...again.add(p));
   assert.deepEqual(pieces, batch);
   assert.deepEqual(mirrors([1, 2, 3], ["x", "z"]), [[1, 2, 3], [1, 2, -3], [-1, 2, 3], [-1, 2, -3]]);
+  // The page's runner (its own settings, points one at a time) gives the command's positions
+  // exactly, so the committed stroke can keep the drawing made while it ran.
+  for (const brush of ["clay", "grab"]) {
+    const points = [[0, 0.52, 0.05], [0.1, 0.47, 0.1], [0.2, 0.42, 0.15]],
+      command = fresh(ball(), { op: "sculpt", id: "ball", brush, radius: 0.1, strength: 0.7, symmetry: "x", points }),
+      d = denseData(node(fresh(ball()), "ball").mesh),
+      work = d.positions.slice(),
+      runner = new StrokeRunner(new Sculptor({ positions: work, offsets: d.offsets, indices: d.indices }, { radius: 0.1 }), {
+        brush, radius: 0.1, strength: 0.7, spacing: 0.25, falloff: "smooth", invert: false, symmetry: ["x"],
+      });
+    for (const p of points) runner.add(p, 1);
+    assert.deepEqual(Array.from(work), positions(command, "ball"), brush);
+  }
   // Symmetry keeps a symmetric ball symmetric.
   const sym = fresh(ball());
   sym.apply([{ op: "sculpt", id: "ball", brush: "inflate", radius: 0.15, strength: 1, points: [[0.3, 0.3, 0.3], [0.35, 0.1, 0.36]], symmetry: "x" }]);
@@ -258,6 +271,68 @@ test("strokes: dabs along the points, incremental equals batch, mirrors, world s
   assert.ok(capabilities().features.includes("sculpting"));
 });
 
+test("mirror images that overlap share the brush: on the plane a stroke is as strong as without symmetry", () => {
+  // Dabs on the mirror plane: the same positions as without symmetry, for every brush.
+  for (const brush of ["inflate", "clay", "flatten", "crease", "smooth"]) {
+    const stroke = { op: "sculpt", id: "ball", brush, radius: 0.2, strength: 1, points: [[0, 0.5, 0], [0, 0.45, 0.2]] },
+      plain = fresh(ball(), stroke),
+      mirrored = fresh(ball(), { ...stroke, symmetry: "x" });
+    assert.deepEqual(positions(mirrored, "ball"), positions(plain, "ball"), brush);
+  }
+  // A grab on the plane follows the pointer once, not once per mirror image.
+  const grab = { op: "sculpt", id: "ball", brush: "grab", radius: 0.2, points: [[0, 0.5, 0], [0, 0.6, 0.05]] },
+    plain = positions(fresh(ball(), grab), "ball"),
+    mirrored = positions(fresh(ball(), { ...grab, symmetry: ["x"] }), "ball");
+  for (let i = 0; i < plain.length; i++) near(mirrored[i], plain[i], 1e-12, `grab coordinate ${i}`);
+  // Near the plane, where the images overlap in part, a symmetric ball stays symmetric.
+  const p0 = positions(fresh(ball()), "ball"),
+    key = (x, y, z) => [x, y, z].map((v) => Math.round(v * 1e7)).join(),
+    index = new Map();
+  for (let i = 0; i < p0.length / 3; i++) index.set(key(p0[3 * i], p0[3 * i + 1], p0[3 * i + 2]), i);
+  for (const brush of ["inflate", "crease", "grab"]) {
+    const q = positions(fresh(ball(), { op: "sculpt", id: "ball", brush, radius: 0.2, strength: 1, symmetry: "x", points: [[0.05, 0.45, 0.2], [0.08, 0.3, 0.38]] }), "ball");
+    let pairs = 0;
+    for (let i = 0; i < p0.length / 3; i++) {
+      const j = index.get(key(-p0[3 * i], p0[3 * i + 1], p0[3 * i + 2]));
+      assert.notEqual(j, undefined, "the ball is symmetric");
+      near(q[3 * j], -q[3 * i], 1e-9, `${brush} x of ${i}`);
+      near(q[3 * j + 1], q[3 * i + 1], 1e-9, `${brush} y of ${i}`);
+      near(q[3 * j + 2], q[3 * i + 2], 1e-9, `${brush} z of ${i}`);
+      pairs++;
+    }
+    assert.ok(pairs > 1000);
+  }
+});
+
+test("dabs land on the surface: points near it, a long stroke across a ball, a grab; onSurface false keeps them", () => {
+  const p0 = positions(fresh(ball()), "ball");
+  let front = 0;
+  for (let i = 0; i < p0.length / 3; i++) if (p0[3 * i + 2] > p0[3 * front + 2]) front = i;
+  // Points 2 cm off the surface stroke as if they were on it.
+  const on = positions(fresh(ball(), { op: "sculpt", id: "ball", brush: "inflate", radius: 0.1, strength: 1, points: [[0, 0.5, 0], [0.2, 0.458, 0]] }), "ball"),
+    off = positions(fresh(ball(), { op: "sculpt", id: "ball", brush: "inflate", radius: 0.1, strength: 1, points: [[0, 0.52, 0], [0.208, 0.476, 0]] }), "ball");
+  const moved = (q) => {
+    let sum = 0;
+    for (let i = 0; i < q.length; i += 3) sum += Math.hypot(q[i] - p0[i], q[i + 1] - p0[i + 1], q[i + 2] - p0[i + 2]);
+    return sum;
+  };
+  const ratio = moved(off) / moved(on);
+  assert.ok(ratio > 0.95 && ratio < 1.1, `off-surface points snap (${ratio})`);
+  // Two points across the front: the chord between them runs 15 cm inside, the dabs still on the surface.
+  const across = { op: "sculpt", id: "ball", brush: "inflate", radius: 0.05, strength: 1, points: [[-0.35, 0, 0.35], [0.35, 0, 0.35]] },
+    snapped = positions(fresh(ball(), across), "ball"),
+    kept = positions(fresh(ball(), { ...across, onSurface: false }), "ball"),
+    depth = (q) => Math.hypot(q[3 * front], q[3 * front + 1], q[3 * front + 2]);
+  assert.ok(depth(snapped) > depth(p0) + 0.002, "the middle of the stroke reaches the surface");
+  near(depth(kept), depth(p0), 1e-12, "onSurface false: dabs on the chord miss it");
+  // A grab from a point above the top grabs the top.
+  let top = 0;
+  for (let i = 0; i < p0.length / 3; i++) if (p0[3 * i + 1] > p0[3 * top + 1]) top = i;
+  const grab = positions(fresh(ball(), { op: "sculpt", id: "ball", brush: "grab", radius: 0.1, points: [[0, 0.56, 0], [0, 0.66, 0]] }), "ball");
+  near(grab[3 * top + 1], p0[3 * top + 1] + 0.1, 0.005, "the top follows a grab that starts above it");
+  validateSchema([{ op: "sculpt", id: "ball", brush: "clay", radius: 0.1, points: [[0, 0, 0]], onSurface: false }], commandsSchema);
+});
+
 test("performance at about 258 000 triangles: strokes, edits and validation", () => {
   const store = fresh({ op: "create", id: "s", kind: "sphere", material: "skin", options: { radius: 1, segments: 64, rings: 32 } }, { op: "convert", id: "s" }, { op: "subdivide", id: "s", levels: 3 });
   const counts = denseCounts(node(store, "s").mesh);
@@ -274,12 +349,15 @@ test("performance at about 258 000 triangles: strokes, edits and validation", ()
   const stroke = time("a 20-dab inflate stroke", () =>
     store.apply([{ op: "sculpt", id: "s", brush: "inflate", radius: 0.1, points: [[0, 1, 0], [0.5, 0.86, 0]] }]),
   );
+  const mirrored = time("a mirrored 20-dab clay stroke", () =>
+    store.apply([{ op: "sculpt", id: "s", brush: "clay", radius: 0.1, symmetry: "x", points: [[0, 0.98, 0.2], [0.5, 0.84, 0.2]] }]),
+  );
   const grab = time("a grab", () => store.apply([{ op: "sculpt", id: "s", brush: "grab", radius: 0.2, points: [[0, -1, 0], [0, -1.2, 0]] }]));
   const edit = time("a vertex edit", () => store.apply([{ op: "vertices", id: "s", changes: [{ index: 10, position: [0, 1.1, 0] }] }]));
   const check = time("validate", () => validateProject(store.snapshot()));
   const undo = time("undo", () => store.undo());
   // Generous bounds for slow machines; the measured numbers are printed above.
-  assert.ok(stroke < 250 && grab < 250 && edit < 250 && check < 400 && undo < 50, JSON.stringify({ stroke, grab, edit, check, undo }));
+  assert.ok(stroke < 250 && mirrored < 250 && grab < 250 && edit < 250 && check < 400 && undo < 50, JSON.stringify({ stroke, mirrored, grab, edit, check, undo }));
 });
 
 test("files: project GLBs carry dense arrays as binary; the Node workshop draws, exports and reopens them", async () => {

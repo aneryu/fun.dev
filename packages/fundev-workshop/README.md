@@ -3,7 +3,8 @@
 The [fun.dev workshop](https://fun.dev/workshop/) for AI agents. A script, or an agent over
 MCP, builds a 3D model with typed commands (boxes, cylinders, tori, geodesic spheres, lathes,
 extrusions with arcs and holes, sweeps, lofts, booleans, bevels, arrays, blueprints; deformers,
-displacement by noise or formula, smoothing, subdivision and proportional editing since 0.3.0),
+displacement by noise or formula, smoothing, subdivision, proportional editing and sculpting
+with six brushes on meshes up to a million triangles since 0.3.0),
 looks at it from any view, and exports a glTF binary (GLB) plus an editable workshop project. It runs in Node: no browser,
 GPU or WebGL; pictures draw in software. The engine is the web workshop's own.
 

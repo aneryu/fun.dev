@@ -661,6 +661,20 @@ const file = await funEditor.exportGLB({ encoding: "base64" });</pre
             </td>
           </tr>
           <tr>
+            <td>sculpt</td>
+            <td>
+              <code>id, brush:"grab"|"smooth"|"inflate"|"clay"|"flatten"|"crease", points, radius, strength?, falloff?, spacing?, invert?, symmetry?, pressure?, onSurface?, space?</code>
+              runs a brush stroke: dabs every spacing × radius (0.25) along the points, each on the
+              closest point of the surface unless onSurface is false, moving the vertices within
+              the radius (part's own metres unless space world) by the brush, faded by the falloff
+              curve: inflate along the normals (invert: in), clay up towards a plane above the
+              surface, flatten onto its mean plane, crease pinches and presses in, smooth relaxes;
+              grab moves what lies under its first point by the stroke's offsets. symmetry
+              mirrors the dabs across the part's planes (overlapping images share the brush).
+              One undo step; also a recipe step.
+            </td>
+          </tr>
+          <tr>
             <td>smooth / subdivide / triangulate</td>
             <td>
               smooth: <code>id, iterations?, factor?, volume?, select?, falloff?</code>
@@ -907,6 +921,17 @@ await ws.load({ name: "Keep", nav: { cell: 1, radius: 0.5 } });                 
           its base; a geodesic sphere displaced by seeded noise into a rock; a cylinder with
           sixteen rows bent 90° over its upper half (<code>rows</code> on cylinders and cones
           are the rings a bend works across).
+        </p>
+        <h2>Sculpting · 雕刻（2026-10-20）</h2>
+        <p>
+          选择模式选“雕刻”：在选中的部件上按住拖动，用抓取、平滑、膨胀、黏土、压平、折痕六种笔刷改形；半径、强度、衰减、X 镜像（默认开）和反向（或按住 Ctrl）在属性面板里调，[ 和 ] 改半径，在部件外拖动仍是旋转视图，Esc 取消这一笔。每一笔是一条 sculpt 命令、一步撤销。超过 16 384 个面的网格以紧凑数组存储，二十多万三角形时一笔只要几十毫秒。
+        </p>
+        <p>
+          Agents: the <code>sculpt</code> command runs the same strokes from points (near the
+          surface is enough); <code>geodesic</code> spheres up to level 7 are balls to sculpt.
+          Meshes with more than 16 384 faces are stored dense (typed arrays, binary in project
+          files, up to a million triangles), so strokes stay fast on a few hundred thousand
+          triangles; imports up to that size come in unreduced.
         </p>
         <h2>Blueprints · 蓝图</h2>
         <p>

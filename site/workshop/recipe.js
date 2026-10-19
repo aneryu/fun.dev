@@ -229,6 +229,7 @@ export function editRecipeStep(input, command) {
           "invert",
           "symmetry",
           "pressure",
+          "onSurface",
         ].includes(key)
       )
         throw new ModelError("Unsupported step field: " + key);

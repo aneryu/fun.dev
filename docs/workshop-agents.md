@@ -111,7 +111,7 @@ export default async function (ws) {
 | kind | options |
 | --- | --- |
 | box | `size:[x,y,z]`, `bevel?`, `bevelSegments?` (rounded) |
-| sphere | `radius`, `segments`, `rings`; `latitude:[from,to]?` degrees (−90…90: `[0,90]` a dome, `[-90,0]` a bowl), `angle?` (a wedge); `geodesic?` (0–5: an icosphere of even facets instead, for rocks and crowns) |
+| sphere | `radius`, `segments`, `rings`; `latitude:[from,to]?` degrees (−90…90: `[0,90]` a dome, `[-90,0]` a bowl), `angle?` (a wedge); `geodesic?` (0–7: an icosphere of 20 × 4ⁿ even facets instead, symmetric across x = 0: rocks, crowns, a ball to sculpt) |
 | cylinder, cone | `radius`, `height`, `segments`; `radiusTop?` (a frustum; a cone's is 0), `innerRadius?` (a tube; the bore runs parallel to the outside), `round?` (rim radius), `roundSegments?`, `angle?`, `rows?` (rings along the height, for a bend or a taper to work across) |
 | torus | `radius` (ring centre line), `tube` (tube radius), `segments`, `tubeSegments`, `angle?` (an elbow) |
 | capsule | `radius`, `height` (total, ≥ 2 × radius), `segments`, `rings` (per end) |
@@ -187,6 +187,8 @@ body with wheel-arch notches is one concave outline.
   along?:"normal"|"x"|"y"|"z", noise?:{scale, seed}, expr?}` (uniform = inflate), `smooth {id, iterations?, factor?, volume?}`,
   `subdivide {id, levels?, smooth?}` (Catmull–Clark; `smooth:false` keeps the shape), `triangulate {id, faces?}`.
   deform, displace and smooth take `select`/`faces`/`vertices` and `falloff:{radius, shape?}` (proportional editing), as do `transform` and `vertices`; triangulate takes faces.
+- Sculpt: `sculpt {id, brush:"grab"|"smooth"|"inflate"|"clay"|"flatten"|"crease", points:[[x,y,z],…], radius,
+  strength?, falloff?, spacing?, invert?, symmetry?:"x"|["x","z"], pressure?, onSurface?, space?}` (below).
 - Selectors: `{ kind:"faces"|"edges"|"vertices", space:"world", normal?:[x,y,z], at?:{axis,
   value, tolerance?}, boundary?:{axis, side:"min"|"max"}, largest?, crease?:degrees }` (world
   space by default; a selector takes every match).
@@ -232,9 +234,55 @@ await ws.apply([
 - Overlapping shells only warn (`shell-overlap`), but faces that lie in one plane flicker; let
   a part end inside its neighbour rather than on its surface.
 
+## Sculpting: brushes along strokes
+
+```js
+// A head: a ball of 20 480 triangles, its scale baked in (17 × 22 × 20 cm), the face along +z.
+await ws.apply([
+  { op: "create", id: "head", kind: "sphere", material: "mat_skin", smooth: 180, position: [0, 0.13, 0],
+    scale: [0.85, 1.1, 1], options: { radius: 0.1, geodesic: 5 } },
+  { op: "applyScale", id: "head" },
+]);
+// Points are in the part's own metres and need only be near the surface: each dab lands on it.
+await ws.apply([
+  // Big forms first, with big brushes: chin down and forward, the jaw's sides in, the face flatter.
+  { op: "sculpt", id: "head", brush: "grab", radius: 0.06, points: [[0, -0.09, 0.05], [0, -0.105, 0.065]] },
+  { op: "sculpt", id: "head", brush: "grab", radius: 0.05, symmetry: "x", points: [[0.08, -0.05, 0.02], [0.068, -0.055, 0.025]] },
+  { op: "sculpt", id: "head", brush: "flatten", radius: 0.06, strength: 0.6, points: [[0, 0, 0.1], [0, -0.04, 0.09]] },
+  // Features, mirrored across x = 0: brow, eye sockets, cheekbones, nose, mouth, ears.
+  { op: "sculpt", id: "head", brush: "clay", radius: 0.02, strength: 1, symmetry: "x", points: [[0, 0.035, 0.1], [0.03, 0.033, 0.1], [0.055, 0.025, 0.09]] },
+  { op: "sculpt", id: "head", brush: "inflate", invert: true, radius: 0.02, strength: 1, symmetry: "x", points: [[0.032, 0.008, 0.1], [0.036, 0.008, 0.1]] },
+  { op: "sculpt", id: "head", brush: "inflate", radius: 0.025, symmetry: "x", points: [[0.055, -0.015, 0.09], [0.06, -0.025, 0.08]] },
+  { op: "sculpt", id: "head", brush: "grab", radius: 0.02, points: [[0, -0.01, 0.1], [0, -0.018, 0.125]] },
+  { op: "sculpt", id: "head", brush: "crease", radius: 0.01, strength: 0.8, symmetry: "x", points: [[0, -0.058, 0.1], [0.022, -0.055, 0.1]] },
+  { op: "sculpt", id: "head", brush: "grab", radius: 0.02, symmetry: "x", points: [[0.085, 0, -0.01], [0.1, 0, -0.02]] },
+  { op: "sculpt", id: "head", brush: "smooth", radius: 0.03, strength: 0.3, symmetry: "x", points: [[0, 0.03, 0.1], [0.04, -0.03, 0.09], [0, -0.08, 0.08]] },
+]);
+await ws.observe(["front", "left", "perspective"], { file: "head.png", shading: "clay" });   // clay shows the forms
+```
+
+- Dabs fall every `spacing` × `radius` (0.25) along the points, each on the closest point of the
+  surface (`onSurface: false` keeps them where the points put them). Each moves the vertices
+  within `radius`, faded by `falloff` (`smooth`, `sphere`, `root`, `sharp`, `linear`,
+  `constant`, `inverseSquare`), by `strength` (0–1, 0.5) of the brush's step: `inflate` pushes
+  out along the normals (`invert`: in) by a tenth of the radius per dab, `clay` builds up towards a
+  plane above the surface, `flatten` levels onto the surface's mean plane, `crease` pinches
+  and cuts a line (`invert`: a ridge), `smooth` relaxes. `grab` moves what lies within the
+  radius of its first point by the stroke's offsets (strength 1: all the way).
+- `symmetry: "x"` mirrors every dab across the part's own x = 0 (also `"y"`, `"z"` or a list);
+  a stroke on the mirror plane is as strong as without it. `space: "world"` takes world points
+  and radius. `pressure` gives 0–1 per point. Look every few strokes and adjust; each stroke is
+  one undo step and can be a recipe step.
+- Faceted low poly: sculpt a `geodesic: 3` (1 280 triangles) or `4` ball with flat shading
+  (`smooth: 0`); the same strokes work at every density. Organic forms: 5–6 with `smooth: 180`.
+- Meshes over 16 384 faces (geodesic 5 and up, subdivisions, imports) are stored dense: typed
+  arrays, faces numbered `f0`, `f1`, …, up to a million triangles and 600 000 vertices; a stroke
+  on a few hundred thousand triangles takes tens of milliseconds. Every edit still works on them; `validate` reports their
+  self-intersection scan as unchecked.
+
 ## Blueprints: parametric families
 
-`await ws.call("blueprints")` lists them (`lamp-post`, `railing`, `building-block`) with their
+`await ws.call("blueprints")` lists them (`lamp-post`, `railing`, `building-block`, `chinese-roof`) with their
 parameter schemas. `ws.apply([{ op: "blueprint", id: "lamp-post", params: { height: 6, arms: 2 },
 root: "lamp" }])` builds one; `{ op: "assemblyParameters", root: "lamp", values: { height: 4 } }`
 re-derives it (structural parameters such as `arms` need the blueprint again). From the command

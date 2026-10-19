@@ -33,7 +33,9 @@ export async function editorSculptChecks({ browser, base }) {
       cy = box.y + box.height / 2;
     const positions = () => page.evaluate(() => Array.from(funEditor.inspect({ id: "head", detail: "full" }).node.mesh.dense.positions));
     const before = await positions(),
-      revision = await page.evaluate(() => funEditor.inspect().revision);
+      revision = await page.evaluate(() => funEditor.inspect().revision),
+      drawings = () => page.evaluate(async () => ({ ...(await import("/workshop/dense.js")).geometryCounts }));
+    const drawn = await drawings();
     // A clay stroke across the front of the ball.
     await page.mouse.move(cx - 60, cy - 20);
     await page.mouse.down();
@@ -43,6 +45,9 @@ export async function editorSculptChecks({ browser, base }) {
     const after = await positions();
     const moved = after.filter((v, i) => Math.abs(v - before[i]) > 1e-9).length;
     assert.ok(moved > 30, `the stroke moved vertices (${moved / 3})`);
+    // The smooth part's live copy is what the commit draws: no rebuild.
+    const redrawn = await drawings();
+    assert.deepEqual([redrawn.adopted - drawn.adopted, redrawn.built - drawn.built], [1, 0], "the committed stroke draws its live copy");
     const activity = await page.evaluate(() => funEditor.inspect({ id: "head" }).node);
     assert.ok(activity, "the part is still there");
     await page.screenshot({ path: resolve(results, "editor-sculpt-clay.png") });

@@ -86,6 +86,8 @@ tapered legs; Planter has an editable profile with a returning inner wall.
   points within the weld distance (in vertex mode only the selection); Separate moves
   the selected faces, or in object mode every loose piece, into new parts; Join parts
   merges the other selected parts into the active one.
+- Sculpting (2026-10-20): the **Sculpt** selection mode paints strokes on the selected part
+  with six brushes; see [Dense meshes and sculpting](#dense-meshes-and-sculpting).
 - Shaping (2026-10-20): **Proportional** (O) in the toolbar gives every component move,
   rotation, scale and numeric vertex edit a falloff (radius in the length unit; smooth,
   sphere, root, sharp, linear or constant), so the neighbours follow. The **Deform** panel
@@ -211,12 +213,13 @@ control makes linked or independent copies of the selected part.
   it. GLB import reads the file's normals: edges whose normals agree on both sides were
   smooth, and the part gets a crease just above the sharpest of them (95th percentile).
 
-- **Geodesic spheres** (2026-10-20): `geodesic: n` (0–5) builds an icosphere instead of the
+- **Geodesic spheres** (2026-10-20): `geodesic: n` (0–7) builds an icosphere instead of the
   lathe sphere: an icosahedron with a vertex at each pole, every triangle split four ways n
   times and pushed to the radius, so the facets are all about one size (20 · 4ⁿ of them: the
-  low-poly rock, crown and ball base, and what `displace` noise and `smooth` shading want).
-  `latitude` and `angle` still cut it, flat where cut, through the kernel. Spheres without
-  the option rebuild exactly as before.
+  low-poly rock, crown and ball base, and the sculpting base: level 6 is 81 920 triangles).
+  It is symmetric left to right (across x = 0, as the models it starts face +Z), with a ring
+  vertex straight ahead below the middle. `latitude` and `angle` still cut it, flat where
+  cut, through the kernel. Spheres without the option rebuild exactly as before.
 
 ## Project files and GLB import
 
@@ -248,16 +251,17 @@ editable parts:
   lights, line and point primitives. Refused: compressed files (Draco, meshopt, KTX2, WebP,
   AVIF), other unknown required extensions, and models beyond the limits.
 
-The browser's **Open** runs GLB conversion in a worker. Raw GLBs over the editable
-triangle or vertex budget are automatically reduced with the pinned meshoptimizer
-simplifier, targeting 9,000 triangles across parts and instances. Names, hierarchy,
-material boundaries and linked copies remain; the status reports the before/after counts.
-Each small part receives a minimum share of the budget. Reduction stops at meshoptimizer's
-0.01 relative error threshold and refuses a file that still cannot fit, rather than
-silently dropping parts. This is a lossy geometry conversion, not an exact visual match;
-the original file is untouched. Saved workshop projects restore without reduction.
-The synchronous `importModel` and agent import retain their existing limits unless given
-an initialized simplifier; automatic reduction is currently the browser Open workflow.
+The browser's **Open** runs GLB conversion in a worker. Models up to the dense budget
+(1,000,000 triangles, 600,000 vertices; parts with more than 16,384 faces become dense
+meshes, see [Dense meshes and sculpting](#dense-meshes-and-sculpting)) come in unreduced.
+Larger raw GLBs are reduced with the pinned meshoptimizer simplifier to fit that budget
+(`importModel(bytes, { simplifier, budget: { triangles, vertices } })` chooses a smaller
+one). Names, hierarchy, material boundaries and linked copies remain; the status reports
+the before/after counts. Each small part receives a minimum share of the budget. Reduction
+stops at meshoptimizer's 0.01 relative error threshold and refuses a file that still cannot
+fit, rather than silently dropping parts. This is a lossy geometry conversion, not an exact
+visual match; the original file is untouched. Saved workshop projects restore without
+reduction. Agent imports (`importGLB`) have no simplifier and refuse what exceeds the budget.
 
 Imports replace the project as one undoable change, or `mode:"add"` adds the parts (under
 `parent`, if given); clashing node and material IDs get suffixes. Merged meshes whose parts
@@ -270,8 +274,8 @@ A modern desktop browser with Web Locks (Chrome on localhost or HTTPS) grants on
 writer per draft. Additional tabs are read-only; they can download their snapshot,
 reconnect after the writer closes, or open an independent draft copy. A persisted
 revision catches stale saved state. Undo/redo revisions remain monotonic across a
-reload, but undo history itself stays in memory and is bounded to 30 snapshots /
-about 8 MB in each direction. Storage failure is visible and downloads remain usable.
+reload, but undo history itself stays in memory and is bounded to 30 steps in each
+direction and 256 MB per direction (dense arrays shared between steps count once). Storage failure is visible and downloads remain usable.
 The old v1 local draft is migrated on the first successful save; its original key
 is retained. Separate draft copies use their own URL key and writer lock.
 
@@ -456,15 +460,83 @@ await ws.apply([
 ]);
 ```
 
+## Dense meshes and sculpting
+
+Tier B of the editing plan (2026-10-20): low-poly characters and organic props at a few
+hundred thousand triangles, sculpted by agents and people.
+
+**Dense meshes** (`site/workshop/dense.js`). A mesh with more than 16,384 faces or vertices
+whose faces run `f0`, `f1`, … in order is stored dense: Float64 positions, face offsets and
+corner indices (any polygon size), a material table and a slot per face. It is the same mesh
+as `{ vertices, faces }`: packing and unpacking lose nothing, coordinates stay doubles, face
+IDs are their indices. A mesh beyond the polygon budget is always dense (its faces renumbered
+in order). Dense arrays are never changed in place: an edit makes new arrays for what it
+changes and shares the rest, so copies, undo steps (the committed projects themselves, within
+a budget that counts each array once) and caches share them. Code written for polygon meshes
+still reads a dense mesh's `vertices` and `faces`, through a frozen view unpacked on first
+use; writing through it throws. In JSON (`getProject`, sessions, `.funmodel.json`) a dense
+mesh is `{ dense: { positions, offsets, indices, materials, faceMaterials } }` with the arrays
+as base64 (little-endian); project files keep them as buffer views in the GLB's binary chunk;
+drafts with dense parts live in IndexedDB only (no localStorage journal). Projects without
+dense meshes are unchanged.
+
+On dense parts: moves, `vertices`, component transforms, `deform`, `displace`, `smooth`,
+`subdivide`, `triangulate`, `paint`, `mirror`, apply scale, linked copies and mirrors,
+vertex symmetry, booleans and `sculpt` work on the arrays; polygon edits (extrude, inset,
+bevel, cuts, delete, weld, fill, bridge, connect, solidify, separate, join) unpack the part
+and the result is packed again. Dense meshes give no planarity warnings (sculpted quads bend)
+and are not scanned for self-intersections per edit: `validate()` reports
+`checks.selfIntersection: false` while a project has one. `inspect` summaries say
+`dense: true`.
+
+**Sculpting** (`site/workshop/sculpt.js`): `{ op: "sculpt", id, brush, points, radius,
+strength?, falloff?, spacing?, invert?, symmetry?, pressure?, onSurface?, space? }`, also a
+recipe step. Dabs are laid every `spacing` × radius (0.25) along the points (the part's own
+metres unless `space: "world"`), each on the closest point of the surface as it is at that
+moment, so points need only be near it and a stroke between two far points follows the surface
+rather than its chord (`onSurface: false` keeps the dabs where the points put them; a grab
+moves only its first point there). Each dab moves the vertices within `radius` by the brush's
+rule, weighted by the `falloff` curve of their distance (smooth, sphere, root, sharp, linear,
+constant, inverseSquare), `strength` 0–1 (0.5; grab 1), `pressure` 0–1 per point:
+
+- `grab`: the vertices under the first point follow the stroke's offsets (two points or more);
+- `smooth`: towards the mean of their neighbours;
+- `inflate`: along their own normals (`invert`: deflate);
+- `clay`: up to a plane a little above the surface under the dab (`invert`: scrape down);
+- `flatten`: onto the mean plane of the surface under the dab;
+- `crease`: pinched towards the dab's centre and pressed in (`invert`: a raised ridge).
+
+`symmetry` (`"x"`, or a list) mirrors every dab across those planes through the part's
+origin. A dab's images act on the same positions; where they overlap, a vertex moves by its
+strongest image's weight, shared among the images in proportion to their weights, so a stroke
+on the mirror plane is exactly as strong as without symmetry (a grab there follows the pointer
+once) and a symmetric mesh stays symmetric. On a part with vertex symmetry the stroke may cross
+the seam (sources stay on their side, the other side follows). Results report `dabs` and `vertices` moved. A stroke is
+deterministic: the page's pointer strokes run the same code incrementally and commit as the
+same command.
+
+**In the page**: **Sculpt** is the fifth selection mode. A left drag on the selected mesh part
+paints a stroke with the panel's brush (grab, smooth, inflate, clay, flatten, crease), radius
+(the length unit; a tenth of the part's size to start), strength, falloff, mirror axes (X on
+by default) and invert (or hold Ctrl); a drag elsewhere orbits; [ and ] shrink and grow the
+radius; Esc cancels a stroke. The ring under the pointer shows the radius. The stroke draws
+live and becomes one sculpt command: one undo step; a flat or fully smooth part keeps the drawing
+made during the stroke rather than rebuilding it. At 258,000 triangles a stroke starts in
+25–40 ms, each pointer move costs 15–30 ms of script and the commit 30–65 ms.
+
 ## Limits and verification
 
 Untextured static models. UV/textures, rigs and animation are later stages of the
 [roadmap](platform-roadmap.md#workshop-replacing-blender-decided-2026-10-18). Limits: 512
-nodes, 32 materials, 30,000 editable vertices, 50,000 triangles, 64 vertices per polygon,
-8 MB project JSON. Every command still re-checks the whole project: at 45,000 triangles a
-small edit takes about 0.15 s and a geometry edit of the large mesh about 1.4 s (binary
-storage and incremental history are stage 2). Generated topology may change face identity
-when its segment counts change; inspect again after parameter updates.
+nodes, 32 materials, 64 vertices per polygon, 8 MB project JSON besides dense meshes;
+polygon meshes 30,000 editable vertices and 50,000 triangles in all; dense meshes 600,000
+vertices, 1,000,000 triangles and 256 MB in all (engine limits: the format has none). Polygon
+meshes are re-checked whole on every command (at 45,000 triangles a geometry edit takes
+about 1.4 s); dense meshes are checked from cached array checks, so at 258,000 triangles a
+20-dab sculpt stroke takes 10–15 ms (30–50 ms as a whole command), a vertex edit 3 ms,
+validation 1–6 ms and undo 0.1 ms.
+Generated topology may change face identity when its segment counts change; inspect again
+after parameter updates.
 
 The validator checks IDs, indices, hierarchy/link cycles, degenerate polygons and
 material references. It reports non-planar polygons (a fold above 1% of the face's size,

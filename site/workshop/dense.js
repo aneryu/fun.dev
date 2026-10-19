@@ -636,6 +636,8 @@ export function topologyArrays(faces) {
 // point agree within the crease, each corner averaging (by area) the faces within it of its
 // own; fully smooth parts draw one vertex per mesh vertex. Kept for the last few meshes drawn.
 const geometryCache = new Map();
+export const geometryCounts = { built: 0, adopted: 0 };
+let expected = null;
 export function denseGeometry(mesh, crease = 0) {
   const d = denseData(mesh),
     hit = geometryCache.get(d);
@@ -644,16 +646,34 @@ export function denseGeometry(mesh, crease = 0) {
     geometryCache.set(d, hit);
     return hit.result;
   }
-  const result = buildGeometry(mesh, crease);
+  let result;
+  if (expected && expects(expected, d, crease)) {
+    result = expected.result;
+    expected = null;
+    geometryCounts.adopted++;
+  } else {
+    result = buildGeometry(mesh, crease);
+    geometryCounts.built++;
+  }
   geometryCache.set(d, { key: crease, result });
   while (geometryCache.size > 3) geometryCache.delete(geometryCache.keys().next().value);
   return result;
 }
-// A geometry made elsewhere for this mesh (the page's live sculpting preview, whose positions
-// and normals already match it) is drawn without being rebuilt.
-export function adoptGeometry(mesh, crease, result) {
-  geometryCache.set(denseData(mesh), { key: crease, result });
-  while (geometryCache.size > 3) geometryCache.delete(geometryCache.keys().next().value);
+// A drawing the page already made for a mesh it is about to commit (a sculpt stroke's live
+// copy: { offsets, indices, materials, faceMaterials, positions, crease, result }). The next
+// mesh drawn with those very arrays, the same crease and equal positions takes it instead of
+// a rebuild; null withdraws it.
+export function expectGeometry(expectation) {
+  expected = expectation;
+}
+function expects(e, d, crease) {
+  if (e.crease !== crease || e.offsets !== d.offsets || e.indices !== d.indices || e.materials !== d.materials || e.faceMaterials !== d.faceMaterials)
+    return false;
+  const a = e.positions,
+    b = d.positions;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 function buildGeometry(mesh, crease) {
   const d = denseData(mesh),

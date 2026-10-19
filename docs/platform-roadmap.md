@@ -242,9 +242,12 @@ previews anywhere and edits in the workshop. Libraries: manifold-3d (solids), la
    deformers (taper, bend, twist, shear, stretch), displacement (uniform, noise, gradient,
    formulas as data), smoothing, Catmull–Clark subdivision, triangulate, geodesic spheres and
    proportional editing, all recipe steps, with three page controls (proportional editing, a
-   deform panel, loft in the add dialog). Tier B follows: low-poly sculpting with six brushes
-   on binary mesh storage with per-part validation and incremental history (about 200 000
-   triangles); high-poly sculpting with normal baking waits for stage 3.
+   deform panel, loft in the add dialog), released 2026-10-20. Tier B (2026-10-20): dense
+   meshes (typed arrays, binary in project files, shared between undo steps, validated from
+   cached checks; up to a million triangles) and sculpting with six brushes and mirror
+   symmetry, as a command and recipe step and as the page's Sculpt mode (a stroke in tens of
+   milliseconds at 258 000 triangles); imports up to that size stay unreduced. High-poly
+   sculpting (multiresolution, dynamic topology, masks) with normal baking waits for stage 3.
 3. **UVs, textures and baking**: corner attributes (two UV sets, vertex colours), unwrapping
    and packing, textures embedded in GLB, AO/normal/colour baking and direct-light
    lightmaps, compression, LOD chains, colliders.

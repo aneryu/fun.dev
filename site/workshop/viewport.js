@@ -22,7 +22,7 @@ import { placedTemplate, ensurePlaced } from "./placed.js";
 import { terrainMesh, terrainBounds, hexToLinear } from "../runtime/kit/terrain.js";
 import { gridMesh } from "../runtime/kit/grid.js";
 import { STUDIO, previewQuality } from "./preview-quality.js";
-import { isDense, denseData, denseGeometry, denseWires, packMesh } from "./dense.js";
+import { isDense, denseData, denseGeometry, denseWires, expectGeometry, packMesh } from "./dense.js";
 import { Sculptor, StrokeRunner } from "./sculpt.js";
 
 function indexAttributes(positions, normals) {
@@ -1588,6 +1588,7 @@ export async function createViewport(
       id: node.id,
       object,
       original: object.geometry,
+      g,
       geometry,
       position,
       normals,
@@ -1617,15 +1618,15 @@ export async function createViewport(
     stroke.points.push(point);
     stroke.pressures.push(pressure);
     stroke.runner.add(point, pressure);
-    if (!drawFrame) drawFrame = requestAnimationFrame(drawStroke);
+    if (!drawFrame) drawFrame = requestAnimationFrame(() => drawStroke());
   }
   // Positions and normals of the drawn copy from the working positions.
-  function drawStroke() {
+  function drawStroke(s = stroke) {
     drawFrame = 0;
-    if (!stroke) return;
-    const { positions: p, vertexMap, d, crease, cornerFace } = stroke,
-      out = stroke.position.array,
-      nor = stroke.normals.array,
+    if (!s) return;
+    const { positions: p, vertexMap, d, crease, cornerFace } = s,
+      out = s.position.array,
+      nor = s.normals.array,
       F = d.offsets.length - 1,
       fn = new Float64Array(3 * F);
     for (let k = 0; k < vertexMap.length; k++) {
@@ -1672,14 +1673,15 @@ export async function createViewport(
         nor[3 * k + 2] = vn[3 * v + 2] / l;
       }
     }
-    stroke.position.needsUpdate = true;
-    stroke.normals.needsUpdate = true;
-    stroke.geometry.boundingSphere = null;
-    stroke.geometry.boundingBox = null;
+    s.position.needsUpdate = true;
+    s.normals.needsUpdate = true;
+    s.geometry.boundingSphere = null;
+    s.geometry.boundingBox = null;
     render();
   }
   function endStroke(commit) {
-    const s = stroke;
+    const s = stroke,
+      stale = !!drawFrame;
     stroke = null;
     if (drawFrame) cancelAnimationFrame(drawFrame);
     drawFrame = 0;
@@ -1705,8 +1707,21 @@ export async function createViewport(
       ...(symmetry.length ? { symmetry } : {}),
       ...(s.pen ? { pressure: s.pressures } : {}),
     };
-    // The part's geometry is rebuilt from the committed project; the copy goes with the model.
-    if (!onSculpt(command)) restore();
+    // A flat or fully smooth part's drawn copy is what a rebuild would draw: the committed mesh
+    // takes it when its positions come out equal (dense.js expectGeometry); other creases are
+    // rebuilt. The copy goes with the model.
+    if (s.crease === 0 || s.crease >= 180) {
+      if (stale) drawStroke(s);
+      const { offsets, indices, materials, faceMaterials } = s.d;
+      expectGeometry({ offsets, indices, materials, faceMaterials, positions: s.positions, crease: s.crease, result: { ...s.g, positions: s.position.array, normals: s.normals.array } });
+    }
+    let committed = false;
+    try {
+      committed = onSculpt(command);
+    } finally {
+      expectGeometry(null);
+    }
+    if (!committed) restore();
     else if (![...(model?.objects.values() ?? [])].some((o) => o.geometry === s.original)) s.original.dispose();
   }
   canvas.addEventListener(

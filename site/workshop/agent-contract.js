@@ -490,6 +490,7 @@ const props = {
   strength: { type: "number", minimum: 0, maximum: 1 },
   spacing: { type: "number", minimum: 0.02, maximum: 4 },
   invert: boolean,
+  onSurface: boolean,
   symmetry: { oneOf: [{ enum: ["x", "y", "z"] }, { type: "array", items: { enum: ["x", "y", "z"] }, maxItems: 3 }] },
   pressure: { type: "array", items: { type: "number", minimum: 0, maximum: 1 }, maxItems: 4096 },
   falloff: {
@@ -587,7 +588,7 @@ const specs = {
   smooth: ["id", "iterations factor volume space select faces edges vertices topology falloff"],
   subdivide: ["id", "levels smooth"],
   triangulate: ["id", "faces select topology"],
-  sculpt: ["id brush points radius", "strength falloff spacing invert symmetry pressure space"],
+  sculpt: ["id brush points radius", "strength falloff spacing invert symmetry pressure onSurface space"],
   extrude: ["id distance", "faces face select topology space"],
   inset: ["id distance", "faces face select topology space"],
   bevel: ["id distance", "edges select topology space"],

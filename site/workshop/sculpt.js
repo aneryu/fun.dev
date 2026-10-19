@@ -5,8 +5,10 @@
 // A stroke is data: the brush, points along it (on or near the surface, in the part's own
 // metres unless the command's space is world), a radius, a strength, a falloff, the spacing of
 // dabs along the points, invert, mirror axes and optional pressure per point. Dabs are laid
-// every spacing × radius along the points; each moves the vertices within the radius by the
-// brush's rule, weighted by the falloff of their distance to the dab's centre:
+// every spacing × radius along the points, each on the closest point of the surface (unless
+// onSurface is false; a grab's first point only); each moves the vertices within the radius by the
+// brush's rule, weighted by the falloff of their distance to the dab's centre (mirror images of
+// a dab that overlap share it: see dabAll):
 //
 //   grab     the vertices under the first point follow the stroke (strength 1 by default)
 //   smooth   towards the mean of their neighbours
@@ -44,7 +46,8 @@ export function normalizeStroke(command, path = "") {
   if (pressure !== undefined && (!Array.isArray(pressure) || pressure.length !== points.length || pressure.some((v) => !(v >= 0 && v <= 1))))
     fail("pressure gives 0–1 per point", at("pressure"));
   if (command.invert !== undefined && typeof command.invert !== "boolean") fail("invert is true or false", at("invert"));
-  return { brush, points, radius, strength, spacing, falloff, invert: !!command.invert, symmetry, pressure: pressure ?? null };
+  if (command.onSurface !== undefined && typeof command.onSurface !== "boolean") fail("onSurface is true or false", at("onSurface"));
+  return { brush, points, radius, strength, spacing, falloff, invert: !!command.invert, symmetry, pressure: pressure ?? null, onSurface: command.onSurface !== false };
 }
 
 // Dab centres every `step` along a polyline, with pressure interpolated; the first point is
@@ -198,6 +201,7 @@ export class Sculptor {
     if (this.slack > radius * 0.5 || radius > this.grid.cell * 2 || radius < this.grid.cell * 0.25) {
       this.grid = new VertexGrid(this.positions, radius);
       this.slack = 0;
+      this.reach = undefined; // faces may have grown since it was measured
     }
     const stamp = this.nextStamp(),
       ids = [],
@@ -293,6 +297,136 @@ export class Sculptor {
     this.moved[i] = 1;
     if (m > this.maxStep) this.maxStep = m;
   }
+  // How far a point of a face can lie from all its vertices: at most half its perimeter, so
+  // half the most corners times the longest edge.
+  faceReach() {
+    if (this.reach === undefined) {
+      const { positions: p, offsets, indices } = this;
+      let edge = 0,
+        corners = 3;
+      for (let f = 0; f + 1 < offsets.length; f++) {
+        const a = offsets[f],
+          b = offsets[f + 1];
+        if (b - a > corners) corners = b - a;
+        for (let k = a; k < b; k++) {
+          const i = 3 * indices[k],
+            j = 3 * indices[k + 1 < b ? k + 1 : a],
+            dx = p[i] - p[j],
+            dy = p[i + 1] - p[j + 1],
+            dz = p[i + 2] - p[j + 2],
+            d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 > edge) edge = d2;
+        }
+      }
+      this.reach = (corners / 2) * Math.sqrt(edge);
+    }
+    return this.reach;
+  }
+  // Calls visit(i, distance²) for the vertices within reach of c: through the grid, or every
+  // vertex when the reach spans too many of its cells.
+  within(c, reach, visit) {
+    const p = this.positions;
+    if (reach <= this.grid.cell * 8) return this.grid.near(p, c, reach, visit, this.seen, this.nextStamp());
+    const r2 = reach * reach;
+    for (let i = 0; i < this.V; i++) {
+      const dx = p[3 * i] - c[0],
+        dy = p[3 * i + 1] - c[1],
+        dz = p[3 * i + 2] - c[2],
+        d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 <= r2) visit(i, d2);
+    }
+  }
+  // The closest point of the surface to c (current positions): on the faces of the vertices
+  // that could hold it, those within the nearest vertex's distance and a face's reach.
+  closest(c) {
+    const p = this.positions;
+    let best = -1,
+      bestD2 = Infinity;
+    const nearest = (i, d2) => {
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = i;
+      }
+    };
+    for (let reach = this.grid.cell; best < 0 && reach <= this.grid.cell * 8; reach *= 2) this.within(c, reach + this.slack, nearest);
+    if (best < 0) this.within(c, Infinity, nearest);
+    if (best < 0) return [...c];
+    let out = [p[3 * best], p[3 * best + 1], p[3 * best + 2]],
+      outD2 = bestD2;
+    const faces = [],
+      stamp = this.nextStamp();
+    this.within(c, Math.sqrt(bestD2) + this.faceReach() + 2 * this.slack, (i) => {
+      for (let k = this.vertexFaceStarts[i]; k < this.vertexFaceStarts[i + 1]; k++) {
+        const f = this.vertexFaces[k];
+        if (this.faceSeen[f] !== stamp) {
+          this.faceSeen[f] = stamp;
+          faces.push(f);
+        }
+      }
+    });
+    const { offsets, indices } = this,
+      at = (i) => [p[3 * i], p[3 * i + 1], p[3 * i + 2]];
+    for (const f of faces) {
+      const a = at(indices[offsets[f]]);
+      for (let k = offsets[f] + 1; k + 1 < offsets[f + 1]; k++) {
+        const q = closestOnTriangle(c, a, at(indices[k]), at(indices[k + 1])),
+          d2 = (q[0] - c[0]) ** 2 + (q[1] - c[1]) ** 2 + (q[2] - c[2]) ** 2;
+        if (d2 < outD2) {
+          outD2 = d2;
+          out = q;
+        }
+      }
+    }
+    return out;
+  }
+  // A brush's move of vertex i (its falloff weight w): made at once, or, while the mirror
+  // images of a dab are evaluated (dabAll), added to the moves they share.
+  push(i, w, dx, dy, dz) {
+    const s = this.share;
+    if (!s) return this.move(i, dx, dy, dz);
+    if (s.mark[i] !== s.stamp) {
+      s.mark[i] = s.stamp;
+      s.touched.push(i);
+      s.d[3 * i] = dx;
+      s.d[3 * i + 1] = dy;
+      s.d[3 * i + 2] = dz;
+      s.sum[i] = s.max[i] = w;
+    } else {
+      s.d[3 * i] += dx;
+      s.d[3 * i + 1] += dy;
+      s.d[3 * i + 2] += dz;
+      s.sum[i] += w;
+      if (w > s.max[i]) s.max[i] = w;
+    }
+  }
+  // A dab at each mirror image of a centre, all evaluated on the same positions. Where the
+  // images overlap, a vertex moves by its strongest image's weight, shared among the images in
+  // proportion to their weights: on the mirror plane a stroke is as strong as without
+  // symmetry, and a symmetric mesh stays symmetric.
+  dabAll(brush, centres, options) {
+    if (centres.length === 1) return this.dab(brush, centres[0], options);
+    const V = this.V,
+      s = (this.shared ??= { mark: new Uint32Array(V), stamp: 0, d: new Float64Array(3 * V), sum: new Float64Array(V), max: new Float64Array(V), touched: [] });
+    if (++s.stamp === 0xffffffff) {
+      s.mark.fill(0);
+      s.stamp = 1;
+    }
+    s.touched.length = 0;
+    this.share = s;
+    let count = 0;
+    try {
+      for (const c of centres) count += this.dab(brush, c, options);
+    } finally {
+      this.share = null;
+    }
+    this.maxStep = 0;
+    for (const i of s.touched) {
+      const f = s.max[i] / s.sum[i];
+      this.move(i, s.d[3 * i] * f, s.d[3 * i + 1] * f, s.d[3 * i + 2] * f);
+    }
+    this.slack += this.maxStep;
+    return count;
+  }
   // One dab of a brush at c (not grab: see grabStart and grabMove).
   dab(brush, c, { radius, strength, falloff, invert }) {
     const { ids, weights } = this.gather(c, radius, falloff);
@@ -328,7 +462,7 @@ export class Sculptor {
       for (let k = 0; k < ids.length; k++) {
         const i = ids[k],
           f = weights[k] * strength * RATE.smooth;
-        this.move(i, (targets[3 * k] - p[3 * i]) * f, (targets[3 * k + 1] - p[3 * i + 1]) * f, (targets[3 * k + 2] - p[3 * i + 2]) * f);
+        this.push(i, weights[k], (targets[3 * k] - p[3 * i]) * f, (targets[3 * k + 1] - p[3 * i + 1]) * f, (targets[3 * k + 2] - p[3 * i + 2]) * f);
       }
     } else if (brush === "inflate") {
       const normals = new Float64Array(3 * ids.length),
@@ -336,7 +470,7 @@ export class Sculptor {
       for (let k = 0; k < ids.length; k++) normals.set(this.vertexNormal(ids[k], stamp, v), 3 * k);
       const amount = sign * strength * radius * RATE.inflate;
       for (let k = 0; k < ids.length; k++)
-        this.move(ids[k], normals[3 * k] * amount * weights[k], normals[3 * k + 1] * amount * weights[k], normals[3 * k + 2] * amount * weights[k]);
+        this.push(ids[k], weights[k], normals[3 * k] * amount * weights[k], normals[3 * k + 1] * amount * weights[k], normals[3 * k + 2] * amount * weights[k]);
     } else {
       const surface = this.area(ids, weights, stamp);
       if (!surface) return 0;
@@ -346,7 +480,7 @@ export class Sculptor {
           const i = ids[k],
             h = (p[3 * i] - center[0]) * n[0] + (p[3 * i + 1] - center[1]) * n[1] + (p[3 * i + 2] - center[2]) * n[2],
             f = -h * weights[k] * strength * RATE.flatten;
-          this.move(i, n[0] * f, n[1] * f, n[2] * f);
+          this.push(i, weights[k], n[0] * f, n[1] * f, n[2] * f);
         }
       } else if (brush === "clay") {
         // A plane offset from the surface's mean by the dab's depth; what lies short of it
@@ -357,7 +491,7 @@ export class Sculptor {
             h = (p[3 * i] - center[0]) * n[0] + (p[3 * i + 1] - center[1]) * n[1] + (p[3 * i + 2] - center[2]) * n[2],
             gap = sign > 0 ? Math.max(0, depth - h) : Math.min(0, depth - h),
             f = gap * weights[k] * 0.5;
-          this.move(i, n[0] * f, n[1] * f, n[2] * f);
+          this.push(i, weights[k], n[0] * f, n[1] * f, n[2] * f);
         }
       } else {
         // crease: pinch towards the centre along the surface, press in along the normal.
@@ -370,8 +504,9 @@ export class Sculptor {
             dz = c[2] - p[3 * i + 2],
             along = dx * n[0] + dy * n[1] + dz * n[2],
             pinch = strength * RATE.pinch * w * (1 - w * 0.5);
-          this.move(
+          this.push(
             i,
+            w,
             (dx - along * n[0]) * pinch + n[0] * press * w,
             (dy - along * n[1]) * pinch + n[1] * press * w,
             (dz - along * n[2]) * pinch + n[2] * press * w,
@@ -397,6 +532,48 @@ export class Sculptor {
     this.slack += this.maxStep;
     return ids.length;
   }
+}
+
+// Grabbed regions of a stroke's mirror images, their weights scaled so that a vertex in
+// several moves by its strongest weight in all (a grab on the mirror plane follows the pointer).
+function shareOverlaps(grabs) {
+  if (grabs.length === 1) return grabs;
+  const sum = new Map(),
+    max = new Map();
+  for (const { ids, weights } of grabs)
+    ids.forEach((i, k) => {
+      sum.set(i, (sum.get(i) ?? 0) + weights[k]);
+      max.set(i, Math.max(max.get(i) ?? 0, weights[k]));
+    });
+  return grabs.map(({ ids, weights }) => ({ ids, weights: weights.map((w, k) => (w * max.get(ids[k])) / sum.get(ids[k])) }));
+}
+
+// The closest point to p on the triangle abc (Ericson, Real-Time Collision Detection, 5.1.5).
+function closestOnTriangle(p, a, b, c) {
+  const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]],
+    ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]],
+    dot = (u, x, y, z) => u[0] * x + u[1] * y + u[2] * z,
+    along = (o, u, t) => [o[0] + u[0] * t, o[1] + u[1] * t, o[2] + u[2] * t];
+  const d1 = dot(ab, p[0] - a[0], p[1] - a[1], p[2] - a[2]),
+    d2 = dot(ac, p[0] - a[0], p[1] - a[1], p[2] - a[2]);
+  if (d1 <= 0 && d2 <= 0) return a;
+  const d3 = dot(ab, p[0] - b[0], p[1] - b[1], p[2] - b[2]),
+    d4 = dot(ac, p[0] - b[0], p[1] - b[1], p[2] - b[2]);
+  if (d3 >= 0 && d4 <= d3) return b;
+  const vc = d1 * d4 - d3 * d2;
+  if (vc <= 0 && d1 >= 0 && d3 <= 0) return along(a, ab, d1 / (d1 - d3));
+  const d5 = dot(ab, p[0] - c[0], p[1] - c[1], p[2] - c[2]),
+    d6 = dot(ac, p[0] - c[0], p[1] - c[1], p[2] - c[2]);
+  if (d6 >= 0 && d5 <= d6) return c;
+  const vb = d5 * d2 - d1 * d6;
+  if (vb <= 0 && d2 >= 0 && d6 <= 0) return along(a, ac, d2 / (d2 - d6));
+  const va = d3 * d6 - d5 * d4;
+  if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) return along(b, [c[0] - b[0], c[1] - b[1], c[2] - b[2]], (d4 - d3) / (d4 - d3 + (d5 - d6)));
+  const denom = va + vb + vc;
+  if (!(denom > 0)) return a; // a degenerate triangle
+  const v = vb / denom,
+    w = vc / denom;
+  return [a[0] + ab[0] * v + ac[0] * w, a[1] + ab[1] * v + ac[1] * w, a[2] + ab[2] * v + ac[2] * w];
 }
 
 // Mirror images of a point for the stroke's symmetry axes (the point itself first).
@@ -426,10 +603,13 @@ export class StrokeRunner {
     if (stroke.brush === "grab") {
       if (!this.last) {
         // One grabbed region per mirror image; each follows the stroke's mirrored offsets.
-        this.grabs = mirrors(point, stroke.symmetry).map((from) => {
-          sculptor.grabStart(from, options);
-          return sculptor.grabbed;
-        });
+        // Where regions overlap, they share the strongest weight (as dabAll does).
+        this.grabs = shareOverlaps(
+          this.centres(point).map((from) => {
+            sculptor.grabStart(from, options);
+            return sculptor.grabbed;
+          }),
+        );
       } else {
         const delta = [0, 1, 2].map((k) => point[k] - this.last[k]),
           deltas = mirrors(delta, stroke.symmetry);
@@ -442,11 +622,16 @@ export class StrokeRunner {
       this.last = [...point];
       return;
     }
-    for (const dab of this.sampler.add(point, pressure))
-      for (const centre of mirrors(dab.at, stroke.symmetry)) {
-        sculptor.dab(stroke.brush, centre, { ...options, strength: stroke.strength * dab.pressure });
-        this.dabs++;
-      }
+    for (const dab of this.sampler.add(point, pressure)) {
+      const centres = this.centres(dab.at);
+      sculptor.dabAll(stroke.brush, centres, { ...options, strength: stroke.strength * dab.pressure });
+      this.dabs += centres.length;
+    }
+  }
+  // A dab's (or a grab's start's) mirror images, each on the closest point of the surface.
+  centres(point) {
+    const images = mirrors(point, this.stroke.symmetry);
+    return this.stroke.onSurface !== false ? images.map((c) => this.sculptor.closest(c)) : images;
   }
   result() {
     let vertices = 0;
