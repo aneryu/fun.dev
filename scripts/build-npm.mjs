@@ -4,7 +4,7 @@ import { bundleWorkshop } from "./workshop-bundle.mjs";
 // npm run workshop:npm: fills packages/fundev-workshop/ for `npm publish` with the same
 // workshop file the site serves (scripts/workshop-bundle.mjs) and the licences it bundles.
 // Release: bump the version in packages/fundev-workshop/package.json, run this, then
-// `npm publish packages/fundev-workshop` (docs/model-editor.md "Agents without the repository").
+// `npm publish ./packages/fundev-workshop` (docs/model-editor.md "Agents without the repository").
 const root = new URL("../", import.meta.url),
   dir = new URL("packages/fundev-workshop/", root);
 const bytes = await bundleWorkshop(root);
