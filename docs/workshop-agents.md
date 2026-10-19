@@ -12,7 +12,7 @@ Without it:
 
 ```sh
 npm i playwright && npx playwright install chromium
-curl -O https://cdn.fun.dev/tools/fundev-workshop.mjs
+curl -O https://static.fun.dev/tools/fundev-workshop.mjs
 node fundev-workshop.mjs --run model.mjs        # --gpu: render on the GPU
 ```
 

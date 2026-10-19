@@ -684,7 +684,7 @@ directly under the export root, the library's static parts.
 
 ## Agents without the repository
 
-`tools/fundev-workshop.mjs` (published at `https://cdn.fun.dev/tools/fundev-workshop.mjs`)
+`tools/fundev-workshop.mjs` (published at `https://static.fun.dev/tools/fundev-workshop.mjs`)
 is the CLI / MCP adapter below as one file, including `--run` and `--guide`. It drives the
 published workshop, or `--url`, in its own headless Chromium; `--gpu` uses the machine's GPU
 instead of software WebGL 2. No GPU or WebGL is needed: where Chromium has no WebGL the
@@ -692,7 +692,7 @@ workshop draws in software, and `--software` skips trying (no GPU process at all
 
 ```sh
 npm i playwright && npx playwright install chromium
-curl -O https://cdn.fun.dev/tools/fundev-workshop.mjs
+curl -O https://static.fun.dev/tools/fundev-workshop.mjs
 node fundev-workshop.mjs --guide            # the quick reference
 node fundev-workshop.mjs --run model.mjs     # build a model from a script
 node fundev-workshop.mjs --mcp --session model.json --artifacts out/

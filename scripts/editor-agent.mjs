@@ -24,7 +24,7 @@ import { parseModelFile, workshopProject } from "../site/editor/glb.js";
 const root = fileURLToPath(new URL("../", import.meta.url)),
   args = process.argv.slice(2),
   config = {};
-// The published single-file tool (cdn.fun.dev/tools/fundev-workshop.mjs) is built with a
+// The published single-file tool (static.fun.dev/tools/fundev-workshop.mjs) is built with a
 // default URL: it drives the live workshop and needs no repository, only Playwright.
 const defaultUrl = process.env.FUNDEV_WORKSHOP_URL || undefined;
 for (let i = 0; i < args.length; i++) {

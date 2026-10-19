@@ -144,7 +144,7 @@ is compiled too. The build includes the game-development Skill at
 `/skills/fun-dev-games.tar.gz` and `/skills/fun-dev-games/SKILL.md`.
 
 The project answers on three hostnames: `fun.dev` (pages, through a CN2 server that makes the
-site fast in mainland China), `cdn.fun.dev` (every other platform file) and `api.fun.dev` (the
+site fast in mainland China), `static.fun.dev` (every other platform file) and `api.fun.dev` (the
 transfer API). See [docs/edge.md](docs/edge.md).
 
 ## Analytics
