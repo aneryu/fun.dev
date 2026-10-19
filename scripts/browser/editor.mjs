@@ -13,7 +13,7 @@ import { editorGeneratorChecks } from "./editor-generators.mjs";
 import { editorImportChecks } from "./editor-import.mjs";
 import { results, watch } from "./harness.mjs";
 import { headersFor, parseHeaders } from "../headers.mjs";
-import { parseModelFile, workshopProject } from "../../site/editor/glb.js";
+import { parseModelFile, workshopProject } from "../../site/workshop/glb.js";
 
 export async function editorChecks({ browser, base }) {
   const errors = [],
@@ -37,7 +37,7 @@ export async function editorChecks({ browser, base }) {
   });
   page.on("dialog", (dialog) => dialog.accept());
   try {
-    await page.goto(`${base}/editor/?lang=en`);
+    await page.goto(`${base}/workshop/?lang=en`);
     await page.waitForFunction(() => window.funEditor);
     assert.equal(
       await page.evaluate(() => funEditor.validate().warnings.length),
@@ -435,7 +435,7 @@ export async function editorChecks({ browser, base }) {
     await page.screenshot({ path: resolve(results, "editor-linked-duck.png") });
     // Two windows may observe one draft, but never silently overwrite it.
     const peer = watch(await context.newPage(), errors);
-    await peer.goto(`${base}/editor/?lang=zh`);
+    await peer.goto(`${base}/workshop/?lang=zh`);
     await peer.waitForFunction(() => window.funEditor);
     assert.equal(
       await peer.evaluate(() => funEditor.inspect().writable),
@@ -453,7 +453,7 @@ export async function editorChecks({ browser, base }) {
       "readonly",
     );
     assert.ok(await peer.locator("#draft-banner").isVisible());
-    await page.goto(`${base}/editor/guide`);
+    await page.goto(`${base}/workshop/guide`);
     assert.ok(await page.locator("h1").isVisible());
     await peer.locator("#draft-retry").click();
     await peer.waitForFunction(
@@ -488,7 +488,7 @@ export async function editorChecks({ browser, base }) {
     });
     const p = watch(await desktop.newPage(), errors);
     try {
-      await p.goto(`${base}/editor/?lang=zh`);
+      await p.goto(`${base}/workshop/?lang=zh`);
       await p.waitForFunction(() => window.funEditor);
       assert.ok(
         await p.evaluate(

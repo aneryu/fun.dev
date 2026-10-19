@@ -54,8 +54,8 @@ show it. The decisions:
 - **Site**: the homepage presents the toolchain in the playful tone: the
   headline beside a library model turning on the page, entries for the
   workshop, the library and the agent docs, and a line of what was made with
-  them; games stay at `/games/<id>`; `/editor/` becomes `/workshop/` without the
-  old address.
+  them; games stay at `/games/<id>`; `/editor/` became `/workshop/` without the
+  old address (2026-10-19).
 
 ### Disposition of existing work
 
@@ -102,8 +102,8 @@ need appears.
    2026-10-19, without a compatibility window: the tools take the games
    directory; the platform tests with its own game, `tests/fixture-games/probe`;
    the earlier games are retired).
-4. Site redesign: toolchain homepage, `/workshop/`, agent docs (homepage and
-   `/docs` done 2026-10-19; the `/workshop/` rename is still to do).
+4. Site redesign: toolchain homepage, `/workshop/`, agent docs (done
+   2026-10-19).
 5. The outside-agent acceptance test (exit criterion 1).
 
 ## Scope
@@ -199,7 +199,7 @@ Each module is written together with the first game that needs it.
 
 ## Platform and tooling
 
-- Low-poly workshop at `/editor/`: static model authoring with shared human/agent
+- Low-poly workshop at `/workshop/`: static model authoring with shared human/agent
   commands, editable projects, geometry diagnostics and GLB export into the existing
   asset pipeline. See [model editor](model-editor.md) for the desktop scope and limits.
 
@@ -246,7 +246,7 @@ what follows:
 1. **Done**: parameter recipes per mesh and asset parameters with bindings and expressions
    (workshop stage 1); runtime parameters in the format (placements with tints, morph targets,
    emitter roles; variants and references in release 2); **blueprints** — parametric families
-   (`site/editor/blueprints.js`: lamp post, railing, building block) built by
+   (`site/workshop/blueprints.js`: lamp post, railing, building block) built by
    `{op:"blueprint"}`, re-derived by `assemblyParameters`, stamped on the asset, and
    `npm run derive` writing library upload folders with their provenance
    ([model editor](model-editor.md#blueprints-and-derivation)).

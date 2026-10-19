@@ -1,6 +1,6 @@
 # Low-poly model workshop
 
-The static `/editor/` page lets people and browser-connected agents build game
+The static `/workshop/` page lets people and browser-connected agents build game
 models using the same document and command engine. The lobby links to it. Its goal is
 to take over as much of Blender's work as possible
 ([roadmap](platform-roadmap.md#workshop-replacing-blender-decided-2026-10-18)). No model
@@ -8,7 +8,7 @@ service, credentials or upload endpoint is required; beyond Three.js its only li
 the solid-geometry kernel (manifold-3d).
 
 ```sh
-npm run editor          # http://127.0.0.1:8001/editor/; rebuilds on save, refresh the tab
+npm run editor          # http://127.0.0.1:8001/workshop/; rebuilds on save, refresh the tab
 npm run verify:editor   # source links + build + geometry tests + browser round trip
 ```
 
@@ -25,7 +25,7 @@ including whether fallback occurred. Add `?renderer=webgl` to force WebGL2 for
 compatibility checks.
 
 Without WebGPU and WebGL (cloud browsers and servers without a GPU, WebGL switched off)
-the workshop draws in software (`site/editor/soft-renderer.js`) instead of failing to
+the workshop draws in software (`site/workshop/soft-renderer.js`) instead of failing to
 load. The software renderer stands in for the renderer only: the viewport, picking,
 orbiting, gizmos, shape previews, `renderViews` observations and exports are the same
 code. It draws what the viewport puts in a scene the way the GPU path does (metallic-roughness
@@ -122,7 +122,7 @@ are meters, Y is up, front is +Z and XYZ Euler rotations are degrees.
 
 ## Shapes from sections and paths, and arrays
 
-Beyond boxes, spheres, cylinders, cones, outlines and lathes (`site/editor/generators.js`):
+Beyond boxes, spheres, cylinders, cones, outlines and lathes (`site/workshop/generators.js`):
 
 - **Extrusions with holes and rounded corners**: `holes:[[[x,y],…],…]` lie inside the
   outline and apart from each other; `round` fillets every corner of the outline and the
@@ -253,7 +253,7 @@ const beak = scene.getObjectByName("beak");
 
 ## Model library
 
-Each model page (`/models/<id>`) has **Open in workshop**: `/editor/?open=<id>&version=vNNN`
+Each model page (`/models/<id>`) has **Open in workshop**: `/workshop/?open=<id>&version=vNNN`
 opens that version in a new draft of its own (the current draft is untouched; the address
 then names the new draft). A version with a workshop source, `source.funmodel.glb`, opens as
 that project; otherwise its `model.glb` is imported as parts. Uploads may include
@@ -267,8 +267,8 @@ record what they were made from in `sources`. See [library API](library-api.md#i
 ## Agent contract
 
 The page exposes `window.funEditor.version === 3`. The complete API, command fields,
-examples and project schema are at `/editor/guide` (source:
-[`site/editor/guide.html`](../site/editor/guide.html)). Wait for the API, then inspect
+examples and project schema are at `/workshop/guide` (source:
+[`site/workshop/guide.html`](../site/workshop/guide.html)). Wait for the API, then inspect
 → apply → renderViews → validate → exportGLB. API v2 makes world-space extrusion and
 world-preserving reparenting the defaults; explicit local-space options remain.
 
@@ -402,7 +402,7 @@ the model library.
 ## Geometry kernel and booleans
 
 manifold-3d (Apache-2.0, a WebAssembly build of Manifold) loads before `window.funEditor`
-opens (about 200 KB compressed, workshop only; the `/editor/*` policy allows WebAssembly).
+opens (about 200 KB compressed, workshop only; the `/workshop/*` policy allows WebAssembly).
 `{op:'boolean', id, operation:'union'|'difference'|'intersection', with:[ids] | shape, keep?}`
 works on closed solids: `with` parts are placed in the world and used up unless `keep`;
 `shape` is an inline primitive `{kind, options, position, rotation, scale, material}` in the
@@ -505,7 +505,7 @@ selectors see that geometry. They retain the object's own TRS and use the curren
 geometry bounds center as the default pivot; supply `pivot` to override it.
 
 ```js
-const { hollowBoxRecipe } = await import("/editor/recipe.js");
+const { hollowBoxRecipe } = await import("/workshop/recipe.js");
 funEditor.apply([{ op: "recipe", id: "body", definition: hollowBoxRecipe() }], {
   ifRevision: funEditor.inspect().revision,
 });
@@ -702,7 +702,7 @@ offline it runs the newest cached one. So it always matches the live workshop, a
 release is a tool release.
 
 The workshop runs in Node (`scripts/workshop-node.mjs`): the page's modules work unchanged,
-the agent API is `site/editor/engine.js` (the same object the page publishes as
+the agent API is `site/workshop/engine.js` (the same object the page publishes as
 `window.funEditor`), the viewport draws through the software renderer into a stand-in canvas
 (`scripts/workshop-shims.mjs`) and the draft lives in memory, saved by the adapter as the
 session file. A script gives the same files in Node and in a page: GLBs byte for byte,
@@ -764,7 +764,7 @@ contracts; nothing is hosted on fun.dev.
 
 ## Blueprints and derivation
 
-A blueprint is a parametric model family (`site/editor/blueprints.js`): a title, a parameter
+A blueprint is a parametric model family (`site/workshop/blueprints.js`): a title, a parameter
 schema, materials and a `build(values, { root, id })` that returns parts and the assembly
 bindings that keep the live parameters driving them. `funEditor.blueprints()` (MCP
 `fun_editor_blueprints`) lists them; `{op:"blueprint", id, params?, root?, name?}` builds one
@@ -829,7 +829,7 @@ ready-to-run toolbox assembly commands. The toolbar's **Parametric toolbox** use
 the same commands. Start with an empty project using the default palette:
 
 ```js
-const { emptyProject } = await import("/editor/document.js");
+const { emptyProject } = await import("/workshop/document.js");
 funEditor.loadProject(emptyProject("Toolbox"));
 funEditor.apply(funEditor.presets().toolbox);
 funEditor.apply(

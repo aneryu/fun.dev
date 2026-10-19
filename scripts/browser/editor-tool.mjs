@@ -6,7 +6,7 @@ import { mkdtemp, writeFile, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { decodePNG } from "../png.mjs";
-import { parseModelFile, workshopProject } from "../../site/editor/glb.js";
+import { parseModelFile, workshopProject } from "../../site/workshop/glb.js";
 
 // The published agent tool (tools/fundev-workshop.mjs), without the repository: the launcher
 // fetches the workshop from `base`, which runs in Node by default and drives a page with --url.
@@ -15,7 +15,7 @@ export async function editorToolChecks({ base, output }) {
     cache = await mkdtemp(resolve(tmpdir(), "workshop-cache-")),
     env = { ...process.env, FUNDEV_WORKSHOP_ORIGIN: `${base}/tools/`, FUNDEV_WORKSHOP_CACHE: cache };
   for (const mode of ["node", "browser"]) {
-    const child = spawn(process.execPath, [tool, ...(mode === "browser" ? ["--url", `${base}/editor/?lang=en`] : [])], {
+    const child = spawn(process.execPath, [tool, ...(mode === "browser" ? ["--url", `${base}/workshop/?lang=en`] : [])], {
       stdio: ["pipe", "pipe", "pipe"],
       env,
     });
@@ -80,7 +80,7 @@ export async function editorToolChecks({ base, output }) {
     // Asynchronous: the preview server answering the tool runs in this process.
     const { stdout } = await promisify(execFile)(
       process.execPath,
-      [tool, ...(mode === "browser" ? ["--url", `${base}/editor/?lang=en&renderer=software`] : []), "--run", resolve(dir, "model.mjs")],
+      [tool, ...(mode === "browser" ? ["--url", `${base}/workshop/?lang=en&renderer=software`] : []), "--run", resolve(dir, "model.mjs")],
       { encoding: "utf8", env },
     );
     const run = JSON.parse(stdout);

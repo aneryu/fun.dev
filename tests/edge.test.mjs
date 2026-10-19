@@ -12,15 +12,15 @@ const api = "https://api.transfer.test";
 test("editor documents stay on the site while editor modules and styles use the asset origin", async () => {
   const config = await readFile(new URL("../config/Caddyfile", import.meta.url), "utf8");
   const document = new RegExp(config.match(/path_regexp (\S+)/)[1]);
-  for (const path of ["/editor", "/editor/", "/editor/index.html", "/editor/guide", "/editor/guide.html", "/games/muyu", "/models/crate"])
+  for (const path of ["/workshop", "/workshop/", "/workshop/index.html", "/workshop/guide", "/workshop/guide.html", "/games/muyu", "/models/crate"])
     assert.equal(document.test(path), true, path);
-  for (const path of ["/editor/app.js", "/editor/editor.css", "/editor/materials.js", "/runtime/three.js"])
+  for (const path of ["/workshop/app.js", "/workshop/editor.css", "/workshop/materials.js", "/runtime/three.js"])
     assert.equal(document.test(path), false, path);
   for (const page of ["index", "guide"]) {
-    const html = assetHTML(await readFile(new URL(`../site/editor/${page}.html`, import.meta.url), "utf8"), assets);
-    assert.match(html, /<link rel="stylesheet" href="https:\/\/cdn\.example\.com\/editor\//);
+    const html = assetHTML(await readFile(new URL(`../site/workshop/${page}.html`, import.meta.url), "utf8"), assets);
+    assert.match(html, /<link rel="stylesheet" href="https:\/\/cdn\.example\.com\/workshop\//);
     assert.doesNotMatch(html, /<script[^>]+src="\//);
-    assert.match(html, page === "index" ? /href="\/games"/ : /href="\/editor\/"/);
+    assert.match(html, page === "index" ? /href="\/games"/ : /href="\/workshop\/"/);
   }
 });
 

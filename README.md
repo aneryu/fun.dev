@@ -26,14 +26,14 @@ reference commands and operations. Requires Node.js 22+ and `tar`.
 
 - `site/index.html`: original personal homepage, with a Games entry.
 - `site/games.html`: game lobby at `/games`, with search and category filtering.
-- `site/editor/`: low-poly model workshop at `/editor/`, with a shared command API
+- `site/workshop/`: low-poly model workshop at `/workshop/`, with a shared command API
   for people and agents, editable projects, booleans and GLB export. See [model editor](docs/model-editor.md).
 - `site/player/`: shared player. Its `index.html` is a template: the build writes one page per
   game to `/games/<id>` with that game's title, description, canonical URL and Chinese Open
   Graph tags, so a game's address is also its share link. The build also writes
   `sitemap.xml` (home, lobby, games) and `i18n-boot.js`, which sets the visitor's language
   before the first paint. Game addresses have no trailing slash (`_redirects`);
-  the workshop uses `/editor/`.
+  the workshop uses `/workshop/`.
 - `site/runtime/`: Three.js host (API v2: lifecycle, shared audio, options,
   safe area, announcements, haptics), the runtime kit (`kit/`: text, input,
   fixed-step loop, assets, seeded random, MediaPipe vision, and `.fun3d` models: loader and
@@ -63,7 +63,7 @@ engine in every game. `esbuild` minifies the engine files without bundling a UI
 framework. `@mediapipe/tasks-vision` is pinned the same way, as the platform's
 vision runtime, so games share one copy instead of each bundling 17 MB.
 `manifold-3d` is pinned as the workshop's geometry kernel (booleans and other solid
-operations, WebAssembly, loaded only by `/editor/`); the build copies its module and
+operations, WebAssembly, loaded only by `/workshop/`); the build copies its module and
 `.wasm` to `editor/vendor/`, and bundles the agent tool: `tools/workshop-<hash>.mjs` (the
 workshop for Node, kernel included), `tools/workshop.json` naming it, and the launcher
 `tools/fundev-workshop.mjs`.

@@ -214,7 +214,7 @@ Later).
   filters (`/models?type=…&kit=…`), from the index in the reader's language.
 - `/models/<id>`: 3D view, name, description, kit and its fitting agreement, size, triangles,
   file size; buttons to copy the GLB address, download the GLB, download the `.blend` or the
-  workshop project when there is one, and **Open in workshop** (`/editor/?open=<id>&version=…`,
+  workshop project when there is one, and **Open in workshop** (`/workshop/?open=<id>&version=…`,
   the project file if there is one, otherwise the GLB as editable parts); older versions. From
   `library/<id>.json`; unlisted models have no page.
 

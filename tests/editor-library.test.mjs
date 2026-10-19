@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { createHash } from "node:crypto";
 import { openWorkshop } from "../scripts/workshop-node.mjs";
-import { normalizeProject } from "../site/editor/document.js";
+import { normalizeProject } from "../site/workshop/document.js";
 
 // The workshop's model library methods (docs/library-api.md) against a stand-in for
 // cdn.fun.dev: librarySearch, libraryModel and openLibraryModel, and the sources they record.

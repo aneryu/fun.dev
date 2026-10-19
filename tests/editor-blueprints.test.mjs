@@ -1,9 +1,9 @@
 import test, { before } from "node:test";
 import assert from "node:assert/strict";
-import { createStore, emptyProject, validateProject } from "../site/editor/document.js";
-import { loadKernel } from "../site/editor/kernel.js";
-import { BLUEPRINTS, blueprintCommands, blueprintValues, listBlueprints } from "../site/editor/blueprints.js";
-import { commandsSchema } from "../site/editor/agent-contract.js";
+import { createStore, emptyProject, validateProject } from "../site/workshop/document.js";
+import { loadKernel } from "../site/workshop/kernel.js";
+import { BLUEPRINTS, blueprintCommands, blueprintValues, listBlueprints } from "../site/workshop/blueprints.js";
+import { commandsSchema } from "../site/workshop/agent-contract.js";
 
 before(() => loadKernel());
 

@@ -43,7 +43,7 @@ export async function editorRendererChecks({ browser, base, expectedBackend }) {
         });
       const page = watch(await context.newPage(), errors);
       await page.goto(
-        `${base}/editor/?lang=zh${mode === "forced" ? "&renderer=webgl" : mode === "software" ? "&renderer=software" : ""}`,
+        `${base}/workshop/?lang=zh${mode === "forced" ? "&renderer=webgl" : mode === "software" ? "&renderer=software" : ""}`,
       );
       await page.waitForFunction(() => window.funEditor);
       const info = await page.evaluate(() => funEditor.inspect().renderer);
@@ -154,7 +154,7 @@ export async function softwareParityChecks({ browser, base }) {
       context = await browser.newContext({ viewport: { width: 1024, height: 768 }, serviceWorkers: "block" });
     try {
       const page = watch(await context.newPage(), errors);
-      await page.goto(`${base}/editor/?lang=en${renderer === "software" ? "&renderer=software" : ""}`);
+      await page.goto(`${base}/workshop/?lang=en${renderer === "software" ? "&renderer=software" : ""}`);
       await page.waitForFunction(() => window.funEditor);
       shots[renderer] = await page.evaluate(
         ({ project, commands, views }) => {

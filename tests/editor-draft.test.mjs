@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { IDBFactory } from "fake-indexeddb";
-import { openDraft } from "../site/editor/draft.js";
-import { emptyProject } from "../site/editor/document.js";
+import { openDraft } from "../site/workshop/draft.js";
+import { emptyProject } from "../site/workshop/document.js";
 
 const key = "fun.dev.editor.project.v2:test";
 async function fixture(t, saved, journal, readError = false) {
@@ -12,7 +12,7 @@ async function fixture(t, saved, journal, readError = false) {
   if (journal !== undefined) values.set(key, journal);
   const globals = {
     indexedDB: factory,
-    location: { href: "http://localhost/editor/?draft=test" },
+    location: { href: "http://localhost/workshop/?draft=test" },
     localStorage: {
       getItem(k) {
         events.push("journal:read");

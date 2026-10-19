@@ -8,9 +8,9 @@ import {
   normalizeProject,
   validateProject,
   measure,
-} from "../site/editor/document.js";
-import { primitive, normal } from "../site/editor/mesh.js";
-import { worldMatrix, point } from "../site/editor/spatial.js";
+} from "../site/workshop/document.js";
+import { primitive, normal } from "../site/workshop/mesh.js";
+import { worldMatrix, point } from "../site/workshop/spatial.js";
 
 test("command batches roll back geometry, history and revision on failure", () => {
   const store = createStore(duckProject()),
@@ -415,7 +415,7 @@ test("batch object transforms avoid double-transforming children; dimensions and
 });
 
 test("dependent commands in one batch see synchronized copies, with one undo", async () => {
-  const { stoolProject } = await import("../site/editor/examples.js");
+  const { stoolProject } = await import("../site/workshop/examples.js");
   const base = stoolProject(),
     batch = createStore(base),
     sequential = createStore(base);
@@ -475,7 +475,7 @@ test("paired symmetry moves along its plane and a group carries the plane with t
 });
 
 test("selected-edge bevel finishes a concave recessed box and rejects excessive widths atomically", async () => {
-  const { meshEdges } = await import("../site/editor/topology.js");
+  const { meshEdges } = await import("../site/workshop/topology.js");
   const s = createStore(emptyProject());
   s.apply([
     {

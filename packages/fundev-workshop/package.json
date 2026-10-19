@@ -19,7 +19,7 @@
     "node": ">=22"
   },
   "license": "UNLICENSED",
-  "homepage": "https://fun.dev/editor/guide",
+  "homepage": "https://fun.dev/workshop/guide",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/aneryu/fun.dev.git",

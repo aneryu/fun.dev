@@ -20,7 +20,7 @@ function renderCaption() {
   caption.replaceChildren();
   if (!current) return;
   const view = Object.assign(document.createElement("a"), { href: languagePath(modelPath(current.id)), textContent: t("viewModel") });
-  const open = Object.assign(document.createElement("a"), { href: languagePath(`/editor/?open=${encodeURIComponent(current.id)}`), textContent: t("openInWorkshop") });
+  const open = Object.assign(document.createElement("a"), { href: languagePath(`/workshop/?open=${encodeURIComponent(current.id)}`), textContent: t("openInWorkshop") });
   const name = Object.assign(document.createElement("strong"), { textContent: current.name[getLocale()] ?? current.name.en });
   caption.append(name, " · ", view, " · ", open);
 }

@@ -74,7 +74,7 @@ if (args.includes("--verify")) {
     handle(request, response) {
       const { pathname } = new URL(request.url, "http://localhost");
       if (pathname === "/") {
-        response.writeHead(302, { Location: "/editor/" });
+        response.writeHead(302, { Location: "/workshop/" });
         response.end();
         return true;
       }
@@ -93,7 +93,7 @@ if (args.includes("--verify")) {
     "127.0.0.1",
   );
   console.log(
-    `Workshop: http://127.0.0.1:${port}/editor/ (local preview; refresh after edits)`,
+    `Workshop: http://127.0.0.1:${port}/workshop/ (local preview; refresh after edits)`,
   );
   let running = false,
     pending = false,
@@ -116,8 +116,8 @@ if (args.includes("--verify")) {
     running = false;
   }
   const files = [
-    ...(await readdir(new URL("site/editor/", root))).map(
-      (file) => `site/editor/${file}`,
+    ...(await readdir(new URL("site/workshop/", root))).map(
+      (file) => `site/workshop/${file}`,
     ),
     "site/i18n.js",
     "site/platform.css",

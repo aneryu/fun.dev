@@ -1,7 +1,7 @@
 // Stand-ins for the few browser objects the workshop's viewport touches, so the page's own
 // modules run in Node (scripts/workshop-node.mjs): a canvas whose 2D context keeps pixels and
 // encodes PNG, a document that makes elements, image decoding for PNG references, FileReader
-// for the GLB exporter. Nothing here draws: the software renderer does (site/editor/soft-renderer.js).
+// for the GLB exporter. Nothing here draws: the software renderer does (site/workshop/soft-renderer.js).
 import { decodePNG, encodePNG } from "./png.mjs";
 
 class Element {
@@ -225,7 +225,7 @@ export function installShims() {
   globalThis.self ??= globalThis;
   globalThis.document ??= documentShim;
   // The software renderer, always: Node has no GPU context to offer.
-  globalThis.location ??= new URL("http://localhost/editor/?renderer=software&lang=en");
+  globalThis.location ??= new URL("http://localhost/workshop/?renderer=software&lang=en");
   globalThis.devicePixelRatio ??= 1;
   // Frames for the interactive view never come; observations render on demand.
   globalThis.requestAnimationFrame ??= () => 1;

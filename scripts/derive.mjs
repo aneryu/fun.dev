@@ -39,7 +39,7 @@ function runScript(script, gpu) {
 
 async function main() {
   if (args.includes("--list")) {
-    const { listBlueprints } = await import("../site/editor/blueprints.js");
+    const { listBlueprints } = await import("../site/workshop/blueprints.js");
     for (const b of listBlueprints()) {
       console.log(`${b.id} v${b.version}  ${b.title.zh} / ${b.title.en}\n  ${b.description.en}`);
       for (const [key, p] of Object.entries(b.params)) console.log(`  --set ${key}=${p.value}${p.options ? `  (${p.options.join("|")})` : `  (${p.min}–${p.max}${p.unit ? ` ${p.unit}` : ""}${p.integer ? ", whole" : ""})`}${p.structural ? "  structural" : ""}  ${p.label.zh} / ${p.label.en}`);
@@ -53,7 +53,7 @@ async function main() {
   await mkdir(out, { recursive: true });
   let title = { zh: id, en: id }, description = { zh: "", en: "" }, provenance = null;
   if (blueprint) {
-    const { BLUEPRINTS, blueprintValues } = await import("../site/editor/blueprints.js");
+    const { BLUEPRINTS, blueprintValues } = await import("../site/workshop/blueprints.js");
     const spec = BLUEPRINTS.find((b) => b.id === blueprint);
     if (!spec) { console.error(`Unknown blueprint ${blueprint}; --list shows them.`); return 1; }
     const checked = blueprintValues(spec, values);
@@ -91,7 +91,7 @@ export default async function (ws) {
   } finally { await rm(script, { force: true }); await rm(resolve(out, "_derive.json"), { force: true }); }
   // A project built from a blueprint keeps its family: the description follows the live values.
   if (!provenance && asset?.blueprint) {
-    const { BLUEPRINTS } = await import("../site/editor/blueprints.js");
+    const { BLUEPRINTS } = await import("../site/workshop/blueprints.js");
     const spec = BLUEPRINTS.find((b) => b.id === asset.blueprint.id);
     if (spec) {
       const checked = { ...asset.parameters, ...asset.blueprint.params };

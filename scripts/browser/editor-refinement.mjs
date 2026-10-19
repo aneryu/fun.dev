@@ -10,10 +10,10 @@ export async function editorRefinementChecks({ browser, base }) {
     }),
     page = watch(await context.newPage(), errors);
   try {
-    await page.goto(`${base}/editor/?lang=zh`);
+    await page.goto(`${base}/workshop/?lang=zh`);
     await page.waitForFunction(() => window.funEditor);
     const before = await page.evaluate(async () => {
-      const { emptyProject } = await import("/editor/document.js");
+      const { emptyProject } = await import("/workshop/document.js");
       funEditor.loadProject(emptyProject("Refine existing shape"));
       funEditor.apply([
         {
@@ -147,10 +147,10 @@ export async function paintedShapeChecks({ browser, base }) {
     }),
     page = watch(await context.newPage(), errors);
   try {
-    await page.goto(`${base}/editor/?lang=zh`);
+    await page.goto(`${base}/workshop/?lang=zh`);
     await page.waitForFunction(() => window.funEditor);
     const initial = await page.evaluate(async () => {
-      const { emptyProject } = await import("/editor/document.js");
+      const { emptyProject } = await import("/workshop/document.js");
       funEditor.loadProject(emptyProject("Painted knob"));
       funEditor.apply([
         {

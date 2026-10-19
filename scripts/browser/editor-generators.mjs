@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { results, watch } from "./harness.mjs";
-import { parseModelFile } from "../../site/editor/glb.js";
+import { parseModelFile } from "../../site/workshop/glb.js";
 
 // The add-shape dialog builds revolved sections and sweeps, edits them again, and the parts
 // panel's Array control repeats the selection.
@@ -18,11 +18,11 @@ export async function editorGeneratorChecks({ browser, base }) {
     await page.waitForFunction(() => !document.querySelector("#add-dialog").open);
   };
   try {
-    await page.goto(`${base}/editor/?lang=en`);
+    await page.goto(`${base}/workshop/?lang=en`);
     await page.waitForFunction(() => window.funEditor);
     await page.evaluate(async () =>
       funEditor.loadProject(
-        (await import("/editor/document.js")).emptyProject("Generators"),
+        (await import("/workshop/document.js")).emptyProject("Generators"),
         { ifRevision: funEditor.inspect().revision },
       ),
     );
@@ -73,7 +73,7 @@ export async function editorGeneratorChecks({ browser, base }) {
     // Blueprints: a parametric family builds through the page API, re-derives through its asset
     // parameters, and exports a library-ready GLB.
     const blueprint = await page.evaluate(async () => {
-      funEditor.loadProject((await import("/editor/document.js")).emptyProject("Blueprints"), { ifRevision: funEditor.inspect().revision });
+      funEditor.loadProject((await import("/workshop/document.js")).emptyProject("Blueprints"), { ifRevision: funEditor.inspect().revision });
       const listed = funEditor.blueprints().map((b) => b.id);
       funEditor.apply([{ op: "blueprint", id: "lamp-post", params: { height: 7, arms: 2 }, root: "lamp" }], { ifRevision: funEditor.inspect().revision });
       const tall = funEditor.inspect({ id: "lamp" }).bounds;
@@ -91,7 +91,7 @@ export async function editorGeneratorChecks({ browser, base }) {
     // Round shapes from the dialog: a torus with automatic segments, a hollow half frustum
     // along X; an agent's arched outline survives the dialog; smooth shading reaches the GLB.
     await page.evaluate(async () =>
-      funEditor.loadProject((await import("/editor/document.js")).emptyProject("Round"), { ifRevision: funEditor.inspect().revision }),
+      funEditor.loadProject((await import("/workshop/document.js")).emptyProject("Round"), { ifRevision: funEditor.inspect().revision }),
     );
     await page.locator("#add").click();
     await page.locator("#kind").selectOption("torus");

@@ -159,11 +159,11 @@ parameter schemas. `ws.apply([{ op: "blueprint", id: "lamp-post", params: { heig
 root: "lamp" }])` builds one; `{ op: "assemblyParameters", root: "lamp", values: { height: 4 } }`
 re-derives it (structural parameters such as `arms` need the blueprint again). From the command
 line, `npm run derive -- --blueprint lamp-post --id street_lamp_02 --set height=5` writes a
-library upload folder. A new blueprint is a module in `site/editor/blueprints.js`.
+library upload folder. A new blueprint is a module in `site/workshop/blueprints.js`.
 
 ## Before delivering
 
 - `ws.validate()` has no errors (`shell-overlap` and `nonplanar` warnings are fine).
 - Look at the preview; check the export report's triangles, bounds and merge groups.
 
-Full reference: [model editor](model-editor.md) and the workshop's `/editor/guide`.
+Full reference: [model editor](model-editor.md) and the workshop's `/workshop/guide`.

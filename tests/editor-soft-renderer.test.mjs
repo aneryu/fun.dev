@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { createRasterizer, resolve, toneMap } from "../site/editor/soft-renderer.js";
+import { createRasterizer, resolve, toneMap } from "../site/workshop/soft-renderer.js";
 
 // The workshop's software renderer, checked against values the GPU path produces
 // (SwiftShader WebGL through WebGPURenderer, 2026-10-19).

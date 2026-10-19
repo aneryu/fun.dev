@@ -1,11 +1,11 @@
 import test, { before } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { loadKernel } from "../site/editor/kernel.js";
-import { primitive, triangulate, cornerNormals } from "../site/editor/mesh.js";
-import { importedSmoothing } from "../site/editor/import-glb.js";
-import { emptyProject, evaluateCommands, normalizeProject } from "../site/editor/document.js";
-import { expandOutline, autoSegments } from "../site/editor/generators.js";
+import { loadKernel } from "../site/workshop/kernel.js";
+import { primitive, triangulate, cornerNormals } from "../site/workshop/mesh.js";
+import { importedSmoothing } from "../site/workshop/import-glb.js";
+import { emptyProject, evaluateCommands, normalizeProject } from "../site/workshop/document.js";
+import { expandOutline, autoSegments } from "../site/workshop/generators.js";
 
 // Round shapes and outline items (docs/workshop-agents.md "Shapes", "Outlines and paths").
 before(() => loadKernel());

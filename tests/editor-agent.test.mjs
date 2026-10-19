@@ -11,19 +11,19 @@ import {
   recipeSelection,
   inspectRecipeStage,
   shapeGenerator,
-} from "../site/editor/document.js";
-import { primitive } from "../site/editor/mesh.js";
-import { queryComponents, topologyToken } from "../site/editor/components.js";
-import { hollowBoxRecipe } from "../site/editor/recipe.js";
-import { toolboxAssemblyCommands, assetFor } from "../site/editor/assembly.js";
+} from "../site/workshop/document.js";
+import { primitive } from "../site/workshop/mesh.js";
+import { queryComponents, topologyToken } from "../site/workshop/components.js";
+import { hollowBoxRecipe } from "../site/workshop/recipe.js";
+import { toolboxAssemblyCommands, assetFor } from "../site/workshop/assembly.js";
 import {
   commandsSchema,
   capabilities,
   validateSchema,
-} from "../site/editor/agent-contract.js";
-import { describeChanges } from "../site/editor/changes.js";
-import { agentTools, toolInvocation } from "../site/editor/agent-tools.js";
-import { materialUsage, visitMaterials } from "../site/editor/materials.js";
+} from "../site/workshop/agent-contract.js";
+import { describeChanges } from "../site/workshop/changes.js";
+import { agentTools, toolInvocation } from "../site/workshop/agent-tools.js";
+import { materialUsage, visitMaterials } from "../site/workshop/materials.js";
 
 test("material budget can be reclaimed on empty projects, with atomic history and explicit errors", () => {
   const s = createStore(emptyProject());
@@ -771,7 +771,7 @@ test("whole-recipe transforms affect geometry before subsequent cuts and preserv
 });
 
 test("mirror origins wait for source transforms and inconsistent cached exports are blocked within scope", async () => {
-  const { assertExportable } = await import("../site/editor/export-scope.js");
+  const { assertExportable } = await import("../site/workshop/export-scope.js");
   for (const reversed of [false, true]) {
     const bindings = [
       {
@@ -1687,7 +1687,7 @@ test("face colors survive recipe rebuilds and whole-mesh paint supersedes overri
 
 test("assembly dimensions, derived parameters and anchors survive serialization and reject cycles atomically", async () => {
   const { toolboxAssemblyCommands } = await import(
-    "../site/editor/assembly.js"
+    "../site/workshop/assembly.js"
   );
   const commands = toolboxAssemblyCommands(hollowBoxRecipe());
   validateSchema(commands, commandsSchema);
@@ -1743,7 +1743,7 @@ test("assembly dimensions, derived parameters and anchors survive serialization 
 
 test("export validation follows selected roots and blocks invalid full exports", async () => {
   const { exportScope, assertExportable } = await import(
-    "../site/editor/export-scope.js"
+    "../site/workshop/export-scope.js"
   );
   const s = createStore(emptyProject());
   s.apply([
@@ -1800,7 +1800,7 @@ test("linked geometry updates return compact summaries with opt-in component det
 
 test("asset anchors remain rigid under parent translation, rotation and nonuniform scale", async () => {
   const { toolboxAssemblyCommands } = await import(
-    "../site/editor/assembly.js"
+    "../site/workshop/assembly.js"
   );
   const s = createStore(emptyProject());
   s.apply(toolboxAssemblyCommands(hollowBoxRecipe()));
@@ -1826,9 +1826,9 @@ test("asset anchors remain rigid under parent translation, rotation and nonunifo
 
 test("legacy and current JSON imports evaluate recipe and assembly parameters before reading or exporting", async () => {
   const { toolboxAssemblyCommands } = await import(
-    "../site/editor/assembly.js"
+    "../site/workshop/assembly.js"
   );
-  const { exportScope } = await import("../site/editor/export-scope.js");
+  const { exportScope } = await import("../site/workshop/export-scope.js");
   const s = createStore(emptyProject());
   s.apply(toolboxAssemblyCommands(hollowBoxRecipe()));
   const json = s.snapshot();
@@ -1875,7 +1875,7 @@ test("legacy and current JSON imports evaluate recipe and assembly parameters be
 
 test("asset copies own their parameter scopes, preserve internal instances, link explicitly and delete cleanly", async () => {
   const { toolboxAssemblyCommands } = await import(
-    "../site/editor/assembly.js"
+    "../site/workshop/assembly.js"
   );
   const s = createStore(emptyProject());
   s.apply(toolboxAssemblyCommands(hollowBoxRecipe()));

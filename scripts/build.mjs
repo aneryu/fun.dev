@@ -111,7 +111,7 @@ await rm(template);
 await writeFile(new URL("sitemap.xml", output), sitemap(catalog));
 const headersFile = new URL("_headers", output);
 if (assetOrigin) {
-  for (const page of ["index.html", "404.html", "games.html", "models.html", "model.html", "editor/index.html", "editor/guide.html", ...catalog.filter(compatible).map((game) => `games/${game.id}.html`)]) {
+  for (const page of ["index.html", "404.html", "games.html", "models.html", "model.html", "workshop/index.html", "workshop/guide.html", ...catalog.filter(compatible).map((game) => `games/${game.id}.html`)]) {
     const path = new URL(page, output);
     await writeFile(path, assetHTML(await readFile(path, "utf8"), assetOrigin));
   }

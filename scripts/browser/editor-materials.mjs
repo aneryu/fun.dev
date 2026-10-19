@@ -10,11 +10,11 @@ export async function editorMaterialChecks({ browser, base }) {
     }),
     page = watch(await context.newPage(), errors);
   try {
-    await page.goto(`${base}/editor/?lang=zh`);
+    await page.goto(`${base}/workshop/?lang=zh`);
     await page.waitForFunction(() => window.funEditor);
     await page.evaluate(async () => {
       funEditor.loadProject(
-        (await import("/editor/document.js")).emptyProject(
+        (await import("/workshop/document.js")).emptyProject(
           "Material iteration",
         ),
       );
@@ -150,7 +150,7 @@ export async function editorMaterialChecks({ browser, base }) {
     // Full metal reflects the ambient sky instead of rendering black.
     const metal = await page.evaluate(async () => {
       funEditor.loadProject(
-        (await import("/editor/document.js")).emptyProject("Chrome"),
+        (await import("/workshop/document.js")).emptyProject("Chrome"),
       );
       funEditor.apply([
         {

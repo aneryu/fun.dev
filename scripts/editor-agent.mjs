@@ -14,11 +14,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
 import { execFileSync } from "node:child_process";
 import { createPreviewServer, listen } from "./preview-server.mjs";
-import { agentTools, toolInvocation } from "../site/editor/agent-tools.js";
-import { errorInfo } from "../site/editor/agent-contract.js";
-import { normalizeProject } from "../site/editor/document.js";
+import { agentTools, toolInvocation } from "../site/workshop/agent-tools.js";
+import { errorInfo } from "../site/workshop/agent-contract.js";
+import { normalizeProject } from "../site/workshop/document.js";
 import { runScript, guideText, compactError } from "./editor-script.mjs";
-import { parseModelFile, workshopProject } from "../site/editor/glb.js";
+import { parseModelFile, workshopProject } from "../site/workshop/glb.js";
 import { openWorkshop } from "./workshop-node.mjs";
 import { kernel } from "./workshop-kernel.mjs";
 
@@ -216,7 +216,7 @@ async function connect() {
       });
       server = createPreviewServer({ root: output });
       const { port } = await listen(server, 0, "127.0.0.1");
-      url = `http://127.0.0.1:${port}/editor/?lang=en`;
+      url = `http://127.0.0.1:${port}/workshop/?lang=en`;
     }
     // --software: the workshop's own software renderer, no GPU process at all.
     if (config.software) {
@@ -325,7 +325,7 @@ async function callEditor(call) {
       }
       return { ok: true, result: value };
     } catch (e) {
-      const { errorInfo } = await import("/editor/agent-contract.js");
+      const { errorInfo } = await import("/workshop/agent-contract.js");
       return {
         ok: false,
         error: {

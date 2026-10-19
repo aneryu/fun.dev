@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { watch } from "./harness.mjs";
-import { parseModelFile, workshopProject } from "../../site/editor/glb.js";
+import { parseModelFile, workshopProject } from "../../site/workshop/glb.js";
 
 // Project files, GLB import and "Open in workshop" from the model library.
 export async function editorImportChecks({ browser, base }) {
@@ -14,7 +14,7 @@ export async function editorImportChecks({ browser, base }) {
   const page = watch(await context.newPage(), errors);
   page.on("dialog", (dialog) => dialog.accept());
   try {
-    await page.goto(`${base}/editor/?lang=en&draft=import-check`);
+    await page.goto(`${base}/workshop/?lang=en&draft=import-check`);
     await page.waitForFunction(() => window.funEditor);
     // A project file restores the duck exactly, linked mirror included.
     const files = await page.evaluate(async () => {
@@ -152,7 +152,7 @@ export async function editorImportChecks({ browser, base }) {
     );
     const library = await context.newPage();
     watch(library, errors);
-    await library.goto(`${base}/editor/?lang=en&open=test_duck_01&version=v001`);
+    await library.goto(`${base}/workshop/?lang=en&open=test_duck_01&version=v001`);
     await library.waitForFunction(() => window.funEditor);
     const opened = await library.evaluate(() => ({
       search: location.search,
@@ -171,7 +171,7 @@ export async function editorImportChecks({ browser, base }) {
     withSource = true;
     const project = await context.newPage();
     watch(project, errors);
-    await project.goto(`${base}/editor/?lang=en&open=test_duck_01`);
+    await project.goto(`${base}/workshop/?lang=en&open=test_duck_01`);
     await project.waitForFunction(() => window.funEditor);
     assert.equal(
       await project.evaluate(() => funEditor.getProject().nodes.some((n) => n.symmetry)),

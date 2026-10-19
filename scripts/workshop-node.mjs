@@ -5,7 +5,7 @@
 import { installShims, Canvas } from "./workshop-shims.mjs";
 
 /**
- * The draft API of site/editor/draft.js, in memory. Like the page, a record whose metadata is
+ * The draft API of site/workshop/draft.js, in memory. Like the page, a record whose metadata is
  * damaged opens protected: readable, never written, its original kept as the recovery source.
  */
 export function memoryDraft(initial, { createError, readMetadata }) {
@@ -103,15 +103,15 @@ export async function openWorkshop({ record, kernel = {}, width = 1440, height =
   if (typeof __WORKSHOP_BUNDLED__ === "undefined")
     (await import("node:module")).register("./workshop-resolve.mjs", import.meta.url);
   const [{ loadKernel }, document, { createViewport }, engineModule, { readMetadata }] = await Promise.all([
-    import("../site/editor/kernel.js"),
-    import("../site/editor/document.js"),
-    import("../site/editor/viewport.js"),
-    import("../site/editor/engine.js"),
-    import("../site/editor/draft.js"),
+    import("../site/workshop/kernel.js"),
+    import("../site/workshop/document.js"),
+    import("../site/workshop/viewport.js"),
+    import("../site/workshop/engine.js"),
+    import("../site/workshop/draft.js"),
   ]);
   const { createEngine, normalizeSelection, followRenames } = engineModule;
   // Node has no site: the model library comes from its public origin.
-  const library = await import("../site/editor/library.js");
+  const library = await import("../site/workshop/library.js");
   library.setLibraryOrigin(process.env.FUNDEV_LIBRARY_ORIGIN || library.PUBLIC_LIBRARY);
   await loadKernel(kernel);
   const createError = (message, code) => new document.ModelError(message, code);

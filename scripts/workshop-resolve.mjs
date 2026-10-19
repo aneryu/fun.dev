@@ -5,7 +5,7 @@ const root = new URL("../", import.meta.url);
 const map = {
   "/runtime/three.js": "three/webgpu",
   "/vendor/three/three.webgpu.js": "three/webgpu",
-  "/editor/tools.js": new URL("scripts/editor-tools.js", root).href,
+  "/workshop/tools.js": new URL("scripts/editor-tools.js", root).href,
 };
 export async function resolve(specifier, context, next) {
   return next(map[specifier] ?? specifier, context);

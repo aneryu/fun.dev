@@ -4,7 +4,7 @@
 import * as THREE from "/runtime/three.js";
 import * as TSL from "/runtime/tsl.js";
 import { MeshoptDecoder } from "/runtime/addons/MeshoptDecoder.js";
-import { MeshoptEncoder } from "/editor/vendor/meshopt_encoder.js";
+import { MeshoptEncoder } from "/workshop/vendor/meshopt_encoder.js";
 import { GLTFLoader } from "/runtime/addons/GLTFLoader.js";
 import { createFun3d } from "/runtime/kit/fun3d.js";
 import { createImporter } from "/runtime/kit/fun3d-import.js";

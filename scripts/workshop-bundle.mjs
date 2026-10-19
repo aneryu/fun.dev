@@ -6,7 +6,7 @@ import { build } from "esbuild";
 // the CLI / MCP adapter, the page's own modules, the software renderer, Three.js, manifold-3d
 // and its WebAssembly. The site publishes it as tools/workshop-<hash>.mjs behind the launcher;
 // the npm package fundev-workshop ships it as workshop.mjs. Page paths resolve to their sources
-// here; imports of /editor/... inside page.evaluate run in the page and stay as they are, and
+// here; imports of /workshop/... inside page.evaluate run in the page and stay as they are, and
 // Playwright is loaded only for --browser.
 export async function bundleWorkshop(root) {
   const sitePaths = { name: "workshop-site-paths", setup(builder) {
@@ -17,13 +17,13 @@ export async function bundleWorkshop(root) {
   } };
   const workshop = await build({
     entryPoints: [fileURLToPath(new URL("scripts/editor-agent.mjs", root))], write: false,
-    bundle: true, platform: "node", format: "esm", target: "node22", external: ["playwright", "/editor/*"], minify: true, legalComments: "eof", logLevel: "error",
+    bundle: true, platform: "node", format: "esm", target: "node22", external: ["playwright", "/workshop/*"], minify: true, legalComments: "eof", logLevel: "error",
     loader: { ".wasm": "binary" }, plugins: [sitePaths],
     // A CommonJS dependency may still call require (Node built-ins): give the bundle one.
     banner: { js: 'import { createRequire as __workshopRequire } from "node:module"; const require = __workshopRequire(import.meta.url);' },
     define: {
       __WORKSHOP_BUNDLED__: "true",
-      "process.env.FUNDEV_WORKSHOP_URL": JSON.stringify("https://fun.dev/editor/"),
+      "process.env.FUNDEV_WORKSHOP_URL": JSON.stringify("https://fun.dev/workshop/"),
       // --guide prints the quick reference without the repository.
       "process.env.FUNDEV_WORKSHOP_GUIDE": JSON.stringify(await readFile(new URL("docs/workshop-agents.md", root), "utf8")),
     },

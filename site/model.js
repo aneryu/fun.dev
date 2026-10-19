@@ -31,7 +31,7 @@ function render() {
   $("#download-blend").hidden = !version.files["source.blend"];
   $("#download-workshop").hidden = !version.files["source.funmodel.glb"];
   // The workshop opens this version as its own draft: its project file, or the GLB as parts.
-  $("#open-workshop").href = `/editor/?open=${model.id}&version=${version.version}`;
+  $("#open-workshop").href = `/workshop/?open=${model.id}&version=${version.version}`;
 }
 
 async function show(name) {

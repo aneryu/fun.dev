@@ -4,7 +4,7 @@ import {
   createStore,
   emptyProject,
   normalizeProject,
-} from "../site/editor/document.js";
+} from "../site/workshop/document.js";
 
 test("materials carry metalness, emission, opacity and glass; defaults stay out of the document", () => {
   const store = createStore(emptyProject("Lamp"));
@@ -140,8 +140,8 @@ test("rename follows every reference; copies name their parts by map or replacem
 });
 
 test("rename keeps assembly bindings and anchors attached", async () => {
-  const { toolboxAssemblyCommands } = await import("../site/editor/assembly.js");
-  const { hollowBoxRecipe } = await import("../site/editor/recipe.js");
+  const { toolboxAssemblyCommands } = await import("../site/workshop/assembly.js");
+  const { hollowBoxRecipe } = await import("../site/workshop/recipe.js");
   const store = createStore(emptyProject("Toolbox"));
   store.apply(toolboxAssemblyCommands(hollowBoxRecipe()));
   const asset = store.snapshot().assemblies[0],

@@ -5,8 +5,8 @@ import {
   emptyProject,
   validateProject,
   statistics,
-} from "../site/editor/document.js";
-import { loadKernel } from "../site/editor/kernel.js";
+} from "../site/workshop/document.js";
+import { loadKernel } from "../site/workshop/kernel.js";
 
 before(() => loadKernel());
 
@@ -105,8 +105,8 @@ test("a boolean recipe step keeps a parametric hole editable", () => {
 });
 
 test("separate shells passing through each other warn; only faults an edit adds block it", async () => {
-  const { surfaceDiagnostics } = await import("../site/editor/diagnostics.js");
-  const { primitive } = await import("../site/editor/mesh.js");
+  const { surfaceDiagnostics } = await import("../site/workshop/diagnostics.js");
+  const { primitive } = await import("../site/workshop/mesh.js");
   // Two crossing boxes in one mesh, as merged library parts arrive.
   const a = primitive("box", { size: [1, 1, 1] }, "mat_cream"),
     b = primitive("box", { size: [0.4, 2, 0.4] }, "mat_wood");
@@ -146,7 +146,7 @@ test("separate shells passing through each other warn; only faults an edit adds 
     nodes: [{ id: "fold", name: "fold", parent: null, position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mesh: fold }],
   });
   assert.ok(validateProject(loaded.snapshot()).errors.some((e) => e.code === "self-intersection"));
-  const { topologyToken } = await import("../site/editor/components.js");
+  const { topologyToken } = await import("../site/workshop/components.js");
   loaded.apply([{ op: "vertices", id: "fold", topology: topologyToken(loaded.snapshot().nodes[0].mesh), changes: [{ index: 3, position: [-0.6, 0.5, -0.5] }] }]);
   // …and a budget too small to finish reports incompleteness instead of blocking.
   const tiny = surfaceDiagnostics(merged, { maxPairs: 1 });

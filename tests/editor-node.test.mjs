@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { openWorkshop } from "../scripts/workshop-node.mjs";
 import { decodePNG } from "../scripts/png.mjs";
-import { parseModelFile } from "../site/editor/glb.js";
+import { parseModelFile } from "../site/workshop/glb.js";
 
 // The workshop in Node (scripts/workshop-node.mjs): the page's agent API over the same store,
 // drafts and viewport, drawn by the software renderer.

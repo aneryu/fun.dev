@@ -5,7 +5,7 @@ import {
   TransformControls,
   GLTFExporter,
   mergeGeometries,
-} from "/editor/tools.js";
+} from "/workshop/tools.js";
 import { evaluateCommands, selectionVertices } from "./document.js";
 import {
   exportScope,

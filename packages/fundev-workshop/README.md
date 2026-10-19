@@ -1,6 +1,6 @@
 # fundev-workshop
 
-The [fun.dev workshop](https://fun.dev/editor/) for AI agents. A script, or an agent over
+The [fun.dev workshop](https://fun.dev/workshop/) for AI agents. A script, or an agent over
 MCP, builds a 3D model with typed commands (boxes, cylinders, tori, lathes, extrusions with
 arcs and holes, sweeps, booleans, bevels, arrays, blueprints), looks at it from any view, and
 exports a glTF binary (GLB) plus an editable workshop project. It runs in Node: no browser,
@@ -59,7 +59,7 @@ between runs; `--artifacts` writes pictures, GLBs and project files and returns 
   (`{"method":"inspect","arguments":{}}`) and answers one JSON line each.
 - `--browser` drives the published web workshop in a headless browser instead (`--gpu` to
   draw on the GPU); it needs `npm i playwright && npx playwright install chromium`.
-- The full reference is the [workshop guide](https://fun.dev/editor/guide).
+- The full reference is the [workshop guide](https://fun.dev/workshop/guide).
 
 ## Licence
 

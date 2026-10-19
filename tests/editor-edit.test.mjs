@@ -5,11 +5,11 @@ import {
   emptyProject,
   validateProject,
   measure,
-} from "../site/editor/document.js";
-import { queryComponents } from "../site/editor/components.js";
-import { commandsSchema, validateSchema } from "../site/editor/agent-contract.js";
-import { loadKernel } from "../site/editor/kernel.js";
-import { meshEdges } from "../site/editor/topology.js";
+} from "../site/workshop/document.js";
+import { queryComponents } from "../site/workshop/components.js";
+import { commandsSchema, validateSchema } from "../site/workshop/agent-contract.js";
+import { loadKernel } from "../site/workshop/kernel.js";
+import { meshEdges } from "../site/workshop/topology.js";
 
 before(() => loadKernel());
 

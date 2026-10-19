@@ -5,17 +5,17 @@ import {
   emptyProject,
   evaluateProject,
   validateProject,
-} from "../site/editor/document.js";
-import { loadKernel } from "../site/editor/kernel.js";
-import { importModel } from "../site/editor/import-glb.js";
+} from "../site/workshop/document.js";
+import { loadKernel } from "../site/workshop/kernel.js";
+import { importModel } from "../site/workshop/import-glb.js";
 import {
   writeGLB,
   withWorkshopProject,
   parseModelFile,
   toBase64,
   fromBase64,
-} from "../site/editor/glb.js";
-import { worldMatrix, point } from "../site/editor/spatial.js";
+} from "../site/workshop/glb.js";
+import { worldMatrix, point } from "../site/workshop/spatial.js";
 
 before(() => loadKernel());
 

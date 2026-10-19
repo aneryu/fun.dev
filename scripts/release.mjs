@@ -66,7 +66,7 @@ const transferChanged = touches(/^(?:site\/progress|site\/player|server|function
 // Browser suites a change cannot have touched are left out of the local verification (the
 // production smoke and the live checks still run everything that ships): the workshop's
 // suite alone takes several minutes.
-const editorChanged = touches(/^site\/editor\/|^scripts\/(?:editor|browser\/editor|build-three\.mjs)|^docs\/workshop-agents\.md$|^tests\/editor|^package(?:-lock)?\.json$/);
+const editorChanged = touches(/^site\/workshop\/|^scripts\/(?:editor|browser\/editor|build-three\.mjs)|^docs\/workshop-agents\.md$|^tests\/editor|^package(?:-lock)?\.json$/);
 const fun3dChanged = touches(/^site\/runtime\/kit\/(?:fun3d|materials|models|physics|animation)|^scripts\/(?:fun3d|physics|browser\/fun3d)|^site\/sw\.js$|^site\/_headers$|^package(?:-lock)?\.json$/);
 const kitChanged = touches(/^site\/runtime\/|^site\/sw\.js$|^site\/_headers$|^scripts\/(?:vision|build-three|build)\.mjs$|^package(?:-lock)?\.json$/);
 const skipSuites = [["editor", editorChanged], ["fun3d", fun3dChanged], ["kit", kitChanged]].filter(([, changed]) => !changed).map(([name]) => name);

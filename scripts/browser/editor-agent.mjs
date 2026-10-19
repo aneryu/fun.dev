@@ -12,12 +12,12 @@ export async function editorAgentChecks({ browser, base }) {
     page = watch(await context.newPage(), errors);
   page.on("dialog", (dialog) => dialog.accept());
   try {
-    await page.goto(`${base}/editor/?lang=zh`);
+    await page.goto(`${base}/workshop/?lang=zh`);
     await page.waitForFunction(() => window.funEditor?.version === 3);
     const output = await page.evaluate(async () => {
       const a = funEditor,
-        { emptyProject } = await import("/editor/document.js"),
-        { hollowBoxRecipe } = await import("/editor/recipe.js");
+        { emptyProject } = await import("/workshop/document.js"),
+        { hollowBoxRecipe } = await import("/workshop/recipe.js");
       a.loadProject(emptyProject("Agent toolbox"));
       const built = a.apply(
         [
@@ -286,11 +286,11 @@ export async function editorAgentChecks({ browser, base }) {
 }
 
 export async function recipeScopeIterationChecks(page, base) {
-  await page.goto(base + "/editor/?lang=zh&draft=recipe-scope-iteration");
+  await page.goto(base + "/workshop/?lang=zh&draft=recipe-scope-iteration");
   await page.waitForFunction(() => window.funEditor?.getRecipe);
   await page.evaluate(async () => {
-    const { emptyProject } = await import("/editor/document.js"),
-      { hollowBoxRecipe } = await import("/editor/recipe.js");
+    const { emptyProject } = await import("/workshop/document.js"),
+      { hollowBoxRecipe } = await import("/workshop/recipe.js");
     funEditor.loadProject(emptyProject("Local recipe scope"));
     funEditor.apply([
       { op: "create", id: "body", kind: "box" },
@@ -387,7 +387,7 @@ export async function recipeScopeIterationChecks(page, base) {
   );
   assert.deepEqual(rebound.step.select.boundary, { axis: "z", side: "max" });
   const consistency = await page.evaluate(async () => {
-    const { emptyProject } = await import("/editor/document.js"),
+    const { emptyProject } = await import("/workshop/document.js"),
       { GLTFLoader } = await import("/runtime/addons/GLTFLoader.js"),
       { Box3, Vector3 } = await import("/runtime/three.js");
     funEditor.loadProject(emptyProject("Recipe and mirror export"));
@@ -488,10 +488,10 @@ export async function recipeScopeIterationChecks(page, base) {
 }
 
 async function modelingIterationChecks(page, base) {
-  await page.goto(base + "/editor/?lang=zh&draft=modeling-iteration");
+  await page.goto(base + "/workshop/?lang=zh&draft=modeling-iteration");
   await page.waitForFunction(() => window.funEditor?.presets);
   await page.evaluate(async () => {
-    const { emptyProject } = await import("/editor/document.js");
+    const { emptyProject } = await import("/workshop/document.js");
     funEditor.loadProject(emptyProject("Refinable box"));
     funEditor.apply([
       { op: "create", id: "box", kind: "box", material: "orange" },
@@ -592,7 +592,7 @@ async function modelingIterationChecks(page, base) {
   assert.equal(replay.replayed, true);
   assert.deepEqual(replay.results[0].idMap, copied.results[0].idMap);
   const anchored = await page.evaluate(async () => {
-    const { emptyProject } = await import("/editor/document.js");
+    const { emptyProject } = await import("/workshop/document.js");
     const { GLTFLoader } = await import("/runtime/addons/GLTFLoader.js");
     funEditor.loadProject(emptyProject("Linked anchor"));
     funEditor.apply([
@@ -649,7 +649,7 @@ async function modelingIterationChecks(page, base) {
   );
   assert.deepEqual(anchored, { live: 3, exported: 3, reloaded: 3 });
   await page.evaluate(async () => {
-    const { emptyProject } = await import("/editor/document.js");
+    const { emptyProject } = await import("/workshop/document.js");
     funEditor.loadProject(emptyProject("Keep detached dimensions"));
     funEditor.apply([
       ...funEditor.presets().toolbox,
@@ -703,7 +703,7 @@ async function modelingIterationChecks(page, base) {
 
 export async function deliveryIterationChecks(page) {
   const painted = await page.evaluate(async () => {
-    const { emptyProject } = await import("/editor/document.js");
+    const { emptyProject } = await import("/workshop/document.js");
     funEditor.loadProject(emptyProject("Painted mirror"));
     funEditor.apply([
       { op: "create", id: "box", kind: "box", material: "orange" },
@@ -750,7 +750,7 @@ export async function deliveryIterationChecks(page) {
     painted.project,
   );
   await page.evaluate(async () => {
-    const { emptyProject } = await import("/editor/document.js");
+    const { emptyProject } = await import("/workshop/document.js");
     funEditor.loadProject(emptyProject("Linked tools"));
     funEditor.apply(funEditor.presets().toolbox);
     funEditor.apply([
@@ -969,7 +969,7 @@ async function agentReliabilityChecks(page, base) {
   // Reproduce the previous quota issue at the original, modest geometry budget.
   const storage = await page.evaluate(async () => {
     const a = funEditor,
-      { emptyProject } = await import("/editor/document.js");
+      { emptyProject } = await import("/workshop/document.js");
     a.loadProject(emptyProject("Storage regression"));
     a.apply([
       {
@@ -1062,7 +1062,7 @@ async function agentReliabilityChecks(page, base) {
   // Validate the selected export, not an unrelated invalid part.
   const exported = await page.evaluate(async () => {
     const a = funEditor,
-      { emptyProject } = await import("/editor/document.js");
+      { emptyProject } = await import("/workshop/document.js");
     a.loadProject(emptyProject());
     a.apply([
       { op: "create", id: "bad", kind: "box" },
@@ -1166,7 +1166,7 @@ async function agentReliabilityChecks(page, base) {
       }),
     );
   });
-  await page.goto(`${base}/editor/?lang=zh&draft=legacy-migration`);
+  await page.goto(`${base}/workshop/?lang=zh&draft=legacy-migration`);
   await page.waitForFunction(() => window.funEditor);
   const migrated = await page.evaluate(async () => ({
     saved: await funEditor.flush(),
@@ -1252,7 +1252,7 @@ async function assetIterationChecks(page) {
   }, root);
   assert.ok(Math.abs(delivered - 1.2) < 1e-6);
   await page.evaluate(async () => {
-    const { emptyProject } = await import("/editor/document.js");
+    const { emptyProject } = await import("/workshop/document.js");
     funEditor.loadProject(emptyProject("Paint recovery"));
     funEditor.apply([
       { op: "create", id: "knob", kind: "cylinder", material: "ink" },

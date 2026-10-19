@@ -12,8 +12,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
-import { emptyProject } from "../../site/editor/document.js";
-import { primitive } from "../../site/editor/mesh.js";
+import { emptyProject } from "../../site/workshop/document.js";
+import { primitive } from "../../site/workshop/mesh.js";
 
 export async function protectedSessionChecks() {
   const dir = await mkdtemp(join(tmpdir(), "fun-editor-protected-")),

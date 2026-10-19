@@ -148,7 +148,7 @@ export function inspectVersion({ id, version, meta, files }) {
       }
     } catch (error) { if (error instanceof GLBError) problems.push(`model.glb: ${error.message}`); else throw error; }
   }
-  // A workshop source opens editable in /editor/; without its project it is only another GLB.
+  // A workshop source opens editable in /workshop/; without its project it is only another GLB.
   const workshop = files.find((file) => file.name === "source.funmodel.glb");
   if (workshop) {
     try {

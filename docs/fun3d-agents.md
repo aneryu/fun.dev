@@ -34,7 +34,7 @@ wheeled vehicles; the rest of the manifest is accepted, kept and reported.
    const bytes = await fun3d.write(root, { asset: { name: "crate" }, physics, animations: [clip] });
    ```
 
-3. **The workshop** (`/editor/`, release 3): saves `.fun3d` with its editing section and exports GLB.
+3. **The workshop** (`/workshop/`, release 3): saves `.fun3d` with its editing section and exports GLB.
 4. **A blueprint**: `npm run derive -- --blueprint lamp-post --id street_lamp_02 --set height=5`
    builds a parametric family's member headless and writes a library upload folder with
    `model.glb`, `source.funmodel.glb`, `model.fun3d` and `meta.json` ([model

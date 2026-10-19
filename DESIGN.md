@@ -110,7 +110,7 @@ next to Games.
 
 ### Model workshop
 
-`/editor/` is a PC-only authoring workbench (minimum 1024px wide). It keeps yellow
+`/workshop/` is a PC-only authoring workbench (minimum 1024px wide). It keeps yellow
 branding and primary actions, with quiet warm-gray panels, monospace controls,
 and a neutral gray 3D viewport for judging
 geometry and material color. The authoring workspace is an intentional exception to the

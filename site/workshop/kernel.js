@@ -8,7 +8,7 @@ let module = null,
 // Node (tests, local tools) resolves the package; the page loads the copy that the build
 // places next to the editor.
 const source =
-  typeof window === "undefined" ? "manifold-3d" : "/editor/vendor/manifold.js";
+  typeof window === "undefined" ? "manifold-3d" : "/workshop/vendor/manifold.js";
 
 // A bundled Node tool hands over the module and its WebAssembly bytes ({ module, wasmBinary }).
 export function loadKernel({ module: provided, ...options } = {}) {

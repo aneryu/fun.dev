@@ -17,10 +17,10 @@ export async function editorSolidChecks({ browser, base }) {
     }),
     page = watch(await context.newPage(), errors);
   try {
-    await page.goto(`${base}/editor/?lang=zh`);
+    await page.goto(`${base}/workshop/?lang=zh`);
     await page.waitForFunction(() => window.funEditor);
     await page.evaluate(async () => {
-      const { emptyProject } = await import("/editor/document.js");
+      const { emptyProject } = await import("/workshop/document.js");
       funEditor.loadProject({
         ...emptyProject("Kernel"),
         materials: [

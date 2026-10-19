@@ -40,7 +40,7 @@ Cloudflare: 1.2 s, up to 3.3 s. Resolvers that have cached the record skip the D
   `static.fun.dev`, and a 308 redirect for every other path. It stores no files, cache or
   secrets, so a release never touches it, and it can be rebuilt from this file.
 
-The workshop's `/editor/` and `/editor/guide` also use the document proxy;
+The workshop's `/workshop/` and `/workshop/guide` also use the document proxy;
 its JavaScript and CSS load from the asset origin. Pages redirects `x.html` to `x` with a
 relative Location, so a document route must match the address without `.html`, or the
 redirect leaves fun.dev. When adding a new document route, update the Caddyfile on the

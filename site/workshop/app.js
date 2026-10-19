@@ -2192,7 +2192,7 @@ async function start() {
   };
   $("#agent").onclick = () => {
     const guide = text("a", t("edDocs"));
-    guide.href = "/editor/guide";
+    guide.href = "/workshop/guide";
     guide.target = "_blank";
     guide.rel = "noopener";
     info(t("edAgent"), [

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// fundev-workshop.mjs: the fun.dev workshop for agents (https://fun.dev/editor/guide).
+// fundev-workshop.mjs: the fun.dev workshop for agents (https://fun.dev/workshop/guide).
 // This launcher fetches the current workshop (tools/workshop.json names one file by its
 // content: the workshop's own modules, its software renderer and geometry kernel), checks its
 // SHA-256, keeps it in a cache and runs it, so it always matches the live workshop. It needs

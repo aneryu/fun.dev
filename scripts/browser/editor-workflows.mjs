@@ -12,7 +12,7 @@ export async function editorWorkflowChecks({ browser, base }) {
   page.on("dialog", (d) => d.accept());
   const click = (id) => page.locator("#" + id).click();
   try {
-    await page.goto(`${base}/editor/?lang=zh`);
+    await page.goto(`${base}/workshop/?lang=zh`);
     await page.waitForFunction(() => window.funEditor);
     await click("stool");
     await page.locator('[data-node="seat"]').click();

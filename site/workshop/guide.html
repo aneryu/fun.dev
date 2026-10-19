@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/platform.css" />
-    <link rel="stylesheet" href="/editor/guide.css" />
+    <link rel="stylesheet" href="/workshop/guide.css" />
     <title>Model workshop guide — fun.dev</title>
   </head>
   <body>
     <main>
-      <a class="wordmark" href="/editor/">← fun.dev / 工坊 · Workshop</a>
+      <a class="wordmark" href="/workshop/">← fun.dev / 工坊 · Workshop</a>
       <h1>捏一个小模型。<br />Make a little model.</h1>
       <p>
         PC 工作台：Shift 多选，B 框选，F 聚焦，G / R / S 移动、旋转、缩放，X
@@ -772,7 +772,7 @@ node fundev-workshop.mjs --mcp --session model.json --artifacts out/</pre
       </p>
       <p>
         Model pages offer Open in workshop:
-        <code>/editor/?open=&lt;id&gt;&amp;version=vNNN</code> opens that
+        <code>/workshop/?open=&lt;id&gt;&amp;version=vNNN</code> opens that
         version in a new draft, from its source.funmodel.glb when it has one,
         otherwise from its model.glb.
       </p>
@@ -784,7 +784,7 @@ node fundev-workshop.mjs --mcp --session model.json --artifacts out/</pre
         <code>createAssets(context).gltf("assets/model.glb")</code>. Resolve
         parts using <code>scene.getObjectByName("body")</code>.
       </p>
-      <p><a href="/editor/">← 回到工坊 / Back to the workshop</a></p>
+      <p><a href="/workshop/">← 回到工坊 / Back to the workshop</a></p>
       <section>
         <h2>Round shapes · 圆形和曲线</h2>
         <p>
@@ -818,7 +818,7 @@ node fundev-workshop.mjs --mcp --session model.json --artifacts out/</pre
           when built — apply the blueprint again to change them. The assembly
           records <code>blueprint:{id, version, params}</code>. Every command
           of the expansion reports the blueprint's index. Blueprints are modules
-          in <code>/editor/blueprints.js</code>: a title, a parameter schema, materials
+          in <code>/workshop/blueprints.js</code>: a title, a parameter schema, materials
           and a <code>build(values, {root, id})</code> that returns parts and
           bindings, using the same library conventions as hand-built models.
           蓝图是参数化的模型族：<code>blueprints()</code> 列出参数；<code>blueprint</code>

@@ -11,11 +11,11 @@ export async function editorDeliveryChecks({ browser, base }) {
     });
   const page = watch(await context.newPage(), errors);
   try {
-    await page.goto(`${base}/editor/?lang=zh`);
+    await page.goto(`${base}/workshop/?lang=zh`);
     await page.waitForFunction(() => window.funEditor);
     await page.evaluate(async () =>
       funEditor.loadProject(
-        (await import("/editor/document.js")).emptyProject("Millimeter panel"),
+        (await import("/workshop/document.js")).emptyProject("Millimeter panel"),
       ),
     );
     await page.locator("#length-unit").selectOption("mm");
@@ -86,7 +86,7 @@ export async function editorDeliveryChecks({ browser, base }) {
     );
 
     const parity = await page.evaluate(async () => {
-      const { emptyProject } = await import("/editor/document.js");
+      const { emptyProject } = await import("/workshop/document.js");
       funEditor.loadProject(emptyProject("Delivery cases"));
       funEditor.apply(funEditor.presets().toolbox);
       const commands = [{ op: "set", id: "toolbox", position: [100, 0, 0] }];

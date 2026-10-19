@@ -35,10 +35,10 @@ export async function editorRecoveryChecks({ browser, base }) {
       id = `recovery-${fault}`,
       key = `fun.dev.editor.project.v2:${id}`;
     try {
-      await page.goto(`${base}/editor/?lang=zh&draft=${id}`);
+      await page.goto(`${base}/workshop/?lang=zh&draft=${id}`);
       await page.waitForFunction(() => window.funEditor);
       await page.evaluate(async () => {
-        const { emptyProject } = await import("/editor/document.js");
+        const { emptyProject } = await import("/workshop/document.js");
         funEditor.loadProject(emptyProject("Important source"));
         funEditor.apply([
           { op: "create", id: "part", kind: "box" },

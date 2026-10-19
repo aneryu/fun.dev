@@ -4,10 +4,10 @@ import {
   createStore,
   emptyProject,
   validateProject,
-} from "../site/editor/document.js";
-import { primitive } from "../site/editor/mesh.js";
-import { loadKernel } from "../site/editor/kernel.js";
-import { roundOutline } from "../site/editor/generators.js";
+} from "../site/workshop/document.js";
+import { primitive } from "../site/workshop/mesh.js";
+import { loadKernel } from "../site/workshop/kernel.js";
+import { roundOutline } from "../site/workshop/generators.js";
 
 before(() => loadKernel());
 
