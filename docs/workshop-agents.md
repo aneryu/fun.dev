@@ -232,6 +232,15 @@ await ws.rule({ id: "lots", kind: "lots", seed: "block", on: { path: "avenue" },
 await ws.derive();                        // copies on the lots' front line facing the road; lot zones with side, width, depth, model
 ```
 
+Roads that meet or cross are welded first, then swept together: the ribbons stop short of each
+junction and a patch fills it, and the game routes across:
+
+```js
+await ws.apply([{ op: "meet", tag: "road", tolerance: 1 }]);          // shared points where roads meet, touch or cross
+await ws.rule({ id: "roads", kind: "sweep", on: { tag: "road" }, profile: { preset: "road", lanes: 2, sidewalks: true } });
+await ws.derive();                        // roads_1 … and roads_j1 … (the junction patches)
+```
+
 `on` is `{ path, spacing, offset, sides }`, `{ zone, spacing, jitter, margin }` or `{ grid: { cells,
 spacing, origin } }`; the audit says when a rule is stale or not yet derived.
 

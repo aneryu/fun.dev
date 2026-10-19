@@ -9,7 +9,7 @@ import { hashString } from "../runtime/kit/random.js";
 import { solidBounds } from "./audit.js";
 import { ModelError } from "./mesh.js";
 import { heightAt, surfaceAt } from "../runtime/kit/terrain.js";
-import { sweepPath, resolveProfile } from "../runtime/kit/sweep.js";
+import { sweepPath, sweepNetwork, resolveProfile } from "../runtime/kit/sweep.js";
 import { gridHeightAt, cellAt } from "../runtime/kit/grid.js";
 import { evaluateLots } from "../runtime/kit/lots.js";
 
@@ -264,36 +264,39 @@ function sweepNodes(project, rule, inputs) {
   const atOrigin = parentWorld.every((v, i) => Math.abs(v - identity()[i]) < 1e-12);
   const chunk = rule.chunk ?? (project.tile ? Math.min(...project.tile.size) : 200);
   const ids = Object.keys(inputs.paths), nodes = [];
-  let index = 0, triangles = 0;
+  let index = 0, patches = 0, triangles = 0, junctions = 0;
   const tags = [...new Set(["ground", ...(rule.tags ?? [])])];
-  for (const id of ids) {
-    const { points, closed } = inputs.paths[id];
-    const result = sweepPath(points, {
-      closed,
-      profile: rule.profile,
-      step: rule.step,
-      height: rule.ground ? inputs.height : null,
-      rise: rule.rise,
-      bank: rule.bank === null ? { max: 0 } : rule.bank,
-      chunk,
+  const options = { profile: rule.profile, step: rule.step, height: rule.ground ? inputs.height : null, rise: rule.rise, bank: rule.bank === null ? { max: 0 } : rule.bank, chunk };
+  const emit = (part, label) => {
+    const patch = !!part.junction;
+    if (patch) patches++;
+    else index++;
+    triangles += part.faces.length;
+    nodes.push({
+      id: patch ? `${rule.target}_j${patches}` : ids.length === 1 && !part.multi ? rule.target : `${rule.target}_${index}`,
+      name: patch ? `${rule.target} junction ${patches}` : label,
+      parent: rule.parent ?? null,
+      mesh: {
+        vertices: atOrigin ? part.vertices : part.vertices.map((v) => point(toParent, v).map(round)),
+        faces: part.faces.map((f, k) => ({ id: `f${k}`, vertices: f.vertices, material: f.material })),
+      },
+      tags,
+      derived: { rule: rule.id, hash },
     });
-    result.chunks.forEach((part, c) => {
-      index++;
-      triangles += part.faces.length;
-      nodes.push({
-        id: ids.length === 1 && result.chunks.length === 1 ? rule.target : `${rule.target}_${index}`,
-        name: `${rule.target} ${id}${result.chunks.length > 1 ? ` ${c + 1}` : ""}`,
-        parent: rule.parent ?? null,
-        mesh: {
-          vertices: atOrigin ? part.vertices : part.vertices.map((v) => point(toParent, v).map(round)),
-          faces: part.faces.map((f, k) => ({ id: `f${k}`, vertices: f.vertices, material: f.material })),
-        },
-        tags,
-        derived: { rule: rule.id, hash },
-      });
-    });
-  }
-  nodes.report = { paths: ids.length, chunks: nodes.length, triangles };
+  };
+  // Several paths sharing points sweep as one network: chains trimmed at the junctions, a
+  // patch per crossing (kit/sweep.js sweepNetwork); otherwise each path on its own.
+  if (ids.length > 1 && rule.junctions !== false) {
+    const result = sweepNetwork(inputs.paths, options);
+    junctions = result.junctions;
+    result.chunks.forEach((part, c) => emit({ ...part, multi: true }, `${rule.target} ${part.path ?? ""} ${c + 1}`.replace(/\s+/g, " ").trim()));
+  } else
+    for (const id of ids) {
+      const { points, closed } = inputs.paths[id];
+      const result = sweepPath(points, { ...options, closed });
+      result.chunks.forEach((part, c) => emit({ ...part, multi: result.chunks.length > 1 }, `${rule.target} ${id}${result.chunks.length > 1 ? ` ${c + 1}` : ""}`));
+    }
+  nodes.report = { paths: ids.length, chunks: index, junctions, triangles };
   return nodes;
 }
 

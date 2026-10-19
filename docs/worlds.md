@@ -257,7 +257,7 @@ through `world.assemble`).
 | `assemble` | a `kit`; adjacency rules (which socket tags mate, weights); `bounds` as a zone or grid; `start` sockets; `count` or `length`; `seed` | placed pieces (rooms and corridors, runner segments, fence runs) |
 | `lots` | `on` a path, paths or a tag; `sides`; `width` and `depth` ranges; `offset` from the centreline to the front line (the sweep's half width + 2 by default); `gap`; `start`, `end`; `ground`; `bounds` zone; `avoid`; `candidates` with `front` (the model's side that faces the road) and `margin`; `zones: true` for a zone part per lot; `seed` | placed copies of library models fitting each lot's frontage and depth, standing on the front line facing the road; lot zones with `side`, `width`, `depth`, `model`; runs at play time too (`bake: false`). Built 2026-10-19; blueprint buildings sized to their lots are later |
 | `terrain` | an ordered list of ops: `noise` (octaves, amplitude, scale), `stamp` (shape, position, height), `erode` (passes), `flatten` along edges by width and blend, `level` inside a zone, `water` level; `surfaces` by slope and height bands | `fun3d.terrain` streams |
-| `sweep` | `on` a path, paths or a tag; a `profile` (preset `road`, `track`, `rail`, `river`, `walk` with options, or explicit `strips` side by side with offsets for kerbs, `marks` laid over them dashed by length, a `thickness` slab); `ground` follows the terrain plus `rise`; `step`; `bank` by curvature; `chunk` metres per mesh (the tile size by default) | mesh parts tagged `ground` with static bodies; path edges keep their kind and profile. Built 2026-10-19; junctions, shoulders cut into terrain and bridges are later: crossing ribbons overlap, so grids come from kits |
+| `sweep` | `on` a path, paths or a tag; a `profile` (preset `road`, `track`, `rail`, `river`, `walk` with options, or explicit `strips` side by side with offsets for kerbs, `marks` laid over them dashed by length, a `thickness` slab); `ground` follows the terrain plus `rise`; `step`; `bank` by curvature; `chunk` metres per mesh (the tile size by default) | mesh parts tagged `ground` with static bodies; path edges keep their kind and profile. Built 2026-10-19 with junctions: paths made to meet (`meet`: ends snap, an end on another path joins it, crossings enter both) sweep as one network, each ribbon stopping short of a junction by the others' half width over the sine of their angle and a patch of the junction material filling it; shoulders cut into terrain and bridges are later |
 | `blueprint` | as today ([blueprints](model-editor.md#blueprints-and-derivation)) | a parametric model in place |
 
 Determinism: the same source, generator stamp, parameters and seed give the same bytes; the
@@ -452,9 +452,12 @@ from a script, reviewed like library models.
    `ws.sample` renders frames along a path. Sample: `examples/worlds/keep.mjs` (a tower-defence
    board with a lane, a river ford, a plateau and build spots). Still to come in this step:
    `lots` (built 2026-10-19: parcels along a street taking the library's buildings by footprint,
-   facing the road, as zones for the game; sample `examples/worlds/block.mjs`) and the tile grid
-   on maps are done; junctions, `fun3d.navmesh`, budgets measured on a phone, and 帝都 M1's
-   block loaded from world data remain.
+   facing the road, as zones for the game; sample `examples/worlds/block.mjs`), the tile grid
+   on maps and junctions (built 2026-10-19: the `meet` op joins paths where they meet or
+   cross, a sweep over several paths trims its ribbons at the junctions and fills them with
+   patches, the welded network routes in the game; sample `examples/worlds/crossroads.mjs`)
+   are done; `fun3d.navmesh`, budgets measured on a phone, and 帝都 M1's block loaded from
+   world data remain.
 4. **Later** (appendix A).
 
 Step 1 fits the early phase and serves 帝都 M1. Whether step 3 precedes workshop stage 4

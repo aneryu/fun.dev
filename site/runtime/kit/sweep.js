@@ -84,7 +84,7 @@ export function resolveProfile(profile) {
     if (!SWEEP_PRESETS[preset]) throw new Error(`unknown profile preset "${preset}"`);
     out = { ...SWEEP_PRESETS[preset](options), ...(options.bank !== undefined ? { bank: options.bank } : {}), ...(options.thickness !== undefined ? { thickness: options.thickness } : {}) };
   } else if (profile && typeof profile === "object" && Array.isArray(profile.strips)) {
-    out = { strips: profile.strips.map((s) => ({ width: s.width, material: s.material, offset: s.offset ?? 0 })), marks: (profile.marks ?? []).map((m) => ({ ...m })), lanes: profile.lanes ?? 1, kind: profile.kind ?? "road", ...(profile.bank ? { bank: profile.bank } : {}), ...(profile.thickness ? { thickness: profile.thickness } : {}) };
+    out = { strips: profile.strips.map((s) => ({ width: s.width, material: s.material, offset: s.offset ?? 0 })), marks: (profile.marks ?? []).map((m) => ({ ...m })), lanes: profile.lanes ?? 1, kind: profile.kind ?? "road", ...(profile.bank ? { bank: profile.bank } : {}), ...(profile.thickness ? { thickness: profile.thickness } : {}), ...(profile.junction ? { junction: profile.junction } : {}) };
   } else throw new Error("a profile is a preset name, { preset, …options } or { strips, marks }");
   out.width = out.strips.reduce((sum, s) => sum + s.width, 0);
   return out;
@@ -146,18 +146,47 @@ function subdivide(points, closed, step) {
   return out;
 }
 
+/** The part of an open polyline between two distances along it, its ends interpolated. */
+export function cutPolyline(points, from, to) {
+  const lengths = [0];
+  for (let i = 1; i < points.length; i++) lengths.push(lengths[i - 1] + length(sub(points[i], points[i - 1])));
+  const total = lengths[lengths.length - 1], a = Math.max(0, from), b = Math.min(total, to);
+  if (b - a < 1e-6) return [];
+  const at = (d) => {
+    let i = 1;
+    while (i < points.length - 1 && lengths[i] < d) i++;
+    const span = lengths[i] - lengths[i - 1] || 1;
+    return lerp(points[i - 1], points[i], (d - lengths[i - 1]) / span);
+  };
+  const out = [at(a)];
+  for (let i = 1; i < points.length - 1; i++) if (lengths[i] > a + 1e-9 && lengths[i] < b - 1e-9) out.push([...points[i]]);
+  out.push(at(b));
+  return out;
+}
+
 /**
  * Sweeps a profile along a path. `height(x, z)` (a terrain) replaces the path's heights
- * plus `rise`; `bank: { max, radius }` tilts the section by curvature (full bank at the
- * radius); `chunk` metres splits the result into meshes (shared seam vertices, no cracks).
+ * (the surface always sits `rise` above its line); `bank: { max, radius }` tilts the section by curvature (full bank at the
+ * radius); `chunk` metres splits the result into meshes (shared seam vertices, no cracks);
+ * `trim: [start, end]` leaves out that much of an open path's ends (junctions).
  * Returns { chunks: [{ vertices, faces, from, to }], length, width, samples }.
  */
-export function sweepPath(points, { closed = false, profile, step = 4, height = null, rise = 0.05, bank = null, chunk = Infinity } = {}) {
+export function sweepPath(points, { closed = false, profile, step = 4, height = null, rise = 0.05, bank = null, chunk = Infinity, trim = null } = {}) {
   const p = resolveProfile(profile);
   if (points.length < 2) throw new Error("a sweep needs a path of at least two points");
+  if (trim && !closed) {
+    const total = points.reduce((sum, pt, i) => (i ? sum + length(sub(pt, points[i - 1])) : 0), 0);
+    points = cutPolyline(points, trim[0] ?? 0, total - (trim[1] ?? 0));
+    if (points.length < 2) return { chunks: [], length: 0, width: p.width, lanes: p.lanes, kind: p.kind, samples: 0 };
+  }
   const samples = subdivide(points, closed, step);
   const n = samples.length, segs = closed ? n : n - 1;
-  if (height) for (const s of samples) { const h = height(s[0], s[2]); if (h !== null && h !== undefined) s[1] = h + rise; }
+  // The surface sits `rise` above the path (or the ground under it), clear of a floor at
+  // the path's own height.
+  for (const s of samples) {
+    const h = height ? height(s[0], s[2]) : null;
+    s[1] = (h === null || h === undefined ? s[1] : h) + rise;
+  }
   // Segment directions (horizontal) and lengths; a frame per sample with the mitre at corners.
   const dirs = [], lens = [];
   for (let i = 0; i < segs; i++) {
@@ -265,4 +294,211 @@ export function sweepPath(points, { closed = false, profile, step = 4, height = 
   }
   const list = [...chunks.entries()].sort((a, b) => a[0] - b[0]).map(([, ch]) => ({ vertices: ch.vertices, faces: ch.faces, from: round(ch.from), to: round(ch.to) }));
   return { chunks: list, length: round(total), width: p.width, lanes: p.lanes, kind: p.kind, samples: n };
+}
+
+const key3 = (p) => `${Math.round(p[0] * 1000)}|${Math.round(p[1] * 1000)}|${Math.round(p[2] * 1000)}`;
+const dist2 = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
+/** The parameter and point of the closest approach of p to the segment ab, in the x–z plane. */
+function projectXZ(p, a, b) {
+  const dx = b[0] - a[0], dz = b[2] - a[2], l2 = dx * dx + dz * dz;
+  const u = l2 ? Math.min(1, Math.max(0, ((p[0] - a[0]) * dx + (p[2] - a[2]) * dz) / l2)) : 0;
+  return { u, point: lerp(a, b, u) };
+}
+/** The crossing of two segments in the x–z plane, strictly inside both, or null. */
+function crossingXZ(a, b, c, d) {
+  const r = [b[0] - a[0], b[2] - a[2]], s = [d[0] - c[0], d[2] - c[2]], denominator = r[0] * s[1] - r[1] * s[0];
+  if (Math.abs(denominator) < 1e-9) return null;
+  const qp = [c[0] - a[0], c[2] - a[2]];
+  const t = (qp[0] * s[1] - qp[1] * s[0]) / denominator, u = (qp[0] * r[1] - qp[1] * r[0]) / denominator;
+  if (t <= 1e-6 || t >= 1 - 1e-6 || u <= 1e-6 || u >= 1 - 1e-6) return null;
+  return { t, u };
+}
+
+/**
+ * Welds paths where they meet (docs/worlds.md §4): ends within `tolerance` of each other
+ * snap together, an end within `tolerance` of another path moves onto it and that path gains
+ * the point, and where two paths cross both gain the crossing. Paths then share points, so
+ * sweeps make junctions there and the runtime's network routes across. Takes and returns
+ * { id: { points, closed } }; `welds` lists what happened.
+ */
+export function weldPaths(paths, { tolerance = 0.5 } = {}) {
+  const out = Object.fromEntries(Object.entries(paths).map(([id, p]) => [id, { points: p.points.map((pt) => [...pt]), closed: !!p.closed }]));
+  const ids = Object.keys(out), welds = [];
+  const ends = (id) => (out[id].closed ? [] : [0, out[id].points.length - 1]);
+  // Ends meeting ends.
+  for (let i = 0; i < ids.length; i++)
+    for (const ei of ends(ids[i]))
+      for (let j = i + 1; j < ids.length; j++)
+        for (const ej of ends(ids[j])) {
+          const a = out[ids[i]].points[ei], b = out[ids[j]].points[ej];
+          if (dist2(a, b) > 1e-6 && dist2(a, b) <= tolerance) {
+            const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2].map(round);
+            out[ids[i]].points[ei] = [...m];
+            out[ids[j]].points[ej] = [...m];
+            welds.push({ kind: "ends", at: m, paths: [ids[i], ids[j]] });
+          }
+        }
+  // Ends touching another path: the end moves onto it, the other path gains the point.
+  for (const id of ids)
+    for (const e of ends(id)) {
+      const p = out[id].points[e];
+      let best = null;
+      for (const other of ids) {
+        if (other === id) continue;
+        const pts = out[other].points, n = out[other].closed ? pts.length : pts.length - 1;
+        for (let k = 0; k < n; k++) {
+          const a = pts[k], b = pts[(k + 1) % pts.length], hit = projectXZ(p, a, b), d = dist2(p, hit.point);
+          if (d <= tolerance && (!best || d < best.d)) best = { other, k, u: hit.u, point: hit.point, d };
+        }
+      }
+      if (!best) continue;
+      const m = best.point.map(round), pts = out[best.other].points;
+      const a = pts[best.k], b = pts[(best.k + 1) % pts.length];
+      // Onto a vertex: nothing to add unless the end was off it; inside a segment: a new point.
+      if (dist2(m, a) < 1e-6 || dist2(m, b) < 1e-6) { if (best.d < 1e-6) continue; }
+      else pts.splice(best.k + 1, 0, [...m]);
+      out[id].points[e] = [...m];
+      welds.push({ kind: "touch", at: m, paths: [id, best.other] });
+    }
+  // Crossings: both paths gain the point (its height the two heights' mean).
+  for (let i = 0; i < ids.length; i++)
+    for (let j = i + 1; j < ids.length; j++) {
+      const A = out[ids[i]], B = out[ids[j]], inserts = { a: [], b: [] };
+      const na = A.closed ? A.points.length : A.points.length - 1, nb = B.closed ? B.points.length : B.points.length - 1;
+      for (let k = 0; k < na; k++)
+        for (let l = 0; l < nb; l++) {
+          const a = A.points[k], b = A.points[(k + 1) % A.points.length], c = B.points[l], d = B.points[(l + 1) % B.points.length];
+          const hit = crossingXZ(a, b, c, d);
+          if (!hit) continue;
+          const pa = lerp(a, b, hit.t), pb = lerp(c, d, hit.u), m = [pa[0], (pa[1] + pb[1]) / 2, pa[2]].map(round);
+          inserts.a.push({ k, t: hit.t, m });
+          inserts.b.push({ k: l, t: hit.u, m });
+          welds.push({ kind: "cross", at: m, paths: [ids[i], ids[j]] });
+        }
+      for (const [list, path] of [[inserts.a, A], [inserts.b, B]])
+        for (const ins of list.sort((x, y) => y.k - x.k || y.t - x.t)) path.points.splice(ins.k + 1, 0, [...ins.m]);
+    }
+  return { paths: out, welds };
+}
+
+/**
+ * Sweeps a set of paths that share points as one network: at every junction (a point where
+ * three or more road ends or passes meet) the ribbons stop short of each other and a patch
+ * of the junction material fills the crossing, so roads cross without overlapping. Paths
+ * without junctions sweep as they are. Returns the chunks of every ribbon and a chunk per
+ * junction (`junction: true`), with counts.
+ */
+export function sweepNetwork(paths, { profile, step = 4, height = null, rise = 0.05, bank = null, chunk = Infinity } = {}) {
+  const p = resolveProfile(profile), half = p.width / 2;
+  const material = p.junction ?? p.strips.reduce((best, s) => (s.width > best.width ? s : best), p.strips[0]).material;
+  // Degree per point: ends count once, passes twice.
+  const degree = new Map(), ids = Object.keys(paths);
+  for (const id of ids) {
+    const { points, closed } = paths[id];
+    points.forEach((pt, i) => {
+      const k = key3(pt), end = !closed && (i === 0 || i === points.length - 1);
+      degree.set(k, (degree.get(k) ?? 0) + (end ? 1 : 2));
+    });
+  }
+  const junction = (pt) => (degree.get(key3(pt)) ?? 0) >= 3;
+  // Chains: each path cut at its junction points; a closed path with junctions opens there.
+  const chains = [];
+  for (const id of ids) {
+    let { points, closed } = paths[id];
+    const marks = points.map((pt, i) => (junction(pt) ? i : -1)).filter((i) => i >= 0);
+    if (closed && marks.length) {
+      points = [...points.slice(marks[0]), ...points.slice(0, marks[0] + 1)];
+      closed = false;
+    }
+    if (closed || !marks.length) { chains.push({ id, points, closed, start: false, end: false }); continue; }
+    const cuts = points.map((pt, i) => (junction(pt) && i > 0 && i < points.length - 1 ? i : -1)).filter((i) => i >= 0);
+    let from = 0;
+    for (const cut of [...cuts, points.length - 1]) {
+      if (cut > from) chains.push({ id, points: points.slice(from, cut + 1), closed: false, start: junction(points[from]), end: junction(points[cut]) });
+      from = cut;
+    }
+  }
+  // Two chains meeting end to end at a plain point continue as one ribbon, the corner mitred.
+  for (let merged = true; merged; ) {
+    merged = false;
+    const endsAt = new Map();
+    for (const c of chains) {
+      if (c.closed) continue;
+      for (const side of ["start", "end"]) {
+        const pt = side === "start" ? c.points[0] : c.points[c.points.length - 1], k = key3(pt);
+        if ((degree.get(k) ?? 0) !== 2) continue;
+        if (!endsAt.has(k)) endsAt.set(k, []);
+        endsAt.get(k).push({ c, side });
+      }
+    }
+    for (const list of endsAt.values()) {
+      if (list.length !== 2 || list[0].c === list[1].c) continue;
+      const [a, b] = list;
+      const pa = a.side === "end" ? a.c.points : [...a.c.points].reverse(), pb = b.side === "start" ? b.c.points : [...b.c.points].reverse();
+      chains.splice(chains.indexOf(a.c), 1);
+      chains.splice(chains.indexOf(b.c), 1);
+      chains.push({ id: `${a.c.id}+${b.c.id}`, points: [...pa, ...pb.slice(1)], closed: false, start: a.side === "end" ? a.c.start : a.c.end, end: b.side === "start" ? b.c.end : b.c.start });
+      merged = true;
+      break;
+    }
+  }
+  // Every junction's arms: the chains leaving it and their directions.
+  const arms = new Map();
+  const arm = (chain, atStart) => {
+    const pts = chain.points, node = atStart ? pts[0] : pts[pts.length - 1], next = atStart ? pts[1] : pts[pts.length - 2];
+    const d = sub(next, node);
+    d[1] = 0;
+    const dir = normalize(d), k = key3(node);
+    if (!arms.has(k)) arms.set(k, { node: [...node], list: [] });
+    const entry = { chain, atStart, dir, trim: half };
+    arms.get(k).list.push(entry);
+    return entry;
+  };
+  for (const chain of chains) {
+    if (chain.start) chain.trimStart = arm(chain, true);
+    if (chain.end) chain.trimEnd = arm(chain, false);
+  }
+  // Each arm stops short by the others' half width over the sine of the angle between them
+  // (a continuation straight through asks for nothing).
+  for (const { list } of arms.values())
+    for (const a of list) {
+      let t = half;
+      for (const b of list) {
+        if (b === a) continue;
+        const sine = Math.abs(a.dir[0] * b.dir[2] - a.dir[2] * b.dir[0]);
+        if (sine > 0.2) t = Math.max(t, half / sine);
+      }
+      a.trim = Math.min(t, half * 4);
+    }
+  const chunks = [];
+  let total = 0, samples = 0;
+  for (const chain of chains) {
+    const trim = [chain.trimStart?.trim ?? 0, chain.trimEnd?.trim ?? 0];
+    const result = sweepPath(chain.points, { closed: chain.closed, profile, step, height, rise, bank, chunk, trim: trim[0] || trim[1] ? trim : null });
+    for (const c of result.chunks) chunks.push({ ...c, path: chain.id });
+    total += result.length;
+    samples += result.samples;
+  }
+  // Patches: the arms' end corners in order around the node, fanned from its centre.
+  let junctions = 0;
+  for (const { node, list } of arms.values()) {
+    if (list.length < 3) continue;
+    const lift = (pt) => { const h = height ? height(pt[0], pt[2]) : null; return [pt[0], (h === null || h === undefined ? node[1] : h) + rise, pt[2]]; };
+    const corners = [];
+    for (const a of list) {
+      const end = [node[0] + a.dir[0] * a.trim, 0, node[2] + a.dir[2] * a.trim], right = [-a.dir[2], 0, a.dir[0]];
+      for (const side of [-1, 1]) corners.push(lift([end[0] + right[0] * half * side, 0, end[2] + right[2] * half * side]));
+    }
+    // Arms at right angles share corners (a T): each corner once, then in order around the node.
+    const unique = [];
+    for (const c of corners) if (!unique.some((u) => dist2(u, c) < 1e-6)) unique.push(c);
+    corners.length = 0;
+    corners.push(...unique.sort((u, v) => Math.atan2(u[2] - node[2], u[0] - node[0]) - Math.atan2(v[2] - node[2], v[0] - node[0])));
+    const centre = lift(node), vertices = [centre.map(round), ...corners.map((c) => c.map(round))], faces = [];
+    // Clockwise in x–z as sorted by atan2 means counter-clockwise seen from above (+y).
+    for (let i = 0; i < corners.length; i++) faces.push({ vertices: [0, 1 + ((i + 1) % corners.length), 1 + i], material });
+    chunks.push({ vertices, faces, from: 0, to: 0, junction: true });
+    junctions++;
+  }
+  return { chunks, length: round(total), width: p.width, lanes: p.lanes, kind: p.kind, samples, chains: chains.length, junctions };
 }

@@ -625,7 +625,7 @@ test("a sweep rule turns paths into track and road meshes on the terrain, with b
     assert.ok(Math.abs(y - (heightAt(field, x, z) + 0.1)) < 1.5, `vertex ${x}, ${z} at ${y} over ${heightAt(field, x, z)}`);
   }
   const roads = derived.derived.find((d) => d.rule === "roads");
-  assert.deepEqual(roads.nodes, ["roads_1", "roads_2"], "one mesh per road, each shorter than a chunk");
+  assert.deepEqual(roads.nodes, ["roads_1", "roads_2", "roads_3", "roads_j1"], "the side road ends on the main road: a T junction cuts the main road in two and adds a patch");
   const audit = api.audit();
   assert.ok(!audit.findings.some((f) => f.code === "stale-rule" || f.code === "floating"), JSON.stringify(audit.findings.map((f) => f.code)));
   // Moving a road leaves its sweep stale; deriving the rule alone replaces its meshes.
@@ -633,7 +633,7 @@ test("a sweep rule turns paths into track and road meshes on the terrain, with b
   assert.ok(api.audit().findings.some((f) => f.code === "stale-rule"), "a moved path makes the sweep stale");
   await api.derive({ id: "roads" }, { ifRevision: api.inspect().revision });
   assert.ok(!api.audit().findings.some((f) => f.code === "stale-rule"));
-  assert.ok(api.inspect({ id: "roads_2" }).bounds.max[2] > 89, "the new side road reaches z = 90");
+  assert.ok(api.inspect({ id: "roads_3" }).bounds.max[2] > 89, "the new side road reaches z = 90");
   // The tile: edges with kinds, lanes and the profiles that swept them; bodies for the swept
   // floors; a network over the roads that respects one-way edges.
   const tile = await api.exportTile({ encoding: "buffer" });
@@ -779,4 +779,40 @@ test("lots line a street with models fitting and facing the road, as zones too; 
   // The map carries the tile grid of a tiled project.
   const withGrid = brightness(api.map({ size: 160 }).dataUrl), without = brightness(api.map({ size: 160, overlays: { tiles: false } }).dataUrl);
   assert.ok(withGrid.colours > without.colours, "tile lines add their colour to the map");
+});
+
+test("welded paths sweep as a network with junction patches, and the game routes across", async () => {
+  fresh("crossroads", { size: [120, 120] });
+  api.apply([
+    { op: "create", id: "slab", kind: "box", material: "wood", position: [0, -0.05, 0], options: { size: [120, 0.1, 120] }, tags: ["ground"] },
+    { op: "create", id: "ew", kind: "path", tags: ["road"], path: { points: [[-50, 0, 0], [50, 0, 0]], kind: "road", lanes: 2 } },
+    { op: "create", id: "ns", kind: "path", tags: ["road"], path: { points: [[0, 0, -40], [0, 0, 40]], kind: "road", lanes: 2 } },
+    { op: "create", id: "lane", kind: "path", tags: ["road"], path: { points: [[20, 0, 0.3], [20, 0, 30]], kind: "road", lanes: 1 } },
+  ]);
+  const before = worldData(await fun3d.load(await api.exportTile({ encoding: "buffer" })));
+  assert.equal(before.network("road").route([-50, 0, 0], [0, 0, 40]).found, false, "unwelded roads do not connect");
+  assert.throws(() => api.apply([{ op: "meet", ids: ["ew"] }]), /at least two paths/);
+  api.apply([{ op: "meet", tag: "road", tolerance: 0.5 }]);
+  const ew = api.inspect({ id: "ew" }).node.path.points;
+  assert.deepEqual(ew, [[-50, 0, 0], [0, 0, 0], [20, 0, 0], [50, 0, 0]], "the crossing and the lane's foot joined the east-west road");
+  assert.deepEqual(api.inspect({ id: "lane" }).node.path.points[0], [20, 0, 0]);
+  api.apply([{ op: "rule", definition: { id: "roads", kind: "sweep", on: { tag: "road" }, profile: { preset: "road", lanes: 2, lines: false }, step: 5 } }]);
+  const derived = await api.derive({}, { ifRevision: api.inspect().revision });
+  const roads = derived.derived.find((d) => d.rule === "roads");
+  assert.equal(roads.sweep.junctions, 2, "a crossroads and a T");
+  const ids = roads.nodes;
+  assert.ok(ids.includes("roads_j1") && ids.includes("roads_j2") && ids.filter((id) => /^roads_\d+$/.test(id)).length === 6, ids.join());
+  const patch = api.getProject().nodes.find((n) => n.id === "roads_j1");
+  assert.ok(patch.mesh.faces.every((f) => f.material === "mat_asphalt") && patch.tags.includes("ground"));
+  const audit = api.audit();
+  assert.ok(!audit.findings.some((f) => f.code === "overlap"), JSON.stringify(audit.findings.map((f) => f.code)));
+  // Ribbons stop short of the crossroads; the runtime routes across the welded network.
+  const chunks = api.getProject().nodes.filter((n) => /^roads_\d+$/.test(n.id));
+  assert.ok(chunks.flatMap((n) => n.mesh.vertices).every((v) => !(Math.abs(v[0]) < 3.49 && Math.abs(v[2]) < 3.49)), "no ribbon inside the crossroads square");
+  const data = worldData(await fun3d.load(await api.exportTile({ encoding: "buffer" })));
+  const route = data.network("road").route([-50, 0, 0], [20, 0, 30]);
+  assert.ok(route.found && route.edges.join() === "ew,lane" && Math.abs(route.length - 100) < 1e-6, JSON.stringify(route));
+  api.apply([{ op: "rule", definition: { id: "roads", kind: "sweep", on: { tag: "road" }, profile: { preset: "road", lanes: 2, lines: false }, step: 5, junctions: false } }]);
+  const plain = (await api.derive({}, { ifRevision: api.inspect().revision })).derived.find((d) => d.rule === "roads");
+  assert.equal(plain.sweep.junctions, 0, "junctions off: every path on its own");
 });

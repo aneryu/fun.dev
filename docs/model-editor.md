@@ -1189,7 +1189,8 @@ await ws.derive();
   Materials are project ids; the presets' (`mat_asphalt`, `mat_line_white`, `mat_kerb_red`…)
   are added to the project when missing.
 - `ground: true` puts each sample on the terrain under it plus `rise` (5 cm by default);
-  without it the path's own heights are used. `step` (4 m) is the sampling along the path;
+  without it the path's own heights plus `rise` are used, so a road on a slab at the path's
+  height sits clear of it. `step` (4 m) is the sampling along the path;
   corners are mitred. The ribbon is flat across, so prepare the bed first: `flatten` the
   terrain along the path at least as wide as the profile (plus a blend), after any `smooth`
   pass, or the edges of a road on a slope sit under the ground. `flatten` with
@@ -1206,9 +1207,20 @@ Path parts carry `kind` (`data`, `road`, `track`, `rail`, `river`, `walk`), `lan
 and `speed`; the tile's edges keep them and name the sweep's profile (`profiles` table with
 `width`, `lanes`, `kind`), so `worldData(tile).path(id)` reports `kind`, `lanes`, `width` and
 `frame(t)`, and `network(kind).route(a, b)` routes over paths welded at shared points, one-way
-edges directed. Sweeps bake only (`bake: false` is refused). Crossing sweeps overlap at the
-same height: cut junctions are later; street grids come from kits. Sample:
+edges directed. Sweeps bake only (`bake: false` is refused). Sample:
 `examples/worlds/circuit.mjs`.
+
+Junctions: `{ op: "meet", ids | tag, tolerance }` (0.5 m) makes paths share their points where
+they meet: ends within the tolerance snap together, an end within it of another path moves onto
+that path (which gains the point), and two paths crossing both gain the crossing (at the mean of
+their heights). A sweep rule over several paths that share points sweeps them as one network:
+each road stops short of a junction (a point where three or more road ends or passes meet) by
+the others' half width over the sine of the angle between them, two roads meeting end to end at
+a plain point continue as one mitred ribbon, and a patch of the profile's widest strip's
+material (or `profile.junction`) fills each junction (`<target>_j<n>`, tagged `ground`);
+`junctions: false` sweeps every path on its own. `derive` reports `sweep: { paths, chunks,
+junctions, triangles }`. Welded paths route as one network in the game. Sidewalk corners stay
+open at junctions (fillets are later). Sample: `examples/worlds/crossroads.mjs`.
 
 ### Grids: cell maps
 

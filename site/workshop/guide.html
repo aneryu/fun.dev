@@ -771,7 +771,8 @@ await ws.rule({ id: "asphalt", kind: "sweep", on: { path: "road" }, profile: { p
 await ws.apply([{ op: "create", id: "board", kind: "grid", position: [-40, 0, -30], grid: { cell: 2, size: [40, 30], types: [{ id: "plain", color: "#9fb66b" }, { id: "rock", color: "#6f6a62", walkable: false }] } },
   { op: "grid", id: "board", paint: [{ type: "rock", rect: [8, 0, 11, 7] }, { level: 2, rect: [30, 0, 39, 9] }] }]);   // a cell map: types, levels, cell(x, z) and gridPath in the game
 await ws.sample({ path: "road", every: 25, file: "walk.png" });                                 // a walkthrough: frames along a path
-await ws.rule({ id: "lots", kind: "lots", on: { path: "road" }, width: [14, 20], depth: 24, zones: true, candidates: [{ model: "city_office_midrise_01" }, { model: "cafe_01" }] });   // parcels with buildings that fit, facing the road</pre
+await ws.rule({ id: "lots", kind: "lots", on: { path: "road" }, width: [14, 20], depth: 24, zones: true, candidates: [{ model: "city_office_midrise_01" }, { model: "cafe_01" }] });   // parcels with buildings that fit, facing the road
+await ws.apply([{ op: "meet", tag: "road" }]);                                                  // roads share points where they meet or cross: junctions when swept, one network in the game</pre
       >
       <p>
         A placed model keeps the library's bounds and files, never its geometry; markers,

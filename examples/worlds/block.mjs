@@ -19,7 +19,7 @@ export default async function (ws) {
   await ws.rule({ id: "lots", kind: "lots", seed: "block", on: { path: "avenue" }, width: [18, 26], depth: 24, gap: [4, 8], start: 4, zones: true,
     candidates: [{ model: "city_office_midrise_01", weight: 2 }, { model: "city_retail_residential_01", weight: 3 }, { model: "city_school_01", weight: 1, margin: 0 }, { model: "cafe_01", weight: 1, margin: 2 }] });
   // Lamps along the kerb line, trees between the buildings' front lines and the sidewalks.
-  await ws.rule({ id: "lamps", kind: "scatter", target: "lamps", tags: ["lamp"], on: { path: "avenue", spacing: 24, offset: 5.4, sides: "both", start: 12 }, y: 0.15, candidates: [{ model: "street_lamp_01" }] });
+  await ws.rule({ id: "lamps", kind: "scatter", target: "lamps", tags: ["lamp"], on: { path: "avenue", spacing: 24, offset: 5.4, sides: "both", start: 12 }, y: 0.2, candidates: [{ model: "street_lamp_01" }] });
   await ws.rule({ id: "trees", kind: "scatter", seed: "block", target: "trees", tags: ["tree"], on: { path: "avenue", spacing: 11, offset: 7, sides: "both", start: 6, jitter: 0.2 }, yaw: "random", scale: [0.8, 1.1],
     candidates: [{ model: "flowering_cherry_tree_01", weight: 1 }, { model: "garden_shrub_01", weight: 2 }] });
   const derived = await ws.derive();

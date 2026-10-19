@@ -261,6 +261,8 @@ const props = {
   seed: { oneOf: [number, string] },
   spacing: { type: "number", minimum: 0.1, maximum: 10000 },
   ground: boolean,
+  tag: string,
+  tolerance: { type: "number", minimum: 0.001, maximum: 100 },
   place: {
     type: "object",
     properties: {
@@ -483,6 +485,7 @@ const specs = {
   terrain: ["id", "ops surfaces water seed"],
   grid: ["id", "paint fill"],
   resample: ["id", "spacing smooth ground"],
+  meet: ["", "ids tag tolerance"],
   socket: ["id socket", "position rotation tags"],
   removeSocket: ["id socket", ""],
   snap: ["id socket target", ""],
@@ -804,6 +807,7 @@ modelDefinitions.rule = obj(
     step: number,
     bank: { oneOf: [number, { type: "null" }, obj({ max: number, radius: number })] },
     chunk: number,
+    junctions: boolean,
     // Assembly: pieces with sockets grown from a start piece.
     pieces: {
       type: "array",
@@ -1086,6 +1090,7 @@ export function capabilities({ detail = "full", command } = {}) {
       "sampleAlongPaths",
       "lots",
       "tileGridOnMaps",
+      "junctions",
     ],
     unsupported: [
       "UV textures",

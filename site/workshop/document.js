@@ -34,7 +34,7 @@ import {
 import { meshEdges, bevelEdges, cutPlane, loopCut } from "./topology.js";
 import { surfaceDiagnostics } from "./diagnostics.js";
 import { booleanMesh } from "./booleans.js";
-import { resamplePath, resolveProfile } from "../runtime/kit/sweep.js";
+import { resamplePath, resolveProfile, weldPaths } from "../runtime/kit/sweep.js";
 import { cellAt as gridCellAt, gridHeightAt } from "../runtime/kit/grid.js";
 import { insidePolygon } from "../runtime/kit/scatter.js";
 import { arrayStep, stepMatrix, arrayMesh } from "./arrays.js";
@@ -954,6 +954,8 @@ function normalizeSweepRule(value, rule, path) {
     rule.bank = { max: number(value.bank.max ?? 0, 0, 45, `${path}.bank.max`), radius: number(value.bank.radius ?? 40, 1, 10000, `${path}.bank.radius`) };
   }
   if (value.chunk !== undefined && value.chunk !== null) rule.chunk = number(value.chunk, 1, 100000, `${path}.chunk`);
+  // junctions false: every path sweeps on its own, crossings left overlapping.
+  if (value.junctions === false) rule.junctions = false;
 }
 function normalizeAvoid(value, path) {
   if (!Array.isArray(value) || value.length > COPY_LIMITS.avoid) fail(`avoid lists up to ${COPY_LIMITS.avoid} entries`, `${path}.avoid`);
@@ -1964,6 +1966,29 @@ function run(project, command) {
     if (project.nodes.some((n) => removed.has(n.parent) && !removed.has(n.id)))
       fail("A derived part has children; move them before removing the rule");
     project.nodes = project.nodes.filter((n) => !removed.has(n.id));
+    return;
+  }
+  if (command.op === "meet") {
+    // Paths meeting or crossing share their points afterwards (kit/sweep.js weldPaths), so
+    // sweeps make junctions there and the runtime's network routes across. (weld and
+    // connect are mesh ops.)
+    const chosen = project.nodes.filter((n) => n.path && (command.ids ? command.ids.includes(n.id) : command.tag ? n.tags?.includes(command.tag) : true));
+    if (command.ids) for (const id of command.ids) if (!chosen.some((n) => n.id === id)) fail(`${id} is not a path`, "ids");
+    if (chosen.length < 2) fail("meet needs at least two paths", command.ids ? "ids" : command.tag ? "tag" : "ids");
+    const tolerance = number(command.tolerance ?? 0.5, 0.001, 100, "tolerance");
+    const world = {};
+    for (const n of chosen) {
+      const m = worldMatrix(project, n.id);
+      world[n.id] = { points: n.path.points.map((pt) => point(m, pt)), closed: n.path.closed };
+    }
+    const { paths: welded, welds } = weldPaths(world, { tolerance });
+    for (const n of chosen) {
+      const back = inverse(worldMatrix(project, n.id));
+      const points = welded[n.id].points.map((pt) => point(back, pt).map((v) => Math.round(v * 1000) / 1000));
+      if (points.length > PATH_POINTS) fail(`${n.id} would have ${points.length} points; the cap is ${PATH_POINTS}`, "ids");
+      n.path = { ...n.path, points };
+    }
+    project.welds = welds.length;
     return;
   }
   if (command.op === "derived") {
