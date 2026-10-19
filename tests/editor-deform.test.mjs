@@ -210,9 +210,13 @@ test("subdivide: Catmull–Clark quads, linear mode, levels, limits and material
   assert.deepEqual(measure(linear.snapshot(), "c").bounds.size, [1, 1, 1]);
   assert.equal(node(linear, "c").mesh.faces.length, 96);
   closed(linear.snapshot());
-  // Growth is checked against the limits before anything is built.
+  // Growth is checked against the (dense) limits before anything is built: three levels of a
+  // 2 048-face sphere give a dense mesh of 129 024 quads (its 128 pole triangles become three
+  // quads each, the rest four); two more levels would pass the budget.
   const big = fresh({ op: "create", id: "s", kind: "sphere", options: { radius: 1, segments: 64, rings: 32 } }, { op: "convert", id: "s" });
-  assert.throws(() => big.apply([{ op: "subdivide", id: "s", levels: 3 }]), /would give .* faces; the caps are/);
+  big.apply([{ op: "subdivide", id: "s", levels: 3 }]);
+  assert.equal(node(big, "s").mesh.dense.offsets.length - 1, (1920 * 4 + 128 * 3) * 16, "a dense mesh now");
+  assert.throws(() => big.apply([{ op: "subdivide", id: "s", levels: 2 }]), /would give .* faces; the caps are/);
   assert.throws(() => big.apply([{ op: "subdivide", id: "s", levels: 4 }]), /from 1 to 3|levels/);
 });
 

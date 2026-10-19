@@ -895,14 +895,16 @@ export function geodesicSphere(options, material) {
     latitude[0] >= latitude[1]
   )
     fail("latitude is [from, to] in degrees, −90 ≤ from < to ≤ 90", "latitude");
+  // The rings start a quarter turn round, so the sphere is symmetric left to right (across
+  // x = 0) like the models it starts: front +Z, a ring vertex straight ahead below the middle.
   const tilt = Math.atan(0.5),
     vertices = [[0, 1, 0]];
   for (let i = 0; i < 5; i++) {
-    const a = (2 * Math.PI * i) / 5;
+    const a = Math.PI / 2 + (2 * Math.PI * i) / 5;
     vertices.push([Math.cos(tilt) * Math.cos(a), Math.sin(tilt), -Math.cos(tilt) * Math.sin(a)]);
   }
   for (let i = 0; i < 5; i++) {
-    const a = (2 * Math.PI * (i + 0.5)) / 5;
+    const a = Math.PI / 2 + (2 * Math.PI * (i + 0.5)) / 5;
     vertices.push([Math.cos(tilt) * Math.cos(a), -Math.sin(tilt), -Math.cos(tilt) * Math.sin(a)]);
   }
   vertices.push([0, -1, 0]);

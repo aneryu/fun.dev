@@ -1,9 +1,11 @@
+import { isDense, denseToken, denseConnectivity } from "./dense.js";
 import { ModelError, normal, triangulate, sub, cross } from "./mesh.js";
 import { meshEdges, edgeKey } from "./topology.js";
 import { worldMatrix, point } from "./spatial.js";
 
 export function topologyToken(mesh) {
   if (!mesh) return null;
+  if (isDense(mesh)) return denseToken(mesh);
   let a = 2166136261,
     b = 5381;
   const value = JSON.stringify([
@@ -18,7 +20,7 @@ export function topologyToken(mesh) {
 }
 // A material binding may survive coordinate edits, but never a new segmentation.
 export const connectivityToken = (mesh) =>
-  topologyToken({ vertices: mesh.vertices.length, faces: mesh.faces });
+  isDense(mesh) ? denseConnectivity(mesh) : topologyToken({ vertices: mesh.vertices.length, faces: mesh.faces });
 export const componentRef = (
   node,
   kind,

@@ -1,4 +1,30 @@
 import { ModelError } from "./mesh.js";
+import { DenseMesh, isDense, denseData } from "./dense.js";
+
+// A dense mesh's material table, slot by slot: { slot, material, count } (faces per slot).
+function denseSlots(mesh) {
+  const d = denseData(mesh),
+    counts = new Uint32Array(d.materials.length);
+  for (let f = 0; f < d.faceMaterials.length; f++) counts[d.faceMaterials[f]]++;
+  return d.materials.map((material, slot) => ({ slot, material, count: counts[slot] }));
+}
+// The dense mesh of `node` with slot `slot` now `material` (slots that end up alike merge).
+function replaceDenseSlot(node, slot, material) {
+  const d = denseData(node.mesh),
+    materials = [...d.materials];
+  materials[slot] = material;
+  const first = new Map(),
+    remap = new Uint8Array(materials.length),
+    kept = [];
+  materials.forEach((m, s) => {
+    if (!first.has(m)) {
+      first.set(m, kept.length);
+      kept.push(m);
+    }
+    remap[s] = first.get(m);
+  });
+  node.mesh = new DenseMesh({ ...d, materials: kept, faceMaterials: d.faceMaterials.map((s) => remap[s]) });
+}
 
 // Only visit material slots, never arbitrary strings such as object names.
 // Cached faces and dormant recipe inputs both count as live references.
@@ -15,10 +41,26 @@ export function visitMaterials(project, visit) {
           retained,
         });
     };
-    const mesh = (value, path, retained) =>
+    const mesh = (value, path, retained) => {
+      // Dense meshes are visited by their material table (each slot counts its faces); a
+      // write through the slot gives the node a new mesh, never changing the shared one.
+      if (isDense(value) && value instanceof DenseMesh) {
+        for (const { slot: s, material, count } of denseSlots(value))
+          visit({
+            owner: { set material(next) { replaceDenseSlot(node, s, next); }, get material() { return material; } },
+            key: "material",
+            material,
+            node: node.id,
+            path: `${path}.dense.materials.${s}`,
+            retained,
+            count,
+          });
+        return;
+      }
       value?.faces?.forEach((face, i) =>
         slot(face, "material", `${path}.faces.${i}.material`, retained),
       );
+    };
     mesh(node.mesh, `nodes.${node.id}.mesh`, false);
     slot(node.generator, "material", `nodes.${node.id}.generator.material`);
     const recipe = node.recipe,
@@ -49,11 +91,11 @@ export function materialUsage(project) {
       },
     ]),
   );
-  visitMaterials(project, ({ material, node, retained }) => {
+  visitMaterials(project, ({ material, node, retained, count = 1 }) => {
     const entry = byId.get(material);
     if (!entry) return;
     entry[retained ? "retainedBy" : "users"].add(node);
-    entry.referenceCount++;
+    entry.referenceCount += count;
   });
   return [...byId.values()].map((m) => ({
     ...m,
@@ -174,11 +216,12 @@ export function removeMaterial(project, { id, replacement }) {
     throw error;
   }
   for (const { owner, key } of references) owner[key] = replacement;
+  const replaced = references.reduce((n, r) => n + (r.count ?? 1), 0);
   project.materials = project.materials.filter((m) => m.id !== id);
   return {
     removedMaterials: [id],
     ...(replacement === undefined ? {} : { replacement }),
-    replacedReferences: references.length,
+    replacedReferences: replaced,
   };
 }
 

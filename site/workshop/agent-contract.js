@@ -483,6 +483,15 @@ const props = {
   factor: { type: "number", minimum: 0, maximum: 1 },
   volume: boolean,
   levels: { type: "integer", minimum: 1, maximum: 3 },
+  // Sculpt strokes (sculpt.js): a brush, points along the stroke, a radius and a strength.
+  brush: { enum: ["grab", "smooth", "inflate", "clay", "flatten", "crease"] },
+  points: { type: "array", items: vector, minItems: 1, maxItems: 4096 },
+  radius: number,
+  strength: { type: "number", minimum: 0, maximum: 1 },
+  spacing: { type: "number", minimum: 0.02, maximum: 4 },
+  invert: boolean,
+  symmetry: { oneOf: [{ enum: ["x", "y", "z"] }, { type: "array", items: { enum: ["x", "y", "z"] }, maxItems: 3 }] },
+  pressure: { type: "array", items: { type: "number", minimum: 0, maximum: 1 }, maxItems: 4096 },
   falloff: {
     oneOf: [
       number,
@@ -578,6 +587,7 @@ const specs = {
   smooth: ["id", "iterations factor volume space select faces edges vertices topology falloff"],
   subdivide: ["id", "levels smooth"],
   triangulate: ["id", "faces select topology"],
+  sculpt: ["id brush points radius", "strength falloff spacing invert symmetry pressure space"],
   extrude: ["id distance", "faces face select topology space"],
   inset: ["id distance", "faces face select topology space"],
   bevel: ["id distance", "edges select topology space"],
@@ -648,6 +658,9 @@ for (const c of commandSchema.oneOf) {
     c.properties.mode = { enum: ["uniform", "noise", "gradient", "formula"] };
     c.properties.to = number;
   }
+  // A stroke's falloff is a curve name (its radius is the stroke's).
+  if (c.properties.op.const === "sculpt")
+    c.properties.falloff = { enum: ["smooth", "sphere", "root", "sharp", "linear", "constant", "inverseSquare"] };
 }
 const obj = (properties, required = []) => ({
   type: "object",
@@ -702,6 +715,7 @@ const steps = commandSchema.oneOf
       "smooth",
       "subdivide",
       "triangulate",
+      "sculpt",
     ].includes(c.properties.op.const),
   )
   .map((c) => {
@@ -1204,10 +1218,12 @@ export function capabilities({ detail = "full", command } = {}) {
       "triangulate",
       "geodesicSpheres",
       "proportionalEditing",
+      "denseMeshes",
+      "sculpting",
     ],
     unsupported: [
       "UV textures",
-      "sculpt brushes",
+      "dynamic topology, sculpt masks and multiresolution",
       "rigging",
       "animation",
       "inter-object collision validation",

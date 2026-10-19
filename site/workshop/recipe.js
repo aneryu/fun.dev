@@ -53,6 +53,7 @@ const allowed = new Set([
   "smooth",
   "subdivide",
   "triangulate",
+  "sculpt",
 ]);
 export function normalizeRecipe(input) {
   const r = structuredClone(input);
@@ -220,6 +221,14 @@ export function editRecipeStep(input, command) {
           "smooth",
           "falloff",
           "thickness",
+          "brush",
+          "points",
+          "radius",
+          "strength",
+          "spacing",
+          "invert",
+          "symmetry",
+          "pressure",
         ].includes(key)
       )
         throw new ModelError("Unsupported step field: " + key);

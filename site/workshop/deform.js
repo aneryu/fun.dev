@@ -10,7 +10,7 @@ import { fail, number, vector, normal, triangulate, add, sub, mul, dot, cross } 
 import { meshEdges, edgeKey } from "./topology.js";
 import { boundsOf } from "./spatial.js";
 
-export const SHAPE_EDITS = ["deform", "displace", "smooth", "subdivide", "triangulate"];
+export const SHAPE_EDITS = ["deform", "displace", "smooth", "subdivide", "triangulate", "sculpt"];
 export const DEFORM_KINDS = ["taper", "bend", "twist", "shear", "stretch"];
 export const DISPLACE_MODES = ["uniform", "noise", "gradient", "formula"];
 export const FALLOFF_SHAPES = [
@@ -645,7 +645,7 @@ export function subdivideMesh(mesh, command, limits = { vertices: 30000, triangl
 
 // Runs one shape edit on a mesh in place. `selected` lists the vertex indices that move
 // fully (every vertex when absent); the rest follow by the falloff.
-export function shapeMesh(mesh, command, { limits } = {}) {
+export function shapeMesh(mesh, command, { limits, planarity = true } = {}) {
   if (command.op === "subdivide") return subdivideMesh(mesh, command, limits);
   if (command.op === "triangulate") return triangulateFaces(mesh, command);
   const all = mesh.vertices.map((_, i) => i),
@@ -673,7 +673,8 @@ export function shapeMesh(mesh, command, { limits } = {}) {
     return q.map((v) => v || 0);
   });
   // Bent quads: the author can split them (triangulate) or leave them to export's choice.
-  const nonplanar = nonplanarCount(mesh);
+  // (Dense meshes never warn about planarity, so they are not counted.)
+  const nonplanar = planarity ? nonplanarCount(mesh) : 0;
   return {
     affectedVertices: count,
     ...(nonplanar

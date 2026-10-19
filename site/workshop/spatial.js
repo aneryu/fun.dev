@@ -1,5 +1,6 @@
 // Small affine helpers shared by the document engine, inspector and viewport.
 // Column-major matrices, XYZ Euler degrees; no renderer or DOM dependency.
+import { isDense, denseData, denseBounds, transformedDense } from "./dense.js";
 import {
   transformVector,
   add,
@@ -96,12 +97,18 @@ export function decompose(m) {
   };
 }
 export function transformMesh(mesh, m) {
+  // Dense meshes are never changed in place (dense.js): transformedDense makes a new one.
+  if (isDense(mesh)) throw new Error("internal: transform a dense mesh with transformedDense");
   mesh.vertices = mesh.vertices.map((v) => point(m, v));
   if (determinant(m) < 0) mesh.faces.forEach((f) => f.vertices.reverse());
 }
 // Affine reflection changes winding, but not face identity. Preserve manual
 // paint references only when their original topology is still valid.
 export function transformNodeMesh(node, m) {
+  if (isDense(node.mesh)) {
+    node.mesh = transformedDense(node.mesh, m);
+    return;
+  }
   const paint = node.recipe?.paint;
   const valid =
     paint &&
@@ -159,8 +166,14 @@ export function boundsOf(points) {
       size: [0, 0, 0],
       center: [0, 0, 0],
     };
-  const min = [0, 1, 2].map((i) => Math.min(...points.map((v) => v[i]))),
-    max = [0, 1, 2].map((i) => Math.max(...points.map((v) => v[i])));
+  // A loop, not Math.min(...points): spreading a few hundred thousand values overflows.
+  const min = [Infinity, Infinity, Infinity],
+    max = [-Infinity, -Infinity, -Infinity];
+  for (const v of points)
+    for (let i = 0; i < 3; i++) {
+      if (v[i] < min[i]) min[i] = v[i];
+      if (v[i] > max[i]) max[i] = v[i];
+    }
   return { min, max, size: sub(max, min), center: mul(add(min, max), 0.5) };
 }
 // The local points that bound a part without a mesh (docs/worlds.md): a placed model's
@@ -208,8 +221,19 @@ export function nodePoints(node) {
 export function nodeInfo(project, id, { components = true } = {}) {
   const node = project.nodes.find((n) => n.id === id);
   if (!node) fail(`Unknown node: ${id}`);
-  const world = worldMatrix(project, id),
-    vertices = (node.mesh?.vertices ?? nodePoints(node)).map((v) => point(world, v));
+  const world = worldMatrix(project, id);
+  if (isDense(node.mesh) && !components) {
+    const p = denseData(node.mesh).positions,
+      corners = new Float64Array(p.length);
+    for (let i = 0; i < p.length; i += 3) {
+      const [x, y, z] = point(world, [p[i], p[i + 1], p[i + 2]]);
+      corners[i] = x;
+      corners[i + 1] = y;
+      corners[i + 2] = z;
+    }
+    return { worldMatrix: world, bounds: denseBounds(corners), origin: point(world, [0, 0, 0]) };
+  }
+  const vertices = (node.mesh?.vertices ?? nodePoints(node)).map((v) => point(world, v));
   return {
     worldMatrix: world,
     bounds: boundsOf(vertices),

@@ -176,7 +176,7 @@ const definitions = [
   ],
   [
     "observe",
-    "Render reproducible views, selection/wire overlays or color-coded object IDs; along walks a path instead: a frame every few metres.",
+    "Render reproducible views, selection/wire overlays or object-ID colours; along walks a path: a frame every few metres.",
     object({ ...render, along: object({ path: str, every: num, start: num, end: num, height: num, look: { oneOf: [{ enum: ["ahead", "back", "left", "right"] }, vector] }, limit: { type: "integer" } }, ["path"]) }),
     true,
   ],

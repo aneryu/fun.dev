@@ -31,6 +31,7 @@ import {
   reflection,
   nodePoints,
   decompose,
+  determinant,
 } from "./spatial.js";
 import { meshEdges, bevelEdges, cutPlane, loopCut } from "./topology.js";
 import { surfaceDiagnostics } from "./diagnostics.js";
@@ -50,6 +51,33 @@ import {
   joinParts,
 } from "./edit-ops.js";
 import { SHAPE_EDITS, shapeMesh, proportionalMove, normalizeFalloff, facePlanar } from "./deform.js";
+import {
+  DenseMesh,
+  transformedDenseCached,
+  compactDenseMaterials,
+  DENSE_FROM,
+  isDense,
+  packMesh,
+  unpackMesh,
+  canonicalIds,
+  checkDense,
+  decodeDense,
+  denseCounts,
+  denseData,
+  denseEdges,
+  denseBounds,
+  denseBytes,
+  usedMaterials,
+  withPositions,
+  transformedDense,
+  positionArrays,
+  flatPositions,
+  denseFaceIndex,
+  denseFaceCorners,
+  denseEdgeExists,
+  topologyArrays,
+} from "./dense.js";
+import { normalizeStroke, Sculptor, runStroke } from "./sculpt.js";
 import {
   removeMaterial,
   purgeMaterials,
@@ -82,6 +110,8 @@ import {
   contains,
 } from "./assembly.js";
 export { ModelError } from "./mesh.js";
+// Edits written for polygon meshes: a dense part is unpacked for them (dense.js).
+const POLYGON_EDITS = new Set(["extrude", "inset", "bevel", "cut", "loopCut", ...MESH_EDITS, "separate", "join"]);
 const diagnosticCache = new Map();
 function surfaces(mesh) {
   const key = topologyToken(mesh);
@@ -101,8 +131,79 @@ export const LIMITS = {
   vertices: 30000,
   triangles: 50000,
   bytes: 8 * 1024 * 1024,
+  // Dense meshes (dense.js): their own budget, beyond the polygon one; the format has none.
+  denseVertices: 600000,
+  denseTriangles: 1000000,
+  denseBytes: 256 * 1024 * 1024,
 };
-const copy = (value) => structuredClone(value);
+// Deep copies of document data. Dense meshes (dense.js) are immutable and shared: copies,
+// undo steps and caches hold the same arrays until an edit makes new ones.
+export function clone(value) {
+  if (value === null || typeof value !== "object") return value;
+  if (value instanceof DenseMesh || ArrayBuffer.isView(value)) return value;
+  if (Array.isArray(value)) return value.map(clone);
+  const out = {};
+  for (const key of Object.keys(value)) out[key] = clone(value[key]);
+  return out;
+}
+const copy = clone;
+// Equal document values; dense meshes and typed arrays are equal when they are the same.
+export function same(a, b) {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return a !== a && b !== b;
+  if (a instanceof DenseMesh || b instanceof DenseMesh || ArrayBuffer.isView(a) || ArrayBuffer.isView(b))
+    return a instanceof DenseMesh && b instanceof DenseMesh && a.dense === b.dense;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!same(a[i], b[i])) return false;
+    return true;
+  }
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const key of keys) if (!Object.hasOwn(b, key) || !same(a[key], b[key])) return false;
+  return true;
+}
+// Faces, vertices and triangles of a mesh in either form.
+export function meshCounts(mesh) {
+  if (isDense(mesh)) return denseCounts(mesh);
+  return {
+    vertices: mesh.vertices.length,
+    faces: mesh.faces.length,
+    triangles: mesh.faces.reduce((n, f) => n + f.vertices.length - 2, 0),
+  };
+}
+// A mesh under an affine matrix as a new mesh (dense) or the same one changed (polygon).
+export function transformedMesh(mesh, m) {
+  if (isDense(mesh)) return transformedDense(mesh, m);
+  transformMesh(mesh, m);
+  return mesh;
+}
+// JSON size of a document without its dense meshes, and the bytes of those meshes. Polygon
+// meshes large enough to be packed (an edit's result before normalization) count as packed.
+function documentSize(input) {
+  let dense = 0;
+  const json = JSON.stringify(input, (key, value) => {
+    if (!value || typeof value !== "object" || value.id === undefined || !value.mesh || typeof value.mesh !== "object") return value;
+    if (isDense(value.mesh)) {
+      const d = value.mesh.dense;
+      dense += ["positions", "offsets", "indices", "faceMaterials"].reduce((n, k) => {
+        const v = d?.[k];
+        return n + (ArrayBuffer.isView(v) ? v.byteLength : typeof v === "string" ? Math.floor((v.length * 3) / 4) : Array.isArray(v) ? v.length * 8 : 0);
+      }, 0);
+      return { ...value, mesh: "dense" };
+    }
+    const { vertices, faces } = value.mesh;
+    if (Array.isArray(vertices) && Array.isArray(faces) && (vertices.length > DENSE_FROM || faces.length > DENSE_FROM)) {
+      let corners = 0;
+      for (const f of faces) corners += Array.isArray(f?.vertices) ? f.vertices.length : 0;
+      dense += vertices.length * 24 + corners * 4 + faces.length * 5;
+      return { ...value, mesh: "dense" };
+    }
+    return value;
+  });
+  return { json: new TextEncoder().encode(json).length, dense };
+}
 function affine(value) {
   if (
     !Array.isArray(value) ||
@@ -154,11 +255,46 @@ export function smoothAngle(value, path = "smooth") {
   if (value === true) return 60;
   return number(value, 0, 180, path);
 }
+// The dense arrays a project holds (undo budgets count each once).
+function denseArraysOf(project) {
+  const arrays = [];
+  for (const n of project.nodes ?? [])
+    if (isDense(n.mesh)) {
+      const d = denseData(n.mesh);
+      arrays.push(d.positions, d.offsets, d.indices, d.faceMaterials);
+    }
+  return arrays;
+}
+// Whether any face of a mesh has another material than `material`.
+function differsFrom(mesh, material) {
+  if (isDense(mesh)) return usedMaterials(mesh).some((m) => m !== material);
+  return Array.isArray(mesh?.faces) ? mesh.faces.some((f) => f?.material !== material) : true;
+}
+// Generator meshes, with large ones (dense) kept for a few calls: normalization rebuilds every
+// generator part on every edit, and a geodesic sphere of 80 000 faces costs to build.
+const generatedCache = new Map();
+function generatedMesh(kind, options, material, basis) {
+  const key = JSON.stringify([kind, options, material, basis ?? null]),
+    hit = generatedCache.get(key);
+  if (hit) {
+    generatedCache.delete(key);
+    generatedCache.set(key, hit);
+    return hit;
+  }
+  let mesh = primitive(kind, options, material);
+  if (mesh.faces.length <= DENSE_FROM && mesh.vertices.length <= DENSE_FROM) return mesh;
+  if (basis) transformMesh(mesh, basis);
+  mesh = packMesh(mesh, { renumber: true });
+  generatedCache.set(key, mesh);
+  while (generatedCache.size > 4) generatedCache.delete(generatedCache.keys().next().value);
+  return mesh;
+}
 export function normalizeProject(input) {
   if (!input || input.format !== FORMAT || input.version !== VERSION)
     fail("Unsupported project format/version", "version");
-  if (new TextEncoder().encode(JSON.stringify(input)).length > LIMITS.bytes)
-    fail("Project exceeds 8 MB");
+  const size = documentSize(input);
+  if (size.json > LIMITS.bytes) fail("Project exceeds 8 MB");
+  if (size.dense > LIMITS.denseBytes) fail("Dense meshes exceed 256 MB");
   if (
     !Array.isArray(input.materials) ||
     !input.materials.length ||
@@ -175,6 +311,8 @@ export function normalizeProject(input) {
     fail(`Expected at most ${LIMITS.nodes} nodes`);
   let vertexCount = 0,
     triangleCount = 0,
+    denseVertexCount = 0,
+    denseTriangleCount = 0,
     copyCount = 0;
   const nodes = input.nodes.map((node) => {
     if (!node) fail("Invalid node");
@@ -193,7 +331,11 @@ export function normalizeProject(input) {
       fail(
         "Scale must be positive, from 0.001 to 1000; use mirror for reflection",
       );
-    let sourceMesh = node.mesh;
+    // A dense mesh read from JSON or a file arrives encoded: decode it once here.
+    const inputMesh = isDense(node.mesh) && !(node.mesh instanceof DenseMesh)
+      ? new DenseMesh(decodeDense(node.mesh.dense, `nodes.${node.id}.mesh.dense`))
+      : node.mesh;
+    let sourceMesh = inputMesh;
     if (node.generator) {
       const g = node.generator;
       if (
@@ -219,11 +361,7 @@ export function normalizeProject(input) {
       };
       if (!materialIds.has(result.generator.material))
         fail("Unknown generator material");
-      sourceMesh = primitive(
-        g.kind,
-        result.generator.options,
-        result.generator.material,
-      );
+      sourceMesh = generatedMesh(g.kind, result.generator.options, result.generator.material, g.basis);
       if (g.basis) {
         if (
           !Array.isArray(g.basis) ||
@@ -235,10 +373,12 @@ export function normalizeProject(input) {
           fail("Invalid generator basis");
         inverse(g.basis);
         result.generator.basis = [...g.basis];
-        transformMesh(sourceMesh, g.basis);
+        if (!isDense(sourceMesh)) transformMesh(sourceMesh, g.basis);
       }
-      const cachedFaces = node.mesh?.faces ?? [];
-      if (!Array.isArray(cachedFaces))
+      // A cached mesh painted only in the generator's material has nothing to carry over.
+      const plain = !inputMesh || !differsFrom(inputMesh, result.generator.material);
+      const cachedFaces = plain ? [] : (inputMesh?.faces ?? []);
+      if (!Array.isArray(cachedFaces) && !Object.isFrozen(cachedFaces))
         fail("Invalid cached generator faces", `nodes.${node.id}.mesh.faces`);
       const byId = new Map(cachedFaces.map((f) => [f?.id, f]));
       const colored = cachedFaces.filter(
@@ -247,7 +387,7 @@ export function normalizeProject(input) {
       if (colored.length) {
         // Face IDs alone are not identity: a cap ID becomes a side after a
         // segmentation change. Reflection may reverse winding, but not membership.
-        const cached = node.mesh,
+        const cached = inputMesh,
           generated = sourceMesh;
         const indices = (face) =>
           [...face.vertices].sort((a, b) => a - b).join(",");
@@ -281,24 +421,33 @@ export function normalizeProject(input) {
           throw error;
         }
       }
-      for (const face of sourceMesh.faces)
-        face.material = byId.get(face.id)?.material ?? face.material;
+      if (colored.length) {
+        if (isDense(sourceMesh)) sourceMesh = unpackMesh(sourceMesh);
+        for (const face of sourceMesh.faces)
+          face.material = byId.get(face.id)?.material ?? face.material;
+      }
     }
-    if (sourceMesh != null) {
+    const denseBudget = () => {
+      if (denseVertexCount > LIMITS.denseVertices || denseTriangleCount > LIMITS.denseTriangles)
+        fail(`Dense meshes exceed ${LIMITS.denseVertices} vertices or ${LIMITS.denseTriangles} triangles`, `nodes.${node.id}.mesh`);
+    };
+    if (sourceMesh != null && isDense(sourceMesh)) {
+      const mesh = sourceMesh instanceof DenseMesh ? sourceMesh : new DenseMesh(decodeDense(sourceMesh.dense, `nodes.${node.id}.mesh.dense`));
+      checkDense(mesh.dense, materialIds, `nodes.${node.id}.mesh.dense`);
+      const counts = denseCounts(mesh);
+      denseVertexCount += counts.vertices;
+      denseTriangleCount += counts.triangles;
+      denseBudget();
+      result.mesh = mesh;
+    } else if (sourceMesh != null) {
       const { vertices, faces } = sourceMesh;
-      if (
-        !Array.isArray(vertices) ||
-        vertices.length < 3 ||
-        (vertexCount += vertices.length) > LIMITS.vertices
-      )
+      if (!Array.isArray(vertices) || vertices.length < 3)
         fail("Mesh vertex budget exceeded or empty mesh");
-      if (
-        !Array.isArray(faces) ||
-        !faces.length ||
-        faces.length > LIMITS.triangles
-      )
-        fail("Invalid mesh faces");
+      if (!Array.isArray(faces) || !faces.length) fail("Invalid mesh faces");
+      if (vertices.length > LIMITS.denseVertices || faces.length > LIMITS.denseTriangles)
+        fail("Mesh vertex budget exceeded or empty mesh");
       const points = vertices.map((v) => vector(v, `${node.id}.vertex`));
+      let meshTriangles = 0;
       const polygons = faces.map((face) => {
         if (
           !face ||
@@ -316,8 +465,8 @@ export function normalizeProject(input) {
           fail("Invalid face vertex index");
         if (!materialIds.has(face.material))
           fail(`Unknown material: ${face.material}`);
-        triangleCount += triangulate(points, face.vertices).length;
-        if (triangleCount > LIMITS.triangles) fail("Triangle budget exceeded");
+        meshTriangles += triangulate(points, face.vertices).length;
+        if (meshTriangles > LIMITS.denseTriangles) fail("Triangle budget exceeded");
         return {
           id: identifier(face.id, "face.id"),
           vertices: [...face.vertices],
@@ -328,7 +477,20 @@ export function normalizeProject(input) {
         polygons.map((f) => f.id),
         `${node.id}.faces`,
       );
-      result.mesh = { vertices: points, faces: polygons };
+      // Many faces numbered f0, f1, … in order, or more than polygon meshes may hold: dense.
+      const big = points.length > DENSE_FROM || polygons.length > DENSE_FROM,
+        beyond = points.length > LIMITS.vertices || meshTriangles > LIMITS.triangles;
+      if (beyond || (big && canonicalIds(polygons))) {
+        result.mesh = packMesh({ vertices: points, faces: polygons }, { renumber: true });
+        denseVertexCount += points.length;
+        denseTriangleCount += meshTriangles;
+        denseBudget();
+      } else {
+        if ((vertexCount += points.length) > LIMITS.vertices)
+          fail("Mesh vertex budget exceeded or empty mesh");
+        if ((triangleCount += meshTriangles) > LIMITS.triangles) fail("Triangle budget exceeded");
+        result.mesh = { vertices: points, faces: polygons };
+      }
     }
     if (node.recipe) {
       result.recipe = normalizeRecipe(node.recipe);
@@ -343,7 +505,7 @@ export function normalizeProject(input) {
       result.generator &&
       !node.instanceOf &&
       !node.symmetry &&
-      result.mesh.faces.some((f) => f.material !== result.generator.material)
+      differsFrom(result.mesh, result.generator.material)
     ) {
       // The first local paint uses the same guarded material layer as recipes.
       // This also upgrades older painted primitives when opening a project.
@@ -1138,13 +1300,14 @@ export function statistics(project) {
       }
       if (!node.mesh) return s;
       s.meshes++;
-      s.vertices += node.mesh.vertices.length;
-      s.faces += node.mesh.faces.length;
-      s.triangles += node.mesh.faces.reduce(
-        (n, f) => n + f.vertices.length - 2,
-        0,
-      );
-      s.drawCalls += new Set(node.mesh.faces.map((f) => f.material)).size;
+      const counts = meshCounts(node.mesh);
+      s.vertices += counts.vertices;
+      s.faces += counts.faces;
+      s.triangles += counts.triangles;
+      if (isDense(node.mesh)) {
+        s.dense++;
+        s.drawCalls += usedMaterials(node.mesh).length;
+      } else s.drawCalls += new Set(node.mesh.faces.map((f) => f.material)).size;
       return s;
     },
     {
@@ -1164,6 +1327,7 @@ export function statistics(project) {
       terrainTriangles: 0,
       grids: 0,
       gridTriangles: 0,
+      dense: 0,
     },
   );
 }
@@ -1233,8 +1397,14 @@ export function validateProject(input, budget = {}) {
         });
     }
   }
+  for (const node of project.nodes.filter((n) => isDense(n.mesh))) {
+    // Dense meshes: edges from the arrays; sculpted quads bend, so no planarity warnings.
+    const { open, nonmanifold } = denseEdges(node.mesh);
+    if (open && !node.derived) warnings.push({ code: "open-edges", node: node.id, count: open });
+    if (nonmanifold) warnings.push({ code: "nonmanifold", node: node.id, count: nonmanifold });
+  }
   for (const node of project.nodes)
-    if (node.mesh) {
+    if (node.mesh && !isDense(node.mesh)) {
       const { vertices, faces } = node.mesh,
         edges = new Map();
       for (const face of faces) {
@@ -1273,7 +1443,10 @@ export function validateProject(input, budget = {}) {
     interObjectIntersections: false,
     minimumWallThickness: false,
   };
-  for (const node of project.nodes.filter((n) => n.mesh && !n.derived)) {
+  // Surface scans of dense meshes are not run here (sculpting may fold a surface through
+  // itself, as in other sculpting tools): selfIntersection then reports unchecked.
+  if (project.nodes.some((n) => isDense(n.mesh) && !n.derived)) checks.selfIntersection = false;
+  for (const node of project.nodes.filter((n) => n.mesh && !n.derived && !isDense(n.mesh))) {
     const result = surfaces(node.mesh);
     warnings.push(
       ...result.issues.map((issue) => ({ ...issue, node: node.id })),
@@ -1308,15 +1481,34 @@ function descendants(project, id) {
 }
 export function measure(project, id, options) {
   const ids = descendants(project, id),
-    points = [];
+    min = [Infinity, Infinity, Infinity],
+    max = [-Infinity, -Infinity, -Infinity];
+  const take = (x, y, z) => {
+    if (x < min[0]) min[0] = x;
+    if (x > max[0]) max[0] = x;
+    if (y < min[1]) min[1] = y;
+    if (y > max[1]) max[1] = y;
+    if (z < min[2]) min[2] = z;
+    if (z > max[2]) max[2] = z;
+  };
   for (const node of project.nodes.filter(
     (n) => ids.has(n.id) && (n.mesh || n.place || n.zone || n.path),
   )) {
     const m = worldMatrix(project, node.id);
-    points.push(...(node.mesh?.vertices ?? nodePoints(node)).map((v) => point(m, v)));
+    if (isDense(node.mesh)) {
+      const p = denseData(node.mesh).positions;
+      for (let i = 0; i < p.length; i += 3) {
+        const x = p[i], y = p[i + 1], z = p[i + 2];
+        take(m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]);
+      }
+    } else for (const v of node.mesh?.vertices ?? nodePoints(node)) take(...point(m, v));
   }
-  const info = nodeInfo(project, id, options);
-  return { ...info, bounds: points.length ? boundsOf(points) : info.bounds };
+  // Only full inspection reads the per-face list; bounds are what everyone else asks for.
+  const info = nodeInfo(project, id, { components: false, ...options });
+  return {
+    ...info,
+    bounds: min[0] <= max[0] ? { min, max, size: [0, 1, 2].map((k) => max[k] - min[k]), center: [0, 1, 2].map((k) => (min[k] + max[k]) / 2) } : info.bounds,
+  };
 }
 export function nodeSummary(node) {
   const { mesh, ...meta } = node;
@@ -1558,6 +1750,23 @@ export function recipeSelection(project, id, index, step) {
 }
 export function selectionVertices(node, command) {
   if (!node.mesh) fail("Select a mesh");
+  if (isDense(node.mesh)) {
+    const count = meshCounts(node.mesh).vertices;
+    const indices =
+      command.vertices ??
+      (command.edges
+        ? command.edges.flatMap((id) => {
+            const [a, b] = String(id).split(":").map(Number);
+            if (!denseEdgeExists(node.mesh, a, b)) fail("Unknown selected edge");
+            return [a, b];
+          })
+        : command.faces
+          ? command.faces.flatMap((id) => denseFaceCorners(node.mesh, denseFaceIndex(node.mesh, id)))
+          : Array.from({ length: count }, (_, i) => i));
+    if (!indices.length || indices.some((i) => !Number.isInteger(i) || i < 0 || i >= count))
+      fail("Unknown selected vertex");
+    return [...new Set(indices)];
+  }
   const indices =
     command.vertices ??
     (command.edges
@@ -1667,9 +1876,12 @@ function selectionTransform(project, command) {
   if (!node) fail("Unknown selected part");
   const components = command.vertices || command.faces || command.edges,
     indices = components ? selectionVertices(node, command) : null;
+  // Dense parts move their vertices through [x, y, z] arrays, packed back at the end.
+  const dense = components && isDense(node.mesh),
+    work = dense ? { vertices: positionArrays(denseData(node.mesh).positions) } : node.mesh;
   const world = worldMatrix(project, node.id),
     points = components
-      ? indices.map((i) => point(world, node.mesh.vertices[i]))
+      ? indices.map((i) => point(world, work.vertices[i]))
       : ids.flatMap((id) => {
           const b = measure(project, id).bounds;
           return [b.min, b.max];
@@ -1712,15 +1924,16 @@ function selectionTransform(project, command) {
       falloff = normalizeFalloff(command.falloff);
     if (!falloff)
       for (const i of indices)
-        node.mesh.vertices[i] = point(local, node.mesh.vertices[i]);
+        work.vertices[i] = point(local, work.vertices[i]);
     else {
       // Proportional editing: the falloff radius is measured in the command's space.
       const measured =
         command.space === "local"
-          ? node.mesh.vertices
-          : node.mesh.vertices.map((v) => point(world, v));
-      proportionalMove(node.mesh, measured, indices, (i, p) => point(local, p), falloff);
+          ? work.vertices
+          : work.vertices.map((v) => point(world, v));
+      proportionalMove(work, measured, indices, (i, p) => point(local, p), falloff);
     }
+    if (dense) node.mesh = withPositions(node.mesh, flatPositions(work.vertices));
   } else {
     if (command.falloff !== undefined) fail("falloff needs a component selection", "falloff");
     worldTransform(project, ids, m);
@@ -1732,7 +1945,9 @@ function synchronize(project) {
     const source = project.nodes.find((n) => n.id === node.instanceOf);
     node.mesh = copy(source.mesh);
     if (node.mesh && node.instanceBasis)
-      transformMesh(node.mesh, node.instanceBasis);
+      node.mesh = isDense(node.mesh)
+        ? transformedDenseCached(node.mesh, node.instanceBasis)
+        : transformedMesh(node.mesh, node.instanceBasis);
     delete node.generator;
     delete node.recipe;
     // Linked copies share the source's look: its smoothing too.
@@ -1765,7 +1980,8 @@ function synchronize(project) {
             reference,
             multiply(reflection(s.axis, s.offset), inverse(reference)),
           );
-        if (node.mesh) transformMesh(node.mesh, flip);
+        if (node.mesh)
+          node.mesh = isDense(node.mesh) ? transformedDenseCached(node.mesh, flip) : transformedMesh(node.mesh, flip);
         setMatrix(
           project,
           node,
@@ -1812,7 +2028,7 @@ function selectionSummary(project, command) {
     "solidify",
     ...SHAPE_EDITS,
   ].includes(command.op)
-    ? { scope: "mesh", kind: "faces", count: node.mesh.faces.length }
+    ? { scope: "mesh", kind: "faces", count: meshCounts(node.mesh).faces }
     : null;
 }
 function run(project, command) {
@@ -2303,6 +2519,20 @@ function run(project, command) {
     fail("Unlink the mirrored part before editing it");
   if (dataKind(node) && !["set", "delete", "duplicate", "rename", "socket", "removeSocket", "terrain", "resample", "grid"].includes(command.op))
     fail("Placed models, markers, zones and paths take set, delete, duplicate and rename only");
+  // Edits written for polygon meshes take a dense part unpacked (dense.js); normalization
+  // packs the result again. join reads its tool parts the same way.
+  if (
+    isDense(node.mesh) &&
+    (POLYGON_EDITS.has(command.op) ||
+      (command.op === "array" && (command.merge || command.space === "local")) ||
+      (command.op === "paint" && node.recipe))
+  )
+    node.mesh = unpackMesh(node.mesh);
+  if (command.op === "join")
+    for (const id of command.with ?? []) {
+      const tool = project.nodes.find((n) => n.id === id);
+      if (isDense(tool?.mesh)) tool.mesh = unpackMesh(tool.mesh);
+    }
   switch (command.op) {
     case "rename": {
       // A node ID is its glTF name: games find wheels, doors and lights by it.
@@ -2418,7 +2648,9 @@ function run(project, command) {
         throw error;
       }
       node.mesh = built.nodes[0].mesh;
-      if (recipe.basis) transformMesh(node.mesh, recipe.basis);
+      // Paint writes faces: a dense result is painted in polygon form (normalization packs it).
+      if (isDense(node.mesh) && recipe.paint) node.mesh = unpackMesh(node.mesh);
+      if (recipe.basis) node.mesh = transformedMesh(node.mesh, recipe.basis);
       if (recipe.paint?.all)
         for (const face of node.mesh.faces) face.material = recipe.paint.all;
       for (const rule of recipe.paint?.rules ?? []) {
@@ -2831,10 +3063,11 @@ function run(project, command) {
         node.generator.material,
       );
       if (node.generator.basis) transformMesh(generated, node.generator.basis);
-      for (const f of generated.faces)
-        f.material =
-          node.mesh.faces.find((old) => old.id === f.id)?.material ??
-          f.material;
+      // Faces keep the colours painted on them (by ID); unpainted parts have none to keep.
+      const painted = differsFrom(node.mesh, node.generator.material)
+        ? new Map(node.mesh.faces.map((old) => [old.id, old.material]))
+        : new Map();
+      for (const f of generated.faces) f.material = painted.get(f.id) ?? f.material;
       node.mesh = generated;
       break;
     }
@@ -2921,27 +3154,39 @@ function run(project, command) {
         fail("Expected vertex changes on a mesh");
       delete node.generator;
       delete node.recipe;
-      const targets = new Map();
+      const targets = new Map(),
+        mirrored = new Set((node.vertexSymmetry?.pairs ?? []).map((pair) => pair[1])),
+        count = meshCounts(node.mesh).vertices;
       for (const { index, position } of command.changes) {
-        if (node.vertexSymmetry?.pairs.some(pair => pair[1] === index)) fail("Edit the source side or disable vertex symmetry first");
-        if (!Number.isInteger(index) || !node.mesh.vertices[index])
+        if (mirrored.has(index)) fail("Edit the source side or disable vertex symmetry first");
+        if (!Number.isInteger(index) || index < 0 || index >= count)
           fail("Unknown vertex index");
         targets.set(index, vector(position));
       }
       const falloff = normalizeFalloff(command.falloff);
+      if (isDense(node.mesh) && !falloff) {
+        const positions = denseData(node.mesh).positions.slice();
+        for (const [index, position] of targets) positions.set(position, 3 * index);
+        node.mesh = withPositions(node.mesh, positions);
+        break;
+      }
+      // Dense parts are edited through [x, y, z] arrays and packed back.
+      const dense = isDense(node.mesh),
+        work = dense ? { vertices: positionArrays(denseData(node.mesh).positions) } : node.mesh;
       if (!falloff) {
-        for (const [index, position] of targets) node.mesh.vertices[index] = position;
+        for (const [index, position] of targets) work.vertices[index] = position;
         break;
       }
       // Proportional editing: the others follow the nearest changed vertex's move.
-      const before = node.mesh.vertices;
+      const before = work.vertices;
       proportionalMove(
-        node.mesh,
+        work,
         before,
         [...targets.keys()],
         (i, p, j) => (targets.has(i) ? targets.get(i) : add(p, sub(targets.get(j), before[j]))),
         falloff,
       );
+      if (dense) node.mesh = withPositions(node.mesh, flatPositions(work.vertices));
       break;
     }
     case "extrude":
@@ -3069,15 +3314,60 @@ function run(project, command) {
       delete node.recipe;
       const selected = components && command.op !== "triangulate" ? selectionVertices(node, command) : undefined,
         m = command.space === "world" ? worldMatrix(project, node.id) : identity();
-      transformMesh(node.mesh, m);
-      const output = shapeMesh(node.mesh, { ...command, selected }, { limits: LIMITS });
-      transformMesh(node.mesh, inverse(m));
+      // Dense parts are edited through [x, y, z] arrays over their read-only polygon view; the
+      // result is packed again (new faces renumbered f0, f1, …).
+      const dense = isDense(node.mesh),
+        original = node.mesh,
+        work = dense
+          ? { vertices: positionArrays(denseData(original).positions), faces: determinant(m) < 0 ? unpackMesh(original).faces : original.faces }
+          : node.mesh;
+      transformMesh(work, m);
+      const output = shapeMesh(work, { ...command, selected }, {
+        limits: { vertices: LIMITS.denseVertices, triangles: LIMITS.denseTriangles },
+        planarity: !dense,
+      });
+      transformMesh(work, inverse(m));
+      if (dense)
+        node.mesh = output.unchanged
+          ? original
+          : ["subdivide", "triangulate"].includes(command.op)
+            ? packMesh(work, { renumber: true })
+            : withPositions(original, flatPositions(work.vertices));
       // A triangulation that split nothing keeps the part as it was, parametric too.
       if (output.unchanged) {
         if (generator) node.generator = generator;
         if (recipe) node.recipe = recipe;
       }
       return output;
+    }
+    case "sculpt": {
+      // A brush stroke (sculpt.js) on the part's positions; faces stay as they are.
+      if (!node.mesh) fail("Select a mesh");
+      const stroke = normalizeStroke(command);
+      delete node.generator;
+      delete node.recipe;
+      let { points, radius } = stroke;
+      if (command.space === "world") {
+        // World strokes become the part's own: points through the inverse, the radius by the
+        // part's mean scale.
+        const back = inverse(worldMatrix(project, node.id));
+        points = points.map((p) => point(back, p));
+        radius *= Math.cbrt(Math.abs(determinant(back)));
+      }
+      const dense = isDense(node.mesh),
+        data = dense ? denseData(node.mesh) : { positions: flatPositions(node.mesh.vertices), ...topologyArrays(node.mesh.faces) },
+        positions = data.positions.slice(),
+        sculptor = new Sculptor({ positions, offsets: data.offsets, indices: data.indices }, { radius }),
+        result = runStroke(sculptor, { ...stroke, points, radius });
+      // Vertex symmetry mirrors the source side afterwards; keep sources on their side.
+      const s = node.vertexSymmetry;
+      if (s) {
+        const k = "xyz".indexOf(s.axis);
+        for (const [a] of s.pairs) if ((positions[3 * a + k] - s.offset) * s.side < 0) positions[3 * a + k] = s.offset;
+      }
+      if (dense) node.mesh = withPositions(node.mesh, positions);
+      else node.mesh.vertices = positionArrays(positions);
+      return result;
     }
     case "separate":
       return separateParts(project, node, command, identifier);
@@ -3130,6 +3420,23 @@ function run(project, command) {
     }
     case "paint": {
       if (!node.mesh) fail("Select a mesh");
+      if (isDense(node.mesh)) {
+        // Dense parts paint their material slots (a recipe part was unpacked before the switch).
+        if (command.faces !== undefined && (!Array.isArray(command.faces) || !command.faces.length)) fail("Unknown face ID");
+        const d = denseData(node.mesh),
+          materials = [...d.materials],
+          faceMaterials = d.faceMaterials.slice();
+        let slot = materials.indexOf(command.material);
+        if (slot < 0) {
+          slot = materials.length;
+          materials.push(command.material);
+        }
+        if (command.faces) for (const id of command.faces) faceMaterials[denseFaceIndex(node.mesh, id)] = slot;
+        else faceMaterials.fill(slot);
+        node.mesh = new DenseMesh(compactDenseMaterials({ ...d, materials, faceMaterials }));
+        if (node.generator && !command.faces) node.generator.material = command.material;
+        break;
+      }
       if (
         command.faces !== undefined &&
         (!Array.isArray(command.faces) ||
@@ -3277,8 +3584,7 @@ export function evaluateTransaction(
             n.recipe &&
             !n.instanceOf &&
             !n.symmetry &&
-            JSON.stringify(n) !==
-              JSON.stringify(before.nodes.find((v) => v.id === n.id))
+            !same(n, before.nodes.find((v) => v.id === n.id))
           )
             run(next, { op: "recipe", id: n.id, definition: n.recipe });
       synchronize(next);
@@ -3290,12 +3596,10 @@ export function evaluateTransaction(
         if (n.symmetry || n.instanceOf) {
           for (const key of ["position", "rotation", "scale"])
             n[key] = n[key].map((v) => v || 0);
-          if (n.mesh) n.mesh.vertices = n.mesh.vertices.map((p) => p.map((v) => v || 0));
+          if (n.mesh && !isDense(n.mesh)) n.mesh.vertices = n.mesh.vertices.map((p) => p.map((v) => v || 0));
         }
       const changed = next.nodes.filter(
-        (n) =>
-          JSON.stringify(n) !==
-          JSON.stringify(before.nodes.find((v) => v.id === n.id)),
+        (n) => !same(n, before.nodes.find((v) => v.id === n.id)),
       );
       const geometry = [];
       for (const n of changed.filter((n) => n.mesh)) {
@@ -3310,8 +3614,9 @@ export function evaluateTransaction(
           surfaces(mesh).issues.filter((i) =>
             ["self-intersection", "zero-volume"].includes(i.code),
           );
-        const invalid = faults(n.mesh);
-        if (invalid.length > (old?.mesh ? faults(old.mesh).length : 0)) {
+        // Dense meshes are not scanned per edit (validate reports what is checked).
+        const invalid = isDense(n.mesh) ? [] : faults(n.mesh);
+        if (invalid.length > (old?.mesh && !isDense(old.mesh) ? faults(old.mesh).length : 0)) {
           const error = new ModelError(
             "Geometry would intersect itself or collapse",
             "geometry",
@@ -3323,15 +3628,16 @@ export function evaluateTransaction(
           throw error;
         }
         if (includeResults) {
-          const oldFaces = new Set(old?.mesh?.faces.map((f) => f.id) ?? []),
-            edges = meshEdges(n.mesh);
+          // Component lists only when asked for: they read every face (and unpack dense meshes).
+          const oldFaces = includeComponents ? new Set(old?.mesh?.faces.map((f) => f.id) ?? []) : null,
+            edges = includeComponents || !isDense(n.mesh) ? meshEdges(n.mesh) : null;
           geometry.push({
             node: n.id,
             previousTopology: previous,
             topology,
             invalidatesPreviousReferences: true,
-            faceCount: n.mesh.faces.length,
-            edgeCount: edges.length,
+            faceCount: meshCounts(n.mesh).faces,
+            edgeCount: edges ? edges.length : denseEdges(n.mesh).edges,
             ...(includeComponents
               ? {
                   createdFaces: n.mesh.faces
@@ -3460,14 +3766,26 @@ export function createStore(
     future = [],
     listeners = new Set();
   const snapshot = () => copy(project);
+  // Undo steps hold the committed projects themselves (never changed after a commit). Dense
+  // meshes are shared between steps, so a step costs what its edit made new: the budget
+  // counts each array once, plus the rest of each project as JSON.
+  const weigh = (value) => ({ value, json: documentSize(value).json, arrays: denseArraysOf(value) });
+  const stackBytes = (stack) => {
+    let total = 0;
+    const seen = new Set();
+    for (const entry of stack) {
+      total += entry.json;
+      for (const a of entry.arrays)
+        if (!seen.has(a)) {
+          seen.add(a);
+          total += a.byteLength;
+        }
+    }
+    return total;
+  };
   const push = (stack, value) => {
-    stack.push(JSON.stringify(value));
-    while (
-      stack.length > 30 ||
-      (stack.length > 1 &&
-        stack.reduce((n, s) => n + s.length, 0) > 64 * 1024 * 1024)
-    )
-      stack.shift();
+    stack.push(weigh(value));
+    while (stack.length > 30 || (stack.length > 1 && stackBytes(stack) > 256 * 1024 * 1024)) stack.shift();
   };
   function commit(next, { results = [], ...options } = {}, evaluated = false) {
     beforeChange(revision);
@@ -3476,11 +3794,7 @@ export function createStore(
     // A transaction result is normalized after its last command already.
     const valid = evaluated ? next : prepare(next);
     const changed = valid.nodes
-      .filter(
-        (n) =>
-          JSON.stringify(n) !==
-          JSON.stringify(project.nodes.find((old) => old.id === n.id)),
-      )
+      .filter((n) => !same(n, project.nodes.find((old) => old.id === n.id)))
       .map((n) => n.id);
     const removed = project.nodes
       .filter((n) => !valid.nodes.some((v) => v.id === n.id))
@@ -3552,7 +3866,7 @@ export function createStore(
       if (!past.length) return false;
       beforeChange(revision);
       push(future, project);
-      project = JSON.parse(past.pop());
+      project = past.pop().value;
       revision++;
       listeners.forEach((fn) => fn());
       return true;
@@ -3561,7 +3875,7 @@ export function createStore(
       if (!future.length) return false;
       beforeChange(revision);
       push(past, project);
-      project = JSON.parse(future.pop());
+      project = future.pop().value;
       revision++;
       listeners.forEach((fn) => fn());
       return true;
