@@ -323,7 +323,7 @@ test("sockets on parts: set, snap, GLB round trip; placed models bring the libra
   // The GLB carries sockets as socket_<name> empties with their tags, and reads them back.
   const glb = await api.exportGLB({ encoding: "base64" });
   const bytes = new Uint8Array(Buffer.from(glb.data, "base64"));
-  const { json } = (await import("../site/editor/glb.js")).parseModelFile(bytes);
+  const { json } = (await import("../site/workshop/glb.js")).parseModelFile(bytes);
   const empty = json.nodes.find((n) => n.name === "socket_e");
   assert.ok(empty && empty.mesh === undefined, "an empty per socket");
   assert.deepEqual(empty.extras?.tags, ["joint"]);

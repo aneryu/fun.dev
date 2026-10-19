@@ -19,7 +19,7 @@ async function build() {
   });
   await mkdir(output, { recursive: true });
   for (const path of [
-    "editor",
+    "workshop",
     "platform.css",
     "i18n.js",
     "favicon.svg",
