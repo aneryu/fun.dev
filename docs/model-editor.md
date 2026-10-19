@@ -511,7 +511,8 @@ origin. A dab's images act on the same positions; where they overlap, a vertex m
 strongest image's weight, shared among the images in proportion to their weights, so a stroke
 on the mirror plane is exactly as strong as without symmetry (a grab there follows the pointer
 once) and a symmetric mesh stays symmetric. On a part with vertex symmetry the stroke may cross
-the seam (sources stay on their side, the other side follows). Results report `dabs` and `vertices` moved. A stroke is
+the seam (sources stay on their side, the other side follows). Results report `dabs` and
+`vertices` moved (a script's `ws.apply` lists them under `reports`). A stroke is
 deterministic: the page's pointer strokes run the same code incrementally and commit as the
 same command.
 
@@ -534,7 +535,9 @@ vertices, 1,000,000 triangles and 256 MB in all (engine limits: the format has n
 meshes are re-checked whole on every command (at 45,000 triangles a geometry edit takes
 about 1.4 s); dense meshes are checked from cached array checks, so at 258,000 triangles a
 20-dab sculpt stroke takes 10–15 ms (30–50 ms as a whole command), a vertex edit 3 ms,
-validation 1–6 ms and undo 0.1 ms.
+validation 1–6 ms and undo 0.1 ms. Through the Node tool's `ws.apply` on a 149,000-triangle
+library model a stroke takes 25–70 ms: the tool redraws its viewport only when something reads
+it (a view, bounds, the camera) rather than after every edit.
 Generated topology may change face identity when its segment counts change; inspect again
 after parameter updates.
 

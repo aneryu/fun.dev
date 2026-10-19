@@ -8,7 +8,7 @@ import { installShims, Canvas } from "./workshop-shims.mjs";
  * The draft API of site/workshop/draft.js, in memory. Like the page, a record whose metadata is
  * damaged opens protected: readable, never written, its original kept as the recovery source.
  */
-export function memoryDraft(initial, { createError, readMetadata }) {
+export function memoryDraft(initial, { createError, readMetadata, jsonBytes = (value) => new TextEncoder().encode(JSON.stringify(value)).length }) {
   const metadata = readMetadata(structuredClone(initial));
   let record = metadata.record,
     activated = false,
@@ -71,7 +71,7 @@ export function memoryDraft(initial, { createError, readMetadata }) {
     setMetadata(metadata) {
       this.assert(record.revision);
       const next = { ...record, ...metadata };
-      if (new TextEncoder().encode(JSON.stringify(next)).length > 96 * 1024 * 1024)
+      if (jsonBytes(next) > 96 * 1024 * 1024)
         throw createError("Draft with checkpoints exceeds 96 MB", "budget");
       record = next;
       return persistence();
@@ -102,12 +102,13 @@ export async function openWorkshop({ record, kernel = {}, width = 1440, height =
   // Unbundled, the page's site paths (/runtime/three.js…) need mapping to node_modules.
   if (typeof __WORKSHOP_BUNDLED__ === "undefined")
     (await import("node:module")).register("./workshop-resolve.mjs", import.meta.url);
-  const [{ loadKernel }, document, { createViewport }, engineModule, { readMetadata }] = await Promise.all([
+  const [{ loadKernel }, document, { createViewport }, engineModule, { readMetadata }, { jsonBytes }] = await Promise.all([
     import("../site/workshop/kernel.js"),
     import("../site/workshop/document.js"),
     import("../site/workshop/viewport.js"),
     import("../site/workshop/engine.js"),
     import("../site/workshop/draft.js"),
+    import("../site/workshop/dense.js"),
   ]);
   const { createEngine, normalizeSelection, followRenames } = engineModule;
   // Node has no site: the model library comes from its public origin.
@@ -115,7 +116,8 @@ export async function openWorkshop({ record, kernel = {}, width = 1440, height =
   library.setLibraryOrigin(process.env.FUNDEV_LIBRARY_ORIGIN || library.PUBLIC_LIBRARY);
   await loadKernel(kernel);
   const createError = (message, code) => new document.ModelError(message, code);
-  const draft = memoryDraft(record ?? { project: document.duckProject(), revision: 0 }, { createError, readMetadata });
+  // Dense meshes are counted by their bytes, not encoded, on every activity entry.
+  const draft = memoryDraft(record ?? { project: document.duckProject(), revision: 0 }, { createError, readMetadata, jsonBytes });
   // A protected draft shows its last geometry as saved, without evaluating it again.
   const store = document.createStore(draft.recovery ? draft.record.project : document.evaluateProject(draft.record.project), {
     revision: draft.record.revision,
@@ -128,23 +130,41 @@ export async function openWorkshop({ record, kernel = {}, width = 1440, height =
   const canvas = new Canvas(width, height);
   canvas.layout(width, height);
   globalThis.document.body.append(canvas);
-  const viewport = await createViewport(canvas, {
+  const drawing = await createViewport(canvas, {
     onError: (error) => process.stderr.write(`workshop: ${error.message}\n`),
+  });
+  // Unlike the page, nothing here is on screen: a change only marks the drawing stale, and the
+  // next call that reads the viewport (a view, bounds, the camera, a pick) brings it up to date
+  // first. Agents make many edits between looks; a rebuild costs tens of milliseconds at a
+  // hundred thousand triangles.
+  let stale = false;
+  const viewport = new Proxy(drawing, {
+    get(target, key) {
+      const value = target[key];
+      if (typeof value !== "function") return value;
+      return (...args) => {
+        if (stale && key !== "setProject" && key !== "dispose") {
+          stale = false;
+          target.setProject(store.snapshot());
+          target.select(selection);
+        }
+        return value.apply(target, args);
+      };
+    },
   });
   viewport.setProject(store.snapshot());
   viewport.select(selection);
   // The page frames the model when it opens; so does this.
   viewport.view();
   await viewport.setReferences(draft.record.references ?? []);
-  // As the page does: renames carry the selection, the viewport follows the store, the draft
-  // keeps every revision.
+  // As the page does: renames carry the selection, the draft keeps every revision; the
+  // viewport follows the store when it is next read.
   store.subscribe((results = []) => {
     const project = store.snapshot();
     followRenames(results, selection, viewState);
     try {
-      viewport.setProject(project);
       normalizeSelection(project, selection);
-      viewport.select(selection);
+      stale = true;
     } finally {
       if (!draft.recovery) draft.save(project, store.revision);
     }

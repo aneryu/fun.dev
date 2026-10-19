@@ -2458,7 +2458,8 @@ function exportModel(
             ? `static__${material.name}`
             : `${parent.name}__${material.name}`;
         o.name = base;
-        for (let n = 2; model.objects.has(o.name); n++) o.name = `${base}-${n}`;
+        // A name one of its own sources had (a reopened library model's static__ parts) stays.
+        for (let n = 2; model.objects.has(o.name) && !sourceIds.has(o.name); n++) o.name = `${base}-${n}`;
         i++;
         o.userData = { sourceIds: [...sourceIds] };
         parent.add(o);

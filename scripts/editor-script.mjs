@@ -44,6 +44,8 @@ const summary = (validation) => {
   };
 };
 
+const BOOKKEEPING = new Set(["index", "op", "node", "selection", "parameterChanges", "changed", "removed", "geometry", "materialRules", "detachedRecipes", "idMap", "copies", "consumed"]);
+
 export function scriptApi(invoke, base) {
   const files = [];
   let revision;
@@ -51,7 +53,11 @@ export function scriptApi(invoke, base) {
   async function call(method, args = {}) {
     const result = await invoke("fun_editor_" + method, args);
     if (result.isError) throw new ScriptError(result.structuredContent?.error);
-    return result.structuredContent;
+    // Any answer that reports the project's revision keeps the one ws.apply sends current, so
+    // ws.call("apply", …) and ws.inspect() mix with ws.apply (library records are not projects).
+    const value = result.structuredContent;
+    if (!method.startsWith("library") && Number.isSafeInteger(value?.revision)) revision = value.revision;
+    return value;
   }
   const current = async () =>
     (revision ??= (await call("inspect")).revision);
@@ -99,11 +105,17 @@ export function scriptApi(invoke, base) {
           ...(copies ? { copies } : {}),
           ...(consumed ? { consumed } : {}),
         }));
+      // What commands measured (a stroke's dabs and vertices moved, displace's affected
+      // vertices…), without the bookkeeping every result carries.
+      const reports = result.results
+        ?.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => k === "index" || k === "op" || !BOOKKEEPING.has(k))))
+        .filter((r) => Object.keys(r).length > 2);
       return {
         revision,
         changed: result.changed,
         ...(result.removed?.length ? { removed: result.removed } : {}),
         ...(idMaps?.length ? { idMaps } : {}),
+        ...(reports?.length ? { reports } : {}),
       };
     },
     async undo() {

@@ -99,3 +99,24 @@ test("sessions reopen where they were left", async () => {
     again.dispose();
   }
 });
+
+test("re-exporting a library model's merged parts keeps their names", async () => {
+  api.loadProject(
+    {
+      format: "fun.dev/model",
+      version: 1,
+      name: "fruit",
+      materials: [{ id: "wood", name: "wood", color: "#c9a27a", roughness: 0.6 }, { id: "leaf", name: "leaf", color: "#3a7a3a", roughness: 0.6 }],
+      nodes: [],
+    },
+    { ifRevision: api.inspect().revision },
+  );
+  api.apply([
+    { op: "create", id: "fruit", kind: "group" },
+    { op: "create", id: "static__wood", kind: "sphere", parent: "fruit", material: "wood", options: { radius: 0.1 } },
+    { op: "create", id: "static__leaf", kind: "box", parent: "fruit", material: "leaf", position: [0, 0.12, 0], options: { size: [0.02, 0.04, 0.02] } },
+  ]);
+  const glb = await api.exportGLB({ encoding: "base64", rootName: "fruit_ROOT", mergeStatic: "auto" });
+  const { json } = parseModelFile(new Uint8Array(Buffer.from(glb.data, "base64")));
+  assert.deepEqual(json.nodes.map((n) => n.name).filter((n) => n.startsWith("static__")).sort(), ["static__leaf", "static__wood"]);
+});

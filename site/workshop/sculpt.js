@@ -297,28 +297,37 @@ export class Sculptor {
     this.moved[i] = 1;
     if (m > this.maxStep) this.maxStep = m;
   }
-  // How far a point of a face can lie from all its vertices: at most half its perimeter, so
-  // half the most corners times the longest edge.
+  // How far a point of a face can lie from the face's vertices: at most half its perimeter.
+  // Faces far larger than the mean (a cap among small facets) are listed apart, so one of them
+  // does not widen every search: reach is the largest of the others.
   faceReach() {
     if (this.reach === undefined) {
-      const { positions: p, offsets, indices } = this;
-      let edge = 0,
-        corners = 3;
-      for (let f = 0; f + 1 < offsets.length; f++) {
+      const { positions: p, offsets, indices } = this,
+        F = offsets.length - 1,
+        half = new Float64Array(F);
+      let sum = 0;
+      for (let f = 0; f < F; f++) {
         const a = offsets[f],
           b = offsets[f + 1];
-        if (b - a > corners) corners = b - a;
+        let perimeter = 0;
         for (let k = a; k < b; k++) {
           const i = 3 * indices[k],
             j = 3 * indices[k + 1 < b ? k + 1 : a],
             dx = p[i] - p[j],
             dy = p[i + 1] - p[j + 1],
-            dz = p[i + 2] - p[j + 2],
-            d2 = dx * dx + dy * dy + dz * dz;
-          if (d2 > edge) edge = d2;
+            dz = p[i + 2] - p[j + 2];
+          perimeter += Math.sqrt(dx * dx + dy * dy + dz * dz);
         }
+        half[f] = perimeter / 2;
+        sum += half[f];
       }
-      this.reach = (corners / 2) * Math.sqrt(edge);
+      const limit = (4 * sum) / Math.max(1, F);
+      let reach = 0;
+      this.bigFaces = [];
+      for (let f = 0; f < F; f++)
+        if (half[f] > limit) this.bigFaces.push(f);
+        else if (half[f] > reach) reach = half[f];
+      this.reach = reach;
     }
     return this.reach;
   }
@@ -353,9 +362,11 @@ export class Sculptor {
     if (best < 0) return [...c];
     let out = [p[3 * best], p[3 * best + 1], p[3 * best + 2]],
       outD2 = bestD2;
-    const faces = [],
+    const reach = this.faceReach(),
+      faces = [...this.bigFaces],
       stamp = this.nextStamp();
-    this.within(c, Math.sqrt(bestD2) + this.faceReach() + 2 * this.slack, (i) => {
+    for (const f of faces) this.faceSeen[f] = stamp;
+    this.within(c, Math.sqrt(bestD2) + reach + 2 * this.slack, (i) => {
       for (let k = this.vertexFaceStarts[i]; k < this.vertexFaceStarts[i + 1]; k++) {
         const f = this.vertexFaces[k];
         if (this.faceSeen[f] !== stamp) {

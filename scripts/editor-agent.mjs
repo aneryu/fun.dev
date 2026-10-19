@@ -12,6 +12,7 @@ import {
 import { resolve, dirname, extname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
+import { setDefaultAutoSelectFamilyAttemptTimeout } from "node:net";
 import { execFileSync } from "node:child_process";
 import { createPreviewServer, listen } from "./preview-server.mjs";
 import { agentTools, toolInvocation } from "../site/workshop/agent-tools.js";
@@ -29,6 +30,9 @@ import { serveBridge, readConnection, bridgeRequest } from "./workshop-bridge.mj
 
 /** The workshop tool: --run, the JSON line CLI or MCP over stdio (docs/model-editor.md). */
 export async function main(args = process.argv.slice(2)) {
+// The model library's CDN can take a second to answer from some networks (China); Node gives
+// each address 250 ms before trying the next and then fails the fetch. Wait longer.
+setDefaultAutoSelectFamilyAttemptTimeout(2500);
 const config = {};
 // The published single-file tool (static.fun.dev/tools/fundev-workshop.mjs) is built with a
 // default URL: it drives the live workshop and needs no repository, only Playwright.

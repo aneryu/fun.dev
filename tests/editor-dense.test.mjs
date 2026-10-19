@@ -331,6 +331,18 @@ test("dabs land on the surface: points near it, a long stroke across a ball, a g
   const grab = positions(fresh(ball(), { op: "sculpt", id: "ball", brush: "grab", radius: 0.1, points: [[0, 0.56, 0], [0, 0.66, 0]] }), "ball");
   near(grab[3 * top + 1], p0[3 * top + 1] + 0.1, 0.005, "the top follows a grab that starts above it");
   validateSchema([{ op: "sculpt", id: "ball", brush: "clay", radius: 0.1, points: [[0, 0, 0]], onSurface: false }], commandsSchema);
+  // A dome: thousands of small facets and a flat bottom of a few large polygons. Points below
+  // land on the bottom, points above on the curve; the large faces do not slow every search.
+  const dome = denseData(node(fresh({ op: "create", id: "dome", kind: "sphere", material: "skin", options: { radius: 0.5, geodesic: 6, latitude: [0, 90] } }), "dome").mesh),
+    sculptor = new Sculptor({ positions: dome.positions.slice(), offsets: dome.offsets, indices: dome.indices }, { radius: 0.02 });
+  const below = sculptor.closest([0.1, -0.05, 0.02]);
+  for (const [k, v] of [0.1, 0, 0.02].entries()) near(below[k], v, 1e-9, `the bottom ${k}`);
+  const above = sculptor.closest([0.1, 0.6, 0.05]);
+  near(Math.hypot(...above), 0.5, 0.002, "the curve");
+  assert.ok(above[1] > 0.45);
+  const t0 = performance.now();
+  for (let i = 0; i < 200; i++) sculptor.closest([0.3 * Math.cos(i), 0.38 + 0.01 * (i % 3), 0.3 * Math.sin(i)]);
+  assert.ok(performance.now() - t0 < 200, "200 searches beside large faces stay quick");
 });
 
 test("performance at about 258 000 triangles: strokes, edits and validation", () => {

@@ -75,8 +75,11 @@ export default async function (ws) {
 ```
 
 - Paths are relative to the script. `ws.load` starts a fresh project, so every run is the
-  same; materials need `id` and `color`.
-- `ws.apply(commands)` runs one atomic batch and returns `{ revision, changed, idMaps }`.
+  same (without it a script edits the example duck); materials need `id` and `color`.
+- `ws.apply(commands)` runs one atomic batch and returns `{ revision, changed, idMaps,
+  reports }` (`reports`: what commands measured, such as a stroke's `dabs` and `vertices`
+  moved). `ws.call("apply", { commands, ifRevision })` returns every command's full result;
+  the two mix freely.
   `ws.validate()` returns `{ errors, warnings }`. `ws.inspect({ id })`, `ws.query({ id, kind,
   … })` read geometry. `ws.observe(names, { file, size, references, ids, shading, camera, … })`
   writes PNGs (one name: `file`; several: `file` with `-<view>` added; the other options are
@@ -85,11 +88,13 @@ export default async function (ws) {
   `result`, so end with `return ws.exportGLB(…)`. Also `ws.importGLB({ file })`,
   `ws.exportProject({ file })`, `ws.setReference({ view, file, width, center })`,
   `ws.call(method, args)` for anything else. `console.log` is fine: the result is the last line.
-- The public CC0 model library: `ws.librarySearch({ query, type, tags })` finds models (ids,
-  sizes in metres, versions); `ws.openLibraryModel(id)` opens one to edit or derive from (its
-  workshop project when it has one), `ws.openLibraryModel(id, { mode: "add" })` adds its parts
-  to assemble a scene; `ws.libraryModel(id)` lists versions and file addresses. The project
-  records them in `sources`. Details: [library API](library-api.md).
+- The public CC0 model library: `ws.librarySearch({ query, type, tags, limit })` (`limit` up
+  to 100) finds models (ids, sizes in metres, versions); `ws.openLibraryModel(id)` opens one to
+  edit or derive from (its workshop project when it has one), `ws.openLibraryModel(id, { mode:
+  "add" })` adds its parts to assemble a scene; `ws.libraryModel(id)` lists versions and file
+  addresses. The project records them in `sources`. Models up to a million triangles open
+  unreduced; opening welds vertices, joins coplanar triangles into polygons and drops
+  degenerate ones, so counts can differ slightly. Details: [library API](library-api.md).
 
 ## Conventions
 
@@ -100,7 +105,10 @@ export default async function (ws) {
   `door_hinge`); a group's children move with it.
 - `mergeStatic: "auto"` merges every mesh directly under the root into one mesh per
   material, named `static__<material>`; meshes inside groups stay separate (they move).
-  With `rootName`, a single top-level group becomes the root itself.
+  With `rootName`, a single top-level part (a group or a mesh) becomes the root itself.
+- Named views are the viewer's: `front` looks from +Z at the model's face, `left` from −X (the
+  model's right side, screen right = +Z), `right` from +X (the model's left side), `back`,
+  `top`; `perspective` from front right above.
 - Materials: `id, name?, color "#rrggbb", roughness, metalness?, emissive?,
   emissiveIntensity?, opacity?, transmission?, ior?, doubleSided?`. Full metal
   (metalness 1) reflects its surroundings: the workshop and library show a sky, but a
@@ -169,6 +177,9 @@ body with wheel-arch notches is one concave outline.
 
 ## Commands for `ws.apply`
 
+- Move: `transform {id | ids, translation?, rotation?, scale?, pivot?, space?, falloff?}` with
+  `select`/`faces`/`vertices`/`edges` moves those components (baked into the mesh: `select:
+  { kind: "faces" }` turns a whole mesh); without them it moves the parts themselves.
 - Parts: `set {id, position?, rotation?, scale?, parent?, name?}`, `rename {id, newId}`,
   `delete {id}`, `group {ids, newId}`, `pivot {id, offset}`, `ground {id}` (onto y = 0),
   `align {ids, axis, mode:"min"|"center"|"max"}`, `dimensions {id, size}`, `applyScale {id}`.
@@ -261,24 +272,38 @@ await ws.apply([
 await ws.observe(["front", "left", "perspective"], { file: "head.png", shading: "clay" });   // clay shows the forms
 ```
 
-- Dabs fall every `spacing` × `radius` (0.25) along the points, each on the closest point of the
-  surface (`onSurface: false` keeps them where the points put them). Each moves the vertices
-  within `radius`, faded by `falloff` (`smooth`, `sphere`, `root`, `sharp`, `linear`,
-  `constant`, `inverseSquare`), by `strength` (0–1, 0.5) of the brush's step: `inflate` pushes
-  out along the normals (`invert`: in) by a tenth of the radius per dab, `clay` builds up towards a
-  plane above the surface, `flatten` levels onto the surface's mean plane, `crease` pinches
-  and cuts a line (`invert`: a ridge), `smooth` relaxes. `grab` moves what lies within the
-  radius of its first point by the stroke's offsets (strength 1: all the way).
+- Dabs fall every `spacing` × `radius` (0.25; 0.02–4) of distance along the points, so a
+  repeated point adds none (dab again with another stroke). Each lands on the closest point of
+  the surface (`onSurface: false` keeps it where the points put it) and moves the vertices within
+  `radius` by the brush's step × `strength` (0–1, 0.5), faded by the falloff:
+  - `inflate`: out along the normals by a tenth of the radius (`invert`: in);
+  - `clay`: towards a plane 0.08 × radius above the surface under the dab, half the gap
+    (`invert`: scrapes down);
+  - `flatten`: half the way to the mean plane under the dab; for a crisp cut, `strength: 1`,
+    `falloff: "constant"` and a small `spacing`;
+  - `crease`: pinches towards the dab and presses in by 0.08 × radius (`invert`: a ridge);
+  - `smooth`: the way to the mean of each vertex's neighbours;
+  - `grab`: what lies within the radius of the first point follows the stroke's offsets
+    (strength 1: all the way). A move beyond about half the radius pulls a spike: use a radius
+    at least twice the move.
+- `falloff` over the distance d from the dab (s = 1 − d/radius): `smooth` (default, 3s² − 2s³),
+  `sphere` (√(2s − s²): full almost to a steep rim), `root` (√s), `sharp` (s²: peaked),
+  `linear`, `inverseSquare` (s(2 − s)), `constant` (a hard edge). A hard rim on a grab tears.
+- The brush is a ball: on a part thinner than its radius it moves both faces (a slab's top and
+  bottom), and validation refuses what folds through itself. Keep the radius below the thickness.
 - `symmetry: "x"` mirrors every dab across the part's own x = 0 (also `"y"`, `"z"` or a list);
   a stroke on the mirror plane is as strong as without it. `space: "world"` takes world points
   and radius. `pressure` gives 0–1 per point. Look every few strokes and adjust; each stroke is
   one undo step and can be a recipe step.
 - Faceted low poly: sculpt a `geodesic: 3` (1 280 triangles) or `4` ball with flat shading
-  (`smooth: 0`); the same strokes work at every density. Organic forms: 5–6 with `smooth: 180`.
+  (`smooth: 0`); fewer facets need bigger, gentler strokes than the example's. Organic forms:
+  5–6 with `smooth: 180`. A geodesic ball has rows of facets around its y axis; turn it before
+  sculpting (`transform` with `select: { kind: "faces" }`, `rotation: [90, 0, 0]`) to put a pole
+  between the eyes instead of rows across the face.
 - Meshes over 16 384 faces (geodesic 5 and up, subdivisions, imports) are stored dense: typed
-  arrays, faces numbered `f0`, `f1`, …, up to a million triangles and 600 000 vertices; a stroke
-  on a few hundred thousand triangles takes tens of milliseconds. Every edit still works on them; `validate` reports their
-  self-intersection scan as unchecked.
+  arrays, faces numbered `f0`, `f1`, …, up to a million triangles and 600 000 vertices. A
+  stroke through `ws.apply` on a 150 000-triangle library model takes 25–70 ms. Every edit
+  still works on them; `validate` reports their self-intersection scan as unchecked.
 
 ## Blueprints: parametric families
 
@@ -321,15 +346,15 @@ need visual review. A PNG alone is not evidence that a model matches its referen
 ### Automatic local vertex symmetry
 
 For an already symmetric independent mesh, enable persistent vertex pairs with
-`{op:"vertexSymmetry",id:"head",axis:"z",offset:0,side:1}`. Positive local Z is
-the source (`side:-1` chooses negative). Source vertex edits automatically update
+`{op:"vertexSymmetry",id:"head",axis:"x",offset:0,side:1}` (left and right of a model that
+faces +Z). Positive local X is the source (`side:-1` chooses negative). Source vertex edits automatically update
 the opposite side and pin seam vertices to the plane. The setting survives project
 export/import and undo/redo. Destination vertex edits are rejected. Disable with
 `{op:"vertexSymmetry",id:"head",enabled:false}` before topology changes; re-enable
 after restoring symmetric topology. This links positions, not face colors.
 
 Separate eyes, wings or feet use the existing `symmetry` command with
-`space:"parent",axis:"z",linked:true` to link geometry and transforms.
+`space:"parent",axis:"x",linked:true` to link geometry and transforms.
 
 ## Scenes
 
