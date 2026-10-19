@@ -378,7 +378,10 @@ row gets in the first release are voxel ground, floating origin and baked lighti
   Games keep their own audits for their own rules, as 帝都 does for its closed loop.
 - **Budgets** (initial, to be measured): within the streaming radius on a phone, 300 k
   triangles, 150 draw calls after batching, 8 light slots, 2000 static bodies; a tile over its
-  budget fails the audit.
+  budget fails the audit. Built 2026-10-19: the audit estimates triangles, draw calls after
+  batching, static bodies and copies for the scene or per tile (`budget`, `tile-budget`), the
+  world report carries each tile's numbers; light slots are the runtime's fixed set and are
+  not counted; the numbers wait for a device.
 
 ## 10. Pipeline
 

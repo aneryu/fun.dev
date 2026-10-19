@@ -1014,7 +1014,8 @@ them out. The map and the audit are for agents:
 
 - `funEditor.map({ size })` renders the top view with the overlays and returns `metresPerPixel`
   and the scene's bounds (`ws.map({ file })`); a tiled project (`tile`) gets its tile grid drawn
-  over the map, the span's extent heavier (`overlays: { tiles: false }` leaves it out).
+  over the map, the span's extent heavier (`overlays: { tiles: false }` leaves it out);
+  `overlays: { nav: true }` lays the walkable raster over it in teal (a project with `nav`).
 - `funEditor.sample({ path, every, start, end, height, look, limit, size })` renders a
   walkthrough: a perspective frame every `every` metres along a path part, the camera `height`
   (1.6 m) above it looking `ahead`, `back`, `left`, `right` or at a point, up to `limit` (12)
@@ -1024,10 +1025,16 @@ them out. The map and the audit are for agents:
   interpenetrating by more than 5 cm on every axis), `floating` (a solid touching nothing,
   with the gap below it), `buried` (below the ground plane), `out-of-bounds` (outside
   `tile.size`, or outside the `tile.span` tiles of it), `unconverted-model` (a placed version
-  without a `.fun3d`) and `budget` (triangles above 300 000 by default; `tile-budget` per tile
-  once `tile.span` makes a world of several tiles, and the result's `tiles` lists each tile's
-  numbers). Parts tagged `ground` are the floor: never flagged, and a support for the rest.
-  `--run` adds the audit to its result for scene projects.
+  without a `.fun3d`) and `budget`: what the scene asks of a phone against `budget: { triangles,
+  drawCalls, bodies, copies }` (300 000 triangles, 150 draw calls after batching, 2000 static
+  bodies, 20 000 copies by default, to be calibrated on a device; estimates: triangles are the
+  scene's own plus the placed copies', terrains' and grids'; draw calls its own parts by
+  material, one per terrain or grid, one per part of a model with copies, a couple for the
+  batched singles; bodies the terrains, grids, floors tagged `ground` and one per placed copy).
+  `tile-budget` judges per tile once `tile.span` makes a world of several tiles; the result's
+  `budget` holds the scene's numbers and `tiles` each tile's. Parts tagged `ground` are the
+  floor: never flagged, and a support for the rest. `--run` adds the audit to its result for
+  scene projects.
 
 Exports: `exportTile` writes the scene as one `.fun3d` tile ([format 4.9a](model-format.md#49a-placed-models-and-scene-data-11)):
 the project's parts as geometry, placed models as references, markers as tagged nodes with

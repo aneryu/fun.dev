@@ -30,7 +30,8 @@ import { exportReport, exportAsset } from "./viewport.js";
 import { importModel } from "./import-glb.js";
 import { searchLibrary, libraryModel, importLibraryModel } from "./library.js";
 import { auditProject } from "./audit.js";
-import { exportTile } from "./tile.js";
+import { exportTile, sceneBounds } from "./tile.js";
+import { buildNavgrid } from "./nav.js";
 import { exportWorld } from "./world-export.js";
 import { resolvePlacement, ensurePlaced } from "./placed.js";
 import { ruleInputs, deriveNodes, ruleModels, runtimeRule, sweepMaterials } from "./rules.js";
@@ -820,7 +821,13 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
       }
     },
     map({ size = 512, overlays, helpers = false, ...options } = {}) {
-      const revision = store.revision, tile = store.snapshot().tile;
+      const revision = store.revision, p = store.snapshot(), tile = p.tile;
+      // overlays.nav draws the walkable raster (nav on the project) over the map.
+      let navOverlay = null;
+      if (overlays?.nav && p.nav) {
+        const b = sceneBounds(p);
+        navOverlay = buildNavgrid(p, p.nav, { min: [b.min[0], b.min[2]], max: [Math.max(b.max[0], b.min[0] + p.nav.cell), Math.max(b.max[2], b.min[2] + p.nav.cell)] });
+      }
       const [shot] = viewport.renderViews(["top"], size, {
         helpers,
         focus: false,
@@ -828,6 +835,7 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
         overlays: { data: true, ...(overlays ?? {}) },
         // The tile grid rides on maps of a tiled project unless asked away (overlays.tiles).
         ...(tile && (overlays?.tiles ?? true) ? { tileGrid: { size: tile.size, span: tile.span ?? [1, 1] } } : {}),
+        ...(navOverlay ? { navOverlay } : {}),
       });
       const cam = shot.camera,
         box = viewport.bounds();

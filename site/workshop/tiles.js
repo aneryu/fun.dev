@@ -5,6 +5,62 @@
 // are the world's data, in no tile. Far files keep the terrain coarsened and the big parts.
 import { worldMatrix, point, nodePoints, boundsOf } from "./spatial.js";
 import { statistics } from "./document.js";
+import { placedTemplate } from "./placed.js";
+
+/** A phone's budget per tile (docs/worlds.md §9), to be calibrated on a device. */
+export const BUDGETS = { triangles: 300000, drawCalls: 150, bodies: 2000, copies: 20000 };
+const partCounts = new WeakMap();
+const templateParts = (template) => {
+  if (!template?.root) return 1;
+  if (!partCounts.has(template)) {
+    let n = 0;
+    template.root.traverse((o) => { if (o.isMesh) n++; });
+    partCounts.set(template, Math.max(1, n));
+  }
+  return partCounts.get(template);
+};
+/**
+ * What a project (or a tile's cut of it) asks of a phone: triangles (its own, the placed
+ * copies', the terrains' and grids'), draw calls after batching (its own parts by material,
+ * one per terrain or grid, one per part of a model with copies, a couple for the batched
+ * singles), static bodies (terrains, grids, floors tagged ground, one per placed copy) and
+ * copies. Estimates: the audit's budgets, calibrated on a device later.
+ */
+export function tileBudget(project) {
+  const s = statistics(project);
+  let drawCalls = s.drawCalls + s.terrains + s.grids, bodies = s.terrains + s.grids, singles = 0;
+  for (const node of project.nodes) {
+    if (node.mesh && node.tags?.includes("ground")) bodies++;
+    if (!node.place) continue;
+    if (node.copies) { drawCalls += templateParts(placedTemplate(node.place)); bodies += node.copies.length; }
+    else { singles++; bodies++; }
+  }
+  if (singles) drawCalls += 2;
+  return { triangles: s.triangles + s.placedTriangles + s.terrainTriangles + s.gridTriangles, drawCalls, bodies, copies: s.copies, placed: s.placed, terrains: s.terrains, grids: s.grids, parts: project.nodes.length };
+}
+const SUGGESTIONS = {
+  triangles: "Thin the scatter there, pick lighter models, or cut smaller tiles.",
+  drawCalls: "Fewer distinct models with copies in one tile, or fewer materials on the scene's own parts.",
+  bodies: "Fewer copies in one tile (every copy is a body), or cut smaller tiles.",
+  copies: "Fewer copies in one tile, or cut smaller tiles.",
+};
+/** Findings for what is over a budget, for the whole scene (code budget) or a tile. */
+export function budgetFindings(numbers, budget = {}, tile = null) {
+  const limits = { ...BUDGETS, ...budget }, findings = [];
+  for (const metric of ["triangles", "drawCalls", "bodies", "copies"])
+    if (numbers[metric] > limits[metric])
+      findings.push({
+        code: tile ? "tile-budget" : "budget",
+        severity: "warning",
+        ...(tile ? { tile } : {}),
+        metric,
+        actual: numbers[metric],
+        limit: limits[metric],
+        message: `${tile ? `tile ${tile[0]}_${tile[1]} has` : "the scene has"} ${numbers[metric]} ${metric === "drawCalls" ? "draw calls" : metric}, over the budget of ${limits[metric]}`,
+        suggestion: SUGGESTIONS[metric],
+      });
+  return findings;
+}
 
 /** The tile grid of a project with `tile`, or null: index and rect of tiles, the allowed extent. */
 export function tileGrid(project) {
@@ -221,26 +277,12 @@ export function farProject(sub, { minSize = 8, step = 4 } = {}) {
   return { ...sub, nodes };
 }
 
-/** Per-tile triangle budgets: what streams in together is what a phone draws together. */
-export function auditTiles(project, { triangles: limit = 300000 } = {}) {
+/** Per-tile budgets: what streams in together is what a phone draws together. */
+export function auditTiles(project, budget = {}) {
   const findings = [];
   if (!project.tile) return { findings, tiles: [] };
   const { tiles } = cutTiles(project);
-  const report = tiles.map((t) => {
-    const s = statistics(t.project);
-    return { x: t.x, z: t.z, triangles: s.triangles + s.placedTriangles + s.terrainTriangles + s.gridTriangles, placed: s.placed, copies: s.copies, terrains: s.terrains, grids: s.grids, parts: t.project.nodes.length };
-  });
-  for (const t of report)
-      if (t.triangles > limit)
-        findings.push({
-          code: "tile-budget",
-          severity: "warning",
-          tile: [t.x, t.z],
-          metric: "triangles",
-          actual: t.triangles,
-          limit,
-          message: `tile ${t.x}_${t.z} has ${t.triangles} triangles, over the budget of ${limit}`,
-          suggestion: "Thin the scatter there, pick lighter models, or cut smaller tiles.",
-        });
+  const report = tiles.map((t) => ({ x: t.x, z: t.z, ...tileBudget(t.project) }));
+  for (const t of report) findings.push(...budgetFindings(t, budget, [t.x, t.z]));
   return { findings, tiles: report };
 }

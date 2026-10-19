@@ -537,9 +537,11 @@ export async function createViewport(
     silhouette = new THREE.MeshBasicMaterial({ color: 0x22262b });
   const highlights = new THREE.Group(),
     wires = new THREE.Group(),
-    tileLines = new THREE.Group();
+    tileLines = new THREE.Group(),
+    navLayer = new THREE.Group();
   tileLines.visible = false;
-  scene.add(highlights, wires, tileLines);
+  navLayer.visible = false;
+  scene.add(highlights, wires, tileLines, navLayer);
   // Reference images (blueprints, photos, concept views) stand behind the model in one
   // orthographic view. They are drawing aids: never picked, exported or saved in a project.
   const referenceGroup = new THREE.Group();
@@ -1726,6 +1728,35 @@ export async function createViewport(
           tileLines.add(lines, edge);
         }
         tileLines.visible = tileLines.children.length > 0;
+        // The walkable raster (docs/worlds.md §4) as a translucent layer: runs of walkable
+        // cells per row, split where the ground steps.
+        navLayer.clear();
+        if (options.navOverlay && shading !== "ids") {
+          const nav = options.navOverlay, [cols, rows] = nav.size, positions = [];
+          for (let r = 0; r < rows; r++) {
+            let start = -1, y = 0;
+            const flush = (end) => {
+              if (start < 0) return;
+              const x0 = nav.origin[0] + start * nav.cell, x1 = nav.origin[0] + end * nav.cell, z0 = nav.origin[2] + r * nav.cell, z1 = z0 + nav.cell, top = y + 0.03;
+              positions.push(x0, top, z0, x0, top, z1, x1, top, z1, x0, top, z0, x1, top, z1, x1, top, z0);
+              start = -1;
+            };
+            for (let c = 0; c < cols; c++) {
+              const index = r * cols + c, h = nav.heights ? nav.heights[index] : nav.origin[1];
+              if (!nav.cells[index] || (start >= 0 && Math.abs(h - y) > 0.1)) flush(c);
+              if (nav.cells[index] && start < 0) { start = c; y = h; }
+            }
+            flush(cols);
+          }
+          if (positions.length) {
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+            const layer = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: 0x2fb8a6, transparent: true, opacity: 0.45, toneMapped: false, depthWrite: false }));
+            temporary.push(geometry, layer.material);
+            navLayer.add(layer);
+          }
+        }
+        navLayer.visible = navLayer.children.length > 0;
         wireframe = options.overlays?.wire ?? false;
         updateWires();
         refreshSelection();
@@ -1860,6 +1891,8 @@ export async function createViewport(
         for (const o of model.overlays.values()) o.visible = true;
         tileLines.clear();
         tileLines.visible = false;
+        navLayer.clear();
+        navLayer.visible = false;
         applyShading();
         temporary.forEach((m) => m.dispose());
         updateWires();

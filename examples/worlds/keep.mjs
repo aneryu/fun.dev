@@ -51,7 +51,7 @@ export default async function (ws) {
     avoid: [{ path: "lane", width: 6 }, { zone: "pad_1" }, { zone: "pad_2" }, { zone: "pad_3" }], candidates: [{ model: "garden_shrub_01", weight: 10 }, { model: "flowering_cherry_tree_01", weight: 1 }] });
   const derived = await ws.derive();
   const audit = await ws.audit();
-  await ws.map({ file: "keep-map.png", size: 768 });
+  await ws.map({ file: "keep-map.png", size: 768, overlays: { nav: true } });   // the walkable raster in teal
   await ws.observe(["perspective"], { file: "keep-view.png", size: 900, camera: { position: [-70, 45, 70], target: [0, 0, 0] } });
   await ws.sample({ path: "lane", every: 25, height: 2, file: "keep-walk.png" });
   await ws.exportTile({ file: "keep.fun3d" });

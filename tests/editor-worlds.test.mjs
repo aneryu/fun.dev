@@ -838,6 +838,13 @@ test("a project with nav bakes a walkable raster into its tiles; the audit finds
   ]);
   const findings = api.audit().findings.filter((f) => f.code === "unreachable");
   assert.deepEqual(findings.map((f) => f.node).sort(), ["in_wall", "penned"], JSON.stringify(findings));
+  // Budgets beyond triangles: draw calls, bodies and copies, estimated for the whole scene.
+  const numbers = api.audit().budget;
+  assert.deepEqual([numbers.drawCalls, numbers.bodies, numbers.copies], [6, 1, 0], "six boxes by material; the slab's body alone");
+  const tight = api.audit({ budget: { drawCalls: 2 } });
+  assert.ok(tight.findings.some((f) => f.code === "budget" && f.metric === "drawCalls" && f.actual === 6 && f.limit === 2), JSON.stringify(tight.findings.map((f) => f.code)));
+  // The map can show the raster.
+  assert.ok(brightness(api.map({ size: 160, overlays: { nav: true } }).dataUrl).colours > brightness(api.map({ size: 160 }).dataUrl).colours, "the walkable layer adds its colour");
   assert.ok(findings.find((f) => f.node === "penned").message.includes("cannot be reached"));
   assert.ok(findings.find((f) => f.node === "in_wall").message.includes("no one can walk"));
   const tile = await api.exportTile({ encoding: "buffer" });

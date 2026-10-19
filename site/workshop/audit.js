@@ -2,9 +2,8 @@
 // structured and come with a suggestion; none of them blocks an export, a game may want
 // what the audit flags (a lamp standing in a planter overlaps it).
 import { worldMatrix, point, nodePoints } from "./spatial.js";
-import { statistics } from "./document.js";
 import { ruleStatus, terrainFields, gridFields } from "./rules.js";
-import { auditTiles, tileGrid } from "./tiles.js";
+import { auditTiles, tileGrid, tileBudget, budgetFindings } from "./tiles.js";
 import { heightAt } from "../runtime/kit/terrain.js";
 import { gridHeightAt } from "../runtime/kit/grid.js";
 import { buildNavgrid } from "./nav.js";
@@ -182,27 +181,18 @@ export function auditProject(project, { ground: plane = 0, budget = {} } = {}) {
     }
   }
 
-  // The budget: local triangles plus the placed models' own; per tile once the scene cuts
-  // into several (what streams in together is what a phone draws together).
-  const stats = statistics(project),
-    triangles = stats.triangles + stats.placedTriangles,
-    limit = budget.triangles ?? 300000;
+  // The budgets (tiles.js): triangles, draw calls after batching, bodies and copies, for the
+  // whole scene, or per tile once the scene cuts into several (what streams in together is
+  // what a phone draws together).
+  const whole = tileBudget(project), triangles = whole.triangles;
   const many = grid && (grid.span[0] > 1 || grid.span[1] > 1);
-  const tiles = many ? auditTiles(project, { triangles: limit }) : { findings: [], tiles: [] };
+  const tiles = many ? auditTiles(project, budget) : { findings: [], tiles: [] };
   findings.push(...tiles.findings);
-  if (!many && triangles > limit)
-    findings.push({
-      code: "budget",
-      severity: "warning",
-      metric: "triangles",
-      actual: triangles,
-      limit,
-      message: `${triangles} triangles in the scene, above the budget of ${limit}`,
-      suggestion: "Use lighter models or fewer copies; far detail can come later as LOD.",
-    });
+  if (!many) findings.push(...budgetFindings(whole, budget));
 
   return {
     findings,
+    budget: whole,
     tiles: tiles.tiles,
     counts: {
       errors: findings.filter((f) => f.severity === "error").length,

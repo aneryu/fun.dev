@@ -74,7 +74,7 @@ const render = {
 const definitions = [
   [
     "blueprints",
-    "List the parametric blueprints (id, version, title, parameter schema). Build one with apply [{op:'blueprint', id, params?, root?}]; live parameters follow assemblyParameters, structural ones need the blueprint again.",
+    "List the parametric blueprints (id, version, title, parameter schema). Build one with apply [{op:'blueprint', id, params?, root?}]; live parameters follow assemblyParameters, structural ones rebuild.",
     object(),
     true,
   ],
@@ -262,7 +262,7 @@ const definitions = [
   ["activity", "Read recent changes and structured failures.", object(), true],
   [
     "setReference",
-    "Put a reference image (data URL; the CLI takes path) behind the model in one orthographic view: center [horizontal, vertical] metres along the view's screen axes, width in metres. Kept with the draft, never exported; observe({references:true}) renders it.",
+    "Put a reference image (data URL; the CLI takes path) behind the model in one orthographic view: center [horizontal, vertical] metres on the view's axes, width in metres. Kept with the draft, never exported; observe({references:true}) renders it.",
     object(
       {
         view: { enum: ["front", "back", "left", "right", "top"] },
@@ -314,7 +314,7 @@ const definitions = [
   ],
   [
     "openLibraryModel",
-    "Open a library model to edit or derive from: its workshop project when the version has one, else its model.glb as parts. mode replace (default) or add under parent; version defaults to the newest; recorded in sources (kind, id, version, file, sha256).",
+    "Open a library model to edit or derive from: its workshop project when the version has one, else its model.glb as parts. mode replace (default) or add under parent; version defaults to the newest; recorded in sources.",
     object(
       {
         id: str,
@@ -330,7 +330,7 @@ const definitions = [
   ],
   [
     "place",
-    "Place a library model by reference: model is an id or id@vNNN, id names the part; parent, position, rotation, scale, tags, params, variants, tint as for create; the part keeps the library's bounds, never the geometry.",
+    "Place a library model by reference: model is an id or id@vNNN, id names the part; parent, position, rotation, scale, tags, params, variants, tint as for create. The part keeps the library's bounds only.",
     object(
       {
         model: str,
@@ -354,25 +354,25 @@ const definitions = [
   ],
   [
     "derive",
-    "Run rules (one with id, some with ids, else all): resolves their models in the library, evaluates each from its seed and replaces what it derived before.",
+    "Run rules (one with id, some with ids, else all): resolves their models, evaluates each from its seed and replaces what it derived before.",
     object({ id: str, ids: { type: "array", items: str, minItems: 1 }, label: str, ifRevision: revision }, ["ifRevision"]),
     false,
   ],
   [
     "map",
-    "A top-down map with zones (blue), paths (orange) and markers (green); returns the image, metres per pixel and the bounds.",
-    object({ size: render.size, ids, shading: render.shading, helpers: bool, visibility: render.visibility }),
+    "A top-down map with zones, paths, markers and the tile grid; overlays.nav adds the walkable raster. Returns the image, metres per pixel and the bounds.",
+    object({ size: render.size, ids, shading: render.shading, helpers: bool, visibility: render.visibility, overlays: object({ data: bool, tiles: bool, nav: bool }) }),
     true,
   ],
   [
     "audit",
-    "What a picture cannot show: overlaps, floating or buried parts, parts outside the tile(s), unconverted models, stale rules, triangle budgets (per tile in a world). Findings carry suggestions.",
+    "What a picture cannot show: overlaps, floating or buried parts, parts outside the tile(s), unconverted models, stale rules, unreachable markers, budgets (per tile in a world). Findings carry suggestions.",
     object({ ground: num, budget: object({ triangles: num }) }),
     true,
   ],
   [
     "exportTile",
-    "The scene as one .fun3d tile: parts as geometry, placed models as references, markers, zones, paths, terrain and grids as data, the project in the editing section. Under --artifacts when set.",
+    "The scene as one .fun3d tile (geometry, placed references, markers, zones, paths, terrain, grids, the project in the editing section). Under --artifacts when set.",
     object({ name: str }),
     true,
   ],

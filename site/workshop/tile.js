@@ -9,6 +9,7 @@ import { buildModel } from "./viewport.js";
 import { worldMatrix, point } from "./spatial.js";
 import { solidBounds } from "./audit.js";
 import { statistics } from "./document.js";
+import { tileBudget } from "./tiles.js";
 import { runtimeRule, sweepProfiles } from "./rules.js";
 import { terrainMesh } from "../runtime/kit/terrain.js";
 import { gridMesh } from "../runtime/kit/grid.js";
@@ -285,6 +286,7 @@ export async function exportTile(project, { name = project.name, runtime = [], w
         grids: grids.length,
         gridTriangles: stats.gridTriangles,
         ...(navgrid ? { nav: { cell: navgrid.cell, size: navgrid.size, walkable: navgrid.cells.stream.reduce((n, v) => n + (v ? 1 : 0), 0) } } : {}),
+        budget: (({ triangles, drawCalls, bodies, copies }) => ({ triangles, drawCalls, bodies, copies }))(tileBudget(project)),
         meshes: stats.meshes,
         triangles: stats.triangles,
       },
