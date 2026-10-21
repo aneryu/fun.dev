@@ -238,13 +238,33 @@ skeleton lists; they need no marker.
 
 | Attribute | Format | Rule |
 | --- | --- | --- |
-| `position` | `snorm16x4` (14 significant bits, `w` = 0) or `float32x3` | `decode` gives offset and one scale; writers use floats above 20 m extents |
+| `position` | `snorm16x4` (14 significant bits, `w` = 0) or `float32x3` | `decode` gives offset and one scale; writers use floats above 20 m extents or when Float32 position precision is selected |
 | `normal` | `snorm8x4` | absent or ignored for groups with `flat: true` (screen-space derivatives) |
 | `tangent` | `snorm8x4` | `w` is handedness; without it normal maps use derivative tangents |
 | `uv`, `uv1` | `unorm16x2` (12 bits, `decode` range) or `float32x2` | present on every geometry a material with maps on that set is used with |
 | `color` | `unorm8x4` | linear |
 | `skinIndex`, `skinWeight` | `uint8x4`, `unorm8x4` | weights sum to 255; four influences (Three.js's limit); `skinIndex` is a plain, never interleaved attribute that loads as an integer attribute (`gpuType` Int; the WebGPU backend copies it to 32 bits) |
 | `_<name>` | any | custom; its meaning belongs to the extension that reads it |
+
+The writer reuses byte-identical encoded streams with matching count, stride,
+codec and chunk semantics, including repeated animation times and values.
+Sharing preserves independent tracks and the existing 4096-stream limit; it
+does not merge approximate values or change the file version.
+
+The writer accepts `positionPrecision: "quantized" | "float32"` (default
+`"quantized"`; legacy `quantize:false` selects Float32 unless explicitly
+overridden). Float32 applies to both base positions and sparse morph position
+deltas, including nonzero deltas below the quantized sparse cutoff. The existing
+`float32x3` format is used, so no format-version bump or new reader is required.
+Compression remains enabled. Other attributes/channels retain their existing
+encoding, including eight-bit skin weights.
+
+`createConverter().convert(glb, {positionPrecision:"float32"})`, the runtime
+importer's `importGLB` option and CLI `--position-precision float32` expose the
+same choice. Conversion records it in `asset.source.positionPrecision` and the
+conversion report. Include this option in a conversion-cache key alongside the
+source/converter/profile; the library's unchanged default remains quantized.
+Missing precision metadata in an older file means the option was not recorded.
 
 Buffers are grouped by element type because Three.js binds one typed array per interleaved
 buffer; the runtime adds its own buffers and attributes (instance matrices take one buffer and

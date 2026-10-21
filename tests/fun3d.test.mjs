@@ -214,6 +214,103 @@ test("static parts, materials, placements, sockets and physics survive a round t
   model.dispose();
 });
 
+test("repeated animation streams share storage without losing distinct tracks", async () => {
+  const root=new THREE.Group();root.name="stream_fixture";
+  for(let i=0;i<100;i++){const n=new THREE.Group();n.name=`part_${i}`;root.add(n);}
+  // Previously 4200 streams, over the 4096 cap, despite identical payloads.
+  const clips=Array.from({length:21},(_,clip)=>new THREE.AnimationClip(`clip_${clip}`,1,
+    root.children.map((n,i)=>new THREE.VectorKeyframeTrack(`${n.name}.position`,[0,.3,1],
+      [0,0,0,1,2,3,clip===20&&i===99?9:4,5,6]))));
+  for(const encoder of [null,MeshoptEncoder]){
+    const codec=createFun3d({THREE,encoder,decoder:MeshoptDecoder});
+    const bytes=await codec.write(root,{animations:clips}),model=await codec.load(bytes);
+    try {
+      assert.equal(model.manifest.streams.length,3);
+      assert.equal(model.animations.length,21);
+      assert.equal(model.animations[20].tracks.length,100);
+      const mixer=new THREE.AnimationMixer(model.root),action=mixer.clipAction(model.animations[20]);
+      action.setLoop(THREE.LoopOnce,1);action.clampWhenFinished=true;action.play();mixer.setTime(1);
+      assert.equal(model.node('part_0').position.x,4);
+      assert.equal(model.node('part_99').position.x,9);
+      mixer.stopAllAction();mixer.uncacheRoot(model.root);
+    }finally{model.dispose();}
+  }
+});
+
+test("numeric morph names retain dictionary indices in geometry and packed animation tracks", async () => {
+  for(const namedAttributes of [true,false]) {
+    const root=new THREE.Group();root.name="numeric_morphs";
+    const geometry=new THREE.BoxGeometry(1,1,1);geometry.morphTargetsRelative=true;
+    geometry.morphAttributes.position=["20","10"].map((name,index)=>{
+      const delta=new THREE.Float32BufferAttribute(Array.from({length:geometry.attributes.position.count*3},
+        (_,i)=>i%3===index?.1:0),3);
+      if(namedAttributes)delta.name=name;
+      return delta;
+    });
+    const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial());mesh.name="face";
+    mesh.morphTargetDictionary={20:0,10:1};root.add(mesh);
+    const clip=new THREE.AnimationClip("expression",1,[new THREE.NumberKeyframeTrack(
+      "face.morphTargetInfluences",[0,1],[0,0,.8,.2])]);
+    const bytes=await fun3d.write(root,{animations:[clip]}),model=await fun3d.load(bytes);
+    const mixer=new THREE.AnimationMixer(model.root);
+    try {
+      assert.deepEqual(model.manifest.geometries[0].morph.targets.map(t=>t.id),["20","10"]);
+      assert.deepEqual(model.manifest.animations[0].tracks.map(t=>t.channel),["morph:20","morph:10"]);
+      const action=mixer.clipAction(model.animations[0]);action.play();action.time=.5;mixer.update(0);
+      const loaded=model.node("face").userData.mesh??model.node("face");
+      close(loaded.morphTargetInfluences[loaded.morphTargetDictionary["20"]],.4,1e-7,"target 20");
+      close(loaded.morphTargetInfluences[loaded.morphTargetDictionary["10"]],.1,1e-7,"target 10");
+    }finally{mixer.stopAllAction();mixer.uncacheRoot(model.root);model.dispose();geometry.dispose();mesh.material.dispose();}
+  }
+});
+
+test("packed and explicit numeric morph bindings match Three name-first playback", async () => {
+  const root=new THREE.Group();root.name="numeric_binding";
+  const geometry=new THREE.BoxGeometry(1,1,1);geometry.morphTargetsRelative=true;
+  geometry.morphAttributes.position=["1","0"].map((name,index)=>{
+    const delta=new THREE.Float32BufferAttribute(Array.from({length:geometry.attributes.position.count*3},
+      (_,i)=>i%3===index?.1:0),3);delta.name=name;return delta;
+  });
+  const source=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial());source.name="face";root.add(source);
+  const clips=[new THREE.AnimationClip("packed",1,[new THREE.NumberKeyframeTrack(
+    "face.morphTargetInfluences",[0,1],[0,0,.8,.2])]),
+  new THREE.AnimationClip("explicit",1,[new THREE.NumberKeyframeTrack("face.morphTargetInfluences[0]",[0,1],[0,.8]),
+    new THREE.NumberKeyframeTrack("face.morphTargetInfluences[1]",[0,1],[0,.2])])];
+  const model=await fun3d.load(await fun3d.write(root,{animations:clips}));
+  const runtimeMixer=new THREE.AnimationMixer(model.root),sourceMixer=new THREE.AnimationMixer(root);
+  try {
+    const loaded=model.node("face").userData.mesh??model.node("face");
+    for(const clip of clips){
+      sourceMixer.stopAllAction();runtimeMixer.stopAllAction();
+      for(const [mixer,animation] of [[sourceMixer,clip],[runtimeMixer,model.animations.find(c=>c.name===clip.name)]]){
+        const action=mixer.clipAction(animation);action.reset().play();action.time=.5;mixer.update(0);
+      }
+      for(const name of ["1","0"])close(loaded.morphTargetInfluences[loaded.morphTargetDictionary[name]],
+        source.morphTargetInfluences[source.morphTargetDictionary[name]],1e-7,`${clip.name} target ${name}`);
+      assert.notEqual(source.morphTargetInfluences[0],source.morphTargetInfluences[1]);
+    }
+  }finally{
+    sourceMixer.stopAllAction();runtimeMixer.stopAllAction();sourceMixer.uncacheRoot(root);runtimeMixer.uncacheRoot(model.root);
+    model.dispose();geometry.dispose();source.material.dispose();
+  }
+});
+
+test("float32 position precision preserves base and cancelling morph deltas", async () => {
+  const {root}=worm(),mesh=root.getObjectByName("body"),position=mesh.geometry.attributes.position;
+  position.setX(0,.123456789);position.setY(0,.543219876);
+  const delta=mesh.geometry.morphAttributes.position[0];
+  delta.setX(0,-position.getX(0)+.000003);delta.setY(0,1e-10);
+  const bytes=await fun3d.write(root,{positionPrecision:"float32"}),model=await fun3d.load(bytes);
+  try {
+    const actual=[...model.nodes.values()].find(n=>n.name==="body");
+    const p=actual.geometry.attributes.position,d=actual.geometry.morphAttributes.position[0];
+    assert.deepEqual(Array.from(p.array),Array.from(position.array));
+    assert.deepEqual(Array.from(d.array),Array.from(delta.array));
+    assert.ok(d.getY(0)!==0,"Small nonzero float deltas must not be discarded by the quantization sparse cutoff");
+  }finally{model.dispose();}
+  await assert.rejects(fun3d.write(root,{positionPrecision:"unknown"}),/positionPrecision/);
+});
+
 test("skins, morph targets and clips survive a round trip and play by id", async () => {
   const { root, clip } = worm();
   // Names the id rule changes (a colon is lost) get the hash suffix, as in the library's Mixamo rigs.
@@ -238,7 +335,7 @@ test("skins, morph targets and clips survive a round trip and play by id", async
   assert.equal(loaded.name, "bend");
   assert.deepEqual(loaded.userData.loop, "once");
   assert.deepEqual(loaded.userData.events, [{ time: 0.5, name: "peak" }]);
-  assert.deepEqual(loaded.tracks.map((t) => t.name), [`${spine}.quaternion`, `${hips}.position`, "body.morphTargetInfluences[0]"]);
+  assert.deepEqual(loaded.tracks.map((t) => t.name), [`${spine}.quaternion`, `${hips}.position`, "body.morphTargetInfluences[bulge]"]);
   for (const [i, track] of loaded.tracks.entries()) {
     assert.deepEqual([...track.times], [...clip.tracks[i].times]);
     track.values.forEach((v, k) => close(v, clip.tracks[i].values[k], 1e-4, `${track.name} value ${k}`));

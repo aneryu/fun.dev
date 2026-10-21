@@ -42,9 +42,9 @@ export function createConverter() {
   return {
     fun3d, importer,
     /** GLB bytes → { bytes, manifest, report } through the library profile. */
-    async convert(glb, { type = "prop", name = null, hash = null, edit = null } = {}) {
+    async convert(glb, { type = "prop", name = null, hash = null, edit = null, positionPrecision = "quantized" } = {}) {
       const source = hash ?? `sha256:${createHash("sha256").update(glb).digest("hex")}`;
-      return importer.importGLB(glb, { type, name, hash: source, converter: await converterStamp(), edit });
+      return importer.importGLB(glb, { type, name, hash: source, converter: await converterStamp(), edit, positionPrecision });
     },
   };
 }

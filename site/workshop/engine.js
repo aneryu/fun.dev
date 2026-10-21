@@ -12,6 +12,9 @@ import {
   errorInfo,
 } from "./agent-contract.js";
 import { queryComponents, resolveComponents } from "./components.js";
+import { toolCapability } from "./agent-tools.js";
+import { designReferenceSummary } from "./design-references.js";
+import { resolveViewPreset } from "./view-presets.js";
 import {
   validateProject,
   statistics,
@@ -23,6 +26,7 @@ import {
   nodeSummary,
   same,
 } from "./document.js";
+import { candidateWorkflow } from "./workflow.js";
 import { toolboxAssemblyCommands, assetFor } from "./assembly.js";
 import { listBlueprints } from "./blueprints.js";
 import { describeChanges } from "./changes.js";
@@ -137,6 +141,15 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
     comparison = null,
     action = null;
   const receipts = new Map(draft.record.receipts ?? []);
+  let documentId = typeof draft.record.documentId === "string" ? draft.record.documentId : null;
+  if (!documentId && draft.writable) {
+    try {
+      const id = crypto.randomUUID();
+      draft.setMetadata({ documentId: id });
+      documentId = id;
+    } catch (error) { status(error.message, true); }
+  }
+  const candidates = new Map();
   const saveLog = (entry) => {
     try {
       draft.setMetadata({
@@ -213,12 +226,24 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
   };
   const api = {
     version: 3,
+    operationStatus({ operationId } = {}) {
+      if (typeof operationId !== "string" || !operationId || operationId.length > 128)
+        throw new ModelError("operationStatus requires an operationId of 1–128 characters", "schema");
+      const receipt = receipts.get(operationId);
+      return { draftId: draft.id, documentId, revision: store.revision, operationId, persistence: draft.persistence,
+        status: receipt ? "recorded" : "unknown",
+        receipt: receipt ? structuredClone(receipt.result) : null,
+        retention: 32,
+        interpretation: receipt ? "A completed operation is recorded; retry only the original request with the same operationId." :
+          "No retained receipt. This does not prove the operation was not applied; inspect the document before another mutation." };
+    },
     inspect({ id, detail = "summary" } = {}) {
       const p = store.snapshot(),
         selection = getSelection(),
         common = {
           revision: store.revision,
           draftId: draft.id,
+          documentId,
           writable: draft.writable,
           recovery: draft.recovery,
           units: "meters",
@@ -233,6 +258,8 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
       return {
         ...common,
         name: p.name,
+        designReferences: designReferenceSummary(p),
+        viewPresets: p.viewPresets ?? [],
         assemblies: p.assemblies,
         rules: p.rules ?? [],
         tile: p.tile ?? null,
@@ -255,6 +282,34 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
       };
     },
     getProject: () => isolated(store.snapshot()),
+    workflow(args) {
+      check(args);
+      return candidateWorkflow({ args, store, draft, viewport, candidates });
+    },
+    acceptCandidate({ candidateId, ifRevision, operationId } = {}) {
+      if (!operationId || typeof operationId !== "string" || operationId.length > 128)
+        throw new ModelError("acceptCandidate requires an operationId", "schema");
+      const signature = `candidate:${candidateId}`;
+      const prior = receipts.get(operationId);
+      if (prior) {
+        if (prior.signature !== signature) throw new ModelError("operationId reused", "conflict");
+        return { ...structuredClone(prior.result), replayed: true, persistence: draft.persistence };
+      }
+      // Never flush UI edits before rejecting an invalid candidate.
+      const candidate = candidates.get(candidateId);
+      if (!candidate) throw new ModelError("Candidate expired; prepare it again", "not_found");
+      if (!candidate.ok) throw new ModelError("Candidate failed validation or scope protection", "geometry");
+      if (ifRevision !== candidate.baseRevision) throw new ModelError("Use candidate baseRevision", "conflict");
+      commitPending();
+      check({ ifRevision });
+      const result = { ...store.replace(candidate.project, { ifRevision }), candidateId,
+        operationId, scope: structuredClone(candidate.scope), persistence: draft.persistence };
+      afterReplace();
+      receipts.set(operationId, { signature, result: structuredClone(result) });
+      while (receipts.size > 32) receipts.delete(receipts.keys().next().value);
+      draft.setMetadata({ receipts: [...receipts] });
+      return result;
+    },
     loadProject(p, options) {
       if (!flushPending()) throw pendingError();
       const result = store.replace(p, options);
@@ -312,16 +367,22 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
     },
     view: (name, options) => viewport.view(name, options),
     focus: () => viewport.focus(),
-    renderViews(views, { size = 512, along = null, ...options } = {}) {
+    renderViews(views, { size, along = null, preset, ...options } = {}) {
       const revision = store.revision;
-      if (along) return api.sample({ ...(typeof along === "string" ? { path: along } : along), size, ...options }).frames;
+      if (preset && along) throw new ModelError("Choose a fixed preset or a path walkthrough", "view_preset", "preset");
+      const saved = preset ? resolveViewPreset(store.snapshot(), preset) : null;
+      if (saved) { views = [saved.view]; options = { ...saved.render, ...options }; }
+      size ??= saved?.size ?? 512;
+      if (along) return api.sample({ ...(typeof along === "string" ? { path: along } : along), size, ...options,
+        height: typeof along === "object" ? along.height ?? 1.6 : 1.6, imageHeight: options.height }).frames;
+      const designReferences = designReferenceSummary(store.snapshot());
       return viewport
         .renderViews(views, size, options)
-        .map((shot) => ({ ...shot, revision, draftId: draft.id }));
+        .map((shot) => ({ ...shot, revision, draftId: draft.id, designReferences, ...(saved ? { viewPreset: saved.metadata } : {}) }));
     },
     // A walkthrough (docs/worlds.md §9): perspective views from points along a path, the
     // camera at `height` over the path looking ahead (or back, left, right), `every` metres.
-    sample({ path, every = 20, start = 0, end = null, height = 1.6, look = "ahead", limit = 12, size = 512, ...options } = {}) {
+    sample({ path, every = 20, start = 0, end = null, height = 1.6, imageHeight, look = "ahead", limit = 12, size = 512, ...options } = {}) {
       const p = store.snapshot(), node = p.nodes.find((n) => n.id === path);
       if (!node?.path) throw new ModelError(`${path} is not a path`, "not_found", "path");
       if (!(every > 0)) throw new ModelError("every is metres along the path", "invalid", "every");
@@ -333,8 +394,8 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
         const d = s.direction, dir = look === "back" ? [-d[0], 0, -d[2]] : look === "left" ? [d[2], 0, -d[0]] : look === "right" ? [-d[2], 0, d[0]] : Array.isArray(look) ? null : [d[0], 0, d[2]];
         const eye = [s.position[0], s.position[1] + height, s.position[2]];
         const target = dir ? [eye[0] + dir[0] * 10, eye[1] - 0.6, eye[2] + dir[2] * 10] : look;
-        const [shot] = viewport.renderViews(["perspective"], size, { ...options, camera: { position: eye, target } });
-        return { ...shot, view: `walk@${Math.round(s.distance)}`, distance: Math.round(s.distance * 100) / 100, position: s.position.map((v) => Math.round(v * 100) / 100), revision: store.revision, draftId: draft.id };
+        const [shot] = viewport.renderViews(["perspective"], size, { ...options, height: imageHeight, camera: { position: eye, target } });
+        return { ...shot, view: `walk@${Math.round(s.distance)}`, distance: Math.round(s.distance * 100) / 100, position: s.position.map((v) => Math.round(v * 100) / 100), revision: store.revision, draftId: draft.id, designReferences: designReferenceSummary(p) };
       });
       return { revision: store.revision, path, length: Math.round((stations.length ? Math.max(...stations.map((s) => s.distance)) : 0) * 100) / 100, frames };
     },
@@ -380,7 +441,14 @@ export function createEngine({ store, draft, viewport, viewState, getSelection, 
           }
         : buffer;
     },
-    capabilities,
+    capabilities(options = {}) {
+      if (options.tool !== undefined) {
+        if (typeof options.tool !== "string" || options.command !== undefined)
+          throw new ModelError("Choose a tool name or a command schema", "schema", "tool");
+        return toolCapability(options.tool);
+      }
+      return capabilities(options);
+    },
     getRecipe(options) {
       check(options);
       return {

@@ -220,6 +220,11 @@ const props = {
   nodes: { type: "array", items: object, maxItems: 64 },
   // Sockets: attachment frames on a part (docs/worlds.md §4), explicit in its space.
   socket: string,
+  targetId: string,
+  sourceId: string,
+  plane: number,
+  anchor: vector,
+  at: vector,
   sockets: {
     type: "object",
     additionalProperties: { type: "object", properties: { position: vector, rotation: vector, tags: { type: "array", items: string, maxItems: 16 } }, additionalProperties: false },
@@ -280,6 +285,7 @@ const props = {
   },
   replace: { type: "array", items: string, minItems: 2, maxItems: 2 },
   name: string,
+  newName: string,
   kind: {
     enum: [
       "box",
@@ -291,6 +297,7 @@ const props = {
       "revolve",
       "sweep",
       "loft",
+      "boundarySurface",
       "torus",
       "capsule",
       "mesh",
@@ -339,6 +346,17 @@ const props = {
       points: outline,
       profile: outline,
       depth: number,
+      curves: { type: "array", minItems: 2, maxItems: 32,
+        items: { type: "array", minItems: 2, maxItems: 256, items: vector } },
+      tangents: { type: "array", minItems: 2, maxItems: 32,
+        items: { type: "array", minItems: 2, maxItems: 256, items: vector } },
+      sampling: { enum: ["index", "arc"] },
+      samples: { type: "integer", minimum: 2, maximum: 256 },
+      spans: { type: "integer", minimum: 1, maximum: 32 },
+      bulge: number,
+      bulgeDirection: vector,
+      closedSections: boolean,
+      flip: boolean,
       // Extrusions and revolved sections: holes and rounded corners.
       holes: {
         type: "array",
@@ -441,6 +459,38 @@ const props = {
     required: ["index", "position"],
     additionalProperties: false,
   }),
+  bindings: { type: "array", minItems: 1, maxItems: 256, items: {
+    type: "object", properties: { node: string, channel: { enum: ["position", "rotation", "scale", "morph"] },
+      target: string, gain: number, delta: vector, attenuateBy: string },
+    required: ["node", "channel"], additionalProperties: false,
+  } },
+  joints: { type: "array", items: string, minItems: 1, maxItems: 128 },
+  mirrorAxis: { enum: ["x", "y", "z"] },
+  handles: { type: "array", minItems: 1, maxItems: 64, items: {
+    type: "object", properties: { center: vector, delta: vector, radius: { type: "number", exclusiveMinimum: 0, maximum: 10000 } },
+    required: ["center", "delta", "radius"], additionalProperties: false,
+  } },
+  weights: { type: "array", items: { type: "object",
+    properties: { index: { type: "integer", minimum: 0 },
+      influences: { type: "array", minItems: 1, maxItems: 4, items: {
+        type: "object", properties: { joint: string, weight: { type: "number", exclusiveMinimum: 0, maximum: 1 } },
+        required: ["joint", "weight"], additionalProperties: false,
+      } } }, required: ["index", "influences"], additionalProperties: false,
+  } },
+  duration: { type: "number", exclusiveMinimum: 0, maximum: 120 },
+  fps: { type: "integer", minimum: 1, maximum: 60 },
+  loop: boolean,
+  time: { type: "number", minimum: 0 },
+  tracks: { type: "array", maxItems: 256, items: {
+    type: "object", properties: { node: string, control: string,
+      channel: { enum: ["position", "rotation", "scale", "morph", "control"] },
+      target: string, interpolation: { enum: ["linear", "step", "slerp"] },
+      keys: { type: "array", minItems: 1, maxItems: 4096, items: {
+        type: "object", properties: { time: { type: "number", minimum: 0 }, value: { oneOf: [number, vector] } },
+        required: ["time", "value"], additionalProperties: false,
+      } } },
+    required: ["channel", "keys"], additionalProperties: false,
+  } },
   color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" },
   roughness: { type: "number", minimum: 0, maximum: 1 },
   // Optional PBR fields; null removes them from an existing material.
@@ -530,6 +580,7 @@ props.shape = {
         "revolve",
         "sweep",
         "loft",
+        "boundarySurface",
         "torus",
         "capsule",
       ],
@@ -561,6 +612,30 @@ const specs = {
   meet: ["", "ids tag tolerance"],
   socket: ["id socket", "position rotation tags"],
   removeSocket: ["id socket", ""],
+  attachSurface: ["id targetId", "at anchor offset mode"],
+  detachSurface: ["id", ""],
+  mirrorSurface: ["id sourceId", "axis plane tolerance anchor mode"],
+  morphTarget: ["id name changes", ""],
+  morphEdit: ["id name changes", ""],
+  morphWeights: ["id values", ""],
+  morphRemove: ["id name", ""],
+  morphMirror: ["id name newName", "axis"],
+  characterControl: ["id bindings", ""],
+  characterValues: ["values", ""],
+  characterClip: ["name duration tracks", "fps loop"],
+  characterPose: ["", "name time"],
+  characterRemove: ["id kind", ""],
+  joint: ["id", "enabled"],
+  jointRest: ["id", "position rotation scale"],
+  skinBind: ["id joints weights", ""],
+  skinWeights: ["id weights", ""],
+  skinUnbind: ["id", ""],
+  relation: ["definition", ""],
+  referenceRecord: ["definition", ""],
+  referenceSelect: ["ids", ""],
+  viewPreset: ["id definition", ""],
+  removeViewPreset: ["id", ""],
+  removeRelation: ["id", ""],
   snap: ["id socket target", ""],
   rule: ["definition", ""],
   removeRule: ["id", ""],
@@ -585,6 +660,7 @@ const specs = {
   vertices: ["id changes", "topology falloff"],
   deform: ["id kind", "amount angle direction axis from to pivot power space select faces edges vertices topology falloff"],
   displace: ["id amount", "mode along axis from to pivot power noise expr seed space select faces edges vertices topology falloff"],
+  controlDeform: ["id handles", "mirrorAxis space select faces edges vertices topology falloff"],
   smooth: ["id", "iterations factor volume space select faces edges vertices topology falloff"],
   subdivide: ["id", "levels smooth"],
   triangulate: ["id", "faces select topology"],
@@ -649,6 +725,57 @@ for (const c of commandSchema.oneOf) {
     };
   if (c.properties.op.const === "detachBinding")
     c.properties.mode = { enum: ["keep", "inherit"] };
+  if (c.properties.op.const === "characterRemove")
+    c.properties.kind = { enum: ["control", "clip"] };
+  if (c.properties.op.const === "relation")
+    c.properties.definition = { oneOf: [{ type: "object", properties: {
+      id: string, kind: { enum: ["distance", "signedGap", "thickness", "inside"] },
+      source: string, target: string, vertices: { type: "array", items: { type: "integer", minimum: 0 }, minItems: 1, maxItems: 256 },
+      min: number, max: number, direction: vector, description: { type: "string", maxLength: 500 },
+    }, required: ["id", "kind", "source", "target", "vertices", "min", "max"], additionalProperties: false },
+    {type:"object",properties:{
+      id:string,kind:{const:"surfaceIntersection"},source:string,target:string,
+      tolerance:{type:"number",minimum:1e-9,maximum:1},touching:{enum:["allow","forbid"]},
+      description:{type:"string",maxLength:500},
+      allowed:{type:"array",maxItems:64,items:{type:"object",properties:{
+        sourceFaces:{type:"array",items:string,minItems:1,maxItems:256},
+        targetFaces:{type:"array",items:string,minItems:1,maxItems:256},
+        reason:{type:"string",minLength:1,maxLength:500},
+        bounds:{type:"object",properties:{min:vector,max:vector},required:["min","max"],additionalProperties:false},
+      },required:["sourceFaces","targetFaces","reason"],additionalProperties:false}},
+    },required:["id","kind","source","target","tolerance"],additionalProperties:false},
+    {type:"object",properties:{
+      id:string,kind:{const:"insideVolume"},source:string,target:string,min:number,max:number,
+      vertices:{type:"array",items:{type:"integer",minimum:0},minItems:1,maxItems:256},
+      description:{type:"string",maxLength:500},
+      volume:{type:"object",properties:{
+        faces:{type:"array",items:string,minItems:1,maxItems:4096},
+        caps:{type:"array",minItems:1,maxItems:1024,items:{type:"array",items:{type:"integer",minimum:0},minItems:3,maxItems:3}},
+      },required:["faces","caps"],additionalProperties:false},
+    },required:["id","kind","source","target","vertices","min","max","volume"],additionalProperties:false}] };
+  if (c.properties.op.const === "referenceRecord")
+    c.properties.definition = { type: "object", properties: {
+      id: string, kind: { enum: ["image", "feature", "decision"] }, text: string,
+      image: string, origin: { enum: ["user", "generated", "render", "external"] },
+      references: { type: "array", items: string },
+      status: { enum: ["proposed", "accepted", "rejected"] }, evidence: string,
+      supersedes: string, reason: string,
+    }, required: ["id", "kind", "text"], additionalProperties: false };
+  if (c.properties.op.const === "referenceSelect")
+    c.properties.ids = { type: "array", items: string, maxItems: 128 };
+  if (c.properties.op.const === "viewPreset")
+    c.properties.definition = { type: "object", properties: {
+      id: string, version: { const: 1 }, view: { enum: ["front", "back", "left", "right", "top", "perspective", "current"] },
+      size: { type: "integer", minimum: 64, maximum: 2048 }, height: { type: "integer", minimum: 64, maximum: 2048 },
+      ids: { type: "array", items: string, minItems: 1 }, camera: object, studio: object,
+      antialias: { enum: ["native", "ssaa2", "ssaa4"] }, shadows: boolean, lighting: { const: "studio" },
+      exposure: { type: "number", minimum: .1, maximum: 4 }, shading: { enum: ["material", "clay", "silhouette", "ids"] },
+    }, required: ["view", "size", "height", "camera", "studio"], additionalProperties: false };
+  if (["attachSurface", "mirrorSurface"].includes(c.properties.op.const)) {
+    c.properties.mode = { enum: ["position", "frame", "deform"] };
+    c.properties.offset = number;
+  }
+  if (c.properties.op.const === "mirrorSurface") c.properties.tolerance = { type: "number", minimum: 0 };
   // Shape edits reuse field names with their own ranges: kind, angle, to and mode.
   if (c.properties.op.const === "deform") {
     c.properties.kind = { enum: ["taper", "bend", "twist", "shear", "stretch"] };
@@ -712,6 +839,7 @@ const steps = commandSchema.oneOf
       "connect",
       "solidify",
       "deform",
+      "controlDeform",
       "displace",
       "smooth",
       "subdivide",
@@ -819,6 +947,7 @@ export const modelDefinitions = {
                   "revolve",
                   "sweep",
                   "loft",
+                  "boundarySurface",
                   "torus",
                   "capsule",
                 ],
@@ -1108,6 +1237,7 @@ export const errorInfo = (error) => ({
   components: error.components,
   issues: error.issues ?? [],
   suggestion: error.suggestion,
+  retryable: error.retryable,
   persistence: error.persistence,
   applied: error.applied,
   revision: error.revision,
@@ -1191,6 +1321,8 @@ export function capabilities({ detail = "full", command } = {}) {
       "glbImport",
       "projectFiles",
       "referenceImages",
+      "persistentReferenceVersions",
+      "persistentViewPresets",
       "shellOverlapWarnings",
       "placedLibraryModels",
       "markersZonesPaths",
@@ -1201,6 +1333,8 @@ export function capabilities({ detail = "full", command } = {}) {
       "placementCopies",
       "assemblyRules",
       "sockets",
+      "surfaceAttachments",
+      "morphTargets",
       "terrain",
       "worldTiles",
       "sweeps",
@@ -1211,6 +1345,7 @@ export function capabilities({ detail = "full", command } = {}) {
       "junctions",
       "navigation",
       "loft",
+      "boundarySurface",
       "deformers",
       "displacement",
       "formulaDisplacement",

@@ -205,9 +205,9 @@ test("coplanar triangles merge into polygons: a grid into one n-gon, an L into o
   assert.ok(frame.length >= 2 && frame.length <= 4, `${frame.length} frame pieces`);
 });
 
-test("materials map KHR emission, transmission and blending; skins, animations and textures are reported", () => {
+test("materials map KHR emission, transmission and blending; animation and texture losses are reported", () => {
   const bytes = gltf({
-    nodes: [{ name: "lamp", mesh: 0, skin: 0 }],
+    nodes: [{ name: "lamp", mesh: 0 }],
     meshes: [{
       primitives: [
         { ...cube(1, 0) },
@@ -222,7 +222,6 @@ test("materials map KHR emission, transmission and blending; skins, animations a
       { name: "mat_steel", pbrMetallicRoughness: { baseColorFactor: [0.6, 0.6, 0.6, 1], baseColorTexture: { index: 0 } } },
       { name: "flat", extensions: { KHR_materials_unlit: {} } },
     ],
-    skins: [{ joints: [0] }],
     animations: [{ channels: [], samplers: [] }],
     extensionsUsed: ["KHR_materials_emissive_strength", "KHR_materials_transmission", "KHR_materials_ior", "KHR_materials_unlit"],
   });
@@ -236,8 +235,15 @@ test("materials map KHR emission, transmission and blending; skins, animations a
     { opacity: 0.4, transmission: 0.9, ior: 1.45, doubleSided: true },
   );
   assert.equal(m.flat.metalness, undefined);
-  assert.deepEqual(warnings.map((w) => w.code).sort(), ["animations", "skins", "textures", "unlit"]);
+  assert.deepEqual(warnings.map((w) => w.code).sort(), ["animations", "textures", "unlit"]);
   assert.ok(evaluateProject(project));
+});
+
+test("invalid skin data fails explicitly instead of importing an unbound mesh", () => {
+  const bytes = gltf({ nodes: [{ mesh: 0, skin: 0 }], meshes: [{ primitives: [cube()] }],
+    skins: [{ joints: [0] }] });
+  assert.throws(() => importModel(bytes), e => e.code === "invalid_glb" &&
+    e.path === "nodes.0" && /joint\/weight geometry/.test(e.message) && e.retryable === false);
 });
 
 test("compressed files, unknown required extensions and over-budget models are refused", () => {

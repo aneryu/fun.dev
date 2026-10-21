@@ -225,7 +225,11 @@ export function createImporter({ THREE, loader, fun3d, encoder = null }) {
     // part, so their primitives merge back into one geometry.
     const primitives = (node) => node.isMesh ? [node]
       : node.isGroup && node.children.length && node.children.every((c) => c.isMesh && !c.children.length && associations.get(c)?.primitives !== undefined && associations.get(c).meshes === associations.get(node.children[0]).meshes) ? node.children : null;
-    if (!skinned.length) {
+    // The static weld only carries positions/normals/UVs. Character morph
+    // primitives retain their complete attributes and node identities, just
+    // like skinned meshes, rather than silently discarding target deltas.
+    const hasMorphs = meshes.some(m => m.geometry.morphAttributes.position?.length);
+    if (!skinned.length && !hasMorphs && !gltf.animations.length) {
       const statics = root.children.filter((c) => /^static__/.test(c.name) && primitives(c));
       if (statics.length) {
         const { geometry, materials } = mergeMeshes(statics.flatMap(primitives), root.matrixWorld);
@@ -402,14 +406,15 @@ export function createImporter({ THREE, loader, fun3d, encoder = null }) {
   }
 
   /** The .fun3d bytes of a GLB, with its manifest and a report of what the profile derived. */
-  async function importGLB(bytes, { type = "prop", name = null, hash = null, converter = null, edit = null } = {}) {
+  async function importGLB(bytes, { type = "prop", name = null, hash = null, converter = null, edit = null, positionPrecision = "quantized" } = {}) {
+    if (!["quantized", "float32"].includes(positionPrecision)) throw new TypeError("positionPrecision must be quantized or float32");
     const normalized = await normalizeGLB(bytes, { type });
     const { root, animations, physics, kind, rig, roles, warnings } = normalized;
-    const asset = { name: name ?? root.name, source: { kind: "glb", ...(hash ? { hash } : {}), ...(converter ? { converter } : {}), profile: PROFILE, type: normalized.type, tool: null } };
-    const file = await fun3d.write(root, { kind, asset, animations, physics, rig, edit });
+    const asset = { name: name ?? root.name, source: { kind: "glb", ...(hash ? { hash } : {}), ...(converter ? { converter } : {}), profile: PROFILE, type: normalized.type, positionPrecision, tool: null } };
+    const file = await fun3d.write(root, { kind, asset, animations, physics, rig, edit, positionPrecision });
     const { manifest } = await fun3d.read(file);
     const report = {
-      type: normalized.type, kind, rig: rig?.name ?? null, warnings,
+      type: normalized.type, kind, rig: rig?.name ?? null, warnings, positionPrecision,
       nodes: manifest.nodes.length, geometries: manifest.geometries.length, materials: manifest.materials.length, vertices: manifest.geometries.reduce((n, g) => n + g.vertices, 0),
       triangles: manifest.geometries.reduce((n, g) => n + manifest.streams.find((s) => s.id === g.index.stream).count / 3, 0),
       roles: Object.fromEntries(roles), wheels: normalized.wheels, hull: physics?.shapes?.find((s) => s.type === "convex")?.points.length / 3 || 0,

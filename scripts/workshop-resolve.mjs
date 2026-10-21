@@ -6,6 +6,7 @@ const map = {
   "/runtime/three.js": "three/webgpu",
   "/vendor/three/three.webgpu.js": "three/webgpu",
   "/workshop/tools.js": new URL("scripts/editor-tools.js", root).href,
+  "/runtime/addons/MeshoptDecoder.js": "three/examples/jsm/libs/meshopt_decoder.module.js",
 };
 export async function resolve(specifier, context, next) {
   return next(map[specifier] ?? specifier, context);

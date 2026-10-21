@@ -13,6 +13,10 @@ export async function bundleWorkshop(root) {
     const three = fileURLToPath(new URL("node_modules/three/build/three.webgpu.js", root));
     builder.onResolve({ filter: /^\/(runtime\/three|vendor\/three\/three\.webgpu)\.js$/ }, () => ({ path: three }));
     builder.onResolve({ filter: /^\/workshop\/tools\.js$/ }, () => ({ path: fileURLToPath(new URL("scripts/editor-tools.js", root)) }));
+    builder.onResolve({ filter: /^(?:\/runtime|\.\.)\/addons\/(?:GLTFLoader|DRACOLoader|KTX2Loader|MeshoptDecoder)\.js$/ }, args => {
+      const name=args.path.split("/").at(-1);
+      return {path:fileURLToPath(new URL(`node_modules/three/examples/jsm/${name==="MeshoptDecoder.js"?"libs/meshopt_decoder.module.js":`loaders/${name}`}`,root))};
+    });
     builder.onResolve({ filter: /\/workshop-kernel\.mjs$/ }, () => ({ path: fileURLToPath(new URL("scripts/workshop-kernel-bundle.mjs", root)) }));
   } };
   const workshop = await build({

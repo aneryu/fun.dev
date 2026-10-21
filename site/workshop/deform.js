@@ -10,7 +10,7 @@ import { fail, number, vector, normal, triangulate, add, sub, mul, dot, cross } 
 import { meshEdges, edgeKey } from "./topology.js";
 import { boundsOf } from "./spatial.js";
 
-export const SHAPE_EDITS = ["deform", "displace", "smooth", "subdivide", "triangulate", "sculpt"];
+export const SHAPE_EDITS = ["deform", "controlDeform", "displace", "smooth", "subdivide", "triangulate", "sculpt"];
 export const DEFORM_KINDS = ["taper", "bend", "twist", "shear", "stretch"];
 export const DISPLACE_MODES = ["uniform", "noise", "gradient", "formula"];
 export const FALLOFF_SHAPES = [
@@ -645,6 +645,32 @@ export function subdivideMesh(mesh, command, limits = { vertices: 30000, triangl
 
 // Runs one shape edit on a mesh in place. `selected` lists the vertex indices that move
 // fully (every vertex when absent); the rest follow by the falloff.
+function controlPositions(mesh, command) {
+  if (!Array.isArray(command.handles) || !command.handles.length || command.handles.length > 64)
+    fail("controlDeform needs 1–64 handles", "handles");
+  const axis = command.mirrorAxis === undefined ? -1 : ["x", "y", "z"].indexOf(command.mirrorAxis);
+  if (command.mirrorAxis !== undefined && axis < 0) fail("mirrorAxis is x, y or z", "mirrorAxis");
+  const handles = command.handles.flatMap((h, i) => {
+    if (!h || typeof h !== "object") fail("Expected a control handle with center, radius and delta", `handles.${i}`);
+    const center = vector(h.center, `handles.${i}.center`), delta = vector(h.delta, `handles.${i}.delta`);
+    const radius = number(h.radius, 1e-8, 10000, `handles.${i}.radius`);
+    const result = [{ center, delta, radius }];
+    if (axis >= 0 && Math.abs(center[axis]) > 1e-10)
+      result.push({ center: center.map((v, k) => k === axis ? -v : v),
+        delta: delta.map((v, k) => k === axis ? -v : v), radius });
+    else if (axis >= 0 && Math.abs(delta[axis]) > 1e-10)
+      fail("A handle on the mirror plane cannot move across that plane", `handles.${i}.delta`);
+    return result;
+  });
+  if (handles.length * mesh.vertices.length > 2000000) fail("Control deformation exceeds two million vertex/handle pairs", "handles");
+  return mesh.vertices.map(p => handles.reduce((q, h) => {
+    const t = Math.hypot(...p.map((v, k) => v - h.center[k])) / h.radius;
+    if (t >= 1) return q;
+    const w = (1 - t) ** 4 * (4 * t + 1);
+    return q.map((v, k) => v + h.delta[k] * w);
+  }, [...p]));
+}
+
 export function shapeMesh(mesh, command, { limits, planarity = true } = {}) {
   if (command.op === "subdivide") return subdivideMesh(mesh, command, limits);
   if (command.op === "triangulate") return triangulateFaces(mesh, command);
@@ -662,7 +688,8 @@ export function shapeMesh(mesh, command, { limits, planarity = true } = {}) {
     });
     return { affectedVertices: count };
   }
-  const moved = command.op === "deform" ? deformPositions(mesh, command, selected) : displacePositions(mesh, command, selected);
+  const moved = command.op === "controlDeform" ? controlPositions(mesh, command)
+    : command.op === "deform" ? deformPositions(mesh, command, selected) : displacePositions(mesh, command, selected);
   let count = 0;
   mesh.vertices = mesh.vertices.map((p, i) => {
     const w = weights[i];

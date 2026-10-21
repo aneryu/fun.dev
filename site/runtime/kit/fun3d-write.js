@@ -13,6 +13,9 @@ const round = (n, digits = 6) => Number(n.toFixed(digits));
 const bytesOf = (typed) => new Uint8Array(typed.buffer, typed.byteOffset, typed.byteLength);
 const hex = (color) => `#${color.getHexString()}`;
 const QUANTIZE_LIMIT = 20;
+// JS enumerates integer-like object keys numerically, not in target-index order.
+const morphNames = mesh => Object.entries(mesh?.morphTargetDictionary ?? {})
+  .sort((a, b) => a[1] - b[1]).map(([name]) => name);
 
 // A chunk's bytes, every stream 4-byte aligned.
 class Chunk {
@@ -36,8 +39,10 @@ class Chunk {
 export function createWriter({ THREE, encoder = null }) {
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-  async function write(root, { kind = "model", asset = {}, animations = [], physics = null, rig = null, edit = null, quantize = true, compress = true, uses = [], requires = [], extensions = null, refs = [] } = {}) {
+  async function write(root, { kind = "model", asset = {}, animations = [], physics = null, rig = null, edit = null, quantize = true, positionPrecision = quantize ? "quantized" : "float32", compress = true, uses = [], requires = [], extensions = null, refs = [] } = {}) {
     if (!root?.isObject3D) throw new TypeError("write needs an Object3D");
+    if (!["quantized", "float32"].includes(positionPrecision)) throw new TypeError("positionPrecision must be quantized or float32");
+    const floatPositions = positionPrecision === "float32";
     if (encoder) await encoder.ready;
     const bin = new Chunk(), stored = new Chunk();
     const manifest = {
@@ -46,12 +51,22 @@ export function createWriter({ THREE, encoder = null }) {
       refs: refs.map((r) => ({ id: r.id, model: r.model })), extensions: {},
     };
 
+    const streamBuckets = new Map();
     function stream(typed, { count, stride, mode = null, store = false }) {
       let data = bytesOf(typed), codec;
       if (!store && encoder && count > 0 && mode === "triangles" && count % 3 === 0 && (stride === 2 || stride === 4)) { data = encoder.encodeIndexBuffer(data, count, stride); codec = "meshopt"; }
       else if (!store && encoder && count > 0 && mode === "attributes" && stride % 4 === 0 && stride <= 64) { data = encoder.encodeVertexBuffer(data, count, stride); codec = "meshopt"; }
+      // Animation tracks often repeat the same times and values across parts.
+      // Share identical encoded streams, retaining the format's existing caps.
+      // Hashing selects a bucket only; byte equality resolves every collision.
+      let hash = 2166136261;
+      for (const byte of data) hash = Math.imul(hash ^ byte, 16777619) >>> 0;
+      const key = `${store}:${count}:${stride}:${codec ?? "raw"}:${codec ? mode : ""}:${data.length}:${hash}`;
+      const bucket = streamBuckets.get(key) ?? [];
+      for (const previous of bucket) if (data.every((byte, i) => byte === previous.data[i])) return previous.id;
       const id = `s${manifest.streams.length}`, target = store ? stored : bin;
       manifest.streams.push({ id, chunk: store ? 1 : 0, offset: target.append(data), length: data.length, count, stride, ...(codec ? { codec, mode } : {}) });
+      bucket.push({ id, data }); streamBuckets.set(key, bucket);
       return id;
     }
 
@@ -166,7 +181,7 @@ export function createWriter({ THREE, encoder = null }) {
       const sets = { Int16Array: [], Int8Array: [], Uint16Array: [], Uint8Array: [], skinIndex: [], Float32Array: [] };
       const size = box.getSize(new THREE.Vector3()), extent = Math.max(size.x, size.y, size.z);
       const decode = {};
-      if (quantize && extent <= QUANTIZE_LIMIT) {
+      if (!floatPositions && extent <= QUANTIZE_LIMIT) {
         const center = box.getCenter(new THREE.Vector3()), half = Math.max(extent, 1e-9) / 2;
         sets.Int16Array.push({ name: "position", format: "snorm16x4", bytes: 8, get: (i, k) => (k < 3 ? clamp(Math.round(((positions[i * 3 + k] - center.getComponent(k)) / half) * 8191), -8191, 8191) * 4 : 0) });
         decode.position = { offset: center.toArray().map((v) => round(v)), scale: round((half * 32767) / 32764, 9) };
@@ -240,13 +255,14 @@ export function createWriter({ THREE, encoder = null }) {
         out.morph = { decode: { scale: round(scale, 9) }, targets: [] };
         for (const [t, d] of deltas.entries()) {
           const indices = [];
-          for (let i = 0; i < count; i++) if (Math.abs(d[i * 3]) + Math.abs(d[i * 3 + 1]) + Math.abs(d[i * 3 + 2]) > 1e-9) indices.push(i);
-          const q = new Int16Array(indices.length * 4);
-          indices.forEach((v, j) => { for (let k = 0; k < 3; k++) q[j * 4 + k] = Math.round((d[v * 3 + k] / scale) * 32767); });
+          for (let i = 0; i < count; i++) if (Math.abs(d[i * 3]) + Math.abs(d[i * 3 + 1]) + Math.abs(d[i * 3 + 2]) > (floatPositions ? 0 : 1e-9)) indices.push(i);
+          const components = floatPositions ? 3 : 4;
+          const q = floatPositions ? new Float32Array(indices.length * 3) : new Int16Array(indices.length * 4);
+          indices.forEach((v, j) => { for (let k = 0; k < 3; k++) q[j * components + k] = floatPositions ? d[v * 3 + k] : Math.round((d[v * 3 + k] / scale) * 32767); });
           const name = targets[t].name || morphNames?.[t] || `target_${t}`;
           const target = { id: unique(new Set(out.morph.targets.map((x) => x.id)), await idOf(name)),
             sparse: { indices: { stream: stream(wide ? Uint32Array.from(indices) : Uint16Array.from(indices), { count: indices.length, stride: wide ? 4 : 2 }), format: wide ? "uint32" : "uint16" } },
-            position: { stream: stream(q, { count: indices.length, stride: 8, mode: "attributes" }), format: "snorm16x4" } };
+            position: { stream: stream(q, { count: indices.length, stride: floatPositions ? 12 : 8, mode: "attributes" }), format: floatPositions ? "float32x3" : "snorm16x4" } };
           if (normals[t]) {
             const nq = new Int8Array(indices.length * 4);
             indices.forEach((v, j) => { for (let k = 0; k < 3; k++) nq[j * 4 + k] = Math.round(clamp(normals[t].getComponent(v, k) / 2, -1, 1) * 127); });
@@ -305,7 +321,7 @@ export function createWriter({ THREE, encoder = null }) {
       if (object.userData.params && Object.keys(object.userData.params).length) nodeExtensions["fun3d.params"] = structuredClone(object.userData.params);
       if (Object.keys(nodeExtensions).length) node.extensions = nodeExtensions;
       if (mesh && !node.model) {
-        const geometryId = await writeGeometry(mesh.geometry, id, mesh.morphTargetDictionary ? Object.keys(mesh.morphTargetDictionary) : null);
+        const geometryId = await writeGeometry(mesh.geometry, id, morphNames(mesh));
         const entry = manifest.geometries.find((g) => g.id === geometryId);
         const list = [mesh.material].flat();
         // Slots: the distinct materials in the order the groups first use them.
@@ -395,7 +411,15 @@ export function createWriter({ THREE, encoder = null }) {
     const byName = new Map(objects.map((o) => [THREE.PropertyBinding.sanitizeNodeName(o.name), o]));
     for (const clip of animations) {
       const tracks = [];
-      for (const track of clip.tracks) {
+      const channels = clip.tracks.flatMap(track => {
+        const parsed = THREE.PropertyBinding.parseTrackName(track.name);
+        if (parsed.propertyName !== "morphTargetInfluences" || parsed.propertyIndex !== undefined) return [{ track }];
+        const size = track.getValueSize();
+        return Array.from({ length: size }, (_, i) => ({ morphIndex: i, track: new THREE.NumberKeyframeTrack(
+          `${track.name}[${i}]`, track.times,
+          Float32Array.from(track.times, (_, k) => track.values[k * size + i]), track.getInterpolation()) }));
+      });
+      for (const { track, morphIndex } of channels) {
         const parsed = THREE.PropertyBinding.parseTrackName(track.name);
         const object = byName.get(parsed.nodeName) ?? objects.find((o) => o.uuid === parsed.nodeName);
         if (!object) throw new Error(`clip "${clip.name}" track "${track.name}" names no node`);
@@ -408,8 +432,13 @@ export function createWriter({ THREE, encoder = null }) {
         else if (parsed.propertyName === "position" || parsed.propertyName === "scale") { channel = parsed.propertyName; values = { stream: stream(Float32Array.from(track.values), { count: times.length, stride: 12, mode: "attributes" }), format: "float32x3" }; }
         else if (parsed.propertyName === "visible") { channel = "visible"; values = { stream: stream(Float32Array.from(track.values, (v) => (v ? 1 : 0)), { count: times.length, stride: 4, mode: "attributes" }), format: "float32" }; }
         else if (parsed.propertyName === "morphTargetInfluences") {
-          const mesh = object.isMesh ? object : object.userData.mesh, names = mesh?.morphTargetDictionary ? Object.keys(mesh.morphTargetDictionary) : [];
-          const name = parsed.propertyIndex === undefined ? names[0] : Number.isInteger(Number(parsed.propertyIndex)) ? names[Number(parsed.propertyIndex)] : parsed.propertyIndex;
+          const mesh = object.isMesh ? object : object.userData.mesh, names = morphNames(mesh);
+          // Explicit tracks follow Three's name-first PropertyBinding rule.
+          // Packed tracks carry their numeric component separately so a target
+          // named "0" cannot reinterpret the synthesized component index.
+          const name = morphIndex !== undefined ? names[morphIndex]
+            : Object.hasOwn(mesh?.morphTargetDictionary ?? {}, parsed.propertyIndex) ? parsed.propertyIndex
+            : Number.isInteger(Number(parsed.propertyIndex)) ? names[Number(parsed.propertyIndex)] : parsed.propertyIndex;
           if (!name) throw new Error(`clip "${clip.name}" track "${track.name}" names no morph target`);
           channel = `morph:${await idOf(name)}`;
           values = { stream: stream(Float32Array.from(track.values), { count: times.length, stride: 4, mode: "attributes" }), format: "float32" };

@@ -78,6 +78,14 @@ import {
   topologyArrays,
 } from "./dense.js";
 import { normalizeStroke, Sculptor, runStroke } from "./sculpt.js";
+import { normalizeAttachment, bindSurface, mirrorSurface, updateAttachments } from "./attachments.js";
+import { normalizeMorph, resetMorphMeshes, refreshMorphBases, applyMorphs, morphCommand } from "./morphs.js";
+import { normalizeCharacter, resetCharacter, refreshCharacterRest, applyCharacter, characterCommand } from "./character.js";
+import { normalizeSkin, validateSkinDependencies, resetSkins, refreshSkinBases, applySkins, skinCommand } from "./skin.js";
+import { editJointRest } from "./joint-rest.js";
+import { normalizeRelations, relationCommand } from "./relations.js";
+import { normalizeDesignReferences, designReferenceCommand } from "./design-references.js";
+import { normalizeViewPresets, viewPresetCommand } from "./view-presets.js";
 import {
   removeMaterial,
   purgeMaterials,
@@ -349,6 +357,7 @@ export function normalizeProject(input) {
           "revolve",
           "sweep",
           "loft",
+          "boundarySurface",
           "torus",
           "capsule",
         ].includes(g.kind)
@@ -566,6 +575,21 @@ export function normalizeProject(input) {
         result.tints = normalizeTints(node.tints, result.copies.length, `nodes.${node.id}.tints`);
     }
     if (node.derived) result.derived = normalizeDerived(node.derived, `nodes.${node.id}.derived`);
+    if (node.morph !== undefined) result.morph = normalizeMorph(node.morph, result);
+    if (node.skin !== undefined) result.skin = normalizeSkin(node.skin, result);
+    if (node.joint !== undefined) {
+      if (node.joint.version !== 1 || result.mesh || dataKind(result) || node.instanceOf || node.symmetry || node.attachment)
+        fail("A joint is an independent empty group with joint version 1", `nodes.${node.id}.joint`);
+      result.joint = { version: 1, rest: {} };
+      for (const key of ["position", "rotation", "scale"])
+        result.joint.rest[key] = vector(node.joint.rest?.[key]);
+      if (result.joint.rest.scale.some(v => v <= 0)) fail("Joint rest scale must be positive");
+    }
+    if (node.attachment !== undefined) {
+      if (node.symmetry || node.instanceOf || node.recipe || dataKind(result))
+        fail("Surface attachments belong to independent mesh/group parts", `nodes.${node.id}.attachment`);
+      result.attachment = normalizeAttachment(node.attachment, node.id);
+    }
     if (node.sockets !== undefined && node.sockets !== null) {
       if (dataKind(result)) fail("Sockets belong to mesh and group parts; a placed model carries its own", `nodes.${node.id}.sockets`);
       result.sockets = normalizeFrames(node.sockets, `nodes.${node.id}.sockets`);
@@ -657,15 +681,21 @@ export function normalizeProject(input) {
     visited.add(id);
   };
   nodes.forEach((n) => visit(n.id));
+  validateSkinDependencies({ nodes });
   validateMaterialReferences({ materials, nodes });
   const sources = normalizeSources(input.sources),
     tile = normalizeTile(input.tile),
     nav = normalizeNav(input.nav),
-    rules = normalizeRules(input.rules);
+    rules = normalizeRules(input.rules),
+    relations = normalizeRelations(input.relations, nodes);
   return {
     format: FORMAT,
     version: VERSION,
     name: label(input.name, "name"),
+    ...(input.character ? { character: normalizeCharacter(input.character, nodes) } : {}),
+    ...(input.designReferences ? { designReferences: normalizeDesignReferences(input.designReferences) } : {}),
+    ...(input.viewPresets !== undefined ? { viewPresets: normalizeViewPresets(input.viewPresets, nodes) } : {}),
+    ...(relations.length ? { relations } : {}),
     ...(tile ? { tile } : {}),
     ...(nav ? { nav } : {}),
     ...(rules.length ? { rules } : {}),
@@ -1378,6 +1408,9 @@ export function evaluationIssues(input, project) {
 }
 
 export function validateProject(input, budget = {}) {
+  const unchecked = { connectivity: false, selfIntersection: false, shellOrientation: false,
+    evaluationConsistency: false, interObjectIntersections: false, minimumWallThickness: false,
+    allMorphTargets: false, allMorphCombinations: false };
   let project;
   try {
     project = evaluateProject(input);
@@ -1392,6 +1425,7 @@ export function validateProject(input, budget = {}) {
         },
       ],
       warnings: [],
+      checks: unchecked,
     };
   }
   const stats = statistics(project),
@@ -1454,16 +1488,25 @@ export function validateProject(input, budget = {}) {
     evaluationConsistency: true,
     interObjectIntersections: false,
     minimumWallThickness: false,
+    allMorphTargets: false,
+    allMorphCombinations: false,
   };
+  const surfaceChecks = [];
   // Surface scans of dense meshes are not run here (sculpting may fold a surface through
   // itself, as in other sculpting tools): selfIntersection then reports unchecked.
-  if (project.nodes.some((n) => isDense(n.mesh) && !n.derived)) checks.selfIntersection = false;
+  for (const n of project.nodes.filter(n => isDense(n.mesh) && !n.derived)) {
+    checks.selfIntersection = false;
+    surfaceChecks.push({ node: n.id, checked: false, reason: "dense-mesh" });
+  }
   for (const node of project.nodes.filter((n) => n.mesh && !n.derived && !isDense(n.mesh))) {
     const result = surfaces(node.mesh);
+    surfaceChecks.push({ node: node.id, checked: true, complete: result.complete && !result.issuesTruncated,
+      checkedPairs: result.checkedPairs, issueLimit: result.issueLimit, issuesTruncated: result.issuesTruncated,
+      overlapComplete: result.overlapComplete && !result.overlapsTruncated });
     warnings.push(
       ...result.issues.map((issue) => ({ ...issue, node: node.id })),
     );
-    if (!result.complete) checks.selfIntersection = false;
+    if (!result.complete || result.issuesTruncated) checks.selfIntersection = false;
   }
   const errors = warnings.filter((w) =>
     ["self-intersection", "zero-volume", "evaluation-mismatch"].includes(
@@ -1476,6 +1519,7 @@ export function validateProject(input, budget = {}) {
     warnings: warnings.filter((w) => !errors.includes(w)),
     stats,
     checks,
+    surfaceChecks,
   };
 }
 
@@ -1524,6 +1568,14 @@ export function measure(project, id, options) {
 }
 export function nodeSummary(node) {
   const { mesh, ...meta } = node;
+  if (meta.skin) meta.skin = { version: meta.skin.version, joints: meta.skin.joints,
+    connectivity: meta.skin.connectivity, vertices: meta.skin.weights.length,
+    influences: meta.skin.weights.reduce((sum, w) => sum + w.length, 0) };
+  if (meta.morph) meta.morph = {
+    version: meta.morph.version, connectivity: meta.morph.connectivity,
+    weights: meta.morph.weights, targets: meta.morph.targets.map(t => ({ name: t.name,
+      changedVertices: t.deltas.filter(v => v.some(x => x !== 0)).length })),
+  };
   if (meta.recipe) {
     const { name, parameters, generator, steps, paint } = meta.recipe;
     meta.recipe = {
@@ -1954,6 +2006,10 @@ function selectionTransform(project, command) {
 }
 function synchronize(project) {
   for (const node of project.nodes) synchronizeVertices(node);
+  applyCharacter(project);
+  applyMorphs(project);
+  applySkins(project);
+  updateAttachments(project);
   for (const node of project.nodes.filter((n) => n.instanceOf)) {
     const source = project.nodes.find((n) => n.id === node.instanceOf);
     node.mesh = copy(source.mesh);
@@ -2045,6 +2101,11 @@ function selectionSummary(project, command) {
     : null;
 }
 function run(project, command) {
+  if (["viewPreset", "removeViewPreset"].includes(command.op)) return viewPresetCommand(project, command);
+  if (["referenceRecord", "referenceSelect"].includes(command.op)) return designReferenceCommand(project, command);
+  if (["relation", "removeRelation"].includes(command.op)) return relationCommand(project, command);
+  if (["characterControl", "characterValues", "characterClip", "characterPose", "characterRemove"].includes(command.op))
+    return characterCommand(project, command);
   if (
     ["assembly", "assemblyParameters", "detachBinding"].includes(command.op)
   ) {
@@ -2558,10 +2619,26 @@ function run(project, command) {
         if (n.id === from) n.id = to;
         if (n.parent === from) n.parent = to;
         if (n.instanceOf === from) n.instanceOf = to;
+        if (n.attachment?.target === from) n.attachment.target = to;
+        if (n.attachment?.mirror?.source === from) n.attachment.mirror.source = to;
+        if (n.skin) n.skin.joints = n.skin.joints.map(id => id === from ? to : id);
         if (n.symmetry?.source === from) n.symmetry.source = to;
         if (n.symmetry?.reference === from) n.symmetry.reference = to;
       }
       remapRecipeReferences(node.recipe, from, to);
+      for (const preset of project.viewPresets ?? []) if (preset.ids) preset.ids = preset.ids.map(id => id === from ? to : id);
+      for (const r of project.relations ?? []) {
+        if (r.source === from) r.source = to;
+        if (r.target === from) r.target = to;
+      }
+      if (project.character) {
+        const c = project.character;
+        for (const b of c.controls.flatMap(x => x.bindings))
+          if (b.node === from) b.node = to;
+        for (const t of c.clips.flatMap(x => x.tracks))
+          if (t.node === from) t.node = to;
+        if (c.rest[from]) { c.rest[to] = c.rest[from]; delete c.rest[from]; }
+      }
       const remap = (value) =>
         Array.isArray(value)
           ? value.map(remap)
@@ -2857,6 +2934,25 @@ function run(project, command) {
       node.terrain = normalizeTerrain(next, "terrain");
       break;
     }
+    case "morphTarget":
+    case "morphEdit":
+    case "morphWeights":
+    case "morphRemove":
+    case "morphMirror":
+      if (bindingFor(project, node.id) || project.nodes.some(n => n.instanceOf === node.id || n.symmetry?.source === node.id))
+        fail("Morph authoring requires an independent node without assembly drivers or linked copies");
+      morphCommand(node, command);
+      break;
+    case "attachSurface": {
+      if (dataKind(node)) fail("Surface attachments belong to mesh/group parts");
+      bindSurface(project, node, command);
+      break;
+    }
+    case "mirrorSurface":
+      return mirrorSurface(project, node, command);
+    case "detachSurface":
+      delete node.attachment;
+      break;
     case "socket": {
       if (dataKind(node)) fail("Sockets belong to mesh and group parts");
       const frames = normalizeFrames({ [command.socket]: { position: command.position ?? [0, 0, 0], rotation: command.rotation ?? [0, 0, 0], tags: command.tags ?? [] } }, "socket");
@@ -2868,6 +2964,25 @@ function run(project, command) {
       if (!node.sockets?.[command.socket]) fail(`${node.id} has no socket ${command.socket}`, "socket");
       delete node.sockets[command.socket];
       if (!Object.keys(node.sockets).length) delete node.sockets;
+      break;
+    }
+    case "skinBind":
+    case "skinWeights":
+    case "skinUnbind": {
+      if (bindingFor(project, node.id)) fail("Detach the assembly before binding a skin");
+      skinCommand(project, node, command);
+      break;
+    }
+    case "jointRest":
+      return editJointRest(project, node, command);
+    case "joint": {
+      if (command.enabled === false) delete node.joint;
+      else {
+        if (node.mesh || dataKind(node) || node.instanceOf || node.symmetry || node.attachment)
+          fail("A joint needs an independent empty group", `nodes.${node.id}`);
+        node.joint = { version: 1, rest: Object.fromEntries(
+          ["position", "rotation", "scale"].map(key => [key, copy(node[key])])) };
+      }
       break;
     }
     case "set": {
@@ -2987,6 +3102,8 @@ function run(project, command) {
       identifier(command.newId, "newId");
       const ids = descendants(project, node.id),
         map = copyIds(project, [...ids], command);
+      if (Object.keys(project.character?.rest ?? {}).some(id => ids.has(id)))
+        throw new ModelError("Character-driven hierarchies need explicit new controls; export/import the editable project to duplicate its complete controls", "dependency", `nodes.${node.id}`);
       const clones = project.nodes
         .filter((n) => ids.has(n.id))
         .map((n) => {
@@ -2996,6 +3113,21 @@ function run(project, command) {
             parent: map.get(n.parent) ?? n.parent,
           };
           remapRecipeReferences(clone.recipe, n.id, clone.id);
+          if (clone.attachment) {
+            if (!map.has(clone.attachment.target))
+              throw new ModelError("Duplicate the attachment target with its followers, or detachSurface first", "dependency", `nodes.${n.id}.attachment`);
+            clone.attachment.target = map.get(clone.attachment.target);
+            if (clone.attachment.mirror) {
+              if (!map.has(clone.attachment.mirror.source))
+                throw new ModelError("Duplicate the mirror source with its follower, or detachSurface first", "dependency", `nodes.${n.id}.attachment`);
+              clone.attachment.mirror.source = map.get(clone.attachment.mirror.source);
+            }
+          }
+          if (clone.skin) {
+            if (command.linked || clone.skin.joints.some(id => !map.has(id)))
+              throw new ModelError("Duplicate the complete joint hierarchy with its skin, without linked copies", "dependency", `nodes.${n.id}.skin`);
+            clone.skin.joints = clone.skin.joints.map(id => map.get(id));
+          }
           // A copy made by hand is no longer the rule's to replace.
           delete clone.derived;
           return clone;
@@ -3312,6 +3444,7 @@ function run(project, command) {
       return output;
     }
     case "deform":
+    case "controlDeform":
     case "displace":
     case "smooth":
     case "subdivide":
@@ -3549,6 +3682,19 @@ export function evaluateTransaction(
           "dependency",
         );
       const binding = bindingFor(next, command.id);
+      const deformFollower = (command.ids ?? [command.id]).find(id => next.nodes.find(n => n.id === id)?.attachment?.mode === "deform");
+      if (deformFollower && ["recipe", "recipeParameters", "recipeStep", "parameters", "convert",
+        "vertices", "vertexSymmetry", "extrude", "inset", "bevel", "cut", "loopCut", "mirror", "boolean",
+        "separate", "join", "array", "morphTarget", "morphEdit", "morphWeights", "skinBind", "skinWeights",
+        ...MESH_EDITS, ...SHAPE_EDITS].includes(command.op))
+        throw new ModelError("Detach or rebind before editing a surface-deformed mesh", "dependency", `nodes.${deformFollower}.attachment`);
+      if (binding && ["attachSurface", "mirrorSurface"].includes(command.op))
+        throw new ModelError("Detach assembly binding before attaching its driven node", "dependency");
+      if (["transform", "dimensions", "pivot", "applyScale", "align", "ground", "snap"].includes(command.op) ||
+          (command.op === "set" && ["position", "rotation", "scale", "parent"].some(k => command[k] !== undefined))) {
+        const driven = (command.ids ?? [command.id]).find(id => next.nodes.find(n => n.id === id)?.attachment);
+        if (driven) throw new ModelError("Detach or rebind the surface attachment before editing its transform", "dependency", `nodes.${driven}.attachment`);
+      }
       if (
         binding &&
         ((command.op === "recipeParameters" && binding.recipeValues) ||
@@ -3585,6 +3731,9 @@ export function evaluateTransaction(
           `nodes.${command.id}`,
         );
       next = copy(before);
+      resetCharacter(next);
+      resetSkins(next);
+      resetMorphMeshes(next);
       const output = run(next, command);
       // Affine edits and paint must remain reconstructible before being saved.
       if (
@@ -3600,6 +3749,9 @@ export function evaluateTransaction(
             !same(n, before.nodes.find((v) => v.id === n.id))
           )
             run(next, { op: "recipe", id: n.id, definition: n.recipe });
+      refreshCharacterRest(next);
+      refreshMorphBases(next);
+      refreshSkinBases(next);
       synchronize(next);
       if (next.assemblies?.length) rebuildAssemblies(next, run, synchronize);
       next = normalizeProject(next);
@@ -3636,6 +3788,9 @@ export function evaluateTransaction(
             `nodes.${n.id}.mesh`,
           );
           error.issues = invalid.map((i) => ({ ...i, node: n.id }));
+          // Inspection only: never commit or reevaluate this rejected geometry.
+          // The engine can retain it beside the draft for diagnostics and rendering.
+          error.candidateProject = next;
           error.suggestion =
             "Reduce the edit distance or split the operation; inspect the reported faces.";
           throw error;
@@ -3754,13 +3909,21 @@ export function evaluateCommands(project, commands, options = {}) {
 // One evaluation boundary for imported JSON, restored drafts and export snapshots.
 export function evaluateProject(input) {
   const project = normalizeProject(input);
+  resetCharacter(project);
+  resetSkins(project);
+  resetMorphMeshes(project);
   for (const n of project.nodes)
     if (n.recipe && !n.instanceOf && !n.symmetry)
       run(project, { op: "recipe", id: n.id, definition: n.recipe });
+  refreshMorphBases(project);
+  refreshSkinBases(project);
   synchronize(project);
   if (project.assemblies.length) rebuildAssemblies(project, run, synchronize);
   synchronize(project);
-  return normalizeProject(project);
+  const normalized = normalizeProject(project);
+  applyMorphs(normalized);
+  applySkins(normalized);
+  return normalized;
 }
 
 // Snapshot history keeps topology edits and batches atomic. Reads never expose mutable state.

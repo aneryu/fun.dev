@@ -237,7 +237,8 @@ editable parts:
 - The scene's node hierarchy, with glTF names as IDs (other characters become `_`; repeats
   get `-2`, `-3`) and the original names as display names. TRS and matrices become position,
   XYZ rotation and scale; a mirrored or sheared transform is baked into the part's mesh and
-  its children, so world geometry is unchanged.
+  its children, so world geometry is unchanged. Deforming or animated hierarchies
+  reject that baking explicitly to preserve their correspondence and motion.
 - Materials: base colour (linear factors to sRGB hex), roughness, metalness (glTF's default
   is 1), emission with `KHR_materials_emissive_strength`, `BLEND` opacity (`MASK` becomes
   opaque or invisible), `KHR_materials_transmission`/`ior` glass, double-sided. Materials
@@ -246,8 +247,17 @@ editable parts:
   plane merge back into a polygon, or a few simple polygons where the region has holes or
   more than 64 corners. Vertices split for normals or UVs are welded; vertices inside a flat
   region disappear, which can lower the triangle count without changing the shape.
-- A mesh used by several nodes becomes linked copies of its first node.
-- Reported, not imported: skins and bones, morph targets, animations, textures, cameras,
+  Morph and skin meshes instead retain their split vertex correspondence.
+- Static meshes used by several nodes can become linked copies of their first node;
+  deforming meshes and directly animated nodes remain independent.
+- Morph targets retain names, base/target correspondence and weights; lossy reduction
+  and sheared/mirrored morph imports fail explicitly. See [character authoring](workshop-characters.md).
+- Skins retain joint hierarchy, up to four weights per vertex and inverse binds.
+  LINEAR/STEP animation restores editable TRS and named morph tracks; rotation
+  uses spherical interpolation. Unsupported curves/rig transforms and budget
+  overflow fail instead of silently dropping them. Runtime GLB cannot reconstruct
+  recipes or semantic controls; use the editable project to retain those relationships.
+- Reported, not imported: textures, cameras,
   lights, line and point primitives. Refused: compressed files (Draco, meshopt, KTX2, WebP,
   AVIF), other unknown required extensions, and models beyond the limits.
 
@@ -312,6 +322,10 @@ Agents reach the same library through `librarySearch`, `libraryModel` and `openL
 record what they were made from in `sources`. See [library API](library-api.md#in-the-workshop).
 
 ## Agent contract
+
+The [candidate iteration workflow](workshop-iteration.md) adds retained failed
+proposals and declared contact inspection over this same API, without replacing
+the live draft until acceptance.
 
 The page exposes `window.funEditor.version === 3`. The complete API, command fields,
 examples and project schema are at `/workshop/guide` (source:
@@ -681,12 +695,33 @@ offset:0}`; no script strings are evaluated. Up to 32 steps operate on this mesh
 in local meters, using semantic selections. Supported steps: transform, vertices,
 inset, extrude, bevel, cut, loopCut, paint, mirror, boolean, array (copies merged into this
 mesh, so a count can be a parameter), deleteComponents, dissolve, weld, fill, bridge,
-connect, solidify, deform, displace, smooth, subdivide and triangulate. A recipe is rebuilt
+connect, solidify, deform, controlDeform, displace, smooth, subdivide and triangulate. A recipe is rebuilt
 atomically; other objects and the node's transform are retained, and linked copies
 update. Pivot/reparent/apply-scale bakes are retained in its affine basis.
 Whole-mesh `transform` steps transform every vertex immediately, so later cuts and
 selectors see that geometry. They retain the object's own TRS and use the current
 geometry bounds center as the default pivot; supply `pivot` to override it.
+
+`controlDeform` supplies compact geometric handles without changing vertex
+correspondence: `{op:"controlDeform",id,handles:[{center:[x,y,z],radius,delta:[x,y,z]}],
+mirrorAxis?}`. Coordinates, radii and displacement use local metres (or world
+metres for a direct command with `space:"world"`). A handle contributes
+`delta * (1-t)^4 * (4*t+1)` for distance/radius `t<1`, exactly zero outside.
+Overlapping contributions add; this is not a volume-preserving cage solver.
+Mirror axes reflect centres and displacement about the coordinate origin;
+a centre on the mirror plane occurs once and cannot move across that plane.
+The limit is 64 handles and two million vertex/handle pairs including mirrors.
+Existing component selections/falloff and polygon planarity rules still apply.
+
+To retain editable controls, put the step in a recipe and use numeric parameter
+expressions in its handles. Recipes rebuild from their saved base, so edits do
+not accumulate and surface attachments keep their triangle correspondence.
+The existing recipe parameter inspector provides manual adjustment; no viewport
+handle dragging is implemented. Direct shape commands bake the current result
+and detach the recipe, like other shape edits. Older clients that do not know
+this step cannot rebuild it; retain the editable source and use a current client.
+See `scripts/examples/duck-controls.mjs` for a runnable saved head-width,
+forehead and crown example with protected chin vertices and attached followers.
 
 ```js
 const { hollowBoxRecipe } = await import("/workshop/recipe.js");
@@ -974,12 +1009,16 @@ blocks. Session JSON is saved after each request using temporary-file replacemen
 A process lock prevents two adapters from overwriting one session file; stale locks
 from exited processes are recovered. Use one adapter process per session file.
 
-MCP discovery uses compact command envelopes. `fun_editor_capabilities` defaults
+MCP discovery uses compact command and nested-option envelopes. `fun_editor_capabilities` defaults
 to a summary with command names, units, limits and unsupported features. Pass
 `{command:'recipeStep'}` for one complete schema with its required definitions, or
-`{detail:'full'}` for the full contract. Execution always validates the full schema,
-including unknown fields. Browser `funEditor.capabilities()` retains the full
-default for compatibility and accepts the same summary/command options.
+`{detail:'full'}` for the full command contract. Pass `{tool:'workflow'}` (also
+`ws.call('capabilities', {tool:'workflow'})`) for a complete tool schema and action
+semantics, including deferred `allowed`, `render` and `query` options. Tool names
+accept the `fun_editor_` prefix; unknown names fail explicitly. Execution always
+validates the full schema, including unknown fields. Browser
+`funEditor.capabilities()` retains the full default for compatibility and accepts
+the same summary, command and tool options.
 
 For a Chrome instance already started with remote debugging, attach to one exact
 existing editor tab with `--cdp http://127.0.0.1:9222 --url <exact-editor-tab-url>`.

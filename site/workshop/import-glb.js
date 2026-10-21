@@ -1,8 +1,8 @@
 // Any GLB becomes editable workshop parts: its node hierarchy and names, flat-colour PBR
 // materials, and polygons recovered from triangles (coplanar, edge-connected regions of one
-// material). A workshop project file restores its editable project instead. Skins,
-// animations and textures are reported, not imported: the workshop edits static models.
-import { ModelError, sub, cross, dot } from "./mesh.js";
+// material). Deforming meshes retain vertex correspondence. A workshop project
+// file restores its full editable project; unsupported runtime data is reported explicitly.
+import { ModelError, sub, cross, dot, triangulate } from "./mesh.js";
 import { polygonize } from "./solid.js";
 import { setMatrix, determinant, decompose } from "./spatial.js";
 import { normalizeMaterial, visitMaterials } from "./materials.js";
@@ -10,6 +10,10 @@ import { FORMAT, VERSION, LIMITS, emptyProject } from "./document.js";
 import { DENSE_FROM } from "./dense.js";
 import { remapRecipeReferences } from "./recipe.js";
 import { parseModelFile, workshopProject } from "./glb.js";
+import { connectivityToken } from "./components.js";
+import { mergeDesignReferences } from "./design-references.js";
+import { readSkinWeights, importSkins } from "./import-skin.js";
+import { importAnimations } from "./import-animation.js";
 
 const fail = (message, code = "invalid_glb", path = "data") => {
   throw new ModelError(message, code, path);
@@ -50,7 +54,7 @@ export function importModel(
     fail("Expected replace or add mode", "schema", "mode");
   const { json, buffers } = parseModelFile(bytes);
   const stored = workshopProject(json, buffers);
-  const { project: incoming, warnings } = stored
+  const { project: incoming, warnings, processing = [] } = stored
     ? { project: stored, warnings: [] }
     : projectFromGLTF(json, buffers, { name, simplifier, budget });
   if (mode === "replace")
@@ -58,6 +62,7 @@ export function importModel(
       project: incoming,
       nodes: incoming.nodes.map((n) => n.id),
       warnings,
+      processing,
       container: !!stored,
     };
   if (!current) fail("Adding parts needs the current project", "invalid", "mode");
@@ -206,7 +211,7 @@ function localMatrix(node) {
 // glTF stores triangles; the workshop edits polygons. Coplanar, edge-connected triangles of
 // one material grow into regions against their seed's plane (no drift around curves), and
 // polygonize turns each region into one polygon, or a few where it has holes.
-export function editableMesh(positions, triangles, materials) {
+export function editableMesh(positions, triangles, materials, report) {
   const canonical = new Map(),
     points = [],
     index = positions.map((p) => {
@@ -278,7 +283,16 @@ export function editableMesh(positions, triangles, materials) {
     }
   }
   for (let i = 0; i < group.length; i++) if (group[i] < 0) group[i] = regions++;
-  return polygonize(points, tris, group.map(String), materials);
+  const result = polygonize(points, tris, group.map(String), materials);
+  if (report) {
+    const collapsed = tris.filter(t => new Set(t).size < 3).length;
+    const outputTriangles = result.faces.reduce((n, f) => n + triangulate(result.vertices, f.vertices).length, 0);
+    report({ inputVertices: positions.length, weldedVertices: points.length, outputVertices: result.vertices.length,
+      inputTriangles: triangles.length, collapsedAfterWeld: collapsed, outputTriangles,
+      polygonizationTriangleDelta: triangles.length - collapsed - outputTriangles,
+      note: "Coplanar regions lose internal subdivision edges/vertices; compare surfaces and bounds, not triangle counts alone." });
+  }
+  return result;
 }
 
 // Smooth shading of an imported mesh, read from its normals: an edge is smooth where the
@@ -328,6 +342,7 @@ export function importedSmoothing(positions, triangles, normals) {
 // budget: { triangles, vertices } a model may bring in unreduced; by default what dense meshes
 // may hold (document.js LIMITS), so scans and sculpts up to that size import as they are.
 function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
+  const processing = [];
   budget = { triangles: budget?.triangles ?? LIMITS.denseTriangles, vertices: budget?.vertices ?? LIMITS.denseVertices };
   const warnings = new Map(),
     warn = (code, message) => {
@@ -343,12 +358,11 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
   const unknown = required.filter((e) => !UNDERSTOOD.has(e));
   if (unknown.length)
     fail(`Unsupported required extensions: ${unknown.join(", ")}`, "unsupported");
-  if (json.skins?.length) warn("skins", "Skins and bones were not imported");
-  if (json.animations?.length) warn("animations", "Animations were not imported");
   if (json.cameras?.length) warn("cameras", "Cameras were not imported");
   if (json.extensions?.KHR_lights_punctual?.lights?.length)
     warn("lights", "Lights were not imported");
   const read = accessorReader(json, buffers);
+  const animatedIndices = new Set((json.animations ?? []).flatMap(a => (a.channels ?? []).map(c => c.target?.node)));
 
   const materialIds = new Set(),
     materials = [],
@@ -406,6 +420,12 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
       normals = [],
       triangles = [],
       triangleMaterials = [];
+    const morphCount = Math.max(0, ...(mesh.primitives ?? []).map(p => p.targets?.length ?? 0));
+    const hasSkin = (mesh.primitives ?? []).some(p => p.attributes?.JOINTS_0 !== undefined || p.attributes?.WEIGHTS_0 !== undefined);
+    if (hasSkin && reduce) fail("Skin import requires lossless vertex correspondence; reduce the source explicitly before import", "budget");
+    const skinWeights = [];
+    if (morphCount > 128 || (morphCount && reduce)) fail("Morph import exceeds target budget or requires lossy reduction", "budget");
+    const morphDeltas = Array.from({ length: morphCount }, () => []);
     let withNormals = true;
     for (const primitive of mesh.primitives ?? []) {
       const mode = primitive.mode ?? 4;
@@ -415,12 +435,16 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
       }
       if (primitive.extensions?.KHR_draco_mesh_compression)
         fail("Compressed files are not supported yet; export the model uncompressed", "unsupported");
-      if (primitive.targets?.length) warn("morphs", "Morph targets were not imported");
+      if (morphCount && primitive.targets?.length !== morphCount)
+        fail("All material primitives must have matching morph target counts", "invalid_glb");
       if (primitive.attributes?.POSITION === undefined) continue;
       let p = read(primitive.attributes.POSITION);
       const count = p.length / 3;
       if (!Number.isInteger(count) || count > 4_000_000)
         fail("A source primitive exceeds the import vertex budget", "budget");
+      if ((morphCount || hasSkin) && positions.length + count > DENSE_FROM)
+        fail("Deforming import exceeds the editable vertex budget; no skin/morph attributes were discarded", "budget");
+      if (hasSkin) skinWeights.push(...readSkinWeights(json, read, primitive, count, `meshes.${index}.weights`));
       let n = primitive.attributes.NORMAL !== undefined ? read(primitive.attributes.NORMAL) : null;
       if (n && n.length !== p.length) fail("Normal and position counts differ");
       const rawIndices = primitive.indices !== undefined
@@ -462,6 +486,12 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
       }
       const base = positions.length;
       for (let i = 0; i < p.length; i += 3) positions.push([p[i], p[i + 1], p[i + 2]]);
+      for (let t = 0; t < morphCount; t++) {
+        const attribute = primitive.targets[t].POSITION;
+        const delta = attribute === undefined ? new Float64Array(p.length) : read(attribute);
+        if (delta.length !== p.length) fail("Morph and base position counts differ", "invalid_glb");
+        for (let i = 0; i < delta.length; i += 3) morphDeltas[t].push([delta[i], delta[i + 1], delta[i + 2]]);
+      }
       if (n) {
         for (let i = 0; i < n.length; i += 3) {
           const v = [n[i], n[i + 1], n[i + 2]], length = Math.hypot(...v) || 1;
@@ -482,8 +512,23 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
         "budget",
       );
     const result = triangles.length
-      ? editableMesh(positions, triangles, triangleMaterials)
+      ? morphCount || hasSkin ? { vertices: positions, faces: triangles.map((vertices, i) => ({ id: `f${i}`, vertices, material: triangleMaterials[i] })) }
+        : editableMesh(positions, triangles, triangleMaterials, r => processing.push({ mesh: mesh.name ?? index, ...r }))
       : null;
+    if (result && (morphCount || hasSkin) && (positions.length > DENSE_FROM || triangles.length > DENSE_FROM))
+      fail("Deforming imports must fit the editable polygon budget; dense conversion would discard authoring correspondence", "budget");
+    if (result && hasSkin) result.skinWeights = skinWeights;
+    if (result && morphCount) {
+      if (positions.length > LIMITS.vertices || positions.length * morphCount > 1_000_000)
+        fail("Editable morph import exceeds polygon/target vertex budget", "budget");
+      const taken = new Set();
+      const names = morphDeltas.map((_, i) => uniqueId(mesh.extras?.targetNames?.[i], taken, `target_${i}`));
+      result.morph = { version: 1, connectivity: connectivityToken(result), base: structuredClone(positions),
+        targets: morphDeltas.map((deltas, i) => ({ name: names[i], deltas })),
+        weights: Object.fromEntries(names.map((name, i) => [name, mesh.weights?.[i] ?? 0])) };
+      processing.push({ mesh: mesh.name ?? index, preservedMorphTargets: names, vertexWelding: false,
+        reason: "Preserve morph vertex correspondence across material/normal seams" });
+    }
     if (result) result.smooth = importedSmoothing(positions, triangles, withNormals ? normals : null);
     meshes.set(index, result?.faces.length ? result : null);
     return meshes.get(index);
@@ -500,12 +545,15 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
     matrices = new Map(),
     sources = new Map();
   const sockets = new Map();
+  const nodesByIndex = new Map(), weightsByNode = new Map();
+  const jointIndices = new Set((json.skins ?? []).flatMap(s => s?.joints ?? []));
   const visit = (index, parent, path) => {
     if (path.has(index)) fail("The node hierarchy has a cycle");
+    if (nodesByIndex.has(index)) fail(`Node ${index} has multiple parents in the imported scene`);
     const g = json.nodes?.[index] ?? fail(`Missing node ${index}`),
       raw = g.name ?? json.meshes?.[g.mesh]?.name;
     // An empty named socket_<name> is its parent's socket (docs/worlds.md §4), not a part.
-    if (parent && typeof raw === "string" && /^socket_[A-Za-z0-9_-]{1,64}$/.test(raw) && g.mesh === undefined && !(g.children ?? []).length) {
+    if (parent && !animatedIndices.has(index) && !jointIndices.has(index) && !g.extras?.workshopJoint && typeof raw === "string" && /^socket_[A-Za-z0-9_-]{1,64}$/.test(raw) && g.mesh === undefined && !(g.children ?? []).length) {
       const frame = decompose(localMatrix(g));
       if (frame) {
         const list = sockets.get(parent) ?? {};
@@ -524,18 +572,23 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
         scale: [1, 1, 1],
         mesh: null,
       };
-    if (g.skin !== undefined) warn("skins", "Skins and bones were not imported");
     if (g.mesh !== undefined && meshFor(g.mesh)) {
       // A mesh used by several nodes becomes linked copies of its first node.
-      if (sources.has(g.mesh)) node.instanceOf = sources.get(g.mesh);
+      if (sources.has(g.mesh) && !animatedIndices.has(index) && !meshFor(g.mesh).morph && !meshFor(g.mesh).skinWeights && g.skin === undefined) node.instanceOf = sources.get(g.mesh);
       else {
         sources.set(g.mesh, id);
-        const { smooth, ...mesh } = meshFor(g.mesh);
+        const { smooth, morph, skinWeights, ...mesh } = meshFor(g.mesh);
         node.mesh = structuredClone(mesh);
+        if (skinWeights) weightsByNode.set(id, skinWeights);
+        if (morph) {
+          node.morph = structuredClone(morph);
+          if (g.weights) node.morph.weights = Object.fromEntries(morph.targets.map((t, i) => [t.name, g.weights[i] ?? 0]));
+        }
         if (smooth) node.smooth = smooth;
       }
     }
     nodes.push(node);
+    nodesByIndex.set(index, node);
     if (nodes.length > LIMITS.nodes)
       fail(`This model has more than ${LIMITS.nodes} parts, the workshop's limit`, "budget");
     matrices.set(id, localMatrix(g));
@@ -547,8 +600,19 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
 
   // Children first: a parent's shear or mirror bakes into its own mesh and its children.
   const project = { nodes };
+  const rigNodes = new Set([...nodesByIndex].filter(([index]) =>
+    json.nodes[index].skin !== undefined || animatedIndices.has(index) || jointIndices.has(index) || json.nodes[index].extras?.workshopJoint).map(([, n]) => n.id));
   for (const node of order) {
     const m = matrices.get(node.id);
+    if (!decompose(m) && nodes.some(n => {
+      if (!n.morph && !rigNodes.has(n.id)) return false;
+      let ancestor = n;
+      while (ancestor) {
+        if (ancestor.id === node.id) return true;
+        ancestor = nodes.find(p => p.id === ancestor.parent);
+      }
+      return false;
+    })) fail("Morph/skin/animation import requires positive, shear-free node transforms", "unsupported");
     if (Math.abs(determinant(m)) < 1e-12) {
       warn("collapsed", "Parts scaled to zero were left out");
       node.position = m.slice(12, 15);
@@ -569,6 +633,8 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
     const node = nodes.find((n) => n.id === id);
     if (node) node.sockets = frames;
   }
+  importSkins(json, read, nodesByIndex, weightsByNode, processing);
+  const character = importAnimations(json, read, nodesByIndex, processing, warn);
 
   let triangleCount = 0,
     vertexCount = 0,
@@ -611,8 +677,10 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
       name: label(title, "Imported model"),
       materials: materials.length ? materials : emptyProject().materials,
       nodes,
+      ...(character ? { character } : {}),
     },
     warnings: [...warnings.values()],
+    processing,
   };
 }
 
@@ -762,6 +830,11 @@ export function mergeProjects(current, incoming, { parent = null } = {}) {
     n.id = map(n.id);
     n.parent = n.parent === null ? parent : map(n.parent);
     if (n.instanceOf) n.instanceOf = map(n.instanceOf);
+    if (n.attachment) {
+      n.attachment.target = map(n.attachment.target);
+      if (n.attachment.mirror) n.attachment.mirror.source = map(n.attachment.mirror.source);
+    }
+    if (n.skin) n.skin.joints = n.skin.joints.map(map);
     if (n.symmetry) {
       n.symmetry.source = map(n.symmetry.source);
       if (n.symmetry.reference) n.symmetry.reference = map(n.symmetry.reference);
@@ -781,6 +854,34 @@ export function mergeProjects(current, incoming, { parent = null } = {}) {
           )
         : value;
   project.nodes.push(...add.nodes);
+  if (add.viewPresets?.length) {
+    const used = new Set((project.viewPresets ?? []).map(p => p.id));
+    project.viewPresets = [...(project.viewPresets ?? []), ...add.viewPresets.map(p => ({
+      ...p, id: uniqueId(p.id, used, "view"), ...(p.ids ? { ids: p.ids.map(map) } : {}),
+    }))];
+  }
+  if (add.designReferences) project.designReferences = mergeDesignReferences(project.designReferences, add.designReferences);
+  if (add.relations?.length) {
+    const used = new Set((project.relations ?? []).map(r => r.id));
+    project.relations = [...(project.relations ?? []), ...add.relations.map(r => ({
+      ...r, id: uniqueId(r.id, used, "relation"), source: map(r.source), target: map(r.target),
+    }))];
+  }
+  if (add.character) {
+    if (add.character.pose || project.character?.pose)
+      fail("Clear character clip previews before combining editable character projects", "dependency");
+    const c = project.character ??= { version: 1, controls: [], values: {}, rest: {}, clips: [] };
+    c.version = Math.max(c.version, add.character.version);
+    const controls = new Set(c.controls.map(x => x.id)), clips = new Set(c.clips.map(x => x.name));
+    const names = new Map(add.character.controls.map(x => [x.id, uniqueId(x.id, controls, "control")]));
+    c.controls.push(...add.character.controls.map(x => ({ ...x, id: names.get(x.id),
+      bindings: x.bindings.map(b => ({ ...b, node: map(b.node),
+        ...(b.attenuateBy === undefined ? {} : { attenuateBy: names.get(b.attenuateBy) }) })) })));
+    Object.assign(c.values, Object.fromEntries(Object.entries(add.character.values).map(([id, value]) => [names.get(id), value])));
+    Object.assign(c.rest, Object.fromEntries(Object.entries(add.character.rest).map(([id, value]) => [map(id), value])));
+    c.clips.push(...add.character.clips.map(x => ({ ...x, name: uniqueId(x.name, clips, "clip"),
+      tracks: x.tracks.map(t => t.control ? { ...t, control: names.get(t.control) } : { ...t, node: map(t.node) }) })));
+  }
   project.assemblies = [
     ...(project.assemblies ?? []),
     ...remap(add.assemblies ?? []),

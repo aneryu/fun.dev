@@ -24,6 +24,9 @@ import { gridMesh } from "../runtime/kit/grid.js";
 import { STUDIO, previewQuality } from "./preview-quality.js";
 import { isDense, denseData, denseGeometry, denseWires, expectGeometry, packMesh } from "./dense.js";
 import { Sculptor, StrokeRunner } from "./sculpt.js";
+import { morphGeometry } from "./morph-geometry.js";
+import { characterAnimations } from "./character-animation.js";
+import { runtimeTransfer } from "./runtime-transfer.js";
 
 function indexAttributes(positions, normals) {
   const uniquePositions = [],
@@ -250,7 +253,7 @@ function placeholderCopies(node) {
  * scene parts get their overlays and placed models their loaded templates (copies sharing the
  * template's geometry); exports build without, so nothing of that reaches a file.
  */
-export function buildModel(project, { display = false } = {}) {
+export function buildModel(project, { display = false, morphTargets = false, deformSourceIds = new Set() } = {}) {
   const root = new THREE.Group(),
     objects = new Map(),
     materials = new Map(),
@@ -263,7 +266,17 @@ export function buildModel(project, { display = false } = {}) {
   for (const m of project.materials) materials.set(m.id, createMaterial(m));
   for (const node of project.nodes) {
     let object;
-    if (node.mesh && isDense(node.mesh)) {
+    const deformSource = node.attachment?.mode === "deform" || deformSourceIds.has(node.id);
+    if (node.mesh && (node.morph || node.skin || deformSource) && morphTargets) {
+      const { geometry, materials: used } = morphGeometry(deformSource
+        ? { ...node, morph: { base: node.mesh.vertices, targets: [] } } : node);
+      geometries.set(node.id, geometry);
+      object = node.skin
+        ? new THREE.SkinnedMesh(geometry, used.map(id => materials.get(id)))
+        : new THREE.Mesh(geometry, used.map(id => materials.get(id)));
+      if (node.morph) object.morphTargetInfluences = node.morph.targets.map(t => node.morph.weights[t.name] ?? 0);
+      object.castShadow = object.receiveShadow = true;
+    } else if (node.mesh && isDense(node.mesh)) {
       // Dense parts draw straight from their arrays (dense.js), cached per mesh; linked copies
       // share one geometry, as polygon parts do.
       const g = denseGeometry(node.mesh, node.smooth || 0);
@@ -344,7 +357,7 @@ export function buildModel(project, { display = false } = {}) {
       // Keep render-only metadata outside userData so it never enters GLB extras.
       object.editorFaces = triangleFaces;
     } else {
-      object = new THREE.Group();
+      object = node.joint ? new THREE.Bone() : new THREE.Group();
       if (display) {
         let overlay = null;
         if (node.place) {
@@ -399,6 +412,7 @@ export function buildModel(project, { display = false } = {}) {
     }
     object.name = node.id;
     object.userData = { label: node.name };
+    if (node.joint) object.userData.workshopJoint = node.joint;
     object.position.fromArray(node.position);
     object.rotation.set(...node.rotation.map(THREE.MathUtils.degToRad));
     object.scale.fromArray(node.scale);
@@ -407,6 +421,11 @@ export function buildModel(project, { display = false } = {}) {
   for (const node of project.nodes)
     (node.parent ? objects.get(node.parent) : root).add(objects.get(node.id));
   root.updateMatrixWorld(true);
+  if (morphTargets) for (const node of project.nodes) if (node.skin) {
+    const skeleton = new THREE.Skeleton(node.skin.joints.map(id => objects.get(id)),
+      node.skin.inverseBind.map(m => new THREE.Matrix4().fromArray(m)));
+    objects.get(node.id).bind(skeleton, new THREE.Matrix4().fromArray(node.skin.bindMatrix));
+  }
   return {
     root,
     objects,
@@ -414,6 +433,7 @@ export function buildModel(project, { display = false } = {}) {
     overlays,
     missing,
     dispose() {
+      for (const o of objects.values()) o.skeleton?.dispose();
       new Set(
         [...objects.values()].map((o) => o.geometry).filter(Boolean),
       ).forEach((g) => g.dispose());
@@ -1999,7 +2019,9 @@ export async function createViewport(
         throw new Error("Choose 1–6 named views");
       if (!Number.isInteger(size) || size < 64 || size > 2048)
         throw new Error("Image size must be 64–2048");
-      const quality = previewQuality(options, size, Math.max(...names.map(name => name === 'current'
+      if (options.height !== undefined && (!Number.isInteger(options.height) || options.height < 64 || options.height > 2048))
+        throw new Error("Image height must be 64–2048");
+      const quality = previewQuality(options, size, options.height ?? Math.max(...names.map(name => name === 'current'
         ? Math.max(64, Math.min(2048, Math.round(size / (canvas.clientWidth / canvas.clientHeight)))) : size)));
       if (
         options.ids &&
@@ -2029,9 +2051,23 @@ export async function createViewport(
         shadowIntensity: key.shadow.intensity,
         exposure: renderer.toneMappingExposure,
         supersampling: renderer.supersampling,
+        studio: { position: key.position.clone(), target: key.target.position.clone(),
+          camera: Object.fromEntries(["left", "right", "top", "bottom", "near", "far"].map(k => [k, key.shadow.camera[k]])) },
       };
       const temporary = [];
       try {
+        if (options.studio) {
+          const setup = options.studio;
+          const finiteVector = v => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
+          if (!finiteVector(setup.keyPosition) || !finiteVector(setup.keyTarget) ||
+              Object.keys(previous.studio.camera).some(k => !Number.isFinite(setup.shadowCamera?.[k])))
+            throw new Error("studio requires recorded keyPosition, keyTarget and shadowCamera");
+          key.position.fromArray(setup.keyPosition);
+          key.target.position.fromArray(setup.keyTarget);
+          for (const k of Object.keys(previous.studio.camera)) key.shadow.camera[k] = setup.shadowCamera[k];
+          key.shadow.camera.updateProjectionMatrix();
+          key.target.updateMatrixWorld();
+        }
         // Three caches shadow nodes across frames. Keep the GPU pipeline alive;
         // toggling its global enable flag leaves cached nodes without a map.
         if (software) renderer.shadowMap.enabled = quality.shadows;
@@ -2139,8 +2175,8 @@ export async function createViewport(
           nodeColors,
         };
         return names.map((name) => {
-          const height =
-            name === "current"
+          const height = options.height ??
+            (name === "current"
               ? Math.max(
                   64,
                   Math.min(
@@ -2150,7 +2186,7 @@ export async function createViewport(
                     ),
                   ),
                 )
-              : size;
+              : size);
           renderer.setSize(size * (software ? 1 : quality.scale), height * (software ? 1 : quality.scale), false);
           const pose = options.camera;
           const shot =
@@ -2261,6 +2297,11 @@ export async function createViewport(
           };
         });
       } finally {
+        key.position.copy(previous.studio.position);
+        key.target.position.copy(previous.studio.target);
+        Object.assign(key.shadow.camera, previous.studio.camera);
+        key.shadow.camera.updateProjectionMatrix();
+        key.target.updateMatrixWorld();
         renderer.shadowMap.enabled = previous.shadows;
         key.shadow.intensity = previous.shadowIntensity;
         renderer.toneMappingExposure = previous.exposure;
@@ -2316,6 +2357,10 @@ function exportModel(
   project,
   { ids, mergeStatic = [], origin = "world", rootName } = {},
 ) {
+  if (project.character?.clips.length) {
+    if (mergeStatic === "auto") mergeStatic = [];
+    if (mergeStatic.length) throw new Error("Animated exports cannot merge static nodes; keep their animation hierarchy");
+  }
   if (!["world", "asset-root", "ground-center"].includes(origin))
     throw new Error("Unknown export origin");
   if (origin === "asset-root" && ids?.length !== 1)
@@ -2327,7 +2372,10 @@ function exportModel(
   )
     throw new Error("rootName uses letters, digits, _ . - (1–64)");
   const scoped = exportScope(project, { ids }),
-    model = buildModel(scoped),
+    // A scoped runtime model omits attachment dependencies outside the export,
+    // but its animated followers still need morph-capable render correspondence.
+    model = buildModel(scoped, { morphTargets: true,
+      deformSourceIds: new Set(project.nodes.filter(n => n.attachment?.mode === "deform").map(n => n.id)) }),
     nodes = new Map(scoped.nodes.map((n) => [n.id, n]));
   const included = (id) => !!nodes.get(id)?.mesh;
   // Sockets travel as empties named socket_<name> under their part, tags in the extras.
@@ -2376,7 +2424,7 @@ function exportModel(
   // "auto": every mesh directly under the root is static; meshes in groups move.
   if (mergeStatic === "auto")
     mergeStatic = model.root.children
-      .filter((o) => o.isMesh && !o.children.length && nodes.has(o.name))
+      .filter((o) => o.isMesh && !o.isSkinnedMesh && !o.children.length && !o.geometry.morphAttributes.position?.length && nodes.has(o.name))
       .map((o) => o.name);
   model.mergedStatic = mergeStatic;
   if (mergeStatic.length) {
@@ -2386,6 +2434,8 @@ function exportModel(
         (id) =>
           !included(id) ||
           !model.objects.get(id)?.isMesh ||
+          model.objects.get(id)?.isSkinnedMesh ||
+          model.objects.get(id)?.geometry.morphAttributes.position?.length ||
           (nodes.size && project.nodes.some((n) => n.parent === id)),
       )
     ) {
@@ -2485,6 +2535,7 @@ function modelReport(project, model, options) {
       meshes.flatMap((o) => o.userData.sourceIds ?? [o.name]),
     );
   return {
+    transfer: runtimeTransfer(project, sourceIds),
     editableVertices: project.nodes
       .filter((o) => sourceIds.has(o.id))
       .reduce((n, o) => n + (o.mesh?.vertices.length ?? 0), 0),
@@ -2506,6 +2557,12 @@ function modelReport(project, model, options) {
     uniqueGeometries: geometries.size,
     drawCalls: meshes.reduce((n, o) => n + (o.geometry.groups.length || 1), 0),
     sharedGeometry: [...groups.values()].filter((ids) => ids.length > 1),
+    skins: meshes.filter(o => o.isSkinnedMesh).map(o => ({
+      node: o.name, joints: o.skeleton.bones.map(b => b.name),
+      vertices: o.geometry.attributes.skinWeight.count,
+    })),
+    morphTargets: meshes.map(o => ({ node: o.name, names: Object.keys(o.morphTargetDictionary ?? {}) }))
+      .filter(o => o.names.length),
     bounds: box.isEmpty()
       ? null
       : { min: box.min.toArray(), max: box.max.toArray() },
@@ -2529,18 +2586,28 @@ function modelReport(project, model, options) {
 export function exportReport(project, options = {}) {
   const model = exportModel(project, options);
   try {
+    const animations = characterAnimations(project, model);
     return {
       ...modelReport(project, model, options),
+      animations: animationReport(animations),
       validation: exportValidation(project, options),
     };
   } finally {
     model.dispose();
   }
 }
+function animationReport(animations) {
+  return animations.map(clip => ({ name: clip.name, duration: clip.duration,
+    tracks: clip.tracks.length, stepToleranceSeconds: 1e-5,
+    deformationShapes: clip.userData.deformationShapes }));
+}
 export async function exportAsset(project, options = {}) {
   const validation = assertExportable(project, options);
   const model = exportModel(project, options);
   try {
+    const animations = characterAnimations(project, model);
+    // Attachment animation can append deformation targets. Inventory the final
+    // model, so preflight and the actual file describe the same exported data.
     const report = modelReport(project, model, options);
     const buffer = nameMeshes(
       new Uint8Array(
@@ -2548,6 +2615,7 @@ export async function exportAsset(project, options = {}) {
           binary: true,
           trs: true,
           onlyVisible: true,
+          animations,
         }),
       ),
     ).buffer;
@@ -2555,6 +2623,7 @@ export async function exportAsset(project, options = {}) {
       buffer,
       report: {
         ...report,
+        animations: animationReport(animations),
         bytes: buffer.byteLength,
         validation,
         forced: !validation.ok && !!options.force,

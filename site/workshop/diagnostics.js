@@ -211,5 +211,7 @@ export function surfaceDiagnostics(
       checkedPairs: pairs,
       limit: maxPairs,
     });
-  return { issues, complete, overlapComplete, checkedPairs: pairs };
+  return { issues, complete, overlapComplete, checkedPairs: pairs,
+    issueLimit: maxIssues, overlapLimit: maxOverlaps,
+    issuesTruncated: faults >= maxIssues, overlapsTruncated: overlaps >= maxOverlaps };
 }

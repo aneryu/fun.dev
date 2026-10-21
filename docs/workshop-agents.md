@@ -2,7 +2,8 @@
 
 The fun.dev workshop builds static low-poly models (flat PBR colours, no textures) for the
 model library and games. Work like a Blender script: one script builds the model from
-scratch; run it, look at the preview, fix, run again.
+scratch in a candidate; validate and inspect it, then accept once. For existing models,
+update stable part IDs or recipe parameters instead of clearing the project.
 
 ## Run
 
@@ -56,31 +57,35 @@ port, Playwright installation, or console code is needed for this connection.
 
 ```js
 export default async function (ws) {
-  await ws.load({ name: "crate_01", materials: [
+  await ws.replace({ name: "crate_01", materials: [
     { id: "mat_wood", color: "#c89969", roughness: 0.8 },
     { id: "mat_steel", color: "#8c9399", roughness: 0.35, metalness: 1 },
-  ] });
-  await ws.apply([
+  ], commands: [
     { op: "create", id: "crate_01", kind: "group" },
     { op: "create", id: "body", kind: "box", parent: "crate_01", material: "mat_wood",
       position: [0, 0.25, 0], options: { size: [0.5, 0.5, 0.5], bevel: 0.01 } },
     { op: "create", id: "lid_hinge", kind: "group", parent: "crate_01", position: [0, 0.5, -0.25] },
     { op: "create", id: "lid", kind: "box", parent: "lid_hinge", material: "mat_wood",
       position: [0, 0.02, 0.25], options: { size: [0.52, 0.04, 0.52] } },
-  ]);
+  ] });
   await ws.observe(["perspective", "front"], { file: "preview.png", size: 768 });
   await ws.exportGLB({ file: "model.glb", origin: "ground-center",
     rootName: "crate_01_ROOT", mergeStatic: "auto" });
 }
 ```
 
-- Paths are relative to the script. `ws.load` starts a fresh project, so every run is the
-  same (without it a script edits the example duck); materials need `id` and `color`.
+- Paths are relative to the script. `ws.replace({materials, commands, ...project})`
+  builds and validates the complete candidate before one undoable replacement. A failed
+  candidate leaves the draft and history untouched and saves a diagnostic JSON and local PNG.
+  `ws.load` is an immediate replacement: never use `load(empty)` followed by `apply` as
+  a safe rebuild. Atomic `apply` does not roll back an earlier `load`.
 - `ws.apply(commands)` runs one atomic batch and returns `{ revision, changed, idMaps,
   reports }` (`reports`: what commands measured, such as a stroke's `dabs` and `vertices`
   moved). `ws.call("apply", { commands, ifRevision })` returns every command's full result;
   the two mix freely.
-  `ws.validate()` returns `{ errors, warnings }`. `ws.inspect({ id })`, `ws.query({ id, kind,
+  `ws.validate()` returns `{ errors, warnings, checks }`; use
+  `ws.validate({detail:"full",file:"validation.json"})` for machine-readable issues.
+  `ws.inspect({ id })`, `ws.query({ id, kind,
   … })` read geometry. `ws.observe(names, { file, size, references, ids, shading, camera, … })`
   writes PNGs (one name: `file`; several: `file` with `-<view>` added; the other options are
   `renderViews`'s). `ws.exportGLB({ file, … })` returns the export report (`triangles`,
@@ -88,6 +93,15 @@ export default async function (ws) {
   `result`, so end with `return ws.exportGLB(…)`. Also `ws.importGLB({ file })`,
   `ws.exportProject({ file })`, `ws.setReference({ view, file, width, center })`,
   `ws.call(method, args)` for anything else. `console.log` is fine: the result is the last line.
+- `ws.verifyRuntime({runtimeFile:"duck.fun3d", poses:[{clip:"walk",time:0.3}], file:"runtime-check.json"})`
+  checks the loaded project's declared relations on actual decompressed runtime geometry,
+  without replacing the draft. Use `detail:"full"` for all machine-readable samples;
+  default summary records counts, nonpassing samples and truncation. The underlying Agent
+  call is `workflow` action `verifyRuntime`, with `query.data` as base64 and `query.poses`.
+  Base correspondence ambiguity, changed triangles and differing split copies are not
+  silently repaired. Results identify source/runtime hashes and distinguish passed,
+  failed, not_checked and incomplete; unsampled times and undeclared pairs are excluded.
+  See [runtime inspection and export reports](workshop-characters.md#runtime-inspection-and-export-reports).
 - The public CC0 model library: `ws.librarySearch({ query, type, tags, limit })` (`limit` up
   to 100) finds models (ids, sizes in metres, versions); `ws.openLibraryModel(id)` opens one to
   edit or derive from (its workshop project when it has one), `ws.openLibraryModel(id, { mode:
@@ -97,6 +111,34 @@ export default async function (ws) {
   degenerate ones, so counts can differ slightly. Details: [library API](library-api.md).
 
 ## Conventions
+
+For retained candidates, protected local edits, surface fitting, contact sampling,
+pixel queries, fixed-camera comparisons and isolated export verification, see
+[the iteration workflow](workshop-iteration.md).
+
+For persistent local shape controls, use the discoverable `controlDeform`
+command inside a parameter recipe. Its compact radial handles preserve vertex
+correspondence; `mirrorAxis` mirrors the handles. The node's recipe parameters
+remain queryable and editable in the inspector. After running
+`node scripts/editor-agent.mjs --run scripts/examples/duck-controls.mjs`, the
+saved duck source supports, for example:
+
+```js
+const proposal = await ws.candidate({
+  commands: [{ op: "recipeParameters", id: "head", values: { foreheadWidth: .05 } }],
+  allowed: { parameters: { head: ["foreheadWidth"] },
+    followers: ["eye_left", "eye_right", "eye_highlight_left", "eye_highlight_right",
+      "mouth_mount", "upper_bill", "lower_bill", "mouth_cavity", "tongue",
+      "nostril_left", "nostril_right"] },
+  protectedVertices: { head: [2, 3, 4, 27, 28, 29, 30, 31] },
+});
+if (proposal.ok) await ws.accept(proposal);
+```
+
+The full example installs the recipe, renders five matching views, checks
+declared contact samples and verifies isolated editable export/reload.
+Parameter bounds are authoring limits, not certification that every combination
+preserves contact; evaluate relations and inspect each proposed result.
 
 - Metres; +Y up; the model faces +Z (its left side is +X); rotations are XYZ Euler degrees;
   positions are relative to the parent.
@@ -466,3 +508,14 @@ await ws.apply([
 ]);
 await ws.rule({ id: "trees", kind: "scatter", on: { zone: "whole", spacing: 9 }, ground: true, where: { surfaces: ["grass"] }, candidates: [{ model: "flowering_cherry_tree_01" }] });
 ```
+
+## Character attachments and scoped editing
+
+Use `attachSurface` / `detachSurface` for persistent polygon-surface bindings;
+one-shot `fit` remains a placement helper. Query
+`capabilities({command:"attachSurface"})` for the schema and inspect a node's
+`attachment` for its target, triangle, weights, offset and follow mode.
+Candidate `allowed` scopes restrict changed nodes and local vertex regions;
+`protectedIds` remains an independent veto.
+See [character authoring](workshop-characters.md) for units, failure/rebind
+semantics, compatibility limits and the runnable duck acceptance example.

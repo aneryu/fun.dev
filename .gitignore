@@ -9,6 +9,10 @@ dist-console/
 .dev.vars
 .dev.vars.*
 test-results/
+# Local diagnostics emitted beside workshop example scripts; keep model data out of Git.
+/scripts/examples/candidate-*.json
+/scripts/examples/candidate-*.json.*.png
+/scripts/examples/error-*.json
 .claude/worktrees/
 # Binary files live in a content-addressed store; Git keeps their locks (docs/assets.md).
 /sources/*

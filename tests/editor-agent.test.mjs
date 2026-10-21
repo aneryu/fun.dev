@@ -314,7 +314,8 @@ test("scripted colored meshes retain reversible recipe steps through copy and re
   assert.equal(validateProject(state).ok, true);
 });
 
-test("compact MCP discovery retains complete on-demand schemas and strict execution validation", () => {
+test("compact MCP discovery retains complete on-demand schemas and strict execution validation", async () => {
+  // Nested tool schemas and command schemas are discoverable on demand.
   assert.ok(JSON.stringify(agentTools).length < 25000);
   assert.ok(JSON.stringify(capabilities({ detail: "summary" })).length < 5000);
   for (const command of capabilities({ detail: "summary" }).commands) {
@@ -325,6 +326,45 @@ test("compact MCP discovery retains complete on-demand schemas and strict execut
     toolInvocation("fun_editor_capabilities").args[0].detail,
     "summary",
   );
+  assert.equal(
+    agentTools.find(t => t.name === "fun_editor_capabilities").inputSchema.properties.tool.type,
+    "string",
+  );
+  const { openWorkshop } = await import("../scripts/workshop-node.mjs");
+  const { executeAgentCall } = await import("../site/workshop/agent-call.js");
+  const { scriptApi } = await import("../scripts/editor-script.mjs");
+  const session = await openWorkshop({ width: 64, height: 64 });
+  try {
+    const api = session.api;
+    const { ws } = scriptApi(async (name, args) => {
+      const r = await executeAgentCall(api, toolInvocation(name, args));
+      return { isError: !r.ok, structuredContent: r.ok ? r.result : { error: r.error } };
+    }, process.cwd());
+    for (const tool of agentTools) {
+      const full = await ws.call("capabilities", { tool: tool.name });
+      assert.equal(full.tool, tool.name);
+      assert.deepEqual(full.schema.required, tool.inputSchema.required);
+      assert.deepEqual(Object.keys(full.schema.properties), Object.keys(tool.inputSchema.properties));
+    }
+    const full = await ws.call("capabilities", { tool: "workflow" });
+    assert.equal(full.schema.properties.query.properties.poses.maxItems, 64);
+    assert.equal(full.schema.properties.query.additionalProperties, false);
+    assert.equal(full.schema.properties.allowed.additionalProperties, false);
+    assert.deepEqual(full.schema.properties.render.properties.camera.required, ["position", "target"]);
+    validateSchema({ action: "prepare", ifRevision: 0,
+      commands: [{ op: "create", id: "x", kind: "box" }] }, full.schema);
+    full.schema.properties.query.additionalProperties = true;
+    assert.equal(api.capabilities({ tool: "workflow" }).schema.properties.query.additionalProperties, false);
+    assert.deepEqual(api.capabilities(), capabilities());
+    assert.deepEqual(await ws.call("capabilities", { command: "recipe" }), capabilities({ command: "recipe" }));
+    assert.throws(() => api.capabilities({ tool: 42 }), e => e.code === "schema" && e.path === "tool");
+    assert.throws(() => api.capabilities({ tool: "workflow", command: "recipe" }), /Choose a tool name or a command/);
+    const unknown = await executeAgentCall(api, toolInvocation("fun_editor_capabilities", { tool: "missing" }));
+    assert.equal(unknown.ok, false);
+    assert.equal(unknown.error.code, "schema");
+    assert.equal(unknown.error.path, "tool");
+    assert.match(unknown.error.message, /Unknown tool/);
+  } finally { session.dispose(); }
   assert.throws(
     () =>
       toolInvocation("fun_editor_apply", {
@@ -333,6 +373,13 @@ test("compact MCP discovery retains complete on-demand schemas and strict execut
       }),
     /Unknown field/,
   );
+  for (const [tool, args] of [
+    ["workflow", { action: "prepare", ifRevision: 0, allowed: { unexpected: true } }],
+    ["workflow", { action: "verifyRuntime", ifRevision: 0, query: { unexpected: true } }],
+    ["workflow", { action: "prepare", ifRevision: 0, render: { camera: { position: [0, 1, 2] } } }],
+    ["observe", { camera: { position: [0, 1, 2], target: [0, 0, 0], unexpected: true } }],
+    ["recipeStage", { id: "x", index: 0, query: { unexpected: true } }],
+  ]) assert.throws(() => toolInvocation(`fun_editor_${tool}`, args), e => e.code === "schema");
   const schema = capabilities({ command: "recipe" }).schema;
   validateSchema(
     {

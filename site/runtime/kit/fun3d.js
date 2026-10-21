@@ -530,7 +530,10 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
           const target = t.channel.slice(6), object = nodes.get(t.node), mesh = object?.userData.mesh ?? object;
           const index = mesh?.morphTargetDictionary?.[target];
           if (index === undefined) { skipped.add(`morph target ${target}`); continue; }
-          tracks.push(new THREE.NumberKeyframeTrack(`${path}morphTargetInfluences[${index}]`, times, values, interpolation));
+          const morphPath = mesh === object ? path : `${mesh.uuid}.`;
+          // Bind by the validated target name. A numeric index can itself name
+          // a different target: Three resolves dictionary names before indices.
+          tracks.push(new THREE.NumberKeyframeTrack(`${morphPath}morphTargetInfluences[${target}]`, times, values, interpolation));
         } else skipped.add(`channel ${t.channel}`);
       }
       for (const what of skipped) note(`animation "${a.id}": ${what} are not in this release; skipped`);

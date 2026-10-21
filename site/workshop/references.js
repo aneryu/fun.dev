@@ -40,7 +40,7 @@ export const referenceSummary = (r) => ({
 });
 
 // The desktop dialog: choose a view and an image, then size and place it in metres.
-export function referenceDialog({ info, list, apply, clear, unit }) {
+export function referenceDialog({ info, list, apply, clear, unit, history = () => null, record, select }) {
   const el = (tag, text) => {
     const node = document.createElement(tag);
     if (text !== undefined) node.textContent = text;
@@ -60,6 +60,18 @@ export function referenceDialog({ info, list, apply, clear, unit }) {
   const file = el("input");
   file.type = "file";
   file.accept = "image/png,image/jpeg,image/webp,image/gif";
+  const versions = el("select");
+  versions.setAttribute("aria-label", t("edReferenceVersions"));
+  const refreshVersions = () => {
+    const selected = versions.value; versions.replaceChildren();
+    const blank = el("option", t("edReferenceChoose")); blank.value = ""; versions.append(blank);
+    for (const r of history()?.records ?? []) if (r.kind === "image") {
+      const option = el("option", `${r.text} · ${r.id}`); option.value = r.id; versions.append(option);
+    }
+    versions.value = selected;
+  };
+  refreshVersions();
+  versions.onchange = () => { file.value = ""; };
   const number = (value, step = "any") => {
     const input = el("input");
     input.type = "number";
@@ -93,7 +105,8 @@ export function referenceDialog({ info, list, apply, clear, unit }) {
   set.onclick = async () => {
     const existing = list().find((r) => r.view === view.value);
     const chosen = file.files[0];
-    if (!chosen && !existing) {
+    const archived = history()?.records.find(r => r.id === versions.value && r.kind === "image");
+    if (!chosen && !existing && !archived) {
       message.textContent = t("edReferenceChoose");
       return;
     }
@@ -105,7 +118,7 @@ export function referenceDialog({ info, list, apply, clear, unit }) {
             reader.onerror = () => fail(reader.error);
             reader.readAsDataURL(chosen);
           })
-        : existing.image;
+        : archived?.image ?? existing.image;
       await apply({
         view: view.value,
         image,
@@ -113,6 +126,7 @@ export function referenceDialog({ info, list, apply, clear, unit }) {
         center: [Number(x.value) * unit(), Number(y.value) * unit()],
         opacity: Number(opacity.value),
       });
+      if (archived && !chosen) await select?.([archived.id]);
       message.textContent = t("edUpdated");
     } catch (error) {
       message.textContent = t("edError") + error.message;
@@ -122,8 +136,24 @@ export function referenceDialog({ info, list, apply, clear, unit }) {
     await clear({ view: view.value });
     message.textContent = t("edUpdated");
   };
+  const save = el("button", t("edReferenceSaveVersion"));
+  save.type = "button";
+  save.onclick = async () => {
+    try {
+      const current = list().find(r => r.view === view.value);
+      if (!current) throw new ModelError(t("edReferenceApplyFirst"));
+      const key = `reference-${crypto.randomUUID()}`;
+      const origin = history()?.records.find(r => r.kind === "image" && r.image === current.image)?.origin ?? "user";
+      await record?.({ id: key, kind: "image", origin, text: view.selectedOptions[0].textContent, image: current.image });
+      refreshVersions(); versions.value = key; message.textContent = t("edUpdated");
+    } catch (error) { message.textContent = t("edError") + error.message; }
+  };
+  const decisions = el("div");
+  for (const r of history()?.records ?? []) if (r.kind !== "image")
+    decisions.append(el("p", `${r.id} · ${t("edReference_" + (r.status ?? r.kind))}: ${r.text}${r.evidence ? ` — ${r.evidence}` : ""}`));
   info(t("edReference"), [
     el("p", t("edReferenceHelp")),
+    field(t("edReferenceVersions"), versions),
     field(t("edReferenceView"), view),
     field(t("edReferenceImage"), file),
     field(t("edReferenceWidth"), width),
@@ -132,6 +162,7 @@ export function referenceDialog({ info, list, apply, clear, unit }) {
     field(t("edOpacity"), opacity),
     set,
     remove,
+    ...(record ? [save, decisions] : []),
     message,
   ]);
 }

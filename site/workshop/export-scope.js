@@ -30,8 +30,14 @@ export function exportScope(project, { ids } = {}) {
       n = nodes.get(n.parent);
     }
   }
+  for (const id of included)
+    for (const joint of nodes.get(id).skin?.joints ?? [])
+      for (let n = nodes.get(joint); n; n = nodes.get(n.parent)) retained.add(n.id);
   return {
     ...project,
+    relations: undefined,
+    viewPresets: undefined,
+    character: undefined,
     assemblies: [],
     nodes: project.nodes
       .filter((n) => retained.has(n.id))
@@ -42,7 +48,8 @@ export function exportScope(project, { ids } = {}) {
         delete node.recipe;
         delete node.instanceOf;
         delete node.symmetry;
-        if (!included.has(n.id)) node.mesh = null;
+        delete node.attachment;
+        if (!included.has(n.id)) { node.mesh = null; delete node.morph; delete node.skin; }
         return node;
       }),
   };

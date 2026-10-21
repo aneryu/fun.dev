@@ -79,7 +79,7 @@ show it. The decisions:
 | one day day (`game/didu` and `game/didu-fun3d` merged) | In `fundev-games`; city rebuilt without real data |
 | Wooden Fish, Slap, Seal Carving | Retired: unpublished, archived |
 | Clock Out, Slap Puppet, Cyber Muyu branches | Retired: archived |
-| Workshop stage 4: skeletons and animation (low-poly characters) | Next after the early phase |
+| Workshop stage 4: skeletons and animation (low-poly characters) | Basic duck authoring track accepted locally: joints, weights, morphs, clips, supported GLB animation import and continued editing/export/playback; [acceptance ledger](workshop-character-acceptance.md) records evidence and limits. Automatic weights, retargeting and IK remain roadmap extensions |
 | Animation runtime system (state machines, blending, IK) in the runtime kit, shared by the web player and `fun` | Next after the early phase, with stage 4 |
 | Workshop stage 3: UVs, textures, baking | Later |
 | Realistic humans, MetaHuman (archive branches) | Stay archived |
@@ -253,6 +253,15 @@ previews anywhere and edits in the workshop. Libraries: manifold-3d (solids), la
    lightmaps, compression, LOD chains, colliders.
 4. **Characters and animation**: skeletons (Mixamo template, rest-pose fixes), automatic
    weights and weight transfer, shape keys, animation import, retargeting and baking.
+   The requested 2026-10-20 duck authoring track is documented in
+   [character authoring](workshop-characters.md): safe scoped candidates, persistent
+   surface attachments, boundary-driven mouth surfaces, expressions, then basic
+   non-humanoid joints and clips. Implementation and acceptance are recorded there;
+   runtime morph/skin/clip support is not authoring completion.
+   The local duck track now includes read-only runtime relation inspection and optional
+   Float32 base/morph position export: actual quantized closed-mouth geometry exposed a
+   defect that transform/morph-weight parity did not detect. See the
+   [completion ledger](workshop-character-acceptance.md) for checked poses and remaining work.
 5. **Parametric humans**: the MakeHuman CC0 data (base mesh, targets, rigs, proxies) read
    directly for body sliders and fitted clothes and hair; non-rigid wrapping onto the shared
    topology; projection of reference views onto UVs.

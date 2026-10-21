@@ -7,7 +7,7 @@ import { createConverter, converterStamp } from "./fun3d-convert.mjs";
 // .fun3d files from the command line (docs/model-format.md, docs/fun3d-agents.md):
 //   npm run fun3d -- inspect <file.fun3d> [--json]           what a file holds
 //   npm run fun3d -- validate <file.fun3d>...                 every problem, exit 1 when any
-//   npm run fun3d -- convert <model.glb> [--type prop|piece|vehicle|character] [--name <id>] [-o <out.fun3d>]
+//   npm run fun3d -- convert <model.glb> [--type prop|piece|vehicle|character] [--name <id>] [--position-precision quantized|float32] [-o <out.fun3d>]
 //   npm run fun3d -- library [--out <dir>] [--only id,id] [--limit <n>] [--jobs <n>]
 //       converts every listed library model (public index and blobs, cached) into <dir> with a report.json:
 //       sizes, times, validation, what the profile derived and which conventions each model follows
@@ -48,7 +48,7 @@ export async function inspect(bytes, { json = false } = {}) {
 
 async function main([command, ...args]) {
   const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-  const files = args.filter((a, i) => !a.startsWith("-") && !["--type", "--name", "-o", "--out", "--only", "--limit", "--jobs"].includes(args[i - 1]));
+  const files = args.filter((a, i) => !a.startsWith("-") && !["--type", "--name", "--position-precision", "-o", "--out", "--only", "--limit", "--jobs"].includes(args[i - 1]));
   if (command === "inspect" && files[0]) {
     console.log(await inspect(await readFile(resolve(files[0])), { json: args.includes("--json") }));
     return 0;
@@ -64,9 +64,10 @@ async function main([command, ...args]) {
     return failed ? 1 : 0;
   }
   if (command === "convert" && files[0]) {
+    if(args.includes("--position-precision")&&!flag("--position-precision"))throw new Error("--position-precision requires quantized or float32");
     const input = resolve(files[0]), glb = await readFile(input);
     const name = flag("--name") ?? basename(input).replace(/\.glb$/i, ""), out = flag("-o") ?? flag("--out") ?? input.replace(/\.glb$/i, "") + ".fun3d";
-    const { bytes, report } = await createConverter().convert(glb, { type: flag("--type") ?? "prop", name });
+    const { bytes, report } = await createConverter().convert(glb, { type: flag("--type") ?? "prop", name, positionPrecision: flag("--position-precision") ?? "quantized" });
     await writeFile(out, bytes);
     console.log(`${out}  ${kb(bytes.length)} from ${kb(glb.length)} GLB  (${report.type}, ${count(report.vertices)} vertices, ${count(report.triangles)} triangles, ${report.materials} materials${report.hull ? `, hull ${report.hull} points` : ""}${report.wheels.length ? `, ${report.wheels.length} wheels` : ""}${report.rig ? `, rig ${report.rig}` : ""})  converter ${(await converterStamp()).slice(7, 15)}`);
     for (const warning of report.warnings) console.log(`  ⚠ ${warning}`);
@@ -121,7 +122,7 @@ async function main([command, ...args]) {
     console.log(`  slowest: ${slow}`);
     return failed.length || invalid.length ? 1 : 0;
   }
-  console.error("Usage: npm run fun3d -- inspect <file.fun3d> [--json] | validate <file.fun3d>... | convert <model.glb> [--type prop|piece|vehicle|character] [--name <id>] [-o <out.fun3d>]");
+  console.error("Usage: npm run fun3d -- inspect <file.fun3d> [--json] | validate <file.fun3d>... | convert <model.glb> [--type prop|piece|vehicle|character] [--name <id>] [--position-precision quantized|float32] [-o <out.fun3d>]");
   return 1;
 }
 

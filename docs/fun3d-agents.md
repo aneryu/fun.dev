@@ -17,6 +17,8 @@ wheeled vehicles; the rest of the manifest is accepted, kept and reported.
 
    ```sh
    npm run fun3d -- convert model.glb --type vehicle --name city_taxi_01     # → model.fun3d
+   # Preserve thin, nearly cancelling morph geometry:
+   npm run fun3d -- convert character.glb --type character --position-precision float32
    npm run fun3d -- inspect model.fun3d          # what it holds; --json for the manifest
    npm run fun3d -- validate model.fun3d         # every problem, exit 1 when any
    ```

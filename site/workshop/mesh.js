@@ -12,6 +12,7 @@ import {
   autoSegments,
 } from "./generators.js";
 import { roundedBox } from "./rounded.js";
+import { boundarySurface } from "./boundary-surface.js";
 export class ModelError extends Error {
   constructor(message, code = "invalid", path = "") {
     super(message);
@@ -554,6 +555,7 @@ export function primitive(kind, options = {}, material = "yellow") {
   if (kind === "revolve") return orient(revolveShape(options, material), options.axis);
   if (kind === "sweep") return sweepShape(options, material);
   if (kind === "loft") return loftShape(options, material);
+  if (kind === "boundarySurface") return boundarySurface(options, material);
   if (kind === "extrude") {
     const points = options.points ?? [
       [-0.5, -0.5],

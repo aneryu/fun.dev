@@ -1,4 +1,5 @@
 import "./i18n.js";
+import { presetFromObservation } from "./view-presets.js";
 import { initLocale, onLocaleChange, t } from "../i18n.js";
 import {
   createStore,
@@ -18,6 +19,7 @@ import {
 import { bindingFor } from "./assembly.js";
 import { materialUsage } from "./materials.js";
 import { createMaterialLibrary } from "./material-library.js";
+import { createCharacterPanel } from "./character-panel.js";
 import { createWorkbench, materialRuleFields } from "./workbench.js";
 import { createEngine, normalizeSelection, followRenames } from "./engine.js";
 import { topologyToken, componentRef } from "./components.js";
@@ -574,6 +576,7 @@ async function start() {
       .replace("{users}", usage.users.length)
       .replace("{retained}", usage.retainedBy.length);
   }
+  let characterPanel = null;
   function renderUI() {
     rendering = true;
     const p = store.snapshot(),
@@ -916,6 +919,7 @@ async function start() {
         $("#" + id).disabled = true;
     }
     workbench?.renderRecipe(n);
+    characterPanel?.refresh();
     refreshUnitLabels();
     for (const el of all("[data-dirty]")) delete el.dataset.dirty;
     rendering = false;
@@ -1232,20 +1236,47 @@ async function start() {
     aa.value = 'ssaa2';
     shadows.type = 'checkbox'; shadows.checked = true;
     exposure.type = 'number'; exposure.min = '0.1'; exposure.max = '4'; exposure.step = '0.1'; exposure.value = '1';
+    const preset = text("select", ""), presetName = text("input", "");
+    presetName.type = "text"; presetName.maxLength = 128;
+    const refreshPresets = () => {
+      const current = preset.value; preset.replaceChildren();
+      const live = text("option", t("edCurrentView")); live.value = ""; preset.append(live);
+      for (const p of store.snapshot().viewPresets ?? []) {
+        const option = text("option", p.id); option.value = p.id; preset.append(option);
+      }
+      preset.value = current;
+    };
+    refreshPresets();
+    preset.onchange = () => { for (const control of [size, aa, shadows, exposure]) control.disabled = !!preset.value; };
+    const capture = () => preset.value
+      ? window.funEditor.renderViews(undefined, { preset: preset.value })[0]
+      : window.funEditor.renderViews(["current"], { size: Number(size.value),
+        antialias: aa.value, shadows: shadows.checked, lighting: "studio", exposure: Number(exposure.value),
+        helpers: false, overlays: { wire: false, selection: false, data: false } })[0];
+    const savePreset = text("button", t("edSaveViewPreset"));
+    savePreset.id = "view-preset-save";
+    savePreset.onclick = () => act(() => {
+      try {
+        const id = presetName.value.trim();
+        if (!id) throw new ModelError(t("edViewPresetName"));
+        window.funEditor.apply([{ op: "viewPreset", id, definition: presetFromObservation(capture(), id) }], { ifRevision: store.revision });
+        refreshPresets(); preset.value = id; preset.onchange(); errorMessage.textContent = t("edUpdated");
+      } catch (error) { errorMessage.textContent = error.message; return false; }
+    }, "edUpdated");
     const save = text('button', t('edScreenshot'));
     const errorMessage = text('p', '');
     errorMessage.id = 'preview-error'; errorMessage.setAttribute('role', 'alert');
     save.id = 'preview-save';
     save.onclick = () => act(() => {
       try {
-        const shot = viewport.renderViews(['current'], Number(size.value), {
-          antialias: aa.value, shadows: shadows.checked, lighting: 'studio', exposure: Number(exposure.value),
-        })[0];
+        const shot = capture();
         download(`${filename(store.snapshot().name)}-view.png`, Uint8Array.from(atob(shot.dataUrl.split(',')[1]), s => s.charCodeAt(0)), 'image/png');
         $('#info-dialog').close();
       } catch (error) { errorMessage.textContent = error.message; return false; }
     }, 'edDownloaded');
-    info(t('edScreenshot'), [field('edPreviewSize', size, 'preview-size'), field('edPreviewAA', aa, 'preview-aa'),
+    info(t('edScreenshot'), [field("edViewPresets", preset, "view-preset-select"), text("p", t("edViewPresetHint")),
+      field("edViewPresetName", presetName, "view-preset-name"), savePreset,
+      field('edPreviewSize', size, 'preview-size'), field('edPreviewAA', aa, 'preview-aa'),
       field('edPreviewShadows', shadows, 'preview-shadows'), field('edPreviewExposure', exposure, 'preview-exposure'), text('p', t('edPreviewStudio')), errorMessage, save]);
   };
   $("#draft-retry").onclick = () =>
@@ -2370,6 +2401,9 @@ async function start() {
     referenceDialog({
       info,
       list: () => draft.record.references ?? [],
+      history: () => store.snapshot().designReferences,
+      record: (definition) => window.funEditor.apply([{ op: "referenceRecord", definition }], { ifRevision: store.revision }),
+      select: (ids) => window.funEditor.apply([{ op: "referenceSelect", ids }], { ifRevision: store.revision }),
       apply: (spec) => window.funEditor.setReference(spec),
       clear: (options) => window.funEditor.clearReference(options),
       unit: unitFactor,
@@ -2426,7 +2460,11 @@ async function start() {
     guide.target = "_blank";
     guide.rel = "noopener";
     const state = text("p", agentState.error ?? (agentConnection.connected
-      ? `${t("edAgentConnected")} · ${store.snapshot().name}` : t("edAgentDisconnected")));
+      ? t("edAgentConnected") : t("edAgentDisconnected")));
+    state.id = "agent-connection-status";
+    const connectionInfo = window.funEditor.inspect();
+    state.textContent += ` · ${connectionInfo.name} · ${connectionInfo.documentId ?? connectionInfo.draftId} · r${connectionInfo.revision} · ${t(connectionInfo.writable ? "edAgentWritable" : "edAgentReadonly")}`;
+    if (agentState.reason) state.textContent += ` · ${t(agentState.reason === "result_unknown" ? "edAgentUnknown" : agentState.reason === "service_unavailable" ? "edAgentUnavailable" : "edAgentInvalid")}`;
     state.setAttribute("role", "status");
     const label = text("label", t("edAgentCode"));
     label.htmlFor = "agent-connection-code";
@@ -2541,6 +2579,7 @@ async function start() {
     draftState();
   });
   window.addEventListener("pagehide", () => {
+    characterPanel?.dispose();
     draft.dispose();
     viewport.dispose();
   });
@@ -2553,6 +2592,9 @@ async function start() {
     contextual.append($("#" + id));
   $("#properties").insertBefore(contextual, $("#selection-tools"));
   $("#properties").insertBefore($("#material-tools"), $("#object-properties"));
+  characterPanel = createCharacterPanel({ before: $("#choose"), store, viewport, apply, prepare: flushPending,
+    selected: () => selection.id, select: id => window.funEditor.select(id, { mode: "object" }),
+    selection: () => selection, writable: () => draft.writable, t, status });
   updateSnap();
   viewport.setProject(initial);
   updateSelection(true);
@@ -2653,6 +2695,11 @@ async function start() {
     agentState = state;
     $("#agent").textContent = state.state === "connected" ? t("edAgentConnected") : t("edAgent");
     $("#agent").title = state.error ?? state.project;
+    const connectionStatus = $("#agent-connection-status");
+    if (connectionStatus) {
+      connectionStatus.textContent = `${state.error ?? t(state.state === "connected" ? "edAgentConnected" : "edAgentDisconnected")} · ${state.project} · ${state.documentId ?? state.draftId} · r${state.revision} · ${t(state.writable ? "edAgentWritable" : "edAgentReadonly")}`;
+      if (state.reason) connectionStatus.textContent += ` · ${t(state.reason === "result_unknown" ? "edAgentUnknown" : state.reason === "service_unavailable" ? "edAgentUnavailable" : "edAgentInvalid")}`;
+    }
     if (state.state === "error") status(t("edError") + state.error, true);
   } });
   window.addEventListener("pagehide", () => agentConnection.disconnect({ forget: false }));

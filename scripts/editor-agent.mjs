@@ -9,6 +9,7 @@ import {
   open,
   unlink,
 } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { resolve, dirname, extname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
@@ -456,7 +457,7 @@ async function invoke(name, arguments_) {
     structured = { revision: value.revision, manifest: value.manifest, report: value.report, directory, files: written };
   }
   else if (
-    ["preview", "recipeStage"].includes(call.method) &&
+    ["preview", "recipeStage", "workflow"].includes(call.method) &&
     value.observations
   )
     structured = {
@@ -584,4 +585,14 @@ try {
 }
 
 // `node scripts/editor-agent.mjs …` runs it; the published launcher imports it and calls main.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  try {
+    // Either path can retain symlinks, depending on how Node was invoked.
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    // stdin (`-`) and other non-file entry points only import this module.
+    return false;
+  }
+}
+if (isMainModule()) await main();

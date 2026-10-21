@@ -26,6 +26,8 @@ const quality = {
   exposure: { type: "number", minimum: 0.1, maximum: 4 },
 };
 const render = {
+  preset: str,
+  height: { type: "integer", minimum: 64, maximum: 2048 },
   views: {
     type: "array",
     items: {
@@ -51,6 +53,7 @@ const render = {
   focus: bool,
   projection: { enum: ["perspective", "orthographic"] },
   references: bool,
+  studio: { type: "object" },
   camera: object(
     {
       position: vector,
@@ -79,6 +82,54 @@ const render = {
   ),
 };
 const definitions = [
+  [
+    "workflow",
+    "Prepare/inspect a retained candidate, diagnose surfaces, check sampled contacts, surfaceIntersection mesh pairs or derived insideVolume enclosures, or verify exports without replacing the draft. Surface exceptions may include bounds.min/max in source-local metres: every contact endpoint/polygon vertex must fit, not only its midpoint. query.showVolumes adds temporary inspection-volume overlays to renders. Relation results distinguish permitted overlap, failed, not_checked and budget-incomplete checks; undeclared objects and continuous motion are not certified. verifyExport returns editable.integrity.exact for complete stored/re-evaluated source equality; scope summaries and geometry counts alone do not prove preservation. verifyRuntime takes query.data (base64 fun3d), poses [{clip,time}] and optional relationIds/mapping budgets. It verifies base-vertex and oriented-triangle correspondence, requires exact split-copy agreement, and checks declared relations on actual posed runtime geometry; returns byte/source SHA256 provenance and honest incomplete/not_checked states.",
+    object({
+      action: { enum: ["prepare", "inspect", "diagnose", "surface", "relations", "verifyExport", "verifyRuntime"] },
+      candidateId: str, ifRevision: revision, project: { type: "object" },
+      commands: { ...commandsSchema, $defs: undefined }, protectedIds: ids,
+      protectedVertices: { type: "object", additionalProperties: {
+        type: "array", items: { type: "integer", minimum: 0 },
+      } },
+      allowed: object({
+        nodes: { type: "array", items: str }, followers: { type: "array", items: str },
+        projectFields: { type: "array", items: str },
+        parameters: { type: "object", additionalProperties: {
+          type: "array", items: str, minItems: 1, maxItems: 128,
+        } },
+        assemblyParameters: { type: "object", additionalProperties: {
+          type: "array", items: str, minItems: 1, maxItems: 128,
+        } },
+        characterValues: { type: "array", items: str, maxItems: 64 },
+        vertices: { type: "object", additionalProperties: {
+          type: "array", items: { type: "integer", minimum: 0 },
+        } },
+      }),
+      detail: { enum: ["summary", "full"] }, views: render.names, size: render.size,
+      render: object(render), provenance: { type: "object" },
+      query: object({
+        data: { type: "string", description: "Base64 fun3d bytes, at most 32 MiB decoded, for verifyRuntime." },
+        poses: {type:"array",minItems:1,maxItems:64,items:object({clip:str,time:{type:"number",minimum:0}},["clip","time"])},
+        relationIds: {type:"array",minItems:1,items:str},
+        mapping: object({maxError:{type:"number",exclusiveMinimum:0,maximum:.01},maxComparisons:{type:"integer",minimum:1,maximum:5000000}}),
+        maxTests: { type: "integer", minimum: 1, maximum: 2000000 },
+        showVolumes: bool,
+        ids, at: vector, ray: object({ origin: vector, direction: vector }, ["origin", "direction"]),
+        path: { type: "array", items: vector, minItems: 2, maxItems: 4096 },
+        spacing: num, tolerance: num, offset: num,
+        observation: { type: "object" },
+        pixel: { type: "array", items: num, minItems: 2, maxItems: 2 },
+      }),
+    }, ["action", "ifRevision"]),
+    true,
+  ],
+  [
+    "acceptCandidate",
+    "Accept a validated candidate in one undoable replacement; retry only with the same operationId.",
+    object({ candidateId: str, ifRevision: revision, operationId: str }, ["candidateId", "ifRevision", "operationId"]),
+    false,
+  ],
   [
     "blueprints",
     "List blueprints and parameter schemas. Build with op:blueprint; edit live values with assemblyParameters, rebuild structural ones.",
@@ -111,8 +162,8 @@ const definitions = [
   ],
   [
     "capabilities",
-    "Discover units, limits and command names. Request command for its complete schema, or detail:full for the full contract.",
-    object({ command: str, detail: { enum: ["summary", "full"] } }),
+    "Discover units, limits and commands. Request command for its schema, tool for a complete tool schema, or detail:full for the command contract.",
+    object({ command: str, tool: str, detail: { enum: ["summary", "full"] } }),
     true,
   ],
   [
@@ -176,7 +227,7 @@ const definitions = [
   ],
   [
     "observe",
-    "Render reproducible views, selection/wire overlays or object-ID colours; along walks a path: a frame every few metres.",
+    "Render views or a saved preset (inspect.viewPresets). height is pixels; along.height is eye height in metres. Optional selection/wire/ID overlays; along follows a path.",
     object({ ...render, along: object({ path: str, every: num, start: num, end: num, height: num, look: { oneOf: [{ enum: ["ahead", "back", "left", "right"] }, vector] }, limit: { type: "integer" } }, ["path"]) }),
     true,
   ],
@@ -194,8 +245,14 @@ const definitions = [
   ],
   [
     "exportReport",
-    "Report render vertices, shared buffers, mesh/material groups and bounds.",
+    "Report final baked morph/animation inventory, render vertices, shared buffers and bounds. transfer declares which authoring relationships are baked or omitted; it is not a file readback or compressed-runtime verification. Performs animation baking with the same budgets as export.",
     object({ ids, mergeStatic: { oneOf: [ids, { const: "auto" }] }, origin, rootName: str }),
+    true,
+  ],
+  [
+    "operationStatus",
+    "Query a retained operation receipt and current draft identity/revision after a lost acknowledgement. Unknown never means not applied; only the latest 32 receipts are retained.",
+    object({ operationId: str }, ["operationId"]),
     true,
   ],
   [
@@ -225,7 +282,7 @@ const definitions = [
   ],
   [
     "recipeStage",
-    "Inspect input before a recipe step (index=step count for append): query references and coordinates before bakes; optional views show placed geometry and query matches. Never changes the draft.",
+    "Inspect pre-step input (index=step count to append). Query refs use pre-bake coordinates; views show placed geometry and matches. Read-only.",
     object(
       {
         id: str,
@@ -271,7 +328,7 @@ const definitions = [
   ["activity", "Read recent changes and structured failures.", object(), true],
   [
     "setReference",
-    "Put a reference image (data URL; the CLI takes path) behind the model in one orthographic view: center [horizontal, vertical] metres on its axes, width in metres. Kept with the draft, never exported; observe({references:true}) shows it.",
+    "Set an orthographic reference (data URL; CLI accepts path). center [horizontal,vertical] and width are metres. Saved in draft, omitted from exports; observe({references:true}) shows it.",
     object(
       {
         view: { enum: ["front", "back", "left", "right", "top"] },
@@ -287,7 +344,7 @@ const definitions = [
   ],
   [
     "importGLB",
-    "Open a GLB: a project file (.funmodel.glb) restores its project; any other GLB becomes editable parts (hierarchy, names, PBR materials, polygons; skins, animations, textures reported, not imported). mode replace (default) or add under parent. data is base64; the adapter takes path.",
+    "Open GLB: .funmodel.glb restores the project; other files import hierarchy, PBR, morphs, supported skins and LINEAR/STEP TRS/morph clips (quaternion slerp). Unsupported curves/rigs fail; textures are reported, not imported. Inspect warnings/processing. mode: replace (default) or add under parent. data: base64; adapter accepts path.",
     object(
       {
         data: str,
@@ -409,7 +466,7 @@ const validationTools = definitions.map(
   ([method, description, inputSchema, readOnlyHint]) => ({
     name: `fun_editor_${method}`,
     description,
-    inputSchema: ["apply", "preview"].includes(method)
+    inputSchema: ["apply", "preview", "workflow"].includes(method)
       ? { ...inputSchema, $defs: modelDefinitions }
       : inputSchema,
     annotations: {
@@ -421,29 +478,40 @@ const validationTools = definitions.map(
 );
 // Discovery stays small; authoritative validation below always uses full schemas.
 export const agentTools = validationTools.map((tool) => {
-  if (!["fun_editor_apply", "fun_editor_preview"].includes(tool.name))
-    return tool;
+  const method = tool.name.slice("fun_editor_".length);
+  const commandEnvelope = ["apply", "preview", "workflow"].includes(method);
+  const deferred = { workflow: ["allowed", "render", "query"], observe: ["camera"], recipeStage: ["query"] }[method] ?? [];
+  if (!commandEnvelope && !deferred.length) return tool;
   const inputSchema = structuredClone(tool.inputSchema);
   delete inputSchema.$defs;
-  inputSchema.properties.commands = {
+  if (commandEnvelope) inputSchema.properties.commands = {
     type: "array",
     minItems: 1,
     maxItems: 256,
-    description:
-      "Use capabilities({command:op}) for the full validated command schema.",
+    description: "Schema: capabilities({command:op}).",
     items: {
       type: "object",
       required: ["op"],
       properties: {
-        op: {
-          enum: commandsSchema.items.oneOf.map((c) => c.properties.op.const),
-        },
+        op: { type: "string", description: 'List: capabilities({detail:"summary"}).commands' },
       },
       additionalProperties: true,
     },
   };
-  return { ...tool, inputSchema };
+  for (const field of deferred) inputSchema.properties[field] = {
+    type: "object", additionalProperties: true,
+    description: `Schema: capabilities({tool:"${method}"}).`,
+  };
+  return { ...tool, inputSchema, ...(method === "workflow" ? {
+    description: 'Inspect isolated candidates, declared relations or exports; acceptCandidate commits. Full schema and action semantics: capabilities({tool:"workflow"}).',
+  } : {}) };
 });
+export function toolCapability(name) {
+  const fullName = name.startsWith("fun_editor_") ? name : `fun_editor_${name}`;
+  const tool = validationTools.find(t => t.name === fullName);
+  if (!tool) throw new ModelError(`Unknown tool: ${name}`, "schema", "tool");
+  return structuredClone({ tool: tool.name, description: tool.description, schema: tool.inputSchema, annotations: tool.annotations });
+}
 export function toolInvocation(name, args = {}) {
   const tool = validationTools.find((t) => t.name === name);
   if (!tool) throw new Error("Unknown editor tool");

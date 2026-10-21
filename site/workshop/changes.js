@@ -2,6 +2,7 @@
 import { topologyToken } from "./components.js";
 import { same } from "./document.js";
 import { materialUsage } from "./materials.js";
+import { designReferenceSummary } from "./design-references.js";
 export function describeChanges(before, after) {
   const fields = [],
     materials = [],
@@ -11,6 +12,8 @@ export function describeChanges(before, after) {
       fields.push({ path, before: from ?? null, after: to ?? null });
   };
   add("name", before.name, after.name);
+  add("designReferences", designReferenceSummary(before), designReferenceSummary(after));
+  add("viewPresets", before.viewPresets, after.viewPresets);
   for (const n of after.nodes) {
     const old = before.nodes.find((v) => v.id === n.id);
     if (!old) {
