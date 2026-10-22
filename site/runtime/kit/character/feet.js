@@ -189,6 +189,42 @@ export function characterSoles(character) {
 }
 
 /**
+ * Moves a pose's body by `offset` ([x, y, z] metres, in the character's frame; the pose changed in
+ * place) with its feet where they were: hip and knee bend by two-bone IK, each foot keeping its turn,
+ * as a body sits on a higher seat or leans on a nearer wall. With `plant`, the feet go down onto
+ * the ground where they were (as high as at rest), as a seated body's do.
+ */
+export function shiftBody(skeleton, pose, offset, { plant = false } = {}) {
+  const { bones } = skeleton, index = new Map(bones.map((b, i) => [b.id, i]));
+  const fk = () => {
+    const world = [], pos = [];
+    bones.forEach((b, i) => {
+      const local = pose.rotations[b.id] ?? [0, 0, 0, 1];
+      if (b.parentIndex < 0) { world[i] = local; pos[i] = pose.hips; return; }
+      const parent = bones[b.parentIndex];
+      world[i] = mul(world[b.parentIndex], local);
+      pos[i] = add(pos[b.parentIndex], rotate(world[b.parentIndex], rotate(inv(parent.rotation), sub(b.position, parent.position))));
+    });
+    return { world, pos };
+  };
+  const before = fk(), ankles = LEGS.map((leg) => (index.has(leg.ankle) ? { at: before.pos[index.get(leg.ankle)], turn: before.world[index.get(leg.ankle)] } : null));
+  pose.hips = add(pose.hips, offset);
+  const { world, pos } = fk();
+  LEGS.forEach((leg, n) => {
+    const a = index.get(leg.ankle), h = index.get(leg.hip), k = index.get(leg.knee);
+    if (a == null || h == null || k == null) return;
+    const to = plant ? [ankles[n].at[0], bones[a].position[1], ankles[n].at[2]] : ankles[n].at;
+    const [turnHip, turnKnee] = twoBoneIK(pos[h], pos[k], pos[a], to);
+    const hipWorld = mul(turnHip, world[h]), kneeWorld = mul(mul(turnKnee, turnHip), world[k]), parentOf = (i) => world[bones[i].parentIndex];
+    pose.rotations[leg.hip] = normalize(mul(inv(parentOf(h)), hipWorld));
+    pose.rotations[leg.knee] = normalize(mul(inv(hipWorld), kneeWorld));
+    pose.rotations[leg.ankle] = normalize(mul(inv(kneeWorld), ankles[n].turn));
+    if (index.has(leg.roll)) { const r = index.get(leg.roll); pose.rotations[leg.roll] = normalize(mul(inv(parentOf(r)), mul(turnHip, world[r]))); }
+  });
+  return pose;
+}
+
+/**
  * Keeps the feet on or above the ground (y = 0) in a pose (local rotations by bone id, the hips'
  * position; changed in place). A foot whose sole or toe joint goes under is lifted, hip and knee
  * bending by two-bone IK and the foot keeping its turn (a heel rising rolls the foot on its ball,
@@ -228,7 +264,7 @@ export function groundFeet(skeleton, soles, pose, { memory = null, dt = 1 / 30 }
       // Softly: a lift's rate grows from none (a straight leg turns its knee a lot for a little height,
       // so a lift starting at full rate would jolt it), the foot left up to SOFT under at most.
       const under = CLEAR - low, up = under < 2 * SOFT ? (under * under) / (4 * SOFT) : under - SOFT;
-      const [turnHip, turnKnee] = twoBoneIK(pos[h], pos[k], pos[a], add(pos[a], [0, up, 0]));
+      const [turnHip, turnKnee] = twoBoneIK(pos[h], pos[k], pos[a], add(pos[a], [0, up, 0]), undefined, { relative: true });
       const hipWorld = mul(turnHip, world[h]), kneeWorld = mul(mul(turnKnee, turnHip), world[k]), parentOf = (i) => world[bones[i].parentIndex];
       pose.rotations[leg.hip] = normalize(mul(inv(parentOf(h)), hipWorld));
       pose.rotations[leg.knee] = normalize(mul(inv(hipWorld), kneeWorld));
@@ -311,16 +347,22 @@ export function raiseBody(skeleton, points, pose) {
  * (about the new b) that bring the end c to `target`, bending in the plane the chain bends in now.
  * Out of reach, the chain straightens towards the target; within SOFT_IK of its reach, softly.
  */
-export function twoBoneIK(a, b, c, target) {
+export function twoBoneIK(a, b, c, target, hint = [0, 0, 1], { relative = false } = {}) {
   const l1 = distance(a, b), l2 = distance(b, c), reach = l1 + l2;
   // Soft near full reach (a near straight chain turns its middle joint a lot for a little reach):
   // past SOFT_IK of the reach short, the distance eases toward the reach rather than meeting it.
+  // `relative` (a small change to a pose: groundFeet's lifts): near the chain's own length now, by as
+  // much as the easing moves that, so a target where the end already is changes nothing.
   const toTarget = sub(target, a), wanted = Math.max(length(toTarget), Math.abs(l1 - l2) + 1e-6), soft = SOFT_IK * reach;
-  const d = wanted > reach - soft ? reach - soft * Math.exp(-(wanted - (reach - soft)) / soft) : wanted;
+  const eased = (x) => (x > reach - soft ? reach - soft * Math.exp(-(x - (reach - soft)) / soft) : x), now = distance(a, c);
+  const d = relative ? Math.min(reach - 1e-6, Math.max(Math.abs(l1 - l2) + 1e-6, eased(wanted) + (now - eased(now)) * Math.exp(-(((wanted - now) / soft) ** 2)))) : eased(wanted);
   const dir = unit(toTarget);
-  // The bend: the knee's side of the chain's own line (a to c), turned with the chain towards the target.
+  // The bend: the knee's side of the chain's own line (a to c), turned with the chain towards the
+  // target; leaning toward `hint` (forward, as knees bend) by a hair, so a near straight chain, whose
+  // side is all but none, keeps bending the same way rather than flipping from frame to frame.
   const line = unit(sub(c, a));
   let side = sub(sub(b, a), scale(line, dot(sub(b, a), line)));
+  side = add(side, scale(unit(sub(hint, scale(line, dot(hint, line)))), 0.01 * l1));
   side = length(side) < 1e-9 ? perpendicular(dir) : rotate(fromTo(line, dir), unit(side));
   side = unit(sub(side, scale(dir, dot(side, dir))));
   const cosA = Math.min(1, Math.max(-1, (l1 * l1 + d * d - l2 * l2) / (2 * l1 * d)));

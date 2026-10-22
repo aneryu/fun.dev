@@ -11,7 +11,7 @@ const words = {
   chClothesEmpty: ["这套素材里还没有衣服。", "This data set has no clothes yet."],
   chMotion: ["动作", "Motion"], chPose: ["动作", "Pose"], chPoseRest: ["静止", "Rest"], chPoseFlex: ["屈曲测试", "Flex test"],
   chPoseReach: ["伸展测试", "Reach test"], chPoseTwist: ["扭转测试", "Twist test"], chPoseGait: ["步态（按速度）", "Gait (by speed)"], chPoseGaitRef: ["步态（参考动作，按速度）", "Gait (reference clips, by speed)"], chPoseDemo: ["步态演示（起步、停步、转身）", "Gait demo (starts, stops, turns)"],
-  chClipLocal: ["参考", "Reference"], chClipCC0: ["CC0", "CC0"], chClipProc: ["程序化", "Procedural"],
+  chClipLocal: ["参考", "Reference"], chClipCC0: ["CC0", "CC0"], chClipProc: ["程序化", "Procedural"], chClipAct: ["动作", "Action"], chFitNote: ["情景动作按环境调整：身体移动，脚留在原地。", "Scenario actions fit their surroundings: the body moves, the feet stay."], chFitSeat: ["座高", "Seat height"], chFitWall: ["墙离脚跟", "Wall behind the heels"],
   chStyleNote: ["程序化步态的风格（在每个人自己的风格上再乘）。", "The procedural gait's style (times each character's own)."],
   chStyleArms: ["摆臂", "Arm swing"], chStyleBounce: ["起伏", "Bounce"], chStyleSway: ["胯部晃动", "Hip sway"], chStyleLean: ["前倾", "Lean"], chStylePace: ["步频", "Pace"],
   chSpeed: ["速度", "Speed"], chFeetIK: ["脚踩实（IK）", "Planted feet (IK)"],

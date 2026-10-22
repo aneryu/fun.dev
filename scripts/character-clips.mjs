@@ -25,7 +25,7 @@ const FPS = 30;
 const CLIPS = {
   walk_formal: "Walk_Formal_Loop",
   talk: "Idle_Talking_Loop", dance: "Dance_Loop", crouch_idle: "Crouch_Idle_Loop", jump: "Jump_Loop",
-  punch: "Punch_Jab", interact: "Interact", hit: "Hit_Chest", death: "Death01", sit: "Sitting_Idle_Loop",
+  punch: "Punch_Jab", interact: "Interact",
 };
 
 // A natural walk, as the gait literature gives it (typical values, e.g. Perry & Burnfield, Gait

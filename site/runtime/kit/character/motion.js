@@ -29,7 +29,7 @@ export function clipTracks(skeleton, clip) {
   const hips = new Float32Array(n * 3);
   const world = bones.map(() => [0, 0, 0, 1]);
   const rolls = Object.entries(ROLLS).filter(([id, [base, driver]]) => !clip.rotations[id] && index.has(id) && index.has(base) && index.has(driver));
-  const delta = (i) => mul(world[i], inv(bones[i].rotation));
+  const delta = (i) => mul(world[i], inv(bones[i].rotation)), halves = {};
   for (let f = 0; f < n; f++) {
     bones.forEach((b, i) => {
       // A bone the clip leaves out turns with its parent.
@@ -41,7 +41,11 @@ export function clipTracks(skeleton, clip) {
       const [from, to] = ci === null ? [bi, di] : [di, ci];
       const axis = unit(bones[to].position.map((v, k) => v - bones[from].position[k]));
       const [swing, twist] = splitTwist(mul(inv(delta(bi)), delta(di)), axis);
-      world[index.get(id)] = normalize(mul(mul(delta(bi), mode === "swing" ? mul(swing, halfway(twist)) : halfway(twist)), bones[index.get(id)].rotation));
+      // Half the twist, the half nearest the last frame's (past a half turn the shorter half
+      // would flip to the other side).
+      const half = halfway(twist, halves[id]);
+      halves[id] = half;
+      world[index.get(id)] = normalize(mul(mul(delta(bi), mode === "swing" ? mul(swing, half) : half), bones[index.get(id)].rotation));
     }
     bones.forEach((b, i) => rotations[b.id].set(normalize(b.parentIndex >= 0 ? mul(inv(world[b.parentIndex]), world[i]) : world[i]), f * 4));
     const root = bones[0].position;
@@ -160,8 +164,15 @@ function splitTwist(q, axis) {
   return [mul(q, inv(twist)), twist];
 }
 
-/** The rotation halfway from none to q. */
-function halfway(q) { const s = q[3] < 0 ? -1 : 1; return normalize([q[0] * s, q[1] * s, q[2] * s, q[3] * s + 1]); }
+/** The rotation halfway from none to q (of the two, the one nearer `near`, if given). */
+function halfway(q, near = null) {
+  const s = q[3] < 0 ? -1 : 1, h = normalize([q[0] * s, q[1] * s, q[2] * s, q[3] * s + 1]);
+  if (!near) return h;
+  // The other half: a half turn further about the same axis.
+  const n = Math.hypot(h[0], h[1], h[2]), axis = n > 1e-9 ? [h[0] / n, h[1] / n, h[2] / n] : [0, 0, 1], other = normalize(mul(h, [axis[0], axis[1], axis[2], 0]));
+  const dot = (a, b) => Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]);
+  return dot(other, near) > dot(h, near) ? other : h;
+}
 
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const unit = (v) => { const l = Math.hypot(...v) || 1; return v.map((x) => x / l); };

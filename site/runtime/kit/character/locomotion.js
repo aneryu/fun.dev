@@ -140,20 +140,28 @@ export function locomotionClips(model, body, options = {}) {
 const mirrorRole = (r) => (r.startsWith("left") ? `right${r.slice(4)}` : r.startsWith("right") ? `left${r.slice(5)}` : r);
 function mirror(pose) {
   const out = {};
-  for (const [r, v] of Object.entries(pose)) out[r === "hipsOffset" ? r : mirrorRole(r)] = r === "hipsOffset" ? [-v[0], v[1], v[2]] : [v[0], -v[1], -v[2]];
+  for (const [r, v] of Object.entries(pose)) out[r === "hipsOffset" || r === "root" ? r : mirrorRole(r)] = r === "hipsOffset" ? [-v[0], v[1], v[2]] : r === "root" ? [-v[0], v[1], -v[2]] : [v[0], -v[1], -v[2]];
   return out;
 }
 function at(keys, phase) {
-  const n = keys.length, p = ((phase % 1) + 1) % 1;
+  const n = keys.length, p = ((phase % 1) + 1) % 1, gap = (x, y) => (((y - x) % 1) + 1) % 1 || 1;
   let i = n - 1;
   for (let k = 0; k < n; k++) if (keys[k].phase <= p) i = k;
   const a = keys[(i - 1 + n) % n], b = keys[i], c = keys[(i + 1) % n], d = keys[(i + 2) % n];
-  const span = (((c.phase - b.phase) % 1) + 1) % 1 || 1, t = ((((p - b.phase) % 1) + 1) % 1) / span;
-  const out = {};
-  for (const r of Object.keys(b.pose)) {
+  return hermite(a.pose, b.pose, c.pose, d.pose, gap(a.phase, b.phase), gap(b.phase, c.phase), gap(c.phase, d.phase), ((((p - b.phase) % 1) + 1) % 1) / gap(b.phase, c.phase));
+}
+/**
+ * Between poses b and c of a Catmull-Rom spline through a, b, c, d whose keys are `ab`, `bc`, `cd`
+ * apart (times or phases), at u (0 to 1): each key's slope the chord across its neighbours over
+ * their time apart, so the motion's speed carries through a key however the keys are spaced.
+ */
+function hermite(a, b, c, d, ab, bc, cd, u) {
+  const h00 = 2 * u ** 3 - 3 * u * u + 1, h10 = u ** 3 - 2 * u * u + u, h01 = -2 * u ** 3 + 3 * u * u, h11 = u ** 3 - u * u, out = {};
+  for (const r of Object.keys(b)) {
     out[r] = [0, 1, 2].map((k) => {
-      const p0 = a.pose[r]?.[k] ?? 0, p1 = b.pose[r][k], p2 = c.pose[r]?.[k] ?? p1, p3 = d.pose[r]?.[k] ?? p2;
-      return 0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
+      const p1 = b[r][k], p2 = c[r]?.[k] ?? p1, p0 = a[r]?.[k] ?? p1, p3 = d[r]?.[k] ?? p2;
+      const m1 = ((p2 - p0) / (ab + bc)) * bc, m2 = ((p3 - p1) / (bc + cd)) * bc;
+      return h00 * p1 + h10 * m1 + h01 * p2 + h11 * m2;
     });
   }
   return out;
@@ -221,16 +229,76 @@ export function transitionProgress(motion, t) {
 }
 
 function atTime(keys, t) {
+  if (keys.length === 1) return keys[0].pose;
   let i = 0;
   while (i < keys.length - 2 && keys[i + 1].time <= t) i++;
   const a = keys[Math.max(0, i - 1)], b = keys[i], c = keys[i + 1], d = keys[Math.min(keys.length - 1, i + 2)];
-  const u = Math.max(0, Math.min(1, (t - b.time) / (c.time - b.time || 1)));
-  const out = {};
-  for (const r of Object.keys(b.pose)) {
-    out[r] = [0, 1, 2].map((k) => {
-      const p0 = a.pose[r]?.[k] ?? 0, p1 = b.pose[r][k], p2 = c.pose[r]?.[k] ?? p1, p3 = d.pose[r]?.[k] ?? p2;
-      return 0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u * u + (-p0 + 3 * p1 - 3 * p2 + p3) * u * u * u);
-    });
+  const bc = c.time - b.time || 1, u = Math.max(0, Math.min(1, (t - b.time) / bc));
+  // Clamped at the ends: the first and last keys' neighbours are themselves (at their own time apart).
+  return hermite(a.pose, b.pose, c.pose, d.pose, a === b ? bc : b.time - a.time, bc, d === c ? bc : d.time - c.time, u);
+}
+
+// ── Actions: idle, scenarios and reactions, from key poses at times. ──
+
+/** The actions a model has (looping ones first), by name. */
+export function actionNames(model, body) {
+  const a = bodyOf(model, body).actions ?? {};
+  return Object.keys(a).sort((x, y) => (a[y].loop ? 1 : 0) - (a[x].loop ? 1 : 0));
+}
+
+/**
+ * An action as a role clip: looping (`loop`, a periodic spline through its key poses, breathing as
+ * the idle does) or once (a clamped spline, holding its last pose), with `motion` { duration, loop,
+ * travel ([x, y, z] metres, in the body's frame at the start), turn (radians, + to the left) }. A
+ * one-shot that moves (its keys' `root`) carries its body there and round in the clip, or with
+ * `root: false` plays in place for its caller to move it. Mirrored for `side: "right"`.
+ */
+export function actionClip(model, body, name, { side = "left", fps = 30, root = true } = {}) {
+  const m = bodyOf(model, body), g = m.actions?.[name];
+  if (!g) throw new Error(`no action ${name}`);
+  const right = side === "right", keys = g.keys.map((k) => ({ time: k.time, pose: right ? mirror(k.pose) : k.pose }));
+  const frames = Math.max(2, Math.round(g.duration * fps) + (g.loop ? 0 : 1));
+  const stand = Object.fromEntries(Object.entries(m.stand).map(([r, v]) => [r, exp(v.map((x) => x * RAD))]));
+  const rotations = Object.fromEntries(KEY_RULE.joints.filter((r) => stand[r]).map((r) => [r, new Float32Array(frames * 4)]));
+  const hips = new Float32Array(frames * 3);
+  // A loop breathes: its chest rises and falls about every four seconds, a degree and a half.
+  const breaths = Math.max(1, Math.round(g.duration / 4));
+  for (let f = 0; f < frames; f++) {
+    const t = f / fps, pose = g.loop ? at(keys.map((k) => ({ phase: k.time / g.duration, pose: k.pose })), t / g.duration) : atTime(keys, t);
+    // The root: where the body has gone and how far round, carried (world rotations turn with it).
+    const [rx, rz, yaw] = root && pose.root ? pose.root : [0, 0, 0], turn = exp([0, yaw * RAD, 0]);
+    for (const [r, out] of Object.entries(rotations)) {
+      let q = mul(exp((pose[r] ?? [0, 0, 0]).map((x) => x * RAD)), stand[r]);
+      if (g.loop && (r === "chest" || r === "upperChest")) q = mul(exp([Math.sin((2 * Math.PI * breaths * f) / frames) * 0.75 * RAD, 0, 0]), q);
+      out.set(normalize(yaw ? mul(turn, q) : q), f * 4);
+    }
+    hips.set(add(rotate(turn, pose.hipsOffset), [rx, 0, rz]), f * 3);
   }
-  return out;
+  // The hands' shapes (ours, by action): a gesture's on the hand it raises, while it is up (its
+  // wrist above halfway to its highest), or both hands' throughout.
+  const hands = [], shape = HANDS[name];
+  if (shape) {
+    const wrist = (side, f) => handOf(m, side, (r) => [...(rotations[r] ?? new Float32Array(frames * 4).fill(0)).slice(f * 4, f * 4 + 4)].map((v, k) => (rotations[r] ? v : k === 3 ? 1 : 0)))[1] + hips[f * 3 + 1];
+    for (const side of ["left", "right"]) {
+      const ys = Array.from({ length: frames }, (_, f) => wrist(side, f)), low = ys[0], high = Math.max(...ys), raised = ys.map((y) => y > low + (high - low) / 2);
+      const mine = shape.both || (high - low > 0.1 && high >= Math.max(...Array.from({ length: frames }, (_, f) => wrist(side === "left" ? "right" : "left", f))));
+      if (!mine) continue;
+      const from = shape.both ? 0 : raised.indexOf(true) / fps, to = shape.both ? frames / fps : (frames - 1 - [...raised].reverse().indexOf(true)) / fps;
+      hands.push({ side: side[0], shape: shape.shape, from, to });
+    }
+  }
+  const end = keys.at(-1).pose.root ?? [0, 0, 0];
+  const motion = { duration: g.duration, loop: g.loop, travel: [end[0], 0, end[1]], turn: end[2] * RAD };
+  return { name: right ? `${name}Right` : name, source: "key poses", fps, frames, loop: g.loop, rest: m.rest, stand, rotations, hips, motion, hands };
+}
+
+// Hand shapes by action (kit/character/three.js HAND_SHAPES): on the raised hand, or both.
+const HANDS = {
+  point: { shape: "point" }, wave: { shape: "open" }, comeHere: { shape: "open" }, shrug: { shape: "open", both: true },
+  cheer: { shape: "fist", both: true }, startled: { shape: "open", both: true }, hit: { shape: "open", both: true }, knockedDown: { shape: "open", both: true },
+};
+function handOf(m, side, rotation) {
+  let p = [0, 0, 0], prev = "hips";
+  for (const r of ["spine", "chest", "upperChest", `${side}Shoulder`, `${side}UpperArm`, `${side}LowerArm`, `${side}Hand`]) { if (!m.rest[r]) continue; p = add(p, rotate(rotation(prev), sub(m.rest[r], m.rest[prev]))); prev = r; }
+  return p;
 }

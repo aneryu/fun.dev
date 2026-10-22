@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import * as THREE from "three";
-import { KEY_RULE, TRANSITIONS, transitionClip, armClearance, bankAngle, bankPose, bodyPoints, characterObject, characterSoles, characterTracks, clipGait, clipTracks, createFootLock, createGait, createWalker, lookPose, locomotionClip, locomotionClips, locomotionStyle, retargetClip, trackPositions, twoBoneIK, DEFAULT_DATA, FEATURES, faceTint, garmentsFor, generateCharacter, LODS, parametersFor, PARAMETERS, SLOTS } from "../site/runtime/kit/character.js";
+import { actionClip, actionFit, actionNames, KEY_RULE, TRANSITIONS, transitionClip, armClearance, bankAngle, bankPose, bodyPoints, characterObject, characterSoles, characterTracks, clipGait, clipTracks, createFootLock, createGait, createWalker, lookPose, locomotionClip, locomotionClips, locomotionStyle, retargetClip, trackPositions, twoBoneIK, DEFAULT_DATA, FEATURES, faceTint, garmentsFor, generateCharacter, LODS, parametersFor, PARAMETERS, SLOTS } from "../site/runtime/kit/character.js";
 import { TEST_DATA } from "./helpers/character-data.mjs";
 
 // kit/character (docs/character-generator.md): the generated body is closed, outward, mirrored,
@@ -417,12 +417,27 @@ test("motions keep the rule for key poses from reference motion: at most five pe
   const rest = new Set([...KEY_RULE.joints, "leftHand", "rightHand", "leftToes", "rightToes", "leftMiddleProximal", "rightMiddleProximal"]);
   assert.deepEqual(Object.keys(motions).sort(), ["bodies", "rule"]);
   for (const [body, m] of Object.entries(motions.bodies)) {
-    assert.deepEqual(Object.keys(m).sort(), ["motions", "rest", "stand"], `${body}: only rest positions, a standing pose and motions`);
+    assert.deepEqual(Object.keys(m).sort(), ["actions", "motions", "rest", "stand"], `${body}: only rest positions, a standing pose, motions and actions`);
     for (const r of Object.keys(m.rest)) assert.ok(rest.has(r), `${body} rest of ${r}`);
     for (const [r, v] of Object.entries(m.stand)) { assert.ok(joints.has(r), `${body} stand ${r}`); assert.ok(onStep(v), `${body} stand ${r} ${v}`); }
+    const twentieths = (v) => v.every((x) => Math.abs(x * 20 - Math.round(x * 20)) < 1e-9);
+    for (const [name, g] of Object.entries(m.actions)) {
+      assert.ok(g.keys.length >= 1 && g.keys.length <= KEY_RULE.keys, `${body} action ${name}: ${g.keys.length} key poses`);
+      assert.deepEqual(Object.keys(g).sort(), ["duration", "keys", "loop"], `${body} action ${name}: only its length, looping and key poses`);
+      assert.ok(twentieths([g.duration]) && typeof g.loop === "boolean", `${body} action ${name}: its scalars`);
+      for (const { time, pose, ...extra } of g.keys) {
+        assert.deepEqual(Object.keys(extra), [], `${body} action ${name}: a key holds a time and a pose`);
+        assert.ok(twentieths([time]) && time <= g.duration, `${body} action ${name}: a key at ${time}`);
+        for (const [r, v] of Object.entries(pose)) {
+          if (r === "hipsOffset") { assert.ok(cm(v), `${body} ${name} hips ${v}`); continue; }
+          if (r === "root") { assert.ok(!g.loop && cm(v.slice(0, 2)) && v[2] % KEY_RULE.step === 0, `${body} ${name} root ${v}`); continue; }
+          assert.ok(joints.has(r), `${body} action ${name}: ${r} is not a main joint`);
+          assert.ok(onStep(v), `${body} action ${name} ${r}: ${v} not in steps of ${KEY_RULE.step}°`);
+        }
+      }
+    }
     for (const [name, g] of Object.entries(m.motions)) {
       assert.ok(g.keys.length <= KEY_RULE.keys, `${body} ${name}: ${g.keys.length} key poses`);
-      const twentieths = (v) => v.every((x) => Math.abs(x * 20 - Math.round(x * 20)) < 1e-9);
       if (g.cycle) assert.deepEqual(Object.keys(g).filter((k) => !["cycle", "bob", "keys"].includes(k)), [], `${body} ${name}: only a cycle, a bob and key poses`);
       else {
         assert.deepEqual(Object.keys(g).sort(), ["duration", "keys", "travel", "turn", "window"], `${body} ${name}: a transition's length, turn, travel, window and key poses`);
@@ -439,6 +454,35 @@ test("motions keep the rule for key poses from reference motion: at most five pe
         }
       }
     }
+  }
+});
+
+test("actions: loops and one-shots from key poses, their hands shaped, mirrored, moving their body, fitted to a seat or a wall", () => {
+  const model = JSON.parse(readFileSync(new URL("../site/runtime/kit/character/clips/motions.json", import.meta.url)));
+  for (const body of ["m", "f"]) {
+    const names = actionNames(model, body);
+    for (const name of ["hangOut", "impatient", "guard", "cheer", "leanWall", "sitSteps", "sitWall", "dead", "wave", "point", "shrug", "comeHere", "pickUp", "hit", "startled", "knockedDown"]) assert.ok(names.includes(name), `${body} ${name}`);
+    for (const name of names) {
+      const clip = actionClip(model, body, name);
+      assert.equal(clip.loop, model.bodies[body].actions[name].loop);
+      for (const q of Object.values(clip.rotations)) assert.ok(q.every(Number.isFinite), `${body} ${name}: finite`);
+    }
+    // Pointing: the raised hand points, its index finger straight; mirrored, the other hand.
+    const point = actionClip(model, body, "point"), mirrored = actionClip(model, body, "point", { side: "right" });
+    assert.equal(point.hands.length, 1); assert.equal(point.hands[0].shape, "point");
+    assert.notEqual(mirrored.hands[0].side, point.hands[0].side);
+    // Falling down carries the body back (its root), mirrored to the other side.
+    const down = actionClip(model, body, "knockedDown");
+    assert.ok(down.motion.travel[2] < -0.5, `${body}: falls back ${down.motion.travel}`);
+    assert.ok(actionClip(model, body, "knockedDown", { root: false }).hips.every((v, k) => k % 3 !== 2 || Math.abs(v) < 0.5), `${body}: in place without its root`);
+    // On a seat 0.45 m high and against a wall 0.2 m behind the heels.
+    const character = generateCharacter({ seed: 3, lod: 2, params: { body } });
+    const sit = actionFit(character, actionClip(model, body, "sitSteps"), { seat: 0.45 }), seated = actionFit(character, sit.clip);
+    assert.ok(Math.abs(seated.seat - 0.45) < 0.03, `${body}: sits at ${seated.seat.toFixed(3)} (its own ${sit.seat.toFixed(3)})`);
+    const lean = actionFit(character, actionClip(model, body, "leanWall"), { back: 0.2 }), leaning = actionFit(character, lean.clip);
+    assert.ok(Math.abs(leaning.back - 0.2) < 0.03, `${body}: leans ${leaning.back.toFixed(3)} behind its heels (its own ${lean.back.toFixed(3)})`);
+    const feet = trackPositions(character.skeleton, characterTracks(character, sit.clip), ["l_foot", "r_foot"]);
+    for (const id of ["l_foot", "r_foot"]) assert.ok(Math.max(...feet[id].map((p) => p[1])) < 0.15, `${body}: seated, the ${id} stays down`);
   }
 });
 
@@ -590,7 +634,7 @@ test("a character's clips stay on the ground, feet and body, with the hands out 
     const character = generateCharacter({ seed: 6, lod: 1, params: { body } }), { skeleton } = character, bones = skeleton.bones, index = new Map(bones.map((b, i) => [b.id, i]));
     const points = [...bodyPoints(character), ...Object.entries(characterSoles(character)).flatMap(([id, ps]) => ps.map((at) => ({ bone: index.get(id), at })))];
     const clear = armClearance(character);
-    for (const [name, clip] of [["walk_formal", clipOf("walk_formal")], ["death", clipOf("death")], ["crouch", clipOf("crouch_idle")], ...locomotionClips(model, body).map((c) => [`loco ${c.name}`, c])]) {
+    for (const [name, clip] of [["walk_formal", clipOf("walk_formal")], ["crouch", clipOf("crouch_idle")], ...locomotionClips(model, body).map((c) => [`loco ${c.name}`, c]), ...actionNames(model, body).map((a) => [`act ${a}`, actionClip(model, body, a)])]) {
       const t = characterTracks(character, clip);
       let low = 0, deep = 0;
       for (let f = 0; f < t.times.length; f++) {
@@ -608,7 +652,7 @@ test("a character's clips stay on the ground, feet and body, with the hands out 
         }
       }
       assert.ok(low > -0.012, `${body} ${name}: a point ${(-low * 100).toFixed(1)} cm under the ground`);
-      if (!["death", "crouch"].includes(name)) assert.ok(deep < 0.012, `${body} ${name}: a hand ${(deep * 100).toFixed(1)} cm in the body`);
+      if (!["crouch", "act dead", "act knockedDown"].includes(name)) assert.ok(deep < 0.012, `${body} ${name}: a hand ${(deep * 100).toFixed(1)} cm in the body`);
     }
   }
 });

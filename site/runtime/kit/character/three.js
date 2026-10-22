@@ -10,7 +10,7 @@
 //   walker.update(dt, { speed: 1.5, turn: 0, look: 0 });              // each frame; moves the object forward
 
 import { armClearance, clearArms } from "./clear.js";
-import { bodyPoints, characterSoles, createFootLock, groundFeet, raiseBody } from "./feet.js";
+import { bodyPoints, characterSoles, createFootLock, groundFeet, raiseBody, shiftBody } from "./feet.js";
 import { createGait, sample } from "./gait.js";
 import { transitionProgress } from "./locomotion.js";
 import { clipTracks, retargetClip } from "./motion.js";
@@ -133,16 +133,33 @@ const clearanceOf = (character) => { if (!clearances.has(character)) clearances.
 const solesOf = (character) => { if (!soles.has(character)) soles.set(character, characterSoles(character)); return soles.get(character); };
 const bodyOf = (character) => { if (!bodies.has(character)) bodies.set(character, bodyPoints(character)); return bodies.get(character); };
 
-// Fingers at rest, for clips that leave them out: each bends a little about its own flexion axis
-// (x), more toward the tip, the thumb less.
+// Fingers for clips that leave them out: each bends about its own flexion axis (x) by its hand's
+// shape, per finger (thumb, index, middle, ring, little) and joint, from the root. At rest a little,
+// more toward the tip, the thumb less; a clip's `hands` ([{ side: "l" | "r", shape, from, to }],
+// seconds) shapes a hand over a while, easing in and out over EASE_HAND.
 const CURL = [0.2, 0.3, 0.25], THUMB = [0.05, 0.1, 0.1];
-function relaxFingers(skeleton, tracks) {
+const RELAXED = [THUMB, CURL, CURL, CURL, CURL], FIST = [[0.4, 0.5, 0.5], ...Array(4).fill([1.4, 1.6, 1.1])];
+export const HAND_SHAPES = {
+  relaxed: RELAXED,
+  open: [[0, 0.05, 0.05], ...Array(4).fill([0.05, 0.08, 0.05])],
+  point: [[0.4, 0.5, 0.5], [0, 0.05, 0.05], ...Array(3).fill([1.4, 1.6, 1.1])],
+  fist: FIST,
+};
+const EASE_HAND = 0.2;
+function relaxFingers(skeleton, tracks, hands = []) {
+  const n = tracks.times.length, step = tracks.duration / n;
   for (const b of skeleton.bones) {
-    const m = b.id.match(/^[lr]_finger(\d)(\d)$/);
+    const m = b.id.match(/^([lr])_finger(\d)(\d)$/);
     if (!m) continue;
-    const a = (m[1] === "0" ? THUMB : CURL)[Number(m[2])] ?? 0, turn = [Math.sin(a / 2), 0, 0, Math.cos(a / 2)], q = tracks.rotations[b.id];
-    for (let f = 0; f < tracks.times.length; f++) {
-      const [x, y, z, w] = q.subarray(f * 4, f * 4 + 4);
+    const [, side, finger, joint] = m, q = tracks.rotations[b.id], own = hands.filter((h) => h.side === side);
+    const bend = (shape) => (HAND_SHAPES[shape] ?? RELAXED)[Number(finger)]?.[Number(joint)] ?? 0;
+    for (let f = 0; f < n; f++) {
+      let a = bend("relaxed");
+      for (const h of own) {
+        const t = f * step, w = Math.min(1, Math.max(0, (t - h.from + EASE_HAND) / EASE_HAND), Math.max(0, (h.to + EASE_HAND - t) / EASE_HAND));
+        if (w > 0) a += (bend(h.shape) - a) * w * w * (3 - 2 * w);
+      }
+      const turn = [Math.sin(a / 2), 0, 0, Math.cos(a / 2)], [x, y, z, w] = q.subarray(f * 4, f * 4 + 4);
       q.set([w * turn[0] + x * turn[3], y * turn[3] + z * turn[0], z * turn[3] - y * turn[0], w * turn[3] - x * turn[0]], f * 4);
     }
   }
@@ -155,7 +172,7 @@ function relaxFingers(skeleton, tracks) {
  */
 export function characterTracks(character, clip) {
   const tracks = clipTracks(character.skeleton, clip.rest ? retargetClip(clip, character.skeleton, character.rig) : clip);
-  if (clip.rest && !Object.keys(clip.rotations).some((r) => /Proximal|Intermediate|Distal|Metacarpal/.test(r))) relaxFingers(character.skeleton, tracks);
+  if (clip.rest && !Object.keys(clip.rotations).some((r) => /Proximal|Intermediate|Distal|Metacarpal/.test(r))) relaxFingers(character.skeleton, tracks, clip.hands);
   const sole = solesOf(character), memory = {}, n = tracks.times.length, step = tracks.duration / n, ids = ["l_thigh", "l_calf", "l_foot", "l_thigh_roll", "r_thigh", "r_calf", "r_foot", "r_thigh_roll", "l_toe", "r_toe", "l_upperarm", "l_upperarm_roll", "r_upperarm", "r_upperarm_roll"];
   // A loop is gone through twice, so the toes' letting go carries across its seam; its second
   // time is kept.
@@ -165,6 +182,16 @@ export function characterTracks(character, clip) {
   // feet's lift each frame (groundFeet) is left a few millimetres to mend.
   const under = Array.from({ length: n }, (_, f) => soleHeight(character.skeleton, sole, raw, f)).sort((a, b) => a - b)[Math.floor(n * 0.1)];
   if (under < 0) for (let f = 0; f < n; f++) raw.hips[f * 3 + 1] -= under;
+  // Fitted to its surroundings (`fit`, an offset of the body from its feet: a seat's height, a
+  // wall's distance; actionFit), the body moves and the feet stay: by as much as it is down, in a
+  // clip that sits down or gets up (sitting), else throughout.
+  const down = sitting(character, raw, n);
+  if (clip.fit) for (let f = 0; f < n; f++) {
+    const pose = { rotations: Object.fromEntries(Object.entries(raw.rotations).map(([id, q]) => [id, Array.from(q.subarray(f * 4, f * 4 + 4))])), hips: Array.from(raw.hips.subarray(f * 3, f * 3 + 3)) };
+    shiftBody(character.skeleton, pose, clip.fit.map((v) => v * down[f]), { plant: clip.fit[1] !== 0 });
+    for (const [id, q] of Object.entries(pose.rotations)) raw.rotations[id].set(q, f * 4);
+    raw.hips.set(pose.hips, f * 3);
+  }
   for (let k = clip.loop === false ? n : 0; k < 2 * n; k++) {
     const f = k % n;
     const pose = { rotations: Object.fromEntries(Object.entries(raw.rotations).map(([id, q]) => [id, Array.from(q.subarray(f * 4, f * 4 + 4))])), hips: Array.from(raw.hips.subarray(f * 3, f * 3 + 3)) };
@@ -176,6 +203,44 @@ export function characterTracks(character, clip) {
     tracks.hips.set(pose.hips, f * 3);
   }
   return tracks;
+}
+
+/** How far down a clip's body is at each frame, 0 (standing) to 1 (its lowest), if it goes 15 cm or more below standing; else 1 throughout. */
+function sitting(character, raw, n) {
+  const stand = character.skeleton.bones[0].position[1], ys = Array.from({ length: n }, (_, f) => raw.hips[f * 3 + 1]), low = Math.min(...ys);
+  if (stand - low < 0.15) return ys.map(() => 1);
+  return ys.map((y) => { const x = Math.min(1, Math.max(0, (stand - 0.05 - y) / (stand - 0.05 - low - 0.03))); return x * x * (3 - 2 * x); });
+}
+
+/**
+ * Where an action rests on its surroundings, on this character (metres, in its frame): `seat`, the
+ * height of the lowest point of its hips and thighs (what it sits on), and `back`, how far behind
+ * its heels its back goes (what it leans on), at their mean over the clip (with `under`, how far
+ * forward the seat's point is, and `heel`, the heels'); and the clip fitted
+ * instead to a seat or a wall elsewhere (`{ seat, back }`: the body moves, the feet stay).
+ */
+export function actionFit(character, clip, { seat = null, back = null } = {}) {
+  const tracks = characterTracks(character, clip), { bones } = character.skeleton, n = tracks.times.length;
+  const points = bodyOf(character), hipsOf = points.filter((p) => /pelvis|thigh_roll/.test(bones[p.bone].id)), trunk = points.filter((p) => /pelvis|spine|neck|head|clavicle/.test(bones[p.bone].id));
+  const ids = ["l_foot", "r_foot"], at = { seat: 0, back: 0, under: 0, heel: 0 }, down = sitting(character, tracks, n);
+  // (Measured where it is down: all of a loop's, a sitting down's end.)
+  const frames = Array.from({ length: n }, (_, f) => f).filter((f) => down[f] > 0.95), count = frames.length || 1;
+  for (const f of frames.length ? frames : [n - 1]) {
+    const world = [], pos = [];
+    bones.forEach((b, i) => {
+      const local = Array.from(tracks.rotations[b.id]?.subarray(f * 4, f * 4 + 4) ?? [0, 0, 0, 1]);
+      if (b.parentIndex < 0) { world[i] = local; pos[i] = Array.from(tracks.hips.subarray(f * 3, f * 3 + 3)); return; }
+      const parent = bones[b.parentIndex];
+      world[i] = qmul(world[b.parentIndex], local);
+      pos[i] = vadd(pos[b.parentIndex], qrot(world[b.parentIndex], qrot([-parent.rotation[0], -parent.rotation[1], -parent.rotation[2], parent.rotation[3]], vsub(b.position, parent.position))));
+    });
+    const point = (p) => vadd(pos[p.bone], qrot(world[p.bone], p.at)), heel = Math.min(...ids.map((id) => pos[bones.findIndex((b) => b.id === id)][2]));
+    const low = hipsOf.map(point).reduce((a, b) => (b[1] < a[1] ? b : a));
+    at.seat += low[1] / count; at.under += low[2] / count; at.heel += heel / count;
+    at.back += (heel - Math.min(...trunk.map((p) => point(p)[2]))) / count;
+  }
+  const was = clip.fit ?? [0, 0, 0], fit = [0, was[1] + (seat == null ? 0 : seat - at.seat), was[2] + (back == null ? 0 : at.back - back)];
+  return { ...at, clip: fit[1] || fit[2] ? { ...clip, fit } : clip };
 }
 
 /** A THREE.AnimationClip for a clip on this character (bones by id; the hips move). */

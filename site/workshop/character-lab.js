@@ -6,7 +6,7 @@ import "./character-i18n.js";
 import * as THREE from "/runtime/three.js";
 import { OrbitControls } from "/runtime/addons/OrbitControls.js";
 import { initLocale, onLocaleChange, t } from "../i18n.js";
-import { applyTextures, characterObject, clipToThree, createWalker, DEFAULT_DATA, faceTint, FEATURES, generateCharacter, locomotionClip, locomotionGaits, locomotionStyle, parametersFor, SLOTS, STYLE, TRANSITIONS, transitionClip } from "/runtime/kit/character.js";
+import { actionClip, actionFit, actionNames, applyTextures, characterObject, clipToThree, createWalker, DEFAULT_DATA, faceTint, FEATURES, generateCharacter, locomotionClip, locomotionGaits, locomotionStyle, parametersFor, SLOTS, STYLE, TRANSITIONS, transitionClip } from "/runtime/kit/character.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("canvas");
@@ -203,6 +203,7 @@ const style = { ...STYLE };
 const styleOf = (character) => { const own = locomotionStyle(character.seed); return Object.fromEntries(Object.keys(STYLE).map((k) => [k, own[k] * style[k]])); };
 const clipFor = (character, pose) => {
   const [kind, name] = pose.split(":"), body = character.semantic.body;
+  if (kind === "act") return locomotion.then((model) => actionClip(model, body, name));
   if (kind === "loco") return locomotion.then((model) => (TRANSITIONS.includes(name) ? transitionClip(model, body, name) : locomotionClip(model, body, name, { style: styleOf(character) })));
   if (kind === "ref") return fetchJSON(`/local/anim/${body}/${name}.json`);
   if (kind === "refrole") return fetchJSON(`/local/anim/roles/${body}/${name}.json`);
@@ -217,6 +218,7 @@ async function listClips() {
     select.add(new Option(t("chPoseDemo"), "gaitdemo"));
     for (const { name } of locomotionGaits(model, "m")) select.add(new Option(`${t("chClipProc")} · ${name}`, `loco:${name}`));
     for (const name of TRANSITIONS) select.add(new Option(`${t("chClipProc")} · ${name}`, `loco:${name}`));
+    for (const name of actionNames(model, "m")) select.add(new Option(`${t("chClipAct")} · ${name}`, `act:${name}`));
   }
   if (state.data !== "reference" && refNames(refRoles).length) select.add(new Option(t("chPoseGaitRef"), "gaitref"));
   for (const id of Object.keys(roles)) select.add(new Option(`${t("chClipCC0")} · ${id}`, `cc0:${id}`));
@@ -228,9 +230,27 @@ async function listClips() {
 
 const mixers = new Map(), walkers = new Map();   // object → its AnimationMixer / { walker, angle, radius, scale }
 const clock = new THREE.Clock();
+// Scenario actions on a seat or against a wall: fitted to the panel's (the body moves, the feet
+// stay), with a plain block for the seat or the wall, a child of the character.
+const fitOf = (pose) => (/^act:sit/.test(pose) ? "seat" : /^act:lean/.test(pose) ? "wall" : null);
+const fit = { seat: 0.45, wall: 0.25 };
+function placeProp(object, kind, rest) {
+  for (const child of object.children.filter((c) => c.userData.prop)) { object.remove(child); child.geometry.dispose(); child.material.dispose(); }
+  if (!kind) return;
+  const material = new THREE.MeshStandardMaterial({ color: 0x9a9a92, roughness: 0.9 });
+  const box = kind === "seat" ? new THREE.BoxGeometry(0.7, fit.seat, 0.45) : new THREE.BoxGeometry(1.4, 2.2, 0.15);
+  const prop = new THREE.Mesh(box, material);
+  if (kind === "seat") prop.position.set(0, fit.seat / 2, rest.under - 0.12);
+  else prop.position.set(0, 1.1, rest.heel - fit.wall - 0.075);
+  prop.userData.prop = true;
+  object.add(prop);
+}
 function playClip(object, character, pose, phase) {
-  clipFor(character, pose).then((clip) => {
+  clipFor(character, pose).then((raw) => {
     if (!object.parent) return;   // replaced meanwhile
+    const kind = object === current?.object ? fitOf(pose) : null, rest = kind ? actionFit(character, raw, kind === "seat" ? { seat: fit.seat } : { back: fit.wall }) : null;
+    const clip = rest ? rest.clip : raw;
+    if (object === current?.object) placeProp(object, kind, rest && actionFit(character, clip));
     const mixer = new THREE.AnimationMixer(object), three = clipToThree(THREE, character, clip);
     mixers.set(object, mixer);
     const action = mixer.clipAction(three);
@@ -286,9 +306,11 @@ function applyPose(object, character = current.character, phase = 0, k = 0, name
   mixers.get(object)?.stopAllAction();
   mixers.delete(object);
   walkers.delete(object);
+  placeProp(object, null);
   if (name === state.pose) {
     $("gait-row").hidden = $("plant-row").hidden = !isGait(name);
     $("style-rows").hidden = !(name.startsWith("loco:") || (name === "gait" && state.data !== "reference"));
+    $("fit-rows").hidden = !fitOf(name); $("seat-row").hidden = fitOf(name) !== "seat"; $("wall-row").hidden = fitOf(name) !== "wall";
     $("gait-row").hidden = $("plant-row").hidden = !isGait(name) || name === "gaitdemo";
   }
   if (isGait(name)) { startGait(object, character, k, name); return; }
@@ -350,7 +372,7 @@ const twinPose = (pose) => {
   const [kind, name] = pose.split(":");
   const reference = { stroll: "walk", brisk: "walk", jog: "run", turn90: "idle_turn_l_-90", turn180: "idle_turn_l_-180", walkStart: "wstart_l_0", walkStop: "wstop_l_0",
     walkTurn180: "walk_turn_180_l", runStart: "rstart_l_0", runStop: "rstop_l", runTurn180: "run_turn_180_l" };
-  return kind === "loco" ? `refrole:${reference[name] ?? name}` : pose;
+  return kind === "loco" ? `refrole:${reference[name] ?? name}` : kind === "act" ? `refrole:${name}` : pose;
 };
 function placeTwin() {
   if (twin) { dispose(twin.object); twin = null; }
@@ -427,6 +449,7 @@ for (const key of Object.keys(STYLE)) {
   $(`style-${key}`).addEventListener("input", (e) => { style[key] = Number(e.target.value); $(`style-${key}-out`).value = style[key].toFixed(2); });
   $(`style-${key}`).addEventListener("change", restyle);
 }
+for (const key of ["seat", "wall"]) $(`fit-${key}`).addEventListener("change", (e) => { fit[key] = Number(e.target.value); $(`fit-${key}-out`).value = `${fit[key].toFixed(2)} m`; if (current && fitOf(state.pose)) applyPose(current.object); });
 for (const id of ["crowd", "wire", "bones", "compare", "clips-transitions"]) $(id).addEventListener("change", schedule);
 localRoles.then((index) => { $("compare-row").hidden = !Object.keys(index).length; });
 onLocaleChange(() => { buildPanel(); if (current) syncPanel(current.character.semantic); listClips(); showStats(); });

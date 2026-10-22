@@ -467,13 +467,12 @@ rest directions differ by joint placement and the spine's curve, not by pose (al
 MakeHuman pelvis tipped 20° and the body leant over). Theirs is the change from the source's
 standing pose, put on the target's rest, which already stands. The hips' offsets scale by hip
 height. Roll bones a clip leaves out
-are driven as above (`clipTracks` does it for any clip). `scripts/character-clips.mjs` bakes 10
+are driven as above (`clipTracks` does it for any clip). `scripts/character-clips.mjs` bakes 7
 clips of the Quaternius Universal Animation Library (CC0, `sources/quaternius/ual`) to
-`kit/character/clips/<id>.json` (walk_formal, talk, dance, crouch, jump, punch, interact, hit,
-death, sit), its standing pose being its idle's mean change by role (the trunk's and shoulders'
+`kit/character/clips/<id>.json` (walk_formal, talk, dance, crouch, jump, punch, interact), its standing pose being its idle's mean change by role (the trunk's and shoulders'
 without the trunk's turn about the vertical; the idle stands a little turned); the lab offers
 them as "CC0: <id>". They go as the kit's own motions replace them (the idle, walk, jog and sprint
-already have, below). The source's formal walk is slow (72 steps a minute) with the knees bent
+already have, below, and the hit, death and sitting, by the actions). The source's formal walk is slow (72 steps a minute) with the knees bent
 through stance, so the script plays it at a natural cadence (115) and remaps its knee flexion to
 the typical walking knee's (Perry & Burnfield's Gait Analysis), the hips keeping the lower ankle
 where it was; its hips' sway is made from the legs (they drop on the side of the swinging leg and
@@ -588,6 +587,38 @@ at the speed it eases to and carries only the body above the hips (its lean and 
 poses cannot hold a start's several steps), and ends once the speed is there. Each blends in over
 0.2 s and back to the gait over 0.3 s. The lab's "Gait demo" loops a game's asks through them, and
 "Beside the reference" shows each beside the reference clip it is made from.
+
+### Actions
+
+Idle, scenarios and reactions (`actionNames(model, body)`, `actionClip(model, body, name, { side,
+root })`) come from key poses under the same rule, in `motions.json`'s `actions`: per action and
+body at most five key poses at times (twentieths of a second), the main joints only, and for a
+one-shot that moves, where its root is at each key (centimetres sideways and forward, its turn in
+steps of 5°). Loops: hanging out, impatient, standing guard, cheering, leaning on a wall, sitting
+on steps or a low wall, lying dead; once: waving, pointing, shrugging, beckoning, picking up,
+taking a hit, startled, knocked down. A loop keeps one period of the reference's (its shortest
+repeat, or for a long one without, the 2 to 4 seconds whose ends are nearest alike) and its
+spline wraps round; it breathes as the idle does. Splines are Catmull-Rom with each key's slope
+over its neighbours' time apart, so the motion's speed carries through unevenly spaced keys; a
+joint's rotation near a half turn keeps, key to key, the form nearer the last (an arm raised
+overhead from hanging turns some 150°: the other form would swing it back down through standing).
+A one-shot's root carries its body (or, `root: false`, it plays in place for a game to move it).
+
+What is ours: the timing between keys, the breath, the hands' shapes (`HAND_SHAPES`: relaxed, open,
+point, fist; an action's on the hand it raises while it is up, or both hands), and the fit to the
+surroundings: `actionFit(character, clip, { seat, back })` measures where the action sits (the
+lowest point of the pelvis and upper thighs) and how far behind the heels its back goes, and gives
+the clip moved to a seat of another height or a wall at another distance, the body moving and the
+feet staying (`shiftBody`; sitting, planted on the ground; in a clip that sits down or gets up, by
+as much as the body is down). The lab's "Action" clips show it on a plain block or wall with
+sliders, beside the reference.
+
+Through the same post-passes as any clip (feet, ground, hands), the actions jolt at most 4–14° from
+one thirtieth of a second to the next (the reference's own, up to 90°). On the way: roll bones keep
+the half of their twist nearest the last frame's (past a half turn the shorter half flipped), the
+ground's lifts use two-bone IK relative to the leg's length (a straight leg lifted a hair no longer
+eases its knee in and out), and two-bone IK leans its bend forward by a hair, so a straight knee
+keeps bending forward.
 
 ### Steering
 
