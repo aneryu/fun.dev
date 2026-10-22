@@ -55,10 +55,14 @@ export function clipTracks(skeleton, clip) {
  * (`rest`: each role's rest position there), onto the bones the rig maps the roles to, as a clip
  * for `clipTracks`. Rest poses may differ (a T-pose source on an A-pose target): each limb role's
  * change is taken after the turn from the source's rest direction (to the role's child) to the
- * target's, so limbs point where the source's do. The trunk, neck, head and shoulders stand as the
- * target's rest does: theirs is the change from the source's standing pose (`stand`, by role; its
- * rest when the clip has none), as their rest directions differ by build and joint placement.
- * The hips' offsets scale by hip height.
+ * target's, so limbs point where the source's do. The trunk, neck, head, shoulders and feet stand
+ * as the target's rest does: theirs is the change from the source's standing pose (`stand`, by
+ * role; its rest when the clip has none), as their rest directions differ by build and joint
+ * placement (a foot's toe joint sits higher or lower: aligned, flat feet would point down).
+ * The hips' offsets scale by hip height, then each frame keeps the source's ground: of the feet,
+ * toes, knees, hands, hips, chest and head, the one nearest the ground in the source (by its
+ * height less its own resting height, at most RESTING) is put as near it in the target, scaled
+ * (legs and feet differ in length and joint placement; a body lying down rests on its trunk).
  */
 export function retargetClip(roleClip, skeleton, rig) {
   const at = (id) => skeleton.bones.find((b) => b.id === id);
@@ -80,11 +84,54 @@ export function retargetClip(roleClip, skeleton, rig) {
     return fromTo(unit(src), unit(tgt));
   }
   const scale = at(rig.roles.hips).position[1] / roleClip.rest.hips[1];
-  return { name: roleClip.name, fps: roleClip.fps, frames: roleClip.frames, loop: roleClip.loop, rotations, root: Float32Array.from(roleClip.hips, (v) => v * scale) };
+  const root = Float32Array.from(roleClip.hips, (v) => v * scale);
+  // The ground: the key roles' heights in both skeletons, each from its chain's world changes.
+  const keys = GROUND.filter((r) => roleClip.rest[r] && rig.roles[r] && chainOf(r).every((c) => roleClip.rest[c] && rig.roles[c]));
+  if (keys.length) {
+    const srcChange = (r, f) => (roleClip.rotations[r] ? roleClip.rotations[r].slice(f * 4, f * 4 + 4) : null);
+    const tgtChange = (r, f) => (rotations[rig.roles[r]] ? rotations[rig.roles[r]].slice(f * 4, f * 4 + 4) : null);
+    const height = (r, f, restOf, change, hips) => {
+      const chain = chainOf(r);
+      let p = hips, d = [0, 0, 0, 1];
+      for (let k = 1; k < chain.length; k++) {
+        d = change(chain[k - 1], f) ?? d;
+        p = add(p, rotate(d, sub(restOf(chain[k]), restOf(chain[k - 1]))));
+      }
+      return p[1];
+    };
+    const srcRest = (r) => roleClip.rest[r], tgtRest = (r) => at(rig.roles[r]).position;
+    const resting = (y, s) => Math.min(y, RESTING * s);
+    for (let f = 0; f < roleClip.frames; f++) {
+      const sh = add(roleClip.rest.hips, roleClip.hips.slice(f * 3, f * 3 + 3)), th = add(tgtRest("hips"), [...root.slice(f * 3, f * 3 + 3)]);
+      let best = null;
+      for (const r of keys) {
+        const clearance = height(r, f, srcRest, srcChange, sh) - resting(srcRest(r)[1], 1);
+        if (!best || clearance < best.clearance) best = { r, clearance };
+      }
+      const want = best.clearance * scale + resting(tgtRest(best.r)[1], scale);
+      root[f * 3 + 1] += want - height(best.r, f, tgtRest, tgtChange, th);
+    }
+  }
+  return { name: roleClip.name, fps: roleClip.fps, frames: roleClip.frames, loop: roleClip.loop, rotations, root };
+}
+
+// The roles that may meet the ground, and how high a joint rests above it at most (its flesh).
+const GROUND = ["leftFoot", "rightFoot", "leftToes", "rightToes", "leftLowerLeg", "rightLowerLeg", "leftHand", "rightHand", "hips", "upperChest", "head"];
+const RESTING = 0.12;
+// A role's chain from the hips (VRM roles).
+function chainOf(role) {
+  const side = role.match(/^(left|right)/)?.[1];
+  if (role === "hips") return ["hips"];
+  if (/(UpperLeg|LowerLeg|Foot|Toes)$/.test(role)) return ["hips", ...["UpperLeg", "LowerLeg", "Foot", "Toes"].map((r) => side + r).slice(0, ["UpperLeg", "LowerLeg", "Foot", "Toes"].indexOf(role.slice(side.length)) + 1)];
+  const trunk = ["hips", "spine", "chest", "upperChest"];
+  if (role === "upperChest") return trunk;
+  if (role === "head") return [...trunk, "neck", "head"];
+  if (/(Shoulder|UpperArm|LowerArm|Hand)$/.test(role)) return [...trunk, ...["Shoulder", "UpperArm", "LowerArm", "Hand"].map((r) => side + r).slice(0, ["Shoulder", "UpperArm", "LowerArm", "Hand"].indexOf(role.slice(side.length)) + 1)];
+  return [role];
 }
 
 // Roles taken from the source's standing pose rather than aligned by rest direction (see retargetClip).
-const STANDING = new Set(["hips", "spine", "chest", "upperChest", "neck", "head", "leftShoulder", "rightShoulder"]);
+const STANDING = new Set(["hips", "spine", "chest", "upperChest", "neck", "head", "leftShoulder", "rightShoulder", "leftFoot", "rightFoot", "leftToes", "rightToes"]);
 
 // Each role's child, for its rest direction (VRM humanoid roles).
 const CHILD = { hips: "spine", spine: "chest", chest: "upperChest", upperChest: "neck", neck: "head" };
@@ -125,3 +172,9 @@ function mul([ax, ay, az, aw], [bx, by, bz, bw]) {
 }
 const inv = ([x, y, z, w]) => [-x, -y, -z, w];
 function normalize(q) { const l = Math.hypot(...q) || 1; return q.map((v) => v / l); }
+const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+function rotate([x, y, z, w], v) {
+  const u = [y * v[2] - z * v[1], z * v[0] - x * v[2], x * v[1] - y * v[0]], t = [2 * u[0], 2 * u[1], 2 * u[2]];
+  return [v[0] + w * t[0] + y * t[2] - z * t[1], v[1] + w * t[1] + z * t[0] - x * t[2], v[2] + w * t[2] + x * t[1] - y * t[0]];
+}

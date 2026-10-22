@@ -49,35 +49,124 @@ export function clipGait(skeleton, tracks) {
   return { speed, contact: contact / n };
 }
 
-/** Gait over locomotion clips: `update(dt, speed)` gives the blended pose. */
+/**
+ * Where a clip's feet are down: per foot (l_foot, r_foot), per frame, 1 while it is within 3 cm of
+ * its lowest and not moving forward (the stance, from landing to push-off), else 0.
+ */
+export function clipContacts(skeleton, tracks) {
+  const feet = trackPositions(skeleton, tracks, ["l_foot", "r_foot"]), n = tracks.times.length, dt = tracks.duration / n;
+  return Object.fromEntries(Object.entries(feet).map(([id, ps]) => {
+    const low = Math.min(...ps.map((p) => p[1]));
+    return [id, Float32Array.from(ps, (p, f) => (p[1] < low + 0.03 && (ps[(f + 1) % n][2] - p[2]) / dt < 0.3 ? 1 : 0))];
+  }));
+}
+
+/**
+ * Where a clip's feet pass each other: the phases (from its left foot's contact, as the gait keeps
+ * them) at which the left ankle comes level with the right, front to back, twice a cycle.
+ */
+export function clipPassing(skeleton, tracks) {
+  const feet = trackPositions(skeleton, tracks, ["l_foot", "r_foot"]), n = tracks.times.length, { contact } = clipGait(skeleton, tracks), out = [];
+  const gap = (f) => feet.l_foot[f % n][2] - feet.r_foot[f % n][2];
+  for (let f = 0; f < n; f++) {
+    const a = gap(f), b = gap(f + 1);
+    if (a === 0 || a * b < 0) out.push((((f + a / (a - b || 1)) / n - contact) % 1 + 1) % 1);
+  }
+  return out.length ? out : [0];
+}
+
+/**
+ * Gait over locomotion clips: `update(dt, speed)` gives the blended pose, the clips' weights and
+ * where the feet are down (`contacts`: per foot, 0 to 1, blended as the clips are; standing, 1).
+ */
 export function createGait(skeleton, clips) {
-  const entries = clips.map((tracks) => ({ tracks, ...clipGait(skeleton, tracks) })).sort((a, b) => a.speed - b.speed);
+  const entries = clips.map((tracks) => ({ tracks, ...clipGait(skeleton, tracks), down: clipContacts(skeleton, tracks), passing: clipPassing(skeleton, tracks) })).sort((a, b) => a.speed - b.speed);
   const idle = entries[0].speed < 0.3 ? entries.shift() : null;
   if (!entries.length) throw new Error("a gait needs a moving clip");
-  let phase = 0, idleTime = 0;
+  let phase = 0, idleTime = 0, moving = 0, pace = 0, settled = false, plan = null;
+  // The arms go from a walk's to a run's (straight to bent, their swing) over ARMS seconds, as the
+  // speed passes between the two kinds of gait: the legs pass the gap in a stride, too quickly for
+  // the arms' change. Without a run among the clips, they are the legs'.
+  const arms = skeleton.bones.map((b) => b.id).filter((id) => /clavicle|arm|hand|finger/.test(id));
+  const running = (e) => /jog|run|sprint/i.test(e.tracks.name ?? "");
+  const kinds = [entries.filter((e) => !running(e)), entries.filter(running)];
+  const split = kinds.every((k) => k.length) ? (kinds[0].at(-1).speed + kinds[1][0].speed) / 2 : null;
+  let armRun = 0;
+  const pair = (speed, among = entries) => {
+    let k = among.findIndex((e) => e.speed >= speed);
+    if (k < 0) k = among.length - 1;
+    const b = among[k], a = k > 0 ? among[k - 1] : null;
+    return { a, b, w: a ? Math.min(1, Math.max(0, (speed - a.speed) / (b.speed - a.speed))) : 1 };
+  };
   return {
     clips: [...(idle ? [idle] : []), ...entries].map(({ tracks, speed, contact }) => ({ name: tracks.name, speed, contact })),
-    /** The pose after `dt` seconds at `speed` m/s (and the clips' weights). */
-    update(dt, speed) {
+    /**
+     * The pose after `dt` seconds at `speed` m/s (and the clips' weights). Given `stop` (a stop is
+     * asked: by default, a speed of 0.15 m/s or less), the gait ends its step: it slows its last
+     * steps to a halt at the next moment both feet are down (a run's, one), and says how fast the
+     * body goes meanwhile (`travel`, m/s), so the feet planted do not slide.
+     */
+    update(dt, asked, { stop = asked <= 0.15 } = {}) {
       idleTime = (idleTime + dt) % (idle?.tracks.duration ?? 1);
+      // The clips are chosen and blended by a speed that changes at most PACE m/s², so however
+      // quickly the walker's own speed changes, no gait gives way to another within a frame or two;
+      // stopping, the blend holds while the step ends and the idle comes in.
+      // Standing, the next move starts from its own speed, as a foot passes the other (feet closest
+      // together, as they stand), never mid-stride.
+      if (moving === 0) { pace = asked; phase = entries[0].passing[0] ?? 0; settled = false; plan = null; }
+      else if (!stop) pace += Math.max(-PACE * dt, Math.min(PACE * dt, asked - pace));
+      const speed = pace;
       // The moving clips either side of the speed (clamped to the fastest), and the idle below the slowest.
-      let k = entries.findIndex((e) => e.speed >= speed);
-      if (k < 0) k = entries.length - 1;
-      const b = entries[k], a = k > 0 ? entries[k - 1] : null;
-      const w = a ? Math.min(1, Math.max(0, (speed - a.speed) / (b.speed - a.speed))) : 1;
+      const { a, b, w } = pair(speed);
+      if (split != null) armRun = moving === 0 ? +(speed > split) : Math.min(1, Math.max(0, armRun + (speed > split ? dt : -dt) / ARMS));
       const cycle = a ? a.tracks.duration + (b.tracks.duration - a.tracks.duration) * w : b.tracks.duration;
-      // Below the slowest clip, it plays slower to keep its feet planted (down to 30 % of its pace),
-      // and idle fades in only under half its speed.
-      const rate = a ? 1 : Math.min(1, Math.max(0.3, speed / b.speed));
-      const moving = idle && !a ? Math.min(1, Math.max(0, (speed - 0.1) / (0.5 * b.speed - 0.1))) : 1;
-      if (moving > 0) phase = (phase + (dt / cycle) * rate) % 1;
+      // Moving or standing (above 0.15 m/s, or not): the idle comes and goes over STEP_IN seconds,
+      // whatever the speed on the way, and the clips always play at their own pace (below the
+      // slowest, its pace: the walker's speed is there only on the way in or out).
+      // A stop ends the step: at the next phase where a foot passes the other (the feet closest
+      // together, so the idle sets the passing foot down beside the other rather than dragging one
+      // up), reached as the phase slows from its own rate to a halt (evenly, over twice the time it
+      // would take; sooner, within SETTLE, by slowing later), the body slowing with it.
+      let travel = null;
+      if (!stop) { settled = false; plan = null; }
+      if (stop && !settled && moving > 0) {
+        if (!plan) {
+          const passes = (w < 0.5 && a ? a : b).passing;
+          const ahead = Math.min(...passes.map((p) => (((p - phase) % 1) + 1) % 1).map((d) => (d < 0.02 ? d + 0.5 : d)));
+          const time = Math.min(2 * ahead * cycle, Math.max(SETTLE, 1.3 * ahead * cycle));
+          // The rate from 1 / cycle as (1 - t / time)^n, which goes `ahead` in `time`.
+          plan = { time, t: 0, rate: 1 / cycle, n: time / (ahead * cycle) - 1, speed: Math.min(pace, Math.max(asked, 0)) };
+        }
+        plan.t += dt;
+        const rate = plan.rate * Math.max(0, 1 - plan.t / plan.time) ** plan.n;
+        phase = (phase + rate * dt) % 1;
+        // (Never faster than the body was going: a step hurried to its end does not push it on.)
+        travel = plan.speed * Math.min(1, rate * cycle);
+        if (plan.t >= plan.time) settled = true;
+      }
+      else if (moving > 0 && !(stop && settled)) phase = (phase + dt / cycle) % 1;
       const at = (e) => sample(e.tracks, ((phase + e.contact) % 1) * e.tracks.duration);
+      const downAt = (e) => {
+        const n = e.tracks.times.length, x = ((phase + e.contact) % 1) * n, f = Math.floor(x) % n, g = (f + 1) % n, u = x - Math.floor(x);
+        return Object.fromEntries(Object.entries(e.down).map(([id, d]) => [id, d[f] + (d[g] - d[f]) * u]));
+      };
+      moving = idle ? Math.min(1, Math.max(0, moving + (!stop ? dt : settled ? -dt : 0) / STEP_IN)) : 1;
       let pose = a ? blend(at(a), at(b), w) : at(b);
-      if (idle && !a && moving < 1) pose = blend(sample(idle.tracks, idleTime), pose, smooth(moving));
+      if (split != null) {
+        const of = (among) => { const p = pair(speed, among); return p.a ? blend(at(p.a), at(p.b), p.w) : at(p.b); };
+        const own = blend(of(kinds[0]), of(kinds[1]), smooth(armRun));
+        for (const id of arms) if (own.rotations[id]) pose.rotations[id] = own.rotations[id];
+      }
+      let contacts = a ? mixed(downAt(a), downAt(b), w) : downAt(b);
+      if (idle && moving < 1) {
+        pose = blend(sample(idle.tracks, idleTime), pose, smooth(moving));
+        contacts = mixed({ l_foot: 1, r_foot: 1 }, contacts, smooth(moving));
+      }
       const weights = {};
-      if (idle && !a) { weights[idle.tracks.name] = 1 - smooth(moving); weights[b.tracks.name] = smooth(moving); }
-      else { if (a) weights[a.tracks.name] = 1 - w; weights[b.tracks.name] = w; }
-      return { ...pose, weights };
+      if (a) weights[a.tracks.name] = (1 - w) * smooth(moving);
+      weights[b.tracks.name] = (a ? w : 1) * smooth(moving);
+      if (idle) weights[idle.tracks.name] = (weights[idle.tracks.name] ?? 0) + 1 - smooth(moving);
+      return { ...pose, weights, contacts, travel };
     },
   };
 }
@@ -98,6 +187,11 @@ function blend(p, q, w) {
 }
 
 const smooth = (x) => x * x * (3 - 2 * x);
+const STEP_IN = 0.3;   // seconds the idle takes to give way to moving, or back
+const PACE = 4;        // m/s², the most the speed the clips are blended by changes
+const ARMS = 0.4;      // seconds the arms take from a walk's to a run's, or back
+const SETTLE = 0.6;    // seconds a stop's last step takes at most
+const mixed = (p, q, w) => Object.fromEntries(Object.keys(p).map((id) => [id, p[id] + ((q[id] ?? p[id]) - p[id]) * w]));
 function nlerp(a, b, t) {
   const s = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3] < 0 ? -1 : 1;
   const q = a.map((v, k) => v + (s * b[k] - v) * t), l = Math.hypot(...q) || 1;

@@ -467,28 +467,160 @@ rest directions differ by joint placement and the spine's curve, not by pose (al
 MakeHuman pelvis tipped 20° and the body leant over). Theirs is the change from the source's
 standing pose, put on the target's rest, which already stands. The hips' offsets scale by hip
 height. Roll bones a clip leaves out
-are driven as above (`clipTracks` does it for any clip). `scripts/character-clips.mjs` bakes 14
+are driven as above (`clipTracks` does it for any clip). `scripts/character-clips.mjs` bakes 10
 clips of the Quaternius Universal Animation Library (CC0, `sources/quaternius/ual`) to
-`kit/character/clips/<id>.json` (idle, walk, jog, sprint, talk, dance, crouch, jump, punch, …),
-its standing pose being its idle's mean change by role (the trunk's and shoulders' without the
-trunk's turn about the vertical; the idle stands a little turned); the lab offers them as "CC0: <id>".
-The source's locomotion is slow and bounding next to people's (its walk takes 72 steps a minute
-with the knees bent through stance; its jog 103, the hips rising and falling 0.28 leg lengths, the
-trunk 29° forward; its sprint slower on the ground than its jog), so the script changes it toward
-typical values from the gait literature (Perry & Burnfield's Gait Analysis, Novacheck 1998 on
-running): steps a minute, the walking knee's curve, the trunk's lean, the arms' swing and the
-hips' sway. It plays the clips at a natural cadence (walk 115, jog 170, sprint 230), narrows the
-jog's hips and thighs to a jog's speed, scales the hips' rise and fall as gravity has it
-(1/rate²) and the trunk's and shoulders' lean, remaps the walks' knee flexion through percentiles
-of the typical curve, and scales the arms' swing and the elbows' bend (the formal walk keeps its
-held arms). The hips' sway is made from the legs, as the source's barely sways and its walk turns
-the wrong way: the hips drop on the side of the swinging leg and, walking, turn with the leg
-ahead. Walking, the hips then keep the lower ankle where it was; running, two-bone IK puts each
-foot down back on its path. On a MakeHuman body the gait goes about 0.9 m/s walking, 3.2 jogging
-and 6 sprinting.
+`kit/character/clips/<id>.json` (walk_formal, talk, dance, crouch, jump, punch, interact, hit,
+death, sit), its standing pose being its idle's mean change by role (the trunk's and shoulders'
+without the trunk's turn about the vertical; the idle stands a little turned); the lab offers
+them as "CC0: <id>". They go as the kit's own motions replace them (the idle, walk, jog and sprint
+already have, below). The source's formal walk is slow (72 steps a minute) with the knees bent
+through stance, so the script plays it at a natural cadence (115) and remaps its knee flexion to
+the typical walking knee's (Perry & Burnfield's Gait Analysis), the hips keeping the lower ankle
+where it was; its hips' sway is made from the legs (they drop on the side of the swinging leg and
+turn with the leg ahead), as the source's barely sways.
+
+### Locomotion
+
+The idle, walk, run and sprint are made, not stored: `kit/character/locomotion.js` builds role
+clips from key poses (`clips/motions.json`, 18 KB) that the local tools take from reference
+motion within a rule the tests check (`KEY_RULE`):
+
+- at most five key poses per motion and body;
+- only the 18 main joints (hips, three of the spine, neck, head, and each side's shoulder, upper
+  arm, forearm, thigh, shin and foot), each as its rotation from standing in degrees, in steps of
+  5°, and the hips' offset in whole centimetres; a standing pose of the same joints in the same
+  steps; the rest positions of those joints and of the hands, toes and middle fingers' roots;
+- everything else is the kit's own: the timing between poses (a periodic Catmull-Rom spline), the
+  right step (the left step's mirror), the idle's breath, the fingers at rest, the hands, and the
+  gaits made from these (below).
+
+Walk, run and sprint keep four poses of the left step an eighth of a cycle apart from the heel
+strike, each the mean of the left step and the mirrored right step over the reference's cycles,
+the head's mean nod and turn taken off (a level gaze); a motion also keeps its cycle's length and
+the hips' rise and fall (`bob`, whole centimetres), as the spline through poses an eighth of a
+cycle apart rounds a run's off. The idle keeps five poses through its loop. Three gaits are made
+from those at another stride and pace: a stroll (half the walk's stride at three quarters of its
+pace, so slow walking does not blend walking with standing), a brisk walk (1.3 times the walk's
+speed) and a jog (1.6 times, the run shortened), so walking turns into running over a narrow band
+of speeds as people's does; a shorter stride narrows only the thighs' and upper arms' swing, the
+shins and forearms keeping their bend and the feet their turn, the hips sinking so the lower ankle
+stays as high. Against the reference, measured on its own skeleton, the made gaits keep the knee's
+range, the thighs' and arms' swing, the trunk's lean, the elbows, the hips' rise and fall and sway
+within about a tenth.
+
+```js
+const model = await (await fetch(new URL("./character/clips/motions.json", kitUrl))).json();
+const clips = locomotionClips(model, character.semantic.body, { style: locomotionStyle(character.seed) });
+const walker = createWalker(THREE, object, character, clips);   // its idle among them
+```
+
+A style scales the arms' swing, the hips' bounce and sway, the trunk's lean and the pace
+(`STYLE`; `locomotionStyle(seed)` gives each character its own, within ±15 %, the pace ±6 %); the
+lab's sliders multiply it. The gait's poses now say where the feet are down (`contacts`, from each
+clip's stances: a foot within 3 cm of its lowest and not moving forward, blended as the clips are),
+and the planted feet follow that rather than the feet's height: from 0.6 to 5 m/s a planted foot
+moves under about 1 cm while down.
+
+### Smoothness
+
+Nothing in the gait may jump between frames (the lab's motion is checked frame by frame for
+"jolts": a bone's turn changing by more than a few degrees from one sixtieth of a second to the
+next):
+
+- the idle gives way to moving, and back, over 0.3 s whatever the speed on the way, and the clips
+  always play at their own pace; the speed the clips are chosen and blended by changes at most
+  4 m/s² (so no gait gives way to another within a frame or two however quickly the walker's own
+  speed changes), holding while the idle comes in on a stop;
+- the walker stops quickly (a walk at 10 m/s², a run braking at 3.5 m/s², then its last step: see Transitions);
+- a clip is raised as a whole by how far its soles go under (the 10th percentile of each frame's
+  lowest), so a stance foot lands on the ground; a foot's lift then starts softly (its rate grows
+  from none, the foot left up to 6 mm under at most: a near straight knee turns a lot for a little
+  height), toes bend by as much as it takes and follow it as a spring would (quickly on, more
+  slowly off), and a planted foot's lock eases in and out over 0.08 s and lets go by a run (fully
+  held to 2 m/s, none from 3.5 m/s: a run's short stance would jolt its knees in and out of it).
+
+Through the lab's demo the motions jolt less than the reference's own clips through the same walker.
+
+### Transitions
+
+By default the walker joins its motions continuously: its speed eases between them, stopping
+quickly, (the gait
+blending stroll, walk, jog, run and sprint in step), it leans forward as it speeds up and back as it
+slows (0.05 rad per m/s², eased; `pitchPose`, the head kept level), and given a `facing` aside
+while standing it turns toward it at up to 3.5 rad/s, easing in and out, in a few long steps as the
+reference does (90° in two, 180° in three, in under a second): it turns about a point between its
+feet and the foot on the side it turns to (that foot opens nearly on the spot, the other steps round
+it, the body going round with them, so it ends a little aside, as the reference's 30 cm for a turn
+about). Each step lifts the foot on an arc (7 cm, by a squared sine; across by a smootherstep from
+15 % to 85 % of the step, so neither end jolts the knee and the foot does not drag) over 0.3 s and
+plants it where, and turned as, the standing pose will put it once the body has turned up to 150°
+further on, so the feet lead the turn and finish with it; as far as keeps it 7 cm from the other
+foot and within 30 cm of its hip. A foot steps while it would be left turned more than 11° from
+where the body will stand, the feet taking turns, the one on the side turned toward first. A
+planted foot keeps its turn on the ground, pivoting with the body only past 46°. Standing, a foot
+8 cm from where the standing pose puts it steps there.
+
+A stop is immediate but ends its stride: a walk stops quickly (10 m/s²), a run brakes at 3.5 m/s²
+(4 m/s to a stand in about 1.2 s and 1.6 m, in three or four strides, the reference's 1.3 s), its
+stride and cadence falling through jog and walk rather than a run's legs stepping short; the arms
+go from a run's to a walk's over 0.4 s (between the two the legs pass in a stride, too quickly for
+the arms' bend). Under 1 m/s the gait slows to the next phase where the feet pass each other (from
+its own rate, within 0.6 s) and the body goes on as far as that step takes it (`travel`, which the
+walker's speed follows), then the idle comes in; a start begins at that passing phase too, so no
+foot is dragged or left behind. Near full reach the legs' IK eases toward straight (the last 2 % of their reach)
+rather than meeting it, so a stretched stance knee does not jitter. Side by side with the reference
+this read more naturally than the key-pose clips below, which stay for games that want them.
+
+
+Key-pose starts, stops and turns (`TRANSITIONS`: a turn on the spot of 90° and of 180°, a walk's and a
+run's start, stop and turn about) come from key poses under the same rule: each keeps the
+reference clip's first and last frame and three more between, picked greedily to lower the joints'
+squared distance from a spline through the kept ones (at least 0.15 s apart, counted four times
+over the window where the turn or travel happens), at times in twentieths of a second, with the
+transition's length, turn (steps of 5°), travel (whole centimetres) and window. `transitionClip`
+makes one (a clamped spline; `side: "right"` mirrors it, turning the other way), settled half a
+second after its window. Given them (`transitions`), `createWalker` plays them instead where they
+belong: from standing, a
+start toward the asked speed (a run's above 2.5 m/s), or a turn on the spot toward a `facing` 45°
+or more aside (180 beyond 137°); walking or running, a stop when asked to, or a turn about toward a
+facing behind. A turn turns the object over its window (eased); a start or stop lets the gait step
+at the speed it eases to and carries only the body above the hips (its lean and settling: five
+poses cannot hold a start's several steps), and ends once the speed is there. Each blends in over
+0.2 s and back to the gait over 0.3 s. The lab's "Gait demo" loops a game's asks through them, and
+"Beside the reference" shows each beside the reference clip it is made from.
+
+### Steering
+
+`createWalker` eases its own speed toward the asked one (`accel` 2.5 m/s² up, `decel` 4 down), so
+a character starts and stops rather than jumping between gaits; `walker.state` gives the speed,
+lean and look it has reached. It leans into turns as a body must, by the angle whose tangent is
+speed × turn rate over g (limited to 0.35 rad), pivoting on the ground under the hips
+(`bankPose`), and its head and chest look into the turn (a third of a second ahead, up to 0.6 rad)
+or `look` radians aside, shared out over the upper chest, neck and head (`lookPose`). Both change
+the pose before the feet are planted, so planted feet stay where they are.
+
+### Ground and clearance
+
+A clip made on another body meets this one's ground and limbs differently, so the kit mends each
+frame (an audit of all clips on both bodies, skinning the mesh, found standing clips 3–5 cm into
+the floor, toes 7 cm in at push-off, a body lying 5–8 cm under and hands 3–4 cm in the thighs):
+
+- `retargetClip` takes the feet, like the trunk, from the source's standing pose (aligned by rest
+  direction, flat feet pointed down where the toe joints sit differently), and keeps the source's
+  ground: of the feet, toes, knees, hands, hips, chest and head, the one nearest the ground in the
+  source is put as near it in the target, scaled.
+- `characterTracks` (and the walker each frame) then raises a body lying under the ground
+  (`raiseBody`, on about 400 points of its skin and garments), bends toes up whose soles go under
+  and lifts a foot still under by two-bone IK, the foot keeping its turn (`groundFeet`, on the
+  lowest points of each foot and toe), and turns an arm out from the shoulder until its hand is
+  clear of the thighs and pelvis (`clearArms`, capsules as thick as the skin at rest).
+
+After it, every clip's lowest point stays within about 1 cm of the ground on both bodies (a body
+lying down within 1.6 cm) and no hand goes more than 1 cm into the body.
 
 With local reference data, the lab also offers the reference clips by role on the repository's
-bodies ("Reference: <name>", and a gait over them), from `/local/anim/roles/` (written by the local
+bodies, a twin beside the character playing the reference motion its own is made from ("Beside
+the reference"), ("Reference: <name>", and a gait over them), from `/local/anim/roles/` (written by the local
 tools, never in the repository).
 
 The library rule changed with this (see [models](models.md#characters)): a character is any
@@ -528,7 +660,9 @@ then folding sections for the look (body, eyes, faces and their feature sliders)
 garment and its colour per slot), motion (test poses, the CC0 clips, the reference set's own clips,
 gait at a speed with planted feet) and the view (textured, clay, UV islands and checker, skin
 weights by bone, LOD, wireframe, skeleton, crowd); the recipe is shown as JSON. It speaks Chinese
-and English like the rest of the site.
+and English like the rest of the site. For checking motion frame by frame, the page's
+`characterLab.pause(true)` stops its clock and `characterLab.step(dt, n)` moves everything on n
+steps of dt seconds.
 
 ### In a game
 

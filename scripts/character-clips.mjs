@@ -1,9 +1,10 @@
 // Role clips for generated characters from the Quaternius Universal Animation Library (CC0,
 // sources/quaternius/ual): each clip sampled at 30 fps as world rotation changes from the rest
 // pose by humanoid role, with the rest positions of the roles, the hips' offsets and the source's
-// standing pose (its idle's mean change by role; docs/character-generator.md#animation). Its walks
-// bend the knees more than people do; their knee flexion is remapped to a natural walk's. `retargetClip` in kit/character/motion.js plays them on
-// any generated character.
+// standing pose (its idle's mean change by role; docs/character-generator.md#animation). Its idle,
+// walk, jog and sprint are no longer baked: the kit makes those from key poses. The formal walk
+// bends the knees more than people do; its knee flexion is remapped to a natural walk's.
+// `retargetClip` in kit/character/motion.js plays them on any generated character.
 //
 //   node scripts/character-clips.mjs        → site/runtime/kit/character/clips/<id>.json, index.json
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -22,45 +23,25 @@ const FPS = 30;
 
 // The source's clips: our id → its name (looping clips loop).
 const CLIPS = {
-  idle: "Idle_Loop", walk: "Walk_Loop", walk_formal: "Walk_Formal_Loop", jog: "Jog_Fwd_Loop", sprint: "Sprint_Loop",
+  walk_formal: "Walk_Formal_Loop",
   talk: "Idle_Talking_Loop", dance: "Dance_Loop", crouch_idle: "Crouch_Idle_Loop", jump: "Jump_Loop",
   punch: "Punch_Jab", interact: "Interact", hit: "Hit_Chest", death: "Death01", sit: "Sitting_Idle_Loop",
 };
 
-// Natural gaits, as the gait literature gives them (typical values, e.g. Perry & Burnfield, Gait
-// Analysis: Normal and Pathological Function; Novacheck 1998, The biomechanics of running, Gait &
-// Posture 7), and what each source clip is changed by to meet them (see `natural`):
-// - The source's walks take 72 steps a minute (a slow motion) with the knees bent 25-35° through
+// A natural walk, as the gait literature gives it (typical values, e.g. Perry & Burnfield, Gait
+// Analysis: Normal and Pathological Function), and what the source's formal walk is changed by to
+// meet it (see `natural`; the idle, walk, jog and sprint are kit/character/locomotion.js's now):
+// - The source walks at 72 steps a minute (a slow motion) with the knees bent 25-35° through
 //   stance and 88° in swing. Adults walk at 100-120 steps (115 here); the knee comes in near
 //   straight, bends about 20° taking the weight, straightens to about 5° and bends about 40° before
-//   swing, 60° in it: `knee` is that curve's 2nd, 25th, 50th, 75th and 98th percentiles.
-//   The hips rise so that the lower ankle stays where it was.
-// - Its jog bounds: 103 steps at 4.2 m/s, the hips rising and falling 0.28 leg lengths, the trunk
-//   29° forward. Recreational runners take 160-180 steps (170 here), their trunk 10-15° forward.
-//   Played 1.65 times as fast, its swings narrow to 0.6 (a jog's 3-4 m/s), the hips' rise and
-//   fall to 0.37 (1/1.65², as gravity would have it) and the lean to half.
-// - Its sprint takes 144 steps at 3.4 m/s, 37° forward; sprinters take 230-270. Played 1.6 times as
-//   fast, the hips' rise and fall to 0.4 (1/1.6²) and the lean to 0.7. (Their knees bend about as
-//   running knees do already.)
-//   Running, the legs reach for the ground instead: each foot down in the source is put back on
-//   its path there, narrowed as the swings are (two-bone IK; the hips lowered where a leg falls short).
-// - Arms (the clip's own measure scaled to them): `arms`, the upper arms' swing forward and back
-//   (degrees, 2nd to 98th percentile); `elbow`, the elbows' median bend. The source walks with its
-//   arms near still and bent (33° and 36°; a walk swings them about 35°, the elbows about 20°); its
-//   sprint's swing 74° (sprinters' about 110°). Its jog's (84°, bent 90°) are a runner's already,
-//   and the formal walk keeps its held arms.
+//   swing, 60° in it: `knee` is that curve's 2nd, 25th, 50th, 75th and 98th percentiles. The hips
+//   rise so that the lower ankle stays where it was. The formal walk keeps its held arms.
 // - The hips' sway, `sway`: their roll and turn about their mean (ranges, degrees), made from the
-//   legs, as the source's hips barely sway (0.2-7°) and its walk turns them the wrong way. The
-//   hips drop on the side of the swinging leg (roll with the feet's difference in height) and,
-//   walking, turn with the leg ahead (with the thighs' difference); running, their turn is left
-//   as it is. A walk rolls and turns them about ±4.5° each, running rolls about ±8°.
-// - `shoulders`: the shoulders' share of `lean` further scaled (a sprint's sit lower).
+//   legs, as the source's hips barely sway and turn the wrong way: the hips drop on the side of the
+//   swinging leg and turn with the leg ahead, about ±4.5° each. (`natural` also takes `swing`,
+//   `bob`, `lean`, `shoulders`, `arms` and `elbow`, and a "legs" ground, for faster gaits.)
 const WALK = { steps: 115, knee: [3, 8, 18, 40, 62], sway: [9, 9], ground: "hips" };
-const NATURAL = {
-  walk: { ...WALK, arms: 35, elbow: 20 }, walk_formal: WALK,
-  jog: { steps: 170, swing: 0.6, bob: 0.37, lean: 0.5, sway: [16, null], ground: "legs" },
-  sprint: { steps: 230, bob: 0.4, lean: 0.7, shoulders: 0.8, arms: 110, sway: [16, null], ground: "legs" },
-};
+const NATURAL = { walk_formal: WALK };
 const KNEE_QUANTILES = [0.02, 0.25, 0.5, 0.75, 0.98];
 
 // The source's bones (Unreal mannequin names) → humanoid roles.
@@ -121,7 +102,7 @@ function sampled(name, steps) {
 // idle makes on average (the spine's curve, the shoulders' set) for retargetClip to start from;
 // the trunk's and shoulders' without the trunk's turn about the vertical (the idle stands a little turned).
 const TRUNK = new Set(["hips", "spine", "chest", "upperChest", "neck", "head"]);
-const idle = sampled(CLIPS.idle);
+const idle = sampled("Idle_Loop");
 const means = Object.fromEntries(Object.entries(idle.rotations).map(([role, q]) => {
   const sum = [0, 0, 0, 0];
   for (let f = 0; f < idle.frames; f++) {

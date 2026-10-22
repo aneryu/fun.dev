@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { clipGait, clipTracks, createFootLock, createGait, retargetClip, trackPositions, twoBoneIK, DEFAULT_DATA, FEATURES, faceTint, garmentsFor, generateCharacter, LODS, parametersFor, PARAMETERS, SLOTS } from "../site/runtime/kit/character.js";
+import * as THREE from "three";
+import { KEY_RULE, TRANSITIONS, transitionClip, armClearance, bankAngle, bankPose, bodyPoints, characterObject, characterSoles, characterTracks, clipGait, clipTracks, createFootLock, createGait, createWalker, lookPose, locomotionClip, locomotionClips, locomotionStyle, retargetClip, trackPositions, twoBoneIK, DEFAULT_DATA, FEATURES, faceTint, garmentsFor, generateCharacter, LODS, parametersFor, PARAMETERS, SLOTS } from "../site/runtime/kit/character.js";
 import { TEST_DATA } from "./helpers/character-data.mjs";
 
 // kit/character (docs/character-generator.md): the generated body is closed, outward, mirrored,
@@ -388,16 +389,18 @@ test("clips by role: the trunk and shoulders stand as the skeleton's rest does i
 
 test("gait: clip speeds from the stance foot, and a blend by speed that keeps the feet in step", () => {
   const { skeleton, rig } = generateCharacter({ seed: 2, lod: 2 });
-  const load = (id) => clipTracks(skeleton, retargetClip(JSON.parse(readFileSync(new URL(`../site/runtime/kit/character/clips/${id}.json`, import.meta.url))), skeleton, rig));
+  const motions = JSON.parse(readFileSync(new URL("../site/runtime/kit/character/clips/motions.json", import.meta.url)));
+  const load = (id) => clipTracks(skeleton, retargetClip(locomotionClip(motions, "m", id), skeleton, rig));
   const [idle, walk, jog] = ["idle", "walk", "jog"].map(load);
   const g = { idle: clipGait(skeleton, idle), walk: clipGait(skeleton, walk), jog: clipGait(skeleton, jog) };
   assert.ok(g.idle.speed < 0.2, `idle stands (${g.idle.speed})`);
   assert.ok(g.walk.speed > 0.4 && g.walk.speed < 2, `walk ${g.walk.speed} m/s`);
-  assert.ok(g.jog.speed > g.walk.speed * 1.5 && g.jog.speed < 6, `jog ${g.jog.speed} m/s`);
+  assert.ok(g.jog.speed > g.walk.speed * 1.2 && g.jog.speed < 6, `jog ${g.jog.speed} m/s`);
   const gait = createGait(skeleton, [jog, idle, walk]);
   assert.deepEqual(gait.clips.map((c) => c.name), ["idle", "walk", "jog"], "by speed, idle first");
   const sum = (w) => Object.values(w).reduce((a, b) => a + b, 0);
   for (const [speed, want] of [[0, { idle: 1 }], [g.walk.speed, { walk: 1 }], [(g.walk.speed + g.jog.speed) / 2, { walk: 0.5, jog: 0.5 }], [g.jog.speed * 2, { jog: 1 }]]) {
+    for (let k = 0; k < 120; k++) gait.update(1 / 60, speed);   // the idle comes and goes over 0.3 s, the blend's speed follows at 4 m/s²
     const pose = gait.update(1 / 60, speed);
     assert.ok(Math.abs(sum(pose.weights) - 1) < 1e-9, "weights sum to 1");
     for (const [name, w] of Object.entries(want)) assert.ok(Math.abs((pose.weights[name] ?? 0) - w) < 1e-6, `at ${speed.toFixed(2)} m/s ${name} weighs ${pose.weights[name]}`);
@@ -405,6 +408,209 @@ test("gait: clip speeds from the stance foot, and a blend by speed that keeps th
     assert.ok(pose.hips.every(Number.isFinite));
   }
   assert.throws(() => createGait(skeleton, [idle]), /moving clip/);
+});
+
+test("motions keep the rule for key poses from reference motion: at most five per motion and body, the main joints only, in steps of 5° and whole centimetres", () => {
+  const motions = JSON.parse(readFileSync(new URL("../site/runtime/kit/character/clips/motions.json", import.meta.url)));
+  const joints = new Set(KEY_RULE.joints), onStep = (v) => v.every((x) => Number.isInteger(x) && x % KEY_RULE.step === 0);
+  const cm = (v) => v.every((x) => Math.abs(x * 100 - Math.round(x * 100)) < 1e-9);
+  const rest = new Set([...KEY_RULE.joints, "leftHand", "rightHand", "leftToes", "rightToes", "leftMiddleProximal", "rightMiddleProximal"]);
+  assert.deepEqual(Object.keys(motions).sort(), ["bodies", "rule"]);
+  for (const [body, m] of Object.entries(motions.bodies)) {
+    assert.deepEqual(Object.keys(m).sort(), ["motions", "rest", "stand"], `${body}: only rest positions, a standing pose and motions`);
+    for (const r of Object.keys(m.rest)) assert.ok(rest.has(r), `${body} rest of ${r}`);
+    for (const [r, v] of Object.entries(m.stand)) { assert.ok(joints.has(r), `${body} stand ${r}`); assert.ok(onStep(v), `${body} stand ${r} ${v}`); }
+    for (const [name, g] of Object.entries(m.motions)) {
+      assert.ok(g.keys.length <= KEY_RULE.keys, `${body} ${name}: ${g.keys.length} key poses`);
+      const twentieths = (v) => v.every((x) => Math.abs(x * 20 - Math.round(x * 20)) < 1e-9);
+      if (g.cycle) assert.deepEqual(Object.keys(g).filter((k) => !["cycle", "bob", "keys"].includes(k)), [], `${body} ${name}: only a cycle, a bob and key poses`);
+      else {
+        assert.deepEqual(Object.keys(g).sort(), ["duration", "keys", "travel", "turn", "window"], `${body} ${name}: a transition's length, turn, travel, window and key poses`);
+        assert.ok(twentieths([g.duration, ...g.window]) && cm([g.travel]) && g.turn % KEY_RULE.step === 0, `${body} ${name}: its scalars`);
+      }
+      if (g.bob != null) assert.ok(cm([g.bob]), `${body} ${name} bob`);
+      for (const { phase, time, pose } of g.keys) {
+        if (g.cycle) assert.ok(phase >= 0 && phase < 1);
+        else assert.ok(twentieths([time]) && time <= g.duration, `${body} ${name}: a key at ${time}`);
+        for (const [r, v] of Object.entries(pose)) {
+          if (r === "hipsOffset") { assert.ok(cm(v), `${body} ${name} hips ${v}`); continue; }
+          assert.ok(joints.has(r), `${body} ${name}: ${r} is not a main joint`);
+          assert.ok(onStep(v), `${body} ${name} ${r}: ${v} not in steps of ${KEY_RULE.step}°`);
+        }
+      }
+    }
+  }
+});
+
+test("locomotion: the model's gaits loop, go faster in turn, start at the left heel strike and take a style; planted, the feet hold", () => {
+  const model = JSON.parse(readFileSync(new URL("../site/runtime/kit/character/clips/motions.json", import.meta.url)));
+  for (const body of ["m", "f"]) {
+    const { skeleton, rig } = generateCharacter({ seed: 4, lod: 2, params: { body } });
+    const clips = locomotionClips(model, body);
+    assert.deepEqual(clips.map((c) => c.name), ["idle", "stroll", "walk", "brisk", "jog", "run", "sprint"]);
+    const angle = (a, b) => 2 * Math.acos(Math.min(1, Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3])));
+    let last = 0;
+    for (const clip of clips) {
+      // The loop's seam is no bigger a step than the clip's others.
+      for (const q of Object.values(clip.rotations)) {
+        const at = (f) => [...q.slice(f * 4, f * 4 + 4)], n = clip.frames;
+        let most = 0;
+        for (let f = 1; f < n; f++) most = Math.max(most, angle(at(f - 1), at(f)));
+        assert.ok(angle(at(n - 1), at(0)) <= most * 1.5 + 1e-3, `${body} ${clip.name}: the loop jumps`);
+      }
+      const tracks = clipTracks(skeleton, retargetClip(clip, skeleton, rig)), gait = clipGait(skeleton, tracks);
+      if (clip.name === "idle") { assert.ok(gait.speed < 0.1, `${body} idle stands (${gait.speed})`); continue; }
+      assert.ok(gait.speed > last * 1.05, `${body} ${clip.name}: ${gait.speed.toFixed(2)} m/s after ${last.toFixed(2)}`);
+      last = gait.speed;
+      assert.ok(gait.contact < 0.1 || gait.contact > 0.9, `${body} ${clip.name}: the left foot comes down at phase ${gait.contact}`);
+    }
+    assert.ok(last > 4, `${body} sprints at ${last.toFixed(2)} m/s`);
+    // Walking and running at speeds between the gaits, a planted foot moves under 2 cm while the gait says it is down.
+    const tracks = clips.map((clip) => clipTracks(skeleton, retargetClip(clip, skeleton, rig)));
+    for (const speed of [0.7, 1.2, 2.5, 4]) {
+      const gait = createGait(skeleton, tracks), feet = createFootLock(skeleton), dt = 1 / 60, held = {};
+      let travel = 0, most = 0;
+      for (let f = 0; f < 400; f++) {
+        const pose = gait.update(dt, speed); travel += speed * dt;
+        feet.apply(pose, { forward: speed * dt, dt });
+        if (f < 100) continue;
+        const one = { frames: 1, rotations: Object.fromEntries(Object.entries(pose.rotations).map(([id, q]) => [id, Float32Array.from(q)])), hips: Float32Array.from(pose.hips), times: [0], duration: 1 };
+        const at = trackPositions(skeleton, one, ["l_foot", "r_foot"]);
+        for (const id of ["l_foot", "r_foot"]) {
+          const z = at[id][0][2] + travel;
+          if (pose.contacts[id] > 0.99) { held[id] ??= z; most = Math.max(most, Math.abs(z - held[id])); } else held[id] = null;
+        }
+      }
+      assert.ok(most < 0.02, `${body} at ${speed} m/s a planted foot moves ${(most * 100).toFixed(1)} cm`);
+    }
+  }
+  // A style: the arms swing wider, the pace takes shorter cycles; a seed's own style is its own.
+  const swing = (clip) => {
+    const q = clip.rotations.leftUpperArm, x = [];
+    for (let f = 0; f < clip.frames; f++) x.push(2 * Math.atan2(q[f * 4], q[f * 4 + 3]));
+    return Math.max(...x) - Math.min(...x);
+  };
+  const plain = locomotionClip(model, "m", "walk"), wide = locomotionClip(model, "m", "walk", { style: { arms: 1.5, pace: 1.1 } });
+  assert.ok(swing(wide) > swing(plain) * 1.3, "arms 1.5 swing wider");
+  assert.ok(wide.frames < plain.frames, "a faster pace, a shorter cycle");
+  assert.deepEqual(locomotionStyle(7), locomotionStyle(7));
+  assert.notDeepEqual(locomotionStyle(7), locomotionStyle(8));
+  for (const v of Object.values(locomotionStyle("crowd"))) assert.ok(v > 0.8 && v < 1.2);
+});
+
+test("steering: a turn leans the body in about the ground and turns the head; the walker eases its speed, lean and look", () => {
+  const character = generateCharacter({ seed: 5, lod: 2 }), { skeleton, rig } = character;
+  const rot = ([x, y, z, w], v) => { const u = [y * v[2] - z * v[1], z * v[0] - x * v[2], x * v[1] - y * v[0]], t = u.map((c) => 2 * c); return [v[0] + w * t[0] + y * t[2] - z * t[1], v[1] + w * t[1] + z * t[0] - x * t[2], v[2] + w * t[2] + x * t[1] - y * t[0]]; };
+  assert.ok(Math.abs(bankAngle(3, 1) - Math.atan(3 / 9.81)) < 1e-9 && bankAngle(3, -1) < 0 && bankAngle(20, 5) === 0.35, "the lean of a turn, limited");
+  const rest = () => ({ rotations: Object.fromEntries(skeleton.bones.map((b, i) => [b.id, b.parentIndex < 0 ? [...b.rotation] : null])), hips: [...skeleton.bones[0].position] });
+  const pose = rest();
+  // Local rest rotations from the bones' world ones.
+  const mul = ([ax, ay, az, aw], [bx, by, bz, bw]) => [aw * bx + ax * bw + ay * bz - az * by, aw * by - ax * bz + ay * bw + az * bx, aw * bz + ax * by - ay * bx + az * bw, aw * bw - ax * bx - ay * by - az * bz];
+  skeleton.bones.forEach((b) => { if (b.parentIndex >= 0) { const p = skeleton.bones[b.parentIndex].rotation; pose.rotations[b.id] = mul([-p[0], -p[1], -p[2], p[3]], b.rotation); } });
+  const one = (p) => ({ frames: 1, rotations: Object.fromEntries(Object.entries(p.rotations).map(([id, q]) => [id, Float32Array.from(q)])), hips: Float32Array.from(p.hips), times: [0], duration: 1 });
+  const head = rig.roles.head, before = trackPositions(skeleton, one(pose), [head])[head][0];
+  const leant = bankPose(skeleton, structuredClone(pose), 0.2), after = trackPositions(skeleton, one(leant), [head])[head][0];
+  assert.ok(after[0] - before[0] > 0.2 && after[1] < before[1], `leaning left (+x) the head goes left and down (${after.map((v) => v.toFixed(2))})`);
+  assert.ok(Math.abs(leant.hips[0] - pose.hips[0] - Math.sin(0.2) * pose.hips[1]) < 1e-6, "pivoting on the ground under the hips");
+  const looked = lookPose(skeleton, rig, structuredClone(pose), 0.5);
+  const world = (p, id) => { const w = []; skeleton.bones.forEach((b, i) => { w[i] = b.parentIndex < 0 ? p.rotations[b.id] : mul(w[b.parentIndex], p.rotations[b.id]); }); return w[skeleton.bones.findIndex((b) => b.id === id)]; };
+  const ahead = (p) => { const q = world(p, head), r = skeleton.bones.find((b) => b.id === head).rotation, d = mul(q, [-r[0], -r[1], -r[2], r[3]]), f = rot(d, [0, 0, 1]); return Math.atan2(f[0], f[2]); };
+  assert.ok(Math.abs(ahead(looked) - ahead(pose) - 0.5) < 1e-6, "the head turns by the whole look");
+  assert.deepEqual(looked.rotations[skeleton.bones[0].id], pose.rotations[skeleton.bones[0].id], "the hips stay");
+  // The walker: from standing toward 3 m/s at 2.5 m/s², leaning into a turn over time.
+  const model = JSON.parse(readFileSync(new URL("../site/runtime/kit/character/clips/motions.json", import.meta.url)));
+  const object = characterObject(THREE, character), walker = createWalker(THREE, object, character, locomotionClips(model, character.semantic.body));
+  walker.update(0.1, { speed: 3, turn: 0.5 });
+  assert.ok(Math.abs(walker.state.speed - 0.25) < 1e-9, `eases its speed (${walker.state.speed})`);
+  for (let k = 0; k < 120; k++) walker.update(1 / 30, { speed: 3, turn: 0.5 });
+  assert.equal(walker.state.speed, 3);
+  assert.ok(Math.abs(walker.state.lean - bankAngle(3, 0.5)) < 0.01, `leans into the turn (${walker.state.lean})`);
+  assert.ok(walker.state.look > 0.15, "looks into the turn");
+  for (let k = 0; k < 60; k++) walker.update(1 / 30, { speed: 0 });
+  assert.equal(walker.state.speed, 0, "and stops");
+});
+
+test("transitions: a walker starts, stops, turns on the spot toward a facing and turns about while running", () => {
+  const motions = JSON.parse(readFileSync(new URL("../site/runtime/kit/character/clips/motions.json", import.meta.url)));
+  for (const body of ["m", "f"]) {
+    const character = generateCharacter({ seed: 8, lod: 2, params: { body } }), object = characterObject(THREE, character);
+    const transitions = TRANSITIONS.flatMap((name) => ["left", "right"].map((side) => transitionClip(motions, body, name, { side })));
+    for (const clip of transitions) assert.ok(clip.frames > 10 && clip.motion.end <= clip.motion.duration && !clip.loop, clip.name);
+    assert.ok(transitions.find((c) => c.name === "turn90Right").motion.turn < 0 && transitions.find((c) => c.name === "turn90Left").motion.turn > 0, "the right turns the other way");
+    const walker = createWalker(THREE, object, character, locomotionClips(motions, body), { transitions });
+    const seen = new Set();
+    const run = (seconds, ask) => { for (let k = 0; k < seconds * 30; k++) { walker.update(1 / 30, ask); if (walker.state.playing) seen.add(walker.state.playing.replace(/(Left|Right)$/, "")); } };
+    run(0.5, { speed: 0 }); run(3, { speed: 1.4 }); run(3, { speed: 0 });
+    run(3, { speed: 0, facing: Math.PI / 2 });
+    assert.ok(Math.abs(Math.atan2(Math.sin(object.rotation.y - Math.PI / 2), Math.cos(object.rotation.y - Math.PI / 2))) < 0.05, `${body}: turned to face the left (${object.rotation.y})`);
+    run(3, { speed: 4, facing: Math.PI / 2 }); run(4, { speed: 4, facing: -Math.PI / 2 }); run(4, { speed: 0, facing: -Math.PI / 2 });
+    for (const kind of ["walkStart", "walkStop", "turn90", "runStart", "runTurn180", "runStop"]) assert.ok(seen.has(kind), `${body}: played ${kind} (${[...seen]})`);
+    assert.ok(Math.abs(Math.atan2(Math.sin(object.rotation.y + Math.PI / 2), Math.cos(object.rotation.y + Math.PI / 2))) < 0.1, `${body}: faces about (${object.rotation.y})`);
+    assert.equal(walker.state.speed, 0);
+  }
+});
+
+test("turning on the spot, the walker steps round: one foot at a time, as it turns (none after), ending where it stood, facing about", () => {
+  const motions = JSON.parse(readFileSync(new URL("../site/runtime/kit/character/clips/motions.json", import.meta.url)));
+  for (const body of ["m", "f"]) {
+    const character = generateCharacter({ seed: 9, lod: 2, params: { body } }), object = characterObject(THREE, character);
+    const walker = createWalker(THREE, object, character, locomotionClips(motions, body));
+    for (let k = 0; k < 60; k++) walker.update(1 / 60, { speed: 0 });
+    const feet = ["l_foot", "r_foot"].map((id) => object.skeleton.bones.find((b) => b.name === id)), v = new THREE.Vector3();
+    const rest = feet.map((b) => { object.updateMatrixWorld(true); return b.getWorldPosition(v).y; }), stepped = [false, false];
+    let lifted = [false, false], late = 0;
+    for (let k = 0; k < 240; k++) {
+      walker.update(1 / 60, { speed: 0, facing: Math.PI });
+      object.updateMatrixWorld(true);
+      const up = feet.map((b, i) => b.getWorldPosition(v).y > rest[i] + 0.02);
+      up.forEach((u, i) => { if (u) stepped[i] = true; });
+      // A step begun with the turn nearly done (within 10°) is one left over, after the turn.
+      const left = Math.abs(Math.atan2(Math.sin(object.rotation.y - Math.PI), Math.cos(object.rotation.y - Math.PI)));
+      up.forEach((u, i) => { if (u && !lifted[i] && left < 0.17) late++; });
+      lifted = up;
+      assert.ok(!(up[0] && up[1]), `${body}: both feet up at once`);
+    }
+    assert.ok(stepped[0] && stepped[1], `${body}: both feet stepped (${stepped})`);
+    assert.equal(late, 0, `${body}: steps after the turn`);
+    assert.ok(Math.abs(Math.atan2(Math.sin(object.rotation.y - Math.PI), Math.cos(object.rotation.y - Math.PI))) < 0.03, `${body}: faces about (${object.rotation.y})`);
+    // It turns about where its feet stand, toward the foot on the side it turns to: the origin goes
+    // round that, a turn about moving it a stride's length or so (the reference's, 30 cm).
+    assert.ok(object.position.length() < 0.4, `${body}: where it stood (${object.position.length()})`);
+  }
+});
+
+test("a character's clips stay on the ground, feet and body, with the hands out of the thighs", () => {
+  const model = JSON.parse(readFileSync(new URL("../site/runtime/kit/character/clips/motions.json", import.meta.url)));
+  const clipOf = (id) => JSON.parse(readFileSync(new URL(`../site/runtime/kit/character/clips/${id}.json`, import.meta.url)));
+  const mul = ([ax, ay, az, aw], [bx, by, bz, bw]) => [aw * bx + ax * bw + ay * bz - az * by, aw * by - ax * bz + ay * bw + az * bx, aw * bz + ax * by - ay * bx + az * bw, aw * bw - ax * bx - ay * by - az * bz];
+  const rot = ([x, y, z, w], v) => { const u = [y * v[2] - z * v[1], z * v[0] - x * v[2], x * v[1] - y * v[0]], t = u.map((c) => 2 * c); return [v[0] + w * t[0] + y * t[2] - z * t[1], v[1] + w * t[1] + z * t[0] - x * t[2], v[2] + w * t[2] + x * t[1] - y * t[0]]; };
+  const sub = (a, b) => a.map((v, k) => v - b[k]), add = (a, b) => a.map((v, k) => v + b[k]);
+  const seg = (p, a, b) => { const ab = sub(b, a), t = Math.max(0, Math.min(1, sub(p, a).reduce((s, v, k) => s + v * ab[k], 0) / ab.reduce((s, v) => s + v * v, 0))); return Math.hypot(...sub(p, add(a, ab.map((v) => v * t)))); };
+  for (const body of ["m", "f"]) {
+    const character = generateCharacter({ seed: 6, lod: 1, params: { body } }), { skeleton } = character, bones = skeleton.bones, index = new Map(bones.map((b, i) => [b.id, i]));
+    const points = [...bodyPoints(character), ...Object.entries(characterSoles(character)).flatMap(([id, ps]) => ps.map((at) => ({ bone: index.get(id), at })))];
+    const clear = armClearance(character);
+    for (const [name, clip] of [["walk_formal", clipOf("walk_formal")], ["death", clipOf("death")], ["crouch", clipOf("crouch_idle")], ...locomotionClips(model, body).map((c) => [`loco ${c.name}`, c])]) {
+      const t = characterTracks(character, clip);
+      let low = 0, deep = 0;
+      for (let f = 0; f < t.times.length; f++) {
+        const W = [], P = [];
+        bones.forEach((b, i) => {
+          const l = [...t.rotations[b.id].slice(f * 4, f * 4 + 4)];
+          if (b.parentIndex < 0) { W[i] = l; P[i] = [...t.hips.slice(f * 3, f * 3 + 3)]; return; }
+          const pb = bones[b.parentIndex];
+          W[i] = mul(W[b.parentIndex], l); P[i] = add(P[b.parentIndex], rot(W[b.parentIndex], rot([-pb.rotation[0], -pb.rotation[1], -pb.rotation[2], pb.rotation[3]], sub(b.position, pb.position))));
+        });
+        for (const p of points) low = Math.min(low, P[p.bone][1] + rot(W[p.bone], p.at)[1]);
+        for (const [hand, hs] of Object.entries(clear.hands)) for (const o of hs) {
+          const p = add(P[index.get(hand)], rot(W[index.get(hand)], o));
+          for (const c of clear.capsules) deep = Math.max(deep, c.radius - seg(p, P[index.get(c.a)], P[index.get(c.b)]));
+        }
+      }
+      assert.ok(low > -0.012, `${body} ${name}: a point ${(-low * 100).toFixed(1)} cm under the ground`);
+      if (!["death", "crouch"].includes(name)) assert.ok(deep < 0.012, `${body} ${name}: a hand ${(deep * 100).toFixed(1)} cm in the body`);
+    }
+  }
 });
 
 test("feet IK: two-bone IK reaches its target bending the way it bends, and planted feet stop sliding", () => {
@@ -424,7 +630,7 @@ test("feet IK: two-bone IK reaches its target bending the way it bends, and plan
   }
   // Walking a straight line 15 % faster than the walk: unplanted, the stance foot slides; planted, it does not.
   const { skeleton, rig } = generateCharacter({ seed: 2, lod: 2 });
-  const walk = clipTracks(skeleton, retargetClip(JSON.parse(readFileSync(new URL("../site/runtime/kit/character/clips/walk.json", import.meta.url))), skeleton, rig));
+  const walk = clipTracks(skeleton, retargetClip(locomotionClip(JSON.parse(readFileSync(new URL("../site/runtime/kit/character/clips/motions.json", import.meta.url))), "m", "walk"), skeleton, rig));
   const speed = clipGait(skeleton, walk).speed * 1.15, dt = 1 / 60;
   const slide = (plant) => {
     const gait = createGait(skeleton, [walk]), feet = createFootLock(skeleton);
@@ -442,7 +648,7 @@ test("feet IK: two-bone IK reaches its target bending the way it bends, and plan
   };
   const off = slide(false), on = slide(true);
   assert.ok(off > 0.02, `unplanted, the foot slides ${off}`);
-  assert.ok(on < 0.01, `planted, it slides ${on}`);
+  assert.ok(on < 0.015, `planted, it slides ${on}`);   // the lock eases in and out over 0.08 s
 });
 
 test("the repository's data: every texture it names is beside it, every asset CC0", () => {

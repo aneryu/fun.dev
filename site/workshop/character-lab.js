@@ -6,7 +6,7 @@ import "./character-i18n.js";
 import * as THREE from "/runtime/three.js";
 import { OrbitControls } from "/runtime/addons/OrbitControls.js";
 import { initLocale, onLocaleChange, t } from "../i18n.js";
-import { applyTextures, characterObject, clipToThree, createWalker, DEFAULT_DATA, faceTint, FEATURES, generateCharacter, parametersFor, SLOTS } from "/runtime/kit/character.js";
+import { applyTextures, characterObject, clipToThree, createWalker, DEFAULT_DATA, faceTint, FEATURES, generateCharacter, locomotionClip, locomotionGaits, locomotionStyle, parametersFor, SLOTS, STYLE, TRANSITIONS, transitionClip } from "/runtime/kit/character.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("canvas");
@@ -189,7 +189,8 @@ const POSES = {
   reach: { l_clavicle: [0, 0, 0.3], l_upperarm: [0, 0, 1.2], l_forearm: [0.3, 0, 0], l_thigh: [0, 0, 0.5], spine2: [0, 0.3, 0] },
   twist: { l_forearm: [0, 1.2, 0], l_hand: [0, 0.6, 0], head: [0, 0.7, 0], spine2: [0, 0.4, 0], spine3: [0, 0.3, 0] },
 };
-// Clips: the repository's role clips (CC0, scripts/character-clips.mjs), "cc0:<id>"; with the
+// Clips: the procedural gait's, made from the locomotion model in the character's style times the
+// panel's, "loco:<gait>"; the repository's role clips (CC0, scripts/character-clips.mjs), "cc0:<id>"; with the
 // reference set, its own clips by bone, "ref:<name>" (/local/anim/<body>/<name>.json); on other
 // sets, when served locally, the reference clips by role, "refrole:<name>" (/local/anim/roles/).
 const fetched = new Map();
@@ -197,17 +198,26 @@ const fetchJSON = (url) => { if (!fetched.has(url)) fetched.set(url, fetch(url).
 const roleIndex = fetchJSON("/runtime/kit/character/clips/index.json").catch(() => ({}));
 const localIndex = local ? fetchJSON("/local/anim/index.json").catch(() => ({})) : Promise.resolve({});
 const localRoles = local ? fetchJSON("/local/anim/roles/index.json").catch(() => ({})) : Promise.resolve({});
+const locomotion = fetchJSON("/runtime/kit/character/clips/motions.json").catch(() => null);
+const style = { ...STYLE };
+const styleOf = (character) => { const own = locomotionStyle(character.seed); return Object.fromEntries(Object.keys(STYLE).map((k) => [k, own[k] * style[k]])); };
 const clipFor = (character, pose) => {
   const [kind, name] = pose.split(":"), body = character.semantic.body;
+  if (kind === "loco") return locomotion.then((model) => (TRANSITIONS.includes(name) ? transitionClip(model, body, name) : locomotionClip(model, body, name, { style: styleOf(character) })));
   if (kind === "ref") return fetchJSON(`/local/anim/${body}/${name}.json`);
   if (kind === "refrole") return fetchJSON(`/local/anim/roles/${body}/${name}.json`);
   return fetchJSON(`/runtime/kit/character/clips/${name}.json`);
 };
 async function listClips() {
   const select = $("pose");
-  for (const option of [...select.options]) if (option.value.includes(":") || option.value === "gaitref") option.remove();
-  const roles = await roleIndex, refs = await localIndex, refRoles = await localRoles;
+  for (const option of [...select.options]) if (option.value.includes(":") || option.value === "gaitref" || option.value === "gaitdemo") option.remove();
+  const roles = await roleIndex, refs = await localIndex, refRoles = await localRoles, model = await locomotion;
   const refNames = (index) => [...new Set(Object.values(index).flat())];
+  if (model && state.data !== "reference") {
+    select.add(new Option(t("chPoseDemo"), "gaitdemo"));
+    for (const { name } of locomotionGaits(model, "m")) select.add(new Option(`${t("chClipProc")} · ${name}`, `loco:${name}`));
+    for (const name of TRANSITIONS) select.add(new Option(`${t("chClipProc")} · ${name}`, `loco:${name}`));
+  }
   if (state.data !== "reference" && refNames(refRoles).length) select.add(new Option(t("chPoseGaitRef"), "gaitref"));
   for (const id of Object.keys(roles)) select.add(new Option(`${t("chClipCC0")} · ${id}`, `cc0:${id}`));
   if (state.data === "reference") for (const name of refNames(refs)) select.add(new Option(`${t("chClipLocal")} · ${name}`, `ref:${name}`));
@@ -231,37 +241,59 @@ function playClip(object, character, pose, phase) {
   }).catch((error) => showError(error.message));
 }
 // Gait round a circle (crowd members a little faster or slower, on wider circles): the reference
-// set's own locomotion clips, else the repository's, or ("gaitref") the reference clips by role.
-const GAIT = { reference: ["ref:idle", "ref:walk", "ref:run", "ref:sprint"], cc0: ["cc0:idle", "cc0:walk", "cc0:jog", "cc0:sprint"],
+// set's own locomotion clips, else the procedural gait's (its idle among them), or
+// ("gaitref") the reference clips by role.
+const GAIT = { reference: ["ref:idle", "ref:walk", "ref:run", "ref:sprint"], cc0: ["loco:*"],
   gaitref: ["refrole:idle", "refrole:walk", "refrole:run", "refrole:sprint"] };
-const isGait = (pose) => pose === "gait" || pose === "gaitref";
-async function startGait(object, character, k) {
-  const clips = await Promise.all(GAIT[state.pose === "gaitref" ? "gaitref" : state.data].map((pose) => clipFor(character, pose)));
+const isGait = (pose) => ["gait", "gaitref", "gaitdemo", "gaitrefdemo"].includes(pose);
+const referenceGait = (pose) => pose === "gaitref" || pose === "gaitrefdemo";
+async function startGait(object, character, k, pose = state.pose) {
+  const model = await locomotion, names = GAIT[referenceGait(pose) ? "gaitref" : state.data]
+    .flatMap((pose) => (pose === "loco:*" ? (model ? locomotionGaits(model, character.semantic.body).map((g) => `loco:${g.name}`) : ["cc0:walk_formal"]) : [pose]));
+  const clips = await Promise.all(names.map((pose) => clipFor(character, pose)));
+  const transitions = model && $("clips-transitions").checked && !referenceGait(pose) && state.data !== "reference" ? TRANSITIONS.flatMap((name) => ["left", "right"].map((side) => transitionClip(model, character.semantic.body, name, { side }))) : [];
   if (!object.parent) return;
   const radius = 3 + (k % 4) * 0.9;
-  walkers.set(object, { walker: createWalker(THREE, object, character, clips), radius, scale: 1 + ((k * 0.37) % 1 - 0.5) * 0.3 });
-  object.position.set(0, 0, 0);
-  object.rotation.y = k * 0.9;
+  walkers.set(object, { walker: createWalker(THREE, object, character, clips, { transitions }), radius, scale: 1 + ((k * 0.37) % 1 - 0.5) * 0.3, demo: pose === "gaitdemo" || pose === "gaitrefdemo" ? { t: $("compare").checked ? 0 : (k * 1.7) % DEMO_LENGTH, heading: 0 } : null });
+  // Beside the reference, each keeps its place, facing ahead; else from the centre, each its own way.
+  if ($("compare").checked && (object === current?.object || object === twin?.object)) { object.position.set(object === twin?.object ? 0.55 : -0.55, 0, 0); object.rotation.y = 0; }
+  else { object.position.set(0, 0, 0); object.rotation.y = k * 0.9; }
 }
+// The transitions' demo: a loop of asks a game might make (speed and facing, from the loop's start).
+const DEMO = [[0, 0, 0], [2, 1.4, 0], [8, 0, 0], [11, 0, Math.PI / 2], [14, 4, Math.PI / 2], [19, 4, -Math.PI / 2], [24, 0, -Math.PI / 2], [27, 0, 0]], DEMO_LENGTH = 30;
 function stepWalkers(dt) {
   const speed = Number($("speed").value);
   grid.visible = walkers.size > 0;
   for (const [object, w] of walkers) {
     const v = speed * w.scale, before = object.position.clone();
-    w.walker.update(dt, { speed: v, turn: v / w.radius });
+    // Beside the reference, both stay where they stand (on a treadmill, as it were), and the
+    // circle's turn is left out; a demo's turns stay.
+    const still = $("compare").checked && (object === current?.object || object === twin?.object), at = still ? object.position.clone() : null;
+    if (w.demo) {
+      w.demo.t = (w.demo.t + dt) % DEMO_LENGTH;
+      const [, ask, facing] = [...DEMO].reverse().find(([time]) => time <= w.demo.t);
+      w.walker.update(dt, { speed: ask * (still ? 1 : w.scale), facing });
+    }
+    // Round its circle at the speed it has reached (it eases toward the slider's).
+    else w.walker.update(dt, { speed: still ? speed : v, turn: still ? 0 : w.walker.state.speed / w.radius });
+    if (still) { object.position.copy(at); continue; }
     // The camera follows the current character.
     if (object === current?.object) { const d = object.position.clone().sub(before); camera.position.add(d); controls.target.add(d); }
   }
 }
 
-function applyPose(object, character = current.character, phase = 0, k = 0) {
+function applyPose(object, character = current.character, phase = 0, k = 0, name = state.pose) {
   mixers.get(object)?.stopAllAction();
   mixers.delete(object);
   walkers.delete(object);
-  $("gait-row").hidden = $("plant-row").hidden = !isGait(state.pose);
-  if (isGait(state.pose)) { startGait(object, character, k); return; }
-  if (state.pose.includes(":")) { playClip(object, character, state.pose, phase); return; }
-  const bones = object.skeleton.bones, pose = POSES[state.pose];
+  if (name === state.pose) {
+    $("gait-row").hidden = $("plant-row").hidden = !isGait(name);
+    $("style-rows").hidden = !(name.startsWith("loco:") || (name === "gait" && state.data !== "reference"));
+    $("gait-row").hidden = $("plant-row").hidden = !isGait(name) || name === "gaitdemo";
+  }
+  if (isGait(name)) { startGait(object, character, k, name); return; }
+  if (name.includes(":")) { playClip(object, character, name, phase); return; }
+  const bones = object.skeleton.bones, pose = POSES[name];
   bones.forEach((bone, i) => bone.quaternion.copy(object.userData.rest[i]));
   const e = new THREE.Euler(), q = new THREE.Quaternion();
   for (const [id, [x, y, z]] of Object.entries(pose)) {
@@ -309,6 +341,29 @@ function showError(message) { $("error").textContent = message; $("error").hidde
 let lastStats = null;
 function showStats() { if (lastStats) $("stats").textContent = t("chStats", lastStats); }
 
+// Side by side with the reference (local only): a twin of the character plays the reference
+// motion the current one is made from (the procedural gait's against the reference clips by role).
+let twin = null;
+const twinPose = (pose) => {
+  if (pose === "gait") return "gaitref";
+  if (pose === "gaitdemo") return "gaitrefdemo";
+  const [kind, name] = pose.split(":");
+  const reference = { stroll: "walk", brisk: "walk", jog: "run", turn90: "idle_turn_l_-90", turn180: "idle_turn_l_-180", walkStart: "wstart_l_0", walkStop: "wstop_l_0",
+    walkTurn180: "walk_turn_180_l", runStart: "rstart_l_0", runStop: "rstop_l", runTurn180: "run_turn_180_l" };
+  return kind === "loco" ? `refrole:${reference[name] ?? name}` : pose;
+};
+function placeTwin() {
+  if (twin) { dispose(twin.object); twin = null; }
+  if (!$("compare").checked || !current) return;
+  twin = make(seedValue(state.seed), state.params);
+  scene.add(twin.object);
+  applyView(twin.object, twin.character);
+  current.object.position.set(-0.55, 0, 0);
+  twin.object.position.set(0.55, 0, 0);
+  current.object.rotation.y = twin.object.rotation.y = 0;
+  applyPose(twin.object, twin.character, 0, 7, twinPose(state.pose));
+}
+
 function rebuild() {
   const seed = seedValue(state.seed);
   try {
@@ -330,6 +385,7 @@ function rebuild() {
     applyPose(object);
     if ($("crowd").checked) object.position.set(-2.25, 0, 0);   // the grid's first place
     if ($("bones").checked) { helper = new THREE.SkeletonHelper(object); scene.add(helper); }
+    placeTwin();
     syncPanel(character.semantic);
     const others = buildCrowd(seed), m = character.mesh;
     lastStats = { triangles: m.indices.length / 3, bones: character.skeleton.bones.length, ms: ms.toFixed(1), height: character.stature.toFixed(2), crowd: others ? others + m.indices.length / 3 : 0 };
@@ -362,10 +418,17 @@ $("weight-bone").addEventListener("change", (e) => { state.weightBone = e.target
 $("pose").addEventListener("change", (e) => {
   state.pose = e.target.value;
   if (current) { applyPose(current.object); if ($("crowd").checked) current.object.position.set(-2.25, 0, 0); }
+  placeTwin();
   crowd.forEach(({ object, character }, k) => { if (!isGait(state.pose)) object.position.set((((k + 1) % 6) - 2.5) * 0.9, 0, -Math.floor((k + 1) / 6) * 1.1); applyPose(object, character, ((k + 1) * 0.37) % 1, k + 1); });
 });
 $("speed").addEventListener("input", (e) => { $("speed-out").value = `${Number(e.target.value).toFixed(1)} m/s`; });
-for (const id of ["crowd", "wire", "bones"]) $(id).addEventListener("change", schedule);
+const restyle = () => { if (current) applyPose(current.object); crowd.forEach(({ object, character }, k) => applyPose(object, character, ((k + 1) * 0.37) % 1, k + 1)); };
+for (const key of Object.keys(STYLE)) {
+  $(`style-${key}`).addEventListener("input", (e) => { style[key] = Number(e.target.value); $(`style-${key}-out`).value = style[key].toFixed(2); });
+  $(`style-${key}`).addEventListener("change", restyle);
+}
+for (const id of ["crowd", "wire", "bones", "compare", "clips-transitions"]) $(id).addEventListener("change", schedule);
+localRoles.then((index) => { $("compare-row").hidden = !Object.keys(index).length; });
 onLocaleChange(() => { buildPanel(); if (current) syncPanel(current.character.semantic); listClips(); showStats(); });
 initLocale();
 buildPanel();
@@ -375,11 +438,18 @@ resize();
 await listClips();
 rebuild();
 // For page checks and agents: the scene, camera, state and the current character.
-globalThis.characterLab = { scene, camera, controls, state, rebuild, applyPose: () => current && applyPose(current.object), current: () => current, mixers, walkers, sets };
+// For checking motion frame by frame (from the console or a test harness): `pause(true)` stops the
+// clock, `step(dt, n)` moves everything on n steps of dt seconds and draws the last.
+let paused = false;
+const advance = (dt) => { for (const m of mixers.values()) m.update(dt); stepWalkers(dt); };
+globalThis.characterLab = {
+  scene, camera, controls, state, rebuild, applyPose: () => current && applyPose(current.object), current: () => current, mixers, walkers, sets, twin: () => twin,
+  pause(on = true) { paused = on; clock.getDelta(); },
+  step(dt = 1 / 60, n = 1) { for (let k = 0; k < n; k++) advance(dt); controls.update(); renderer.render(scene, camera); },
+};
 renderer.setAnimationLoop(() => {
   const dt = Math.min(0.1, clock.getDelta());
-  for (const m of mixers.values()) m.update(dt);
-  stepWalkers(dt);
+  if (!paused) advance(dt);
   controls.update();
   renderer.render(scene, camera);
 });
