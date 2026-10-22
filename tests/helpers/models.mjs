@@ -33,21 +33,31 @@ export function boxGLB({ size = [1, 1, 1], lift = 0, extra = {} } = {}) {
   return out;
 }
 
-// A box GLB skinned to a Mixamo skeleton (joint positions only; the checks read the JSON). The
-// T-pose faces +Z unless `arms` points the left arm elsewhere; `prefix` names the joints.
-export function characterGLB({ prefix = "mixamorig:", arms = 1, drop = [], more = false, pose = true } = {}) {
+// A box GLB skinned to a humanoid skeleton (joint positions only; the checks read the JSON),
+// with Mixamo joint names (`prefix`). The rest pose faces +Z unless `arms` points the left arm
+// elsewhere; `drop` (degrees) lowers the arms from a T-pose. `rig` adds the skin's extras.rig
+// (`roles` by Mixamo name: true), `vrm` VRM's humanBones instead.
+export function characterGLB({ prefix = "mixamorig:", arms = 1, drop: armDrop = 0, remove = [], more = false, pose = true, rig = null, vrm = false } = {}) {
   const joints = { Hips: [0, 1, 0], Spine: [0, 1.1, 0], Spine1: [0, 1.2, 0], Spine2: [0, 1.3, 0], Neck: [0, 1.5, 0], Head: [0, 1.6, 0] };
+  const c = Math.cos((armDrop * Math.PI) / 180), s = Math.sin((armDrop * Math.PI) / 180);
   for (const [side, sign] of [["Left", arms], ["Right", -arms]]) {
-    Object.assign(joints, { [side + "Shoulder"]: [sign * 0.05, 1.45, 0], [side + "Arm"]: [sign * 0.18, 1.45, 0], [side + "ForeArm"]: [sign * 0.45, 1.45, 0],
-      [side + "Hand"]: [sign * 0.7, 1.45, 0], [side + "UpLeg"]: [sign * 0.1, 0.95, 0], [side + "Leg"]: [sign * 0.1, 0.5, 0], [side + "Foot"]: [sign * 0.1, 0.08, 0], [side + "ToeBase"]: [sign * 0.1, 0.02, 0.1] });
+    const along = (d) => [sign * (0.18 + d * c), 1.45 - d * s, 0];
+    Object.assign(joints, { [side + "Shoulder"]: [sign * 0.05, 1.45, 0], [side + "Arm"]: along(0), [side + "ForeArm"]: along(0.27),
+      [side + "Hand"]: along(0.52), [side + "UpLeg"]: [sign * 0.1, 0.95, 0], [side + "Leg"]: [sign * 0.1, 0.5, 0], [side + "Foot"]: [sign * 0.1, 0.08, 0], [side + "ToeBase"]: [sign * 0.1, 0.02, 0.1] });
   }
-  const names = Object.keys(joints).filter((name) => !drop.includes(name));
+  const names = Object.keys(joints).filter((name) => !remove.includes(name));
   const nodes = [{ mesh: 0, skin: 0 }, ...names.map((name) => ({ name: prefix + name, translation: joints[name] }))];
+  const ROLE = { hips: "Hips", spine: "Spine", head: "Head", leftUpperArm: "LeftArm", leftLowerArm: "LeftForeArm", leftHand: "LeftHand", rightUpperArm: "RightArm",
+    rightLowerArm: "RightForeArm", rightHand: "RightHand", leftUpperLeg: "LeftUpLeg", leftLowerLeg: "LeftLeg", leftFoot: "LeftFoot", rightUpperLeg: "RightUpLeg", rightLowerLeg: "RightLeg", rightFoot: "RightFoot" };
+  const present = Object.entries(ROLE).filter(([, name]) => names.includes(name));
+  const skin = { joints: names.map((_, index) => index + 1) };
+  if (rig) skin.extras = { rig: { ...rig, roles: rig.roles === true ? Object.fromEntries(present.map(([role, name]) => [role, prefix.replace(/:$/, ":") + name])) : rig.roles } };
+  const extensions = vrm ? { extensions: { VRMC_vrm: { specVersion: "1.0", humanoid: { humanBones: Object.fromEntries(present.map(([role, name]) => [role, { node: names.indexOf(name) + 1 }])) } } } } : {};
   const glb = boxGLB({ size: [0.5, 1.7, 0.3] });
   const length = new DataView(glb.buffer).getUint32(12, true);
   const gltf = JSON.parse(new TextDecoder().decode(glb.subarray(20, 20 + length)));
   if (more) gltf.meshes[0].primitives[0].attributes.JOINTS_1 = 0;
-  return boxGLB({ size: [0.5, 1.7, 0.3], extra: { nodes, meshes: gltf.meshes, skins: [{ joints: names.map((_, index) => index + 1) }], ...(pose ? { animations: [{ name: "pose_display", channels: [], samplers: [] }] } : {}) } });
+  return boxGLB({ size: [0.5, 1.7, 0.3], extra: { nodes, meshes: gltf.meshes, skins: [skin], ...extensions, ...(pose ? { animations: [{ name: "pose_display", channels: [], samplers: [] }] } : {}) } });
 }
 
 // The console Worker (console.fun.dev) over one local D1 and two local R2 buckets. Requests carry

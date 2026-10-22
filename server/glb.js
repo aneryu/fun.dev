@@ -49,10 +49,51 @@ const round = (value) => Math.round(value * 1e4) / 1e4;
 // Mixamo joint names with or without the "mixamorig:" prefix (three.js drops the colon).
 const MIXAMO = /^mixamorig:?/;
 
+// Mixamo's joints by humanoid role (VRM 1.0 names), for files that name their joints that way.
+const MIXAMO_ROLES = { hips: "Hips", spine: "Spine", chest: "Spine1", upperChest: "Spine2", neck: "Neck", head: "Head" };
+for (const [side, s] of [["left", "Left"], ["right", "Right"]]) {
+  Object.assign(MIXAMO_ROLES, { [`${side}Shoulder`]: `${s}Shoulder`, [`${side}UpperArm`]: `${s}Arm`, [`${side}LowerArm`]: `${s}ForeArm`, [`${side}Hand`]: `${s}Hand`,
+    [`${side}UpperLeg`]: `${s}UpLeg`, [`${side}LowerLeg`]: `${s}Leg`, [`${side}Foot`]: `${s}Foot`, [`${side}Toes`]: `${s}ToeBase`,
+    [`${side}ThumbMetacarpal`]: `${s}HandThumb1`, [`${side}ThumbProximal`]: `${s}HandThumb2`, [`${side}ThumbDistal`]: `${s}HandThumb3` });
+  for (const f of ["Index", "Middle", "Ring", "Little"]) {
+    const m = f === "Little" ? "Pinky" : f;
+    Object.assign(MIXAMO_ROLES, { [`${side}${f}Proximal`]: `${s}Hand${m}1`, [`${side}${f}Intermediate`]: `${s}Hand${m}2`, [`${side}${f}Distal`]: `${s}Hand${m}3` });
+  }
+}
+
 /**
- * The skeleton of a skinned GLB, for the character rules: joint names without the Mixamo prefix,
- * each joint's rest position (world, metres), whether any vertex has more than four influences, and
- * the animation names. Null when the file has no skin.
+ * The humanoid rig a skinned GLB declares: role → joint name, the declared rest pose ("T", "A" or
+ * null) and where it came from. From VRM's `VRMC_vrm.humanoid.humanBones` (whose rest pose is a
+ * T-pose by its specification), the skin's `extras.rig` ({ roles, rest }, as in .fun3d's `rig`),
+ * or Mixamo joint names (a T-pose, as Mixamo rigs).
+ */
+function glbRig(json, skin, nameOf) {
+  const bones = json.extensions?.VRMC_vrm?.humanoid?.humanBones;
+  if (bones && typeof bones === "object") {
+    const roles = {};
+    for (const [role, bone] of Object.entries(bones)) if (Number.isInteger(bone?.node) && json.nodes?.[bone.node]) roles[role] = nameOf(bone.node);
+    return { roles, rest: "T", source: "VRMC_vrm" };
+  }
+  const extra = skin.extras?.rig;
+  if (extra && typeof extra === "object") {
+    const roles = {};
+    for (const [role, name] of Object.entries(extra.roles ?? {})) if (typeof name === "string") roles[role] = name;
+    return { roles, rest: extra.rest === "T" || extra.rest === "A" ? extra.rest : null, source: "extras.rig" };
+  }
+  const joints = new Set((skin.joints ?? []).map(nameOf));
+  if ((skin.joints ?? []).length && (skin.joints ?? []).every((index) => MIXAMO.test(json.nodes[index].name ?? ""))) {
+    const roles = {};
+    for (const [role, name] of Object.entries(MIXAMO_ROLES)) if (joints.has(name)) roles[role] = name;
+    return { roles, rest: "T", source: "mixamo" };
+  }
+  return null;
+}
+
+/**
+ * The skeleton of a skinned GLB, for the character rules: joint names (without the Mixamo
+ * prefix), each joint's rest position (world, metres), its humanoid rig (null when it declares
+ * none), whether any vertex has more than four influences, and the animation names. Null when the
+ * file has no skin.
  */
 export function glbSkeleton(json) {
   const skin = json.skins?.[0];
@@ -65,14 +106,15 @@ export function glbSkeleton(json) {
     if (!node) throw new GLBError("the node hierarchy is invalid");
     return parent.has(index) ? multiply(worldOf(parent.get(index), depth + 1), local(node)) : local(node);
   };
+  const nameOf = (index) => String(json.nodes[index].name ?? index).replace(MIXAMO, "");
   const joints = {};
   for (const index of skin.joints ?? []) {
     const world = worldOf(index);
-    joints[String(json.nodes[index].name ?? index).replace(MIXAMO, "")] = [world[12], world[13], world[14]].map(round);
+    joints[nameOf(index)] = [world[12], world[13], world[14]].map(round);
   }
   return {
     count: (skin.joints ?? []).length,
-    mixamo: (skin.joints ?? []).every((index) => MIXAMO.test(json.nodes[index].name ?? "")),
+    rig: glbRig(json, skin, nameOf),
     joints,
     moreInfluences: (json.meshes ?? []).some((mesh) => mesh.primitives.some((primitive) => primitive.attributes?.JOINTS_1 !== undefined)),
     animations: (json.animations ?? []).map((animation) => animation.name ?? ""),

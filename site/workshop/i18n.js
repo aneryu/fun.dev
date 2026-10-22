@@ -1,5 +1,6 @@
 import { messages } from "../i18n.js";
 const additions = {
+  edCharacters: ["人物工坊", "Characters"],
   edSculptMode: ["雕刻", "Sculpt"],
   edSculpt: ["雕刻", "Sculpt"],
   edBrushGrab: ["抓取", "Grab"],

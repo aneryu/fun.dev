@@ -249,7 +249,7 @@ export async function approveVersion(env, id, version, { defer = false } = {}) {
   const { type } = await sql(db, "SELECT type FROM models WHERE id=?", id).first();
   if (type === "character") {
     const character = JSON.parse(row.stats ?? "{}").character;
-    if (!character) fail("not_a_character", 409, "a character needs a skinned mesh on the Mixamo skeleton");
+    if (!character) fail("not_a_character", 409, "a character needs a skinned mesh with humanoid roles");
     if (character.problems.length) fail("not_a_character", 409, character.problems.join("; "));
   }
   const now = Date.now();

@@ -54,28 +54,33 @@ export function typeProblem(value) {
   return MODEL_TYPES.includes(value) ? `type ${value} is planned but not accepted yet` : `type must be one of ${SUPPORTED_TYPES.join(", ")}`;
 }
 
-// Characters (docs/models.md): the Mixamo skeleton, so any clip for it plays on any character.
-export const CHARACTER_BONES = ["Hips", "Spine", "Spine1", "Spine2", "Neck", "Head",
-  ...["Left", "Right"].flatMap((side) => ["Shoulder", "Arm", "ForeArm", "Hand", "UpLeg", "Leg", "Foot", "ToeBase"].map((bone) => side + bone))];
-export const CHARACTER_LIMITS = { joints: 64 };
+// Characters (docs/models.md): a humanoid rig by role (VRM 1.0 role names), so a clip by role
+// plays on any character whatever its joints are called; the rest pose declared, a T- or A-pose.
+export const CHARACTER_ROLES = ["hips", "spine", "head",
+  ...["left", "right"].flatMap((side) => ["UpperArm", "LowerArm", "Hand", "UpperLeg", "LowerLeg", "Foot"].map((bone) => side + bone))];
+export const CHARACTER_LIMITS = { influences: 4 };
 export const DISPLAY_POSE = "pose_display";
+const NO_RIG = "a character needs a skinned mesh with humanoid roles (VRMC_vrm humanBones, the skin's extras.rig.roles, or Mixamo joint names)";
 
 /** Why a GLB is not a library character (empty when it is one). `json` is the parsed glTF. */
 export function characterProblems(json) {
   const skeleton = glbSkeleton(json);
-  if (!skeleton) return ["a character needs a skinned mesh on the Mixamo skeleton"];
-  const problems = [];
-  if (!skeleton.mixamo) problems.push("joints need Mixamo names (mixamorig:Hips, mixamorig:Spine, …)");
-  const missing = CHARACTER_BONES.filter((bone) => !skeleton.joints[bone]);
-  if (missing.length) problems.push(`the skeleton lacks ${missing.join(", ")}`);
-  if (skeleton.count > CHARACTER_LIMITS.joints) problems.push(`${skeleton.count} joints; at most ${CHARACTER_LIMITS.joints}`);
-  if (skeleton.moreInfluences) problems.push("at most 4 joint influences per vertex (no JOINTS_1)");
-  if (!missing.length) {
-    // Rest pose: a T-pose facing +Z, so the character's left hand is out at +x, level with the shoulder.
-    for (const [side, sign] of [["Left", 1], ["Right", -1]]) {
-      const arm = skeleton.joints[side + "Arm"], hand = skeleton.joints[side + "Hand"];
-      const out = (hand[0] - arm[0]) * sign, length = Math.hypot(hand[0] - arm[0], hand[1] - arm[1], hand[2] - arm[2]);
-      if (out < 0.8 * length) problems.push(`the rest pose must be a T-pose facing +z (the ${side.toLowerCase()} arm does not point to ${sign > 0 ? "+" : "-"}x)`);
+  if (!skeleton?.rig) return [NO_RIG];
+  const { roles, rest } = skeleton.rig, problems = [];
+  const missing = CHARACTER_ROLES.filter((role) => !roles[role]);
+  if (missing.length) problems.push(`the rig lacks the roles ${missing.join(", ")}`);
+  const unknown = Object.entries(roles).filter(([, joint]) => !skeleton.joints[joint]).map(([role]) => role);
+  if (unknown.length) problems.push(`roles on joints the skin does not use: ${unknown.join(", ")}`);
+  if (skeleton.moreInfluences) problems.push(`at most ${CHARACTER_LIMITS.influences} joint influences per vertex (no JOINTS_1)`);
+  if (!rest) problems.push('the rig must declare its rest pose: extras.rig.rest "T" or "A"');
+  if (!missing.length && !unknown.length && rest) {
+    // Facing +Z, so the character's left hand is out at +x: level with the shoulder in a T-pose,
+    // 30–70° below it in an A-pose.
+    for (const [side, sign] of [["left", 1], ["right", -1]]) {
+      const arm = skeleton.joints[roles[`${side}UpperArm`]], hand = skeleton.joints[roles[`${side}Hand`]];
+      const out = (hand[0] - arm[0]) * sign, drop = arm[1] - hand[1], angle = (Math.atan2(drop, out) * 180) / Math.PI;
+      const ok = out > 0 && (rest === "T" ? Math.abs(angle) <= 15 : angle >= 30 && angle <= 70);
+      if (!ok) problems.push(`the rest pose must be a${rest === "A" ? "n A" : " T"}-pose facing +z (the ${side} arm is ${out > 0 ? `${Math.round(angle)}° below level` : `not out to ${sign > 0 ? "+" : "-"}x`})`);
     }
   }
   return problems;
@@ -84,14 +89,14 @@ export function characterProblems(json) {
 /** Character notes that do not block: the display pose used by thumbnails and pages. */
 export function characterWarnings(json) {
   const skeleton = glbSkeleton(json);
-  return skeleton && !skeleton.animations.includes(DISPLAY_POSE) ? [`no ${DISPLAY_POSE} animation: pages show the T-pose`] : [];
+  return skeleton && !skeleton.animations.includes(DISPLAY_POSE) ? [`no ${DISPLAY_POSE} animation: pages show the rest pose`] : [];
 }
 
 /** Review notes on a character version from its stored stats (problems block approval). */
 export function characterStatsWarnings(type, stats) {
   if (type !== "character" || !stats) return [];
-  if (!stats.character) return ["a character needs a skinned mesh on the Mixamo skeleton"];
-  return [...stats.character.problems, ...(stats.character.display ? [] : [`no ${DISPLAY_POSE} animation: pages show the T-pose`])];
+  if (!stats.character) return [NO_RIG];
+  return [...stats.character.problems, ...(stats.character.display ? [] : [`no ${DISPLAY_POSE} animation: pages show the rest pose`])];
 }
 
 /** The production spec's placement: standing on y = 0, centred on x and z. */

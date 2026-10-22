@@ -23,20 +23,34 @@ test("GLB stats: size, bounds and triangles from accessor bounds and node transf
   assert.throws(() => readGLB(boxGLB({ extra: { extensionsRequired: ["EXT_meshopt_compression"] } })), /unsupported/);
 });
 
-test("characters: the Mixamo skeleton in a T-pose facing +z, four influences, a display pose", () => {
+test("characters: a humanoid rig by role, the rest pose declared (T or A) and facing +z, four influences, a display pose", () => {
   const skeleton = glbSkeleton(readGLB(characterGLB()));
   assert.equal(skeleton.count, 22);
   assert.deepEqual(skeleton.joints.LeftHand, [0.7, 1.45, 0]);
   assert.deepEqual(skeleton.animations, ["pose_display"]);
+  assert.equal(skeleton.rig.source, "mixamo");
+  assert.equal(skeleton.rig.roles.leftUpperArm, "LeftArm");
+  assert.equal(skeleton.rig.roles.leftToes, "LeftToeBase");
+  // Mixamo joint names: roles by name, a T-pose.
   assert.deepEqual(characterProblems(readGLB(characterGLB())), []);
   assert.deepEqual(characterProblems(readGLB(characterGLB({ prefix: "mixamorig" }))), [], "three.js-style names without the colon");
   assert.equal(glbSkeleton(readGLB(boxGLB())), null);
-  assert.match(characterProblems(readGLB(boxGLB()))[0], /skinned mesh/);
-  assert.match(characterProblems(readGLB(characterGLB({ prefix: "" }))).join(), /Mixamo names/);
-  assert.match(characterProblems(readGLB(characterGLB({ drop: ["LeftToeBase"] }))).join(), /lacks LeftToeBase/);
+  assert.match(characterProblems(readGLB(boxGLB()))[0], /skinned mesh with humanoid roles/);
+  assert.match(characterProblems(readGLB(characterGLB({ prefix: "" }))).join(), /humanoid roles/, "other names need a declared rig");
+  assert.match(characterProblems(readGLB(characterGLB({ remove: ["LeftHand"] }))).join(), /lacks the roles leftHand/);
+  assert.deepEqual(characterProblems(readGLB(characterGLB({ remove: ["LeftToeBase", "LeftShoulder"] }))), [], "toes and shoulders are optional roles");
   assert.match(characterProblems(readGLB(characterGLB({ more: true }))).join(), /4 joint influences/);
   assert.match(characterProblems(readGLB(characterGLB({ arms: -1 }))).join(), /T-pose facing \+z/, "facing -z puts the left hand at -x");
-  assert.deepEqual(characterWarnings(readGLB(characterGLB({ pose: false }))), ["no pose_display animation: pages show the T-pose"]);
+  // A declared rig on any joint names: an A-pose is accepted when declared, and checked.
+  assert.deepEqual(characterProblems(readGLB(characterGLB({ prefix: "", drop: 50, rig: { roles: true, rest: "A" } }))), []);
+  assert.match(characterProblems(readGLB(characterGLB({ prefix: "", drop: 50, rig: { roles: true, rest: "T" } }))).join(), /T-pose facing \+z \(the left arm is 50° below level\)/);
+  assert.match(characterProblems(readGLB(characterGLB({ prefix: "", rig: { roles: true, rest: "A" } }))).join(), /an A-pose/);
+  assert.match(characterProblems(readGLB(characterGLB({ prefix: "", drop: 50, rig: { roles: true } }))).join(), /declare its rest pose/);
+  assert.match(characterProblems(readGLB(characterGLB({ prefix: "", rig: { roles: { hips: "Nowhere" }, rest: "T" } }))).join(), /joints the skin does not use: hips/);
+  // VRM's humanBones: a T-pose by its specification.
+  assert.equal(glbSkeleton(readGLB(characterGLB({ prefix: "", vrm: true }))).rig.source, "VRMC_vrm");
+  assert.deepEqual(characterProblems(readGLB(characterGLB({ prefix: "", vrm: true }))), []);
+  assert.deepEqual(characterWarnings(readGLB(characterGLB({ pose: false }))), ["no pose_display animation: pages show the rest pose"]);
   const meta = JSON.stringify({ name: { zh: "通勤男子", en: "Commuter" }, type: "character", description: { zh: "穿蓝衬衫的上班族。", en: "An office worker in a blue shirt." } });
   assert.deepEqual(inspectVersion({ id: "commuter_01", version: "v001", meta, files: [{ name: "model.glb", bytes: characterGLB() }] }).problems, []);
   assert.match(inspectVersion({ id: "commuter_01", version: "v001", meta, files: [{ name: "model.glb", bytes: boxGLB() }] }).problems.join(), /skinned mesh/);

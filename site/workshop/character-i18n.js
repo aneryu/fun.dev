@@ -1,0 +1,39 @@
+// The character workshop's words (zh, en), added to the platform's messages.
+import { messages } from "../i18n.js";
+
+const words = {
+  chTitle: ["人物工坊", "Character workshop"], chSkip: ["跳到人物", "Skip to the character"],
+  chParameters: ["人物参数", "Character parameters"], chPreview: ["人物预览，拖动旋转，滚轮缩放", "Character preview: drag to turn, scroll to zoom"],
+  chSeed: ["种子", "Seed"], chReroll: ["换一个", "Reroll"],
+  chData: ["素材", "Data"], chDataCC0: ["仓库自带（CC0）", "Repository (CC0)"], chDataReference: ["参考素材（本地）", "Reference (local)"],
+  chDataNote: ["参考素材只在本地开发时出现，不会发布。", "Reference data appears only in local development; it is never published."],
+  chLook: ["外观", "Look"], chFeatures: ["五官", "Features"], chClothes: ["服装", "Clothes"],
+  chClothesEmpty: ["这套素材里还没有衣服。", "This data set has no clothes yet."],
+  chMotion: ["动作", "Motion"], chPose: ["动作", "Pose"], chPoseRest: ["静止", "Rest"], chPoseFlex: ["屈曲测试", "Flex test"],
+  chPoseReach: ["伸展测试", "Reach test"], chPoseTwist: ["扭转测试", "Twist test"], chPoseGait: ["步态（按速度）", "Gait (by speed)"], chPoseGaitRef: ["步态（参考动作，按速度）", "Gait (reference clips, by speed)"],
+  chClipLocal: ["参考", "Reference"], chClipCC0: ["CC0", "CC0"],
+  chSpeed: ["速度", "Speed"], chFeetIK: ["脚踩实（IK）", "Planted feet (IK)"],
+  chView: ["查看", "View"], chViewMode: ["显示", "Shading"], chViewTextured: ["贴图", "Textured"], chViewClay: ["素模", "Clay"],
+  chViewIslands: ["UV 分区", "UV islands"], chViewChecker: ["UV 棋盘格", "UV checker"], chViewWeights: ["蒙皮权重", "Skin weights"],
+  chBone: ["骨骼", "Bone"], chWire: ["线框", "Wireframe"], chBones: ["骨架", "Skeleton"], chCrowd: ["人群（24 个）", "Crowd (24)"],
+  chRecipe: ["配方", "Recipe"], chNone: ["无", "none"],
+  chStats: [(s) => `${s.triangles} 三角形 · ${s.bones} 骨骼 · ${s.ms} ms · ${s.height} m${s.crowd ? ` · 人群 ${s.crowd} 三角形` : ""}`,
+    (s) => `${s.triangles} triangles · ${s.bones} bones · ${s.ms} ms · ${s.height} m${s.crowd ? ` · crowd ${s.crowd} triangles` : ""}`],
+  chTextureError: ["本地贴图没加载到：启动开发服务器时设置 FUNDEV_LOCAL_ASSETS。", "Local textures did not load: start the dev server with FUNDEV_LOCAL_ASSETS."],
+  // Parameters.
+  p_body: ["体型", "Body"], p_eyes: ["眼睛", "Eyes"], p_face: ["脸", "Face"], p_face2: ["第二张脸", "Second face"], p_faceMix: ["两张脸的混合", "Face blend"],
+  p_outfit: ["套装", "Outfit"], p_brows: ["眉毛", "Eyebrows"], p_top: ["上衣", "Top"], p_bottom: ["下装", "Bottom"], p_shoes: ["鞋", "Shoes"], p_hair: ["发型", "Hair"],
+  p_nose_width: ["鼻宽", "Nose width"], p_nose_height: ["鼻高", "Nose height"], p_nose_length: ["鼻长", "Nose length"], p_nose_profile: ["鼻梁", "Nose profile"],
+  p_nose_tip: ["鼻尖", "Nose tip"], p_brow_height: ["眉高", "Brow height"], p_brow_depth: ["眉骨", "Brow depth"],
+  p_cheekbone_height: ["颧骨高", "Cheekbone height"], p_cheekbone_width: ["颧骨宽", "Cheekbone width"], p_cheek_width: ["脸颊", "Cheeks"],
+  p_eye_opening: ["眼睛开合", "Eye opening"], p_lips: ["嘴唇", "Lips"], p_jaw_width: ["下颌宽", "Jaw width"], p_jaw_shape: ["下颌形", "Jaw shape"],
+  p_chin_height: ["下巴高", "Chin height"], p_chin_length: ["下巴长", "Chin length"], p_chin_shape: ["下巴形", "Chin shape"],
+  p_chin_cleft: ["下巴沟", "Chin cleft"], p_neck: ["脖子粗细", "Neck"],
+  e_hazel: ["榛色", "hazel"], e_green: ["绿", "green"], e_light_blue: ["浅蓝", "light blue"], e_blue: ["蓝", "blue"],
+  e_brown: ["棕", "brown"], e_dark_brown: ["深棕", "dark brown"], e_amber: ["琥珀", "amber"], e_grey: ["灰", "grey"],
+  b_m: ["男", "male"], b_f: ["女", "female"],
+  f_african: ["非洲", "African"], f_asian: ["亚洲", "Asian"], f_caucasian: ["高加索", "Caucasian"], f_afro_asian: ["非亚混血", "Afro-Asian"],
+  f_afro_caucasian: ["非欧混血", "Afro-European"], f_eurasian: ["欧亚混血", "Eurasian"], f_african_old: ["非洲（年长）", "African, older"],
+  f_asian_old: ["亚洲（年长）", "Asian, older"], f_caucasian_old: ["高加索（年长）", "Caucasian, older"],
+};
+for (const [key, [zh, en]] of Object.entries(words)) { messages.zh[key] = zh; messages.en[key] = en; }

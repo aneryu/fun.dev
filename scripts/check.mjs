@@ -12,6 +12,8 @@ async function checkReference(source, value) {
   if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(value)) return;
   const url = new URL(value, `https://local.test/${relative(root, source)}`);
   if (generated.has(url.pathname) || url.pathname.startsWith("/runtime/addons/")) return;
+  // /local/ is the dev server's local directory (FUNDEV_LOCAL_ASSETS), never built or published.
+  if (url.pathname.startsWith("/local/")) return;
   let target = resolve(root, `.${decodeURIComponent(url.pathname)}`);
   if (!target.startsWith(`${root}/`) && target !== root) throw new Error("Reference escapes site directory.");
   try {

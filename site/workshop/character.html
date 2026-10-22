@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#ffd43b" />
+    <meta name="description" content="在 fun.dev 生成人物：体型、脸、衣服和动作。Generate characters: body, face, clothes and motion." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/platform.css" />
+    <link rel="stylesheet" href="/workshop/character.css" />
+    <title>人物工坊 — fun.dev</title>
+  </head>
+  <body class="character-page">
+    <a class="skip-link" href="#canvas" data-i18n="chSkip">跳到人物</a>
+    <header class="character-header">
+      <a class="wordmark" href="/" data-language-link>fun.dev</a>
+      <h1 data-i18n="chTitle">人物工坊</h1>
+      <a href="/workshop/" data-i18n="workshop" data-language-link>工坊</a>
+      <select id="language-toggle" class="language-toggle" aria-label="语言" data-i18n-aria="language" hidden>
+        <option value="auto" data-i18n="languageAuto">自动</option>
+        <option value="zh">中文</option>
+        <option value="en">English</option>
+      </select>
+    </header>
+    <main class="character-lab">
+      <aside class="panel" aria-label="人物参数" data-i18n-aria="chParameters">
+        <section class="block">
+          <div class="seed-row">
+            <label for="seed" data-i18n="chSeed">种子</label>
+            <input id="seed" type="text" value="1" spellcheck="false" autocomplete="off" />
+            <button id="reroll" type="button" class="primary" data-i18n="chReroll">换一个</button>
+          </div>
+          <div class="field">
+            <label for="data" data-i18n="chData">素材</label>
+            <select id="data"><option value="cc0" data-i18n="chDataCC0">仓库自带（CC0）</option></select>
+          </div>
+          <p class="note" id="data-note" data-i18n="chDataNote">参考素材只在本地开发时出现，不会发布。</p>
+        </section>
+        <details class="block" id="look" open>
+          <summary data-i18n="chLook">外观</summary>
+          <div class="fields" id="look-fields"></div>
+          <details class="nested" id="features" hidden>
+            <summary data-i18n="chFeatures">五官</summary>
+            <div class="fields" id="feature-fields"></div>
+          </details>
+        </details>
+        <details class="block" id="clothes" open>
+          <summary data-i18n="chClothes">服装</summary>
+          <div class="fields" id="clothes-fields"></div>
+          <p class="note" id="clothes-empty" data-i18n="chClothesEmpty">这套素材里还没有衣服。</p>
+        </details>
+        <details class="block" open>
+          <summary data-i18n="chMotion">动作</summary>
+          <div class="field">
+            <label for="pose" data-i18n="chPose">动作</label>
+            <select id="pose">
+              <option value="rest" data-i18n="chPoseRest">静止</option>
+              <option value="flex" data-i18n="chPoseFlex">屈曲测试</option>
+              <option value="reach" data-i18n="chPoseReach">伸展测试</option>
+              <option value="twist" data-i18n="chPoseTwist">扭转测试</option>
+              <option value="gait" data-i18n="chPoseGait">步态（按速度）</option>
+            </select>
+          </div>
+          <div class="field" id="gait-row" hidden>
+            <label for="speed"><span data-i18n="chSpeed">速度</span> <output id="speed-out">1.5 m/s</output></label>
+            <input id="speed" type="range" min="0" max="7" step="0.1" value="1.5" />
+          </div>
+          <label class="check" id="plant-row" hidden><input id="plant" type="checkbox" checked /> <span data-i18n="chFeetIK">脚踩实（IK）</span></label>
+        </details>
+        <details class="block">
+          <summary data-i18n="chView">查看</summary>
+          <div class="field">
+            <label for="view" data-i18n="chViewMode">显示</label>
+            <select id="view">
+              <option value="textured" data-i18n="chViewTextured">贴图</option>
+              <option value="clay" data-i18n="chViewClay">素模</option>
+              <option value="islands" data-i18n="chViewIslands">UV 分区</option>
+              <option value="checker" data-i18n="chViewChecker">UV 棋盘格</option>
+              <option value="weights" data-i18n="chViewWeights">蒙皮权重</option>
+            </select>
+          </div>
+          <div class="field" id="weight-row" hidden>
+            <label for="weight-bone" data-i18n="chBone">骨骼</label>
+            <select id="weight-bone"></select>
+          </div>
+          <div class="field">
+            <label for="lod">LOD</label>
+            <select id="lod"><option value="0">0</option><option value="1">1</option><option value="2">2</option></select>
+          </div>
+          <label class="check"><input id="wire" type="checkbox" /> <span data-i18n="chWire">线框</span></label>
+          <label class="check"><input id="bones" type="checkbox" /> <span data-i18n="chBones">骨架</span></label>
+          <label class="check"><input id="crowd" type="checkbox" /> <span data-i18n="chCrowd">人群（24 个）</span></label>
+        </details>
+        <details class="block">
+          <summary data-i18n="chRecipe">配方</summary>
+          <pre id="measurements"></pre>
+        </details>
+      </aside>
+      <section class="stage" aria-label="人物预览" data-i18n-aria="chPreview">
+        <canvas id="canvas" tabindex="0"></canvas>
+        <p class="stats" id="stats" aria-live="polite"></p>
+        <p class="error" id="error" role="alert" hidden></p>
+      </section>
+    </main>
+    <script type="module" src="/workshop/character-lab.js"></script>
+  </body>
+</html>

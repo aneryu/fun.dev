@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { readdirSync, watch } from "node:fs";
-import { access } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { access, readFile } from "node:fs/promises";
+import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPreviewServer, listen } from "./preview-server.mjs";
 import { sync } from "./blobs.mjs";
@@ -111,6 +111,16 @@ const server = createPreviewServer({
     if (pathname === "/sw.js") {
       response.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-cache" });
       response.end(removeWorkerScript);
+      return true;
+    }
+    // FUNDEV_LOCAL_ASSETS=<dir> serves a local directory at /local/ (same origin, never built or
+    // published): assets a page under development needs but the repository must not hold.
+    if (process.env.FUNDEV_LOCAL_ASSETS && pathname.startsWith("/local/")) {
+      const base = resolve(process.env.FUNDEV_LOCAL_ASSETS), file = resolve(base, `.${decodeURIComponent(pathname.slice("/local".length))}`);
+      const type = { ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".glb": "model/gltf-binary", ".json": "application/json", ".js": "text/javascript" }[extname(file)] ?? "application/octet-stream";
+      if (!file.startsWith(base + sep)) { response.writeHead(403); response.end(); return true; }
+      readFile(file).then((body) => { response.writeHead(200, { "Content-Type": type, "Cache-Control": "no-cache" }); response.end(body); },
+        () => { response.writeHead(404); response.end(); });
       return true;
     }
     if (pathname === "/__dev/events") {

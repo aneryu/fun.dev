@@ -41,7 +41,7 @@ box in metres `[x, y, z]`. `version` is the newest approved version; `thumbnail`
 its `thumbnail.png`. About 1,200 models make 350 KB: download it once and search it locally.
 
 `type` is one of `prop` (a single object), `piece` (a modular building piece), `vehicle`
-(`wheel_*` nodes are its wheels), `character` (a humanoid on the shared Mixamo skeleton);
+(`wheel_*` nodes are its wheels), `character` (a humanoid rig by role: clips by role play on it);
 `creature`, `animation`, `scene` and `world` are reserved.
 
 ## A model

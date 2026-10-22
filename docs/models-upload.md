@@ -19,7 +19,8 @@ Single props (`type: "prop"`), modular pieces (`type: "piece"`) and humanoid cha
 later. One model is one GLB made to the production spec: metres, glTF +Y up, front +Z, root at
 the centre of the bounding box's floor, no external files.
 
-A character is rigged to the Mixamo skeleton in a T-pose and may carry a one-frame
+A character is a humanoid rig by role (VRM humanBones, the skin's `extras.rig`, or Mixamo joint
+names) in a declared T- or A-pose, and may carry a one-frame
 `pose_display` animation for the library's pictures; the exact rules are in
 [models](models.md#characters). The upload check lists anything that does not fit.
 

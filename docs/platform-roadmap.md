@@ -251,11 +251,13 @@ previews anywhere and edits in the workshop. Libraries: manifold-3d (solids), la
 3. **UVs, textures and baking**: corner attributes (two UV sets, vertex colours), unwrapping
    and packing, textures embedded in GLB, AO/normal/colour baking and direct-light
    lightmaps, compression, LOD chains, colliders.
-4. **Characters and animation**: skeletons (Mixamo template, rest-pose fixes), automatic
-   weights and weight transfer, shape keys, animation import, retargeting and baking.
-5. **Parametric humans**: the MakeHuman CC0 data (base mesh, targets, rigs, proxies) read
-   directly for body sliders and fitted clothes and hair; non-rigid wrapping onto the shared
-   topology; projection of reference views onto UVs.
+4. **Characters and animation**: skeletons (role-mapped rigs, rest-pose fixes), automatic
+   weights and weight transfer, shape keys, animation import, retargeting and baking. Its
+   low-poly characters are the [procedural character generator](character-generator.md)
+   (specified 2026-10-21): stylised toon humanoids lofted along a generated skeleton, with
+   garments, hair and face layers from parameters and a seed.
+5. **Parametric humans**: replaced on 2026-10-21 by the procedural character generator; the
+   MakeHuman route is dropped.
 
 Later: Cycles-quality global illumination baking, cloth and fluid simulation, a general
 geometry-nodes system, arbitrary third-party FBX rigs.
@@ -281,7 +283,7 @@ what follows:
    (workshop stage 2); game builds deriving variants with the same blueprints (`derive` beside
    `convert` in `game.json`), so a city gets fifty lamp heights without fifty uploads.
 3. **Later**: node graphs for shading (`fun3d.nodes`), generators over textures and baking
-   (stage 3), parametric humans (stage 5).
+   (stage 3), the procedural character generator (stage 4, [spec](character-generator.md)).
 
 - Regression gate: a Playwright smoke test for every catalog game at mobile and
   desktop sizes: reaches running, no console errors, non-blank canvas,

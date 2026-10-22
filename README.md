@@ -56,6 +56,7 @@ reference commands and operations. Requires Node.js 22+ and `tar`.
 - `docs/game-bundles.md`: bundle format, API, and publishing workflow.
 - `docs/hosts.md`: the two game hosts, the web player and `fun` (the native runtime), and what the runtime kit may depend on.
 - `docs/platform-roadmap.md`: planned shared platform capabilities and their order.
+- `docs/character-generator.md`: the procedural character generator (stage 4 characters): skeleton, seam rings, parameters, milestones.
 - `docs/library-api.md`: the public, read-only CC0 model library (index, model files, blobs on `cdn.fun.dev`) for any site, tool or agent.
 
 The frontend remains plain HTML/CSS/JavaScript. The small build exists to pin and

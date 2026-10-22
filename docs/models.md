@@ -50,17 +50,23 @@ game's `assets/`.
 
 ### Characters
 
-Humanoid characters are rigged to the Mixamo skeleton, so any clip for that skeleton plays on
-any character unchanged. Fixed with the first two (2026-10-18):
+Humanoid characters carry a rig by role (VRM 1.0 role names: `hips`, `leftUpperArm`, …), so a
+clip by role plays on any character whatever its joints are called; the generator's characters
+(`kit/character`, [character generator](character-generator.md#animation)) and the first
+Mixamo-rigged ones both qualify. Changed from the Mixamo skeleton on 2026-10-22:
 
-- One skinned mesh on joints named `mixamorig:<Bone>` with Mixamo's hierarchy and bone axes;
-  at least the 22 body bones (`Hips`, `Spine`, `Spine1`, `Spine2`, `Neck`, `Head`, and per side
-  `Shoulder`, `Arm`, `ForeArm`, `Hand`, `UpLeg`, `Leg`, `Foot`, `ToeBase`), fingers optional; at
-  most 64 joints and 4 influences per vertex.
-- Rest pose: a T-pose facing +Z (the character's left hand out at +X), standing on the floor at
-  the origin, in real size. Upload and approval check this.
+- One skinned mesh, at most 4 influences per vertex (no `JOINTS_1`); no limit on joints.
+- Roles from, in this order: VRM's `VRMC_vrm.humanoid.humanBones`; the skin's
+  `extras.rig = { roles: { <role>: <joint name> }, rest: "T" | "A" }` (as `.fun3d`'s `rig`); or
+  Mixamo joint names (`mixamorig:<Bone>`), mapped by name. At least VRM's required 15:
+  `hips`, `spine`, `head`, and per side the upper arm, lower arm, hand, upper leg, lower leg and
+  foot.
+- Rest pose, declared: a T-pose (VRM and Mixamo rigs are T-poses) or an A-pose
+  (`extras.rig.rest`), facing +Z (the character's left hand out at +X), standing on the floor
+  at the origin, in real size. Upload and approval check the arms: level with the shoulders in
+  a T-pose, 30–70° below them in an A-pose. Clips by role make up for the difference.
 - A single-frame animation `pose_display` (arms relaxed) is what pages, the console and
-  thumbnails show; without it they show the T-pose (a review warning). Games ignore it and play
+  thumbnails show; without it they show the rest pose (a review warning). Games ignore it and play
   their own clips.
 - No triangle budget (the file limit of 10 MB applies). Textures are baked into the GLB.
 
