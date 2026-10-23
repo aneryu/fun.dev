@@ -34,8 +34,8 @@ show it. The decisions:
   two-host contract, the kit's seams and the delivery to `fun` are in [hosts](hosts.md).
 - **Visual range**: not limited. The early phase concentrates on stylized
   low-poly (flat colours, PBR metal, glass and emission, faceted or smooth
-  shading, no textures). Formats, project files and command schemas must leave
-  room for UVs, textures and realism later.
+  shading). The initial no-texture scope now has a local UV0/PBR texture import,
+  save/export and runtime slice; unwrapping and baking remain later work.
 - **Games** leave this public repository for one private repository,
   `fundev-games`, checked out beside it; the platform's tools build, test and
   publish them from there (`FUNDEV_GAMES`, else `../fundev-games`). There is
@@ -81,7 +81,7 @@ show it. The decisions:
 | Clock Out, Slap Puppet, Cyber Muyu branches | Retired: archived |
 | Workshop stage 4: skeletons and animation (low-poly characters) | Basic duck authoring track accepted locally: joints, weights, morphs, clips, supported GLB animation import and continued editing/export/playback; [acceptance ledger](workshop-character-acceptance.md) records evidence and limits. Automatic weights, retargeting and IK remain roadmap extensions |
 | Animation runtime system (state machines, blending, IK) in the runtime kit, shared by the web player and `fun` | Next after the early phase, with stage 4 |
-| Workshop stage 3: UVs, textures, baking | Later |
+| Workshop stage 3: UVs, textures, baking | UV0 embedded PNG/JPEG, five PBR slots, transforms, physical transmission and configurable target scenes implemented locally; [toolchain evidence](workshop-toolchain.md). UV1 editable conversion, unwrap and baking remain unsupported |
 | Realistic humans, MetaHuman (archive branches) | Stay archived |
 | China access, monitor, cleanup Workers | Maintained, not extended |
 | Douyin promotion | Later, with the showcase plan |

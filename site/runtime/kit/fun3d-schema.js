@@ -87,7 +87,7 @@ export const SCHEMA = {
     alpha: F("object", { fields: { mode: F("enum", { values: ["opaque", "mask", "blend"] }), cutoff: F("number", { min: 0, max: 1 }), opacity: F("number", { min: 0, max: 1 }) } }),
     side: F("enum", { values: ["front", "double"] }),
     pbr: F("object", { fields: { roughness: F("number", { min: 0, max: 1 }), metalness: F("number", { min: 0, max: 1 }) } }),
-    maps: F("map", { fields: { texture: required("id"), uv: F("integer", { min: 0, max: 1 }), scale: F("number"), transform: F("object", { fields: { offset: vector(2), scale: vector(2), rotation: F("number") } }) } }),
+    maps: F("map", { fields: { texture: required("id"), uv: F("integer", { min: 0, max: 1 }), scale: F("number"), strength: F("number", { min: 0, max: 1 }), transform: F("object", { fields: { offset: vector(2), scale: vector(2), rotation: F("number") } }) } }),
     features: F("object"),
   },
   image: { id: required("id"), stream: F("id"), mime: F("enum", { values: ["image/webp", "image/png", "image/jpeg", "image/ktx2"] }), ref: F("id"), entry: F("id") },

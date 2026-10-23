@@ -1,6 +1,6 @@
 # Workshop for agents: quick reference
 
-The fun.dev workshop builds static low-poly models (flat PBR colours, no textures) for the
+The fun.dev workshop builds static low-poly models (flat PBR colours or embedded PNG/JPEG PBR textures) for the
 model library and games. Work like a Blender script: one script builds the model from
 scratch in a candidate; validate and inspect it, then accept once. For existing models,
 update stable part IDs or recipe parameters instead of clearing the project.
@@ -519,3 +519,15 @@ Candidate `allowed` scopes restrict changed nodes and local vertex regions;
 `protectedIds` remains an independent veto.
 See [character authoring](workshop-characters.md) for units, failure/rebind
 semantics, compatibility limits and the runnable duck acceptance example.
+
+### Texture round trips
+
+GLB import preserves TEXCOORD_0 seams, PNG/JPEG bytes, source normals, samplers and
+KHR_texture_transform for base colour, normal, metallic-roughness, occlusion and
+emissive maps. Drafts, editable `.funmodel.glb`, runtime GLB and `.fun3d` retain
+these supported inputs. Alpha uses the base-colour map. Missing UVs, external images,
+UV1 editable conversion, standalone alpha/transmission maps and non-default opaque
+IOR are refused explicitly. See [toolchain coverage and evidence](workshop-toolchain.md).
+Browser captures wait for image decoding; loading/decode errors are observable.
+Node JPEG previews are unsupported by the current image shim; JPEG projects can
+still be imported, saved and exported in Node.

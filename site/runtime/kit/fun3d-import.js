@@ -17,6 +17,8 @@
 //   const { bytes, manifest, report } = await importer.importGLB(glb, { type: "vehicle", name: "city_taxi_01", hash });
 
 import { idFromName as idOf } from "./fun3d-schema.js";
+import { normalizePresentation } from './presentation.js';
+import { normalizeRipple } from './ripple.js';
 
 export const PROFILE = "fundev-library@1";
 // Emitter roles by material name. Vehicles (typed so, or with three or more wheel_* nodes) read
@@ -229,7 +231,10 @@ export function createImporter({ THREE, loader, fun3d, encoder = null }) {
     // primitives retain their complete attributes and node identities, just
     // like skinned meshes, rather than silently discarding target deltas.
     const hasMorphs = meshes.some(m => m.geometry.morphAttributes.position?.length);
-    if (!skinned.length && !hasMorphs && !gltf.animations.length) {
+    // The legacy weld does not carry secondary UVs/vertex colors. Keep those
+    // primitives intact instead of discarding attributes to gain batching.
+    const extraAttributes = meshes.some(m => m.geometry.hasAttribute('uv1') || m.geometry.hasAttribute('color'));
+    if (!skinned.length && !hasMorphs && !gltf.animations.length && !extraAttributes) {
       const statics = root.children.filter((c) => /^static__/.test(c.name) && primitives(c));
       if (statics.length) {
         const { geometry, materials } = mergeMeshes(statics.flatMap(primitives), root.matrixWorld);
@@ -270,7 +275,6 @@ export function createImporter({ THREE, loader, fun3d, encoder = null }) {
       root.traverse((o) => { delete o.userData.merged; if (/^collider/.test(o.name)) { o.visible = false; o.userData.tags = ["collider"]; } });
     } else {
       for (const mesh of skinned) if (![mesh.material].flat().some(textured)) mesh.geometry.deleteAttribute("uv");
-      for (const mesh of skinned) { mesh.geometry.deleteAttribute("uv1"); mesh.geometry.deleteAttribute("uv2"); }
     }
     // Attachment frames (docs/worlds.md §4): an empty named socket_<name> under a part is the
     // part's socket; its extras may carry tags.
@@ -295,7 +299,10 @@ export function createImporter({ THREE, loader, fun3d, encoder = null }) {
     const rig = rigName && (skinned.length || kind === "animations") ? await rigOf(rigName, bones, root) : null;
     if (rig) for (const mesh of skinned) mesh.userData.fun3d = { ...mesh.userData.fun3d, rig, skeleton: "rig" };
     const physics = kind === "animations" ? null : await derivePhysics(root, effectiveType, { wheels, rig });
-    return { root, animations: gltf.animations, physics, kind, type: effectiveType, rig, roles, warnings, wheels: wheels.map((w) => w.name) };
+    const presentation = gltf.parser.json.extras?.funPresentation;
+    const ripple = gltf.parser.json.extras?.funRipple;
+    return { root, animations: gltf.animations, physics, kind, type: effectiveType, rig, roles, warnings, wheels: wheels.map((w) => w.name),
+      ...(presentation ? { presentation: normalizePresentation(presentation) } : {}), ...(ripple ? { ripple: normalizeRipple(ripple) } : {}) };
   }
 
   function addLampLights(root, roles) {
@@ -411,7 +418,9 @@ export function createImporter({ THREE, loader, fun3d, encoder = null }) {
     const normalized = await normalizeGLB(bytes, { type });
     const { root, animations, physics, kind, rig, roles, warnings } = normalized;
     const asset = { name: name ?? root.name, source: { kind: "glb", ...(hash ? { hash } : {}), ...(converter ? { converter } : {}), profile: PROFILE, type: normalized.type, positionPrecision, tool: null } };
-    const file = await fun3d.write(root, { kind, asset, animations, physics, rig, edit, positionPrecision });
+    const file = await fun3d.write(root, { kind, asset, animations, physics, rig, edit, positionPrecision,
+      requires: normalized.ripple?.fallback === 'reject' ? ['fun3d.ripple'] : [],
+      extensions: { ...(normalized.presentation ? { 'fun3d.presentation': normalized.presentation } : {}), ...(normalized.ripple ? { 'fun3d.ripple': normalized.ripple } : {}) } });
     const { manifest } = await fun3d.read(file);
     const report = {
       type: normalized.type, kind, rig: rig?.name ?? null, warnings, positionPrecision,

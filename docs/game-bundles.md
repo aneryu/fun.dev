@@ -147,6 +147,10 @@ export function createGame(context) {
 ```
 
 `createGame` must return an object. All hooks are optional, synchronous methods.
+An optional `snapshot()` returns JSON-compatible application diagnostics (state,
+time, selected action, resource counts). The fun adapter exposes it through the
+local `game.inspect` RPC; an absent hook returns `null`. It is a readback, not a
+save format or a claim of rendered pixels. Keep it bounded and free of secrets.
 The module's top level must not start gameplay or allocate per-session resources:
 ES modules are cached; restarting calls `createGame` again with a fresh context.
 

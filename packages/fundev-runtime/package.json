@@ -17,7 +17,7 @@
     "node": ">=22"
   },
   "peerDependencies": {
-    "three": ">=0.170.0"
+    "three": ">=0.186.1 <0.187.0"
   },
   "license": "MIT",
   "homepage": "https://fun.dev/docs",

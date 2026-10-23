@@ -149,7 +149,7 @@ the web player, and the compatibility window applies to both hosts.
    `fun:window`, `fun:canvas`, `fun:assets` and fun's Web Audio subset, runs the lifecycle (locale,
    resize, resume, frames with the clamped delta, on-demand rendering, pause), options and cheats,
    and offers `capture()` (PNG through `fun:gpu` and `fun:debug`) and `registerDebug()` (RPC
-   methods `game.stats`, `game.capture`, `game.option`, `game.pause`, `game.resume`,
+   methods `game.stats`, `game.inspect` (optional application `snapshot()`), `game.focus`, `game.capture`, `game.option`, `game.pause`, `game.resume`,
    `game.locale`, `game.quit` for agents). It imports nothing from fun: the entry passes fun's
    modules in, so `tests/fun-host.test.mjs` runs it in Node against stand-ins.
    `scripts/fun-probe/host-entry.mjs` is the entry a published fun app will have, running

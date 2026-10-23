@@ -122,11 +122,22 @@ export function createMenu({ createCanvas2D, actions, state, locale = "zh" }) {
       return true;
     },
     /** Draws the button, and the panel when open, over the current frame. */
+    composite(pipeline) {
+      const original = pipeline.outputNode;
+      const pass = THREE.TSL.pass(scene, camera, { samples: 0 });
+      const hud = pass.getTextureNode();
+      // The transparent HUD target contains premultiplied colour. Composite
+      // before the pipeline's final output transform, in the same surface pass.
+      pipeline.outputNode = THREE.TSL.vec4(hud.rgb.add(original.rgb.mul(hud.a.oneMinus())), original.a);
+      pipeline.needsUpdate = true;
+      let disposed = false;
+      return { dispose() { if (disposed) return; disposed = true; pipeline.outputNode = original; pipeline.needsUpdate = true; pass.dispose(); } };
+    },
     render(renderer) {
       const autoClear = renderer.autoClear;
       renderer.autoClear = false;
-      renderer.render(scene, camera);
-      renderer.autoClear = autoClear;
+      try { renderer.render(scene, camera); }
+      finally { renderer.autoClear = autoClear; }
     },
     dispose() { for (const t of texts) t.dispose(); texts.length = 0; scene.clear(); },
   };

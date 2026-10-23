@@ -44,3 +44,20 @@ What is here (each also importable as `fundev-runtime/kit/<file>.js`):
 Files come from the [fun.dev workshop](https://www.npmjs.com/package/fundev-workshop) (`exportTile`, `exportWorld`) and the public CC0 model library. Node 22 or newer for tooling; browsers with WebGPU or WebGL 2 for play.
 
 MIT.
+
+## Local scene and effect integration
+
+The current local kit is verified against Three.js 0.186.1. The peer range now
+matches r186; older releases are not certified for the exported RenderPipeline
+and TSL helpers. No package publication or dependency upgrade is implied.
+
+`createPresentation(context, data)` applies version-1 camera, HDR/IBL, exposure,
+light slots and AO/bloom/grade settings. `createTimeline(data, bindings)` advances
+bounded transform tracks and state with play/pause/reset/seek; physics keeps
+reset/replay semantics. Both keep DOM input outside the shared core.
+
+`createRippleExtension({ THREE, TSL, backend })` is a trusted built-in consumer
+registered as `extensions['fun3d.ripple']` when constructing `createFun3d`.
+Assets contain parameters only. Loader `signal` cancels at asynchronous
+boundaries and releases resources already created; `dispose()` is idempotent.
+See [source, fixtures and acceptance](../../docs/workshop-toolchain.md).

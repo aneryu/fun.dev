@@ -8,9 +8,10 @@
 //   const palette = materials.palette();                           // one per batch (kit/models.js)
 //   materials.roles.set("headlight", 0);
 
+import { applyTransmission } from './material-features.js';
 const ROLE_SLOTS = 32, PALETTE_WIDTH = 1024;
 
-export function createMaterials({ THREE, TSL }) {
+export function createMaterials({ THREE, TSL, transmission = 'physical' }) {
   if (!TSL) throw new TypeError("createMaterials needs TSL (three/tsl)");
   const { Fn, attribute, select, normalGeometry, normalView, normalFlat, materialColor, materialEmissive, vec3, vec4, float, int, ivec2, uniform, uniformArray, textureLoad, mix, batchIndirectIndex } = TSL;
 
@@ -34,7 +35,9 @@ export function createMaterials({ THREE, TSL }) {
   /** A NodeMaterial for a normalized descriptor; `texture(map, colorSpace)` resolves map textures. */
   function build(desc, { flat = false, vertexColors = false, texture, warn = () => {} } = {}) {
     const unlit = desc.model === "unlit";
-    const material = unlit ? new THREE.MeshBasicNodeMaterial() : new THREE.MeshStandardNodeMaterial();
+    const material = unlit ? new THREE.MeshBasicNodeMaterial() : desc.features.transmission && transmission === 'physical'
+      ? new THREE.MeshPhysicalNodeMaterial() : new THREE.MeshStandardNodeMaterial();
+    applyTransmission(material, desc, transmission, warn);
     material.name = desc.name;
     material.color.set(desc.color);
     material.side = desc.side === "double" ? THREE.DoubleSide : THREE.FrontSide;
@@ -47,10 +50,11 @@ export function createMaterials({ THREE, TSL }) {
       material.metalness = desc.pbr.metalness;
       if (maps.normal) { material.normalMap = texture(maps.normal); material.normalScale.setScalar(maps.normal.scale ?? 1); }
       if (maps.metalRough) material.metalnessMap = material.roughnessMap = texture(maps.metalRough);
-      if (maps.occlusion) material.aoMap = texture(maps.occlusion);
+      if (maps.occlusion) { material.aoMap = texture(maps.occlusion); material.aoMapIntensity = maps.occlusion.strength ?? 1; }
     }
     if (maps.alpha) material.alphaMap = texture(maps.alpha);
     if (desc.alpha.mode === "mask") material.alphaTest = desc.alpha.cutoff;
+    material.opacity = desc.alpha.opacity;
     if (desc.alpha.mode === "blend") { material.transparent = true; material.opacity = desc.alpha.opacity; material.depthWrite = false; }
     const features = desc.features, info = { id: desc.id, flat, role: null, tint: null };
     if (features.tint) {
@@ -63,7 +67,7 @@ export function createMaterials({ THREE, TSL }) {
       const factor = roleFactors.element(int(role));
       if (unlit) {
         // Unlit emitters add their glow to the colour.
-        const glow = vec3(new THREE.Color(e.color ?? "#ffffff").toArray()).mul(e.intensity ?? 1).mul(factor);
+        const glow = vec3(...new THREE.Color(e.color ?? "#ffffff").toArray()).mul(e.intensity ?? 1).mul(factor);
         const base = material.colorNode ?? materialColor;
         material.colorNode = vec4(base.rgb.add(glow), base.a);
       } else {
@@ -73,13 +77,13 @@ export function createMaterials({ THREE, TSL }) {
         material.emissiveNode = materialEmissive.mul(factor);
       }
     }
-    for (const name of Object.keys(features)) if (!["emitter", "tint"].includes(name)) warn(`material "${desc.id}": feature ${name} is not in this release; rendered without it`);
+    for (const name of Object.keys(features)) if (!["emitter", "tint", "transmission"].includes(name)) warn(`material "${desc.id}": feature ${name} is not in this release; rendered without it`);
     material.userData.fun3d = info;
     return material;
   }
 
   // Whether a descriptor can join a batch: pbr or unlit, no maps, no transmission.
-  const batchable = (desc) => !Object.keys(desc.maps).length && !desc.features.transmission;
+  const batchable = (desc) => !Object.keys(desc.maps).length && Object.keys(desc.features).every(k => ['emitter','tint'].includes(k)) && !desc.features.emitter?.map;
 
   /**
    * A palette: material parameters in a texture, indexed per vertex by a local slot plus a

@@ -132,9 +132,11 @@ export function createWriter({ THREE, encoder = null }) {
       const custom = material.userData?.fun3d ?? {};
       const id = unique(takenMaterials, custom.id ?? (material.name ? await idOf(material.name) : `mat_${manifest.materials.length}`));
       const model = custom.model ?? (material.isMeshBasicMaterial ? "unlit" : "pbr");
+      if (model === "pbr" && material.ior !== undefined && material.ior !== 1.5 && !(material.transmission > 0))
+        throw new Error("Non-default opaque IOR is not supported by .fun3d writing");
       const desc = { id, ...(material.name && material.name !== id ? { name: material.name } : {}), model, color: hex(material.color ?? new THREE.Color("#ffffff")) };
-      if (material.alphaTest > 0) desc.alpha = { mode: "mask", cutoff: round(material.alphaTest, 4) };
-      else if (material.transparent && material.opacity < 1) desc.alpha = { mode: "blend", opacity: round(material.opacity, 4) };
+      if (material.alphaTest > 0) desc.alpha = { mode: "mask", cutoff: round(material.alphaTest, 4), opacity: round(material.opacity, 4) };
+      else if (material.transparent) desc.alpha = { mode: "blend", opacity: round(material.opacity, 4) };
       if (material.side === THREE.DoubleSide) desc.side = "double";
       if (model === "pbr" && "roughness" in material) desc.pbr = { roughness: round(material.roughness, 4), metalness: round(material.metalness ?? 0, 4) };
       const maps = {};
@@ -142,13 +144,13 @@ export function createWriter({ THREE, encoder = null }) {
       if (model === "pbr") {
         if (material.normalMap) maps.normal = await mapOf(material.normalMap, "linear", { scale: round(material.normalScale?.x ?? 1, 4) });
         if (material.metalnessMap || material.roughnessMap) maps.metalRough = await mapOf(material.metalnessMap ?? material.roughnessMap, "linear");
-        if (material.aoMap) maps.occlusion = await mapOf(material.aoMap, "linear");
+        if (material.aoMap) maps.occlusion = await mapOf(material.aoMap, "linear", { strength: round(material.aoMapIntensity ?? 1, 4) });
       }
       if (material.alphaMap) maps.alpha = await mapOf(material.alphaMap, "linear");
       if (Object.keys(maps).length) desc.maps = maps;
       const features = { ...(custom.features ?? {}) };
       if (!features.emitter && material.emissive && (material.emissive.getHex() !== 0 || material.emissiveMap)) {
-        features.emitter = { role: custom.role ?? "emissive", color: hex(material.emissive.getHex() ? material.emissive : new THREE.Color("#ffffff")), intensity: round(material.emissiveIntensity ?? 1, 4) };
+        features.emitter = { role: custom.role ?? "emissive", color: hex(material.emissive), intensity: round(material.emissiveIntensity ?? 1, 4) };
       }
       if (features.emitter && material.emissiveMap && !features.emitter.map) features.emitter.map = await mapOf(material.emissiveMap, "srgb");
       if (!features.transmission && model === "pbr" && material.transmission > 0) {

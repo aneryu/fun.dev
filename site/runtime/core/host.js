@@ -4,7 +4,7 @@ import { coerce, createOptionState, settingsOf, validateOptions } from "./option
 import { createRecorder, recordingSupported } from "./recorder.js";
 
 export const API_VERSION = 3;
-const hooks = ["update", "resize", "pause", "resume", "dispose", "localeChanged", "optionChanged", "shareText", "recordingFocus", "recordingBadge"];
+const hooks = ["update", "resize", "pause", "resume", "dispose", "localeChanged", "optionChanged", "shareText", "recordingFocus", "recordingBadge", "snapshot"];
 const hapticPatterns = { tap: [12], success: [20, 40, 30], fail: [70] };
 const resolutionScales = [1, 0.8, 0.65, 0.5];
 const backends = ["auto", "webgpu", "webgl"];

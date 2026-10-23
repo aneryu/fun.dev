@@ -5,7 +5,7 @@ import { copyFile, mkdir, readdir, readFile, rm } from "node:fs/promises";
 // build, MediaPipe, the game context; assets.js comes along for the loader's image decoding,
 // its glTF and KTX2 helpers needing the site's addons). Release: bump the version in
 // packages/fundev-runtime/package.json, run this, then `npm publish ./packages/fundev-runtime`.
-const SITE_ONLY = new Set(["text.js", "input.js", "vision.js", "post.js"]);
+const SITE_ONLY = new Set(["text.js", "input.js", "vision.js"]);
 export async function buildRuntime(root = new URL("../", import.meta.url)) {
   const source = new URL("site/runtime/kit/", root), target = new URL("packages/fundev-runtime/kit/", root);
   await rm(target, { recursive: true, force: true });

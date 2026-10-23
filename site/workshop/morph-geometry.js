@@ -25,6 +25,7 @@ export function morphGeometry(node) {
   const baseNormals = normals(base);
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(refs.flatMap(r => base[r.vertex]), 3));
   geometry.setAttribute("normal", new THREE.Float32BufferAttribute(baseNormals, 3));
+  if (node.mesh.uvs) geometry.setAttribute("uv", new THREE.Float32BufferAttribute(refs.flatMap(r => node.mesh.uvs[r.vertex]), 2));
   geometry.setIndex(refs.map((_, i) => i));
   geometry.morphTargetsRelative = true;
   geometry.morphAttributes.position = [];

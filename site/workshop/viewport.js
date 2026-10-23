@@ -1,3 +1,5 @@
+import { embedBaseColorTextures } from "./texture-export.js";
+import { TEXTURE_SLOTS } from "./textures.js";
 import * as THREE from "/runtime/three.js";
 import { WebGPURenderer } from "/vendor/three/three.webgpu.js";
 import {
@@ -28,29 +30,31 @@ import { morphGeometry } from "./morph-geometry.js";
 import { characterAnimations } from "./character-animation.js";
 import { runtimeTransfer } from "./runtime-transfer.js";
 
-function indexAttributes(positions, normals) {
+function indexAttributes(positions, normals, uvs = null) {
   const uniquePositions = [],
     uniqueNormals = [],
+    uniqueUVs = [],
     indices = [],
     lookup = new Map();
   for (let i = 0; i < positions.length; i += 3) {
-    const key = [...positions.slice(i, i + 3), ...normals.slice(i, i + 3)]
+    const key = [...positions.slice(i, i + 3), ...normals.slice(i, i + 3), ...(uvs ? uvs.slice(i / 3 * 2, i / 3 * 2 + 2) : [])]
       .map((n) => Math.fround(n))
       .join(",");
     if (!lookup.has(key)) {
       lookup.set(key, uniquePositions.length / 3);
       uniquePositions.push(...positions.slice(i, i + 3));
       uniqueNormals.push(...normals.slice(i, i + 3));
+      if (uvs) uniqueUVs.push(...uvs.slice(i / 3 * 2, i / 3 * 2 + 2));
     }
     indices.push(lookup.get(key));
   }
-  return { positions: uniquePositions, normals: uniqueNormals, indices };
+  return { positions: uniquePositions, normals: uniqueNormals, uvs: uvs ? uniqueUVs : null, indices };
 }
 
 // The same material drives the viewport and the GLB: metallic-roughness PBR, emission
 // (KHR_materials_emissive_strength above 1), blended opacity, and glass through
 // KHR_materials_transmission/ior on a physical material.
-export function createMaterial(m) {
+export function createMaterial(m, { textures = true } = {}) {
   const options = {
     name: m.id,
     color: m.color,
@@ -59,12 +63,13 @@ export function createMaterial(m) {
     ...(m.emissive
       ? { emissive: m.emissive, emissiveIntensity: m.emissiveIntensity ?? 1 }
       : {}),
-    ...((m.opacity ?? 1) < 1
-      ? { transparent: true, opacity: m.opacity, depthWrite: false }
+    ...(((m.opacity ?? 1) < 1 && m.alphaTest === undefined) || m.transparent
+      ? { transparent: true, opacity: m.opacity ?? 1, depthWrite: false }
       : {}),
+    ...(m.alphaTest !== undefined ? { alphaTest: m.alphaTest, opacity: m.opacity ?? 1 } : {}),
     ...(m.doubleSided ? { side: THREE.DoubleSide } : {}),
   };
-  return m.transmission
+  const material = m.transmission
     ? new THREE.MeshPhysicalMaterial({
         ...options,
         transmission: m.transmission,
@@ -72,6 +77,33 @@ export function createMaterial(m) {
         thickness: 0,
       })
     : new THREE.MeshStandardMaterial(options);
+  if (textures) for (const [key, [slot, colorSpace]] of Object.entries(TEXTURE_SLOTS))
+    if (m[key]) attachTexture(material, m[key], slot, colorSpace);
+  if (material.roughnessMap) material.metalnessMap = material.roughnessMap;
+  material.normalScale.setScalar(m.normalScale ?? 1);
+  material.aoMapIntensity = m.occlusionStrength ?? 1;
+  return material;
+}
+
+const materialTextures = new WeakMap();
+function attachTexture(material, spec, slot, colorSpace) {
+  const image = new Image(), texture = new THREE.Texture(image);
+  const wrap = { 10497: THREE.RepeatWrapping, 33071: THREE.ClampToEdgeWrapping, 33648: THREE.MirroredRepeatWrapping };
+  const filter = { 9728: THREE.NearestFilter, 9729: THREE.LinearFilter, 9984: THREE.NearestMipmapNearestFilter,
+    9985: THREE.LinearMipmapNearestFilter, 9986: THREE.NearestMipmapLinearFilter, 9987: THREE.LinearMipmapLinearFilter };
+  texture.flipY = false;
+  texture.colorSpace = colorSpace === 'srgb' ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  if (spec.transform) {
+    texture.offset.fromArray(spec.transform.offset); texture.repeat.fromArray(spec.transform.scale); texture.rotation = spec.transform.rotation;
+  }
+  texture.wrapS = wrap[spec.wrapS]; texture.wrapT = wrap[spec.wrapT];
+  texture.magFilter = filter[spec.magFilter]; texture.minFilter = filter[spec.minFilter];
+  material[slot] = texture;
+  const state = { loaded: false, error: null, ready: null };
+  image.src = spec.uri;
+  state.ready = image.decode().then(() => { texture.needsUpdate = true; state.loaded = true; }, error => { state.error = error; });
+  const states = materialTextures.get(material) ?? [];
+  states.push(state); materialTextures.set(material, states);
 }
 
 // Ambient light as a sky above a ground: on painted surfaces it is exactly a hemisphere
@@ -253,7 +285,7 @@ function placeholderCopies(node) {
  * scene parts get their overlays and placed models their loaded templates (copies sharing the
  * template's geometry); exports build without, so nothing of that reaches a file.
  */
-export function buildModel(project, { display = false, morphTargets = false, deformSourceIds = new Set() } = {}) {
+export function buildModel(project, { display = false, morphTargets = false, deformSourceIds = new Set(), textures = true } = {}) {
   const root = new THREE.Group(),
     objects = new Map(),
     materials = new Map(),
@@ -263,7 +295,7 @@ export function buildModel(project, { display = false, morphTargets = false, def
     overlays = new Map(),
     missing = [];
   root.name = project.name;
-  for (const m of project.materials) materials.set(m.id, createMaterial(m));
+  for (const m of project.materials) materials.set(m.id, createMaterial(m, { textures }));
   for (const node of project.nodes) {
     let object;
     const deformSource = node.attachment?.mode === "deform" || deformSourceIds.has(node.id);
@@ -285,6 +317,7 @@ export function buildModel(project, { display = false, morphTargets = false, def
         geometry = new THREE.BufferGeometry();
         geometry.setAttribute("position", new THREE.BufferAttribute(g.positions, 3));
         geometry.setAttribute("normal", new THREE.BufferAttribute(g.normals, 3));
+        if (g.uvs) geometry.setAttribute("uv", new THREE.BufferAttribute(g.uvs, 2));
         geometry.setIndex(new THREE.BufferAttribute(g.index, 1));
         g.groups.forEach((group, i) => geometry.addGroup(group.start, group.count, i));
         geometry.computeBoundingSphere();
@@ -298,6 +331,7 @@ export function buildModel(project, { display = false, morphTargets = false, def
     } else if (node.mesh) {
       const positions = [],
         normals = [],
+        uvs = node.mesh.uvs ? [] : null,
         triangleFaces = [],
         geometry = new THREE.BufferGeometry();
       const used = [...new Set(node.mesh.faces.map((f) => f.material))];
@@ -317,7 +351,8 @@ export function buildModel(project, { display = false, morphTargets = false, def
           )) {
             for (const i of triangle) {
               positions.push(...node.mesh.vertices[i]);
-              normals.push(...(smooth ? smooth[face.vertices.indexOf(i)] : n));
+              normals.push(...(node.mesh.normals?.[i] ?? (smooth ? smooth[face.vertices.indexOf(i)] : n)));
+              if (uvs) uvs.push(...node.mesh.uvs[i]);
             }
             triangleFaces.push(face.id);
           }
@@ -327,8 +362,9 @@ export function buildModel(project, { display = false, morphTargets = false, def
       const {
         positions: uniquePositions,
         normals: uniqueNormals,
+        uvs: uniqueUVs,
         indices,
-      } = indexAttributes(positions, normals);
+      } = indexAttributes(positions, normals, uvs);
       geometry.setAttribute(
         "position",
         new THREE.Float32BufferAttribute(uniquePositions, 3),
@@ -337,11 +373,13 @@ export function buildModel(project, { display = false, morphTargets = false, def
         "normal",
         new THREE.Float32BufferAttribute(uniqueNormals, 3),
       );
+      if (uniqueUVs) geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uniqueUVs, 2));
       geometry.setIndex(indices);
       geometry.computeBoundingSphere();
       const geometryKey = JSON.stringify([
         uniquePositions,
         uniqueNormals,
+        uniqueUVs,
         indices,
         geometry.groups,
       ]);
@@ -432,12 +470,21 @@ export function buildModel(project, { display = false, morphTargets = false, def
     placedMeshes,
     overlays,
     missing,
+    texturesReady: Promise.all([...materials.values()].flatMap(m => (materialTextures.get(m) ?? []).map(s => s.ready))),
+    assertTexturesReady() {
+      for (const m of materials.values()) {
+        for (const state of materialTextures.get(m) ?? []) {
+        if (state?.error) throw new Error(`Texture could not be decoded: ${state.error.message}`);
+        if (state && !state.loaded) throw new Error('Textures are still loading; wait for texturesReady before capturing');
+        }
+      }
+    },
     dispose() {
       for (const o of objects.values()) o.skeleton?.dispose();
       new Set(
         [...objects.values()].map((o) => o.geometry).filter(Boolean),
       ).forEach((g) => g.dispose());
-      materials.forEach((m) => m.dispose());
+      materials.forEach((m) => { new Set(Object.values(TEXTURE_SLOTS).map(([slot]) => m[slot]).filter(Boolean)).forEach(t => t.dispose()); m.dispose(); });
       for (const o of overlays.values()) {
         o.geometry.dispose();
         o.material.dispose();
@@ -986,10 +1033,12 @@ export async function createViewport(
     scene.remove(model.root);
     model.dispose();
   }
-  function install(next) {
+  function install(next, prepared) {
     disposeModel();
-    model = buildModel(next, { display: true });
+    model = prepared ?? buildModel(next, { display: true });
     scene.add(model.root);
+    const installed = model;
+    model.texturesReady.then(() => { if (!disposed && model === installed) render(); });
     for (const [id, o] of model.objects) o.visible = shown(id);
     applyShading();
     // Placed models whose template has not loaded show their bounds; the scene rebuilds once
@@ -1984,13 +2033,26 @@ export async function createViewport(
         size: b.getSize(new THREE.Vector3()).toArray(),
       };
     },
-    renderProject(next, names, size, options) {
+    async renderProjectReady(next, names, size, options) {
+      // Decode the isolated candidate before installing it. Waiting must not
+      // temporarily replace the visible draft or change the synchronous API.
+      const prepared = buildModel(next, { display: true });
+      try {
+        await prepared.texturesReady;
+        prepared.assertTexturesReady();
+      } catch (error) {
+        prepared.dispose();
+        throw error;
+      }
+      return this.renderProject(next, names, size, options, prepared);
+    },
+    renderProject(next, names, size, options, prepared) {
       const original = project,
         originalSelection = selection;
       try {
         project = next;
         if (options?.selection) selection = options.selection;
-        install(next);
+        install(next, prepared);
         placeReferences();
         fitLighting();
         return this.renderViews(names, size, options);
@@ -2010,6 +2072,7 @@ export async function createViewport(
       size = 512,
       options = {},
     ) {
+      model.assertTexturesReady();
       if (
         !Array.isArray(names) ||
         !names.length ||
@@ -2374,7 +2437,7 @@ function exportModel(
   const scoped = exportScope(project, { ids }),
     // A scoped runtime model omits attachment dependencies outside the export,
     // but its animated followers still need morph-capable render correspondence.
-    model = buildModel(scoped, { morphTargets: true,
+    model = buildModel(scoped, { morphTargets: true, textures: false,
       deformSourceIds: new Set(project.nodes.filter(n => n.attachment?.mode === "deform").map(n => n.id)) }),
     nodes = new Map(scoped.nodes.map((n) => [n.id, n]));
   const included = (id) => !!nodes.get(id)?.mesh;
@@ -2459,37 +2522,41 @@ function exportModel(
       );
       for (const group of g.groups) {
         const material = o.material[group.materialIndex],
-          bucket = byMaterial.get(material) ?? {
+          layout = Object.keys(g.attributes).sort().map(name => `${name}:${g.attributes[name].itemSize}`).join('|'),
+          key = `${material.uuid}|${layout}`,
+          bucket = byMaterial.get(key) ?? {
+            material,
             pieces: [],
             sourceIds: new Set(),
           };
         const piece = new THREE.BufferGeometry();
-        for (const name of ["position", "normal"])
+        for (const name of Object.keys(g.attributes))
           piece.setAttribute(
             name,
             new THREE.Float32BufferAttribute(
               g.attributes[name].array.slice(
-                group.start * 3,
-                (group.start + group.count) * 3,
+                group.start * g.attributes[name].itemSize,
+                (group.start + group.count) * g.attributes[name].itemSize,
               ),
-              3,
+              g.attributes[name].itemSize,
             ),
           );
         bucket.pieces.push(piece);
         bucket.sourceIds.add(id);
-        byMaterial.set(material, bucket);
+        byMaterial.set(key, bucket);
       }
       g.dispose();
       o.removeFromParent();
     }
     let i = 0;
     for (const [parent, byMaterial] of byParent)
-      for (const [material, { pieces, sourceIds }] of byMaterial) {
+      for (const { material, pieces, sourceIds } of byMaterial.values()) {
         const g = mergeGeometries(pieces),
           o = new THREE.Mesh(g, material);
         const indexed = indexAttributes(
           g.attributes.position.array,
           g.attributes.normal.array,
+          g.attributes.uv?.array,
         );
         g.setAttribute(
           "position",
@@ -2500,6 +2567,7 @@ function exportModel(
           new THREE.Float32BufferAttribute(indexed.normals, 3),
         );
         g.setIndex(indexed.indices);
+        if (indexed.uvs) g.setAttribute('uv', new THREE.Float32BufferAttribute(indexed.uvs, 2));
         pieces.forEach((p) => p.dispose());
         // Library convention: static__<material> under the root, <pivot>__<material>
         // under a moving part.
@@ -2585,6 +2653,8 @@ function modelReport(project, model, options) {
 }
 export function exportReport(project, options = {}) {
   const model = exportModel(project, options);
+  // Texture bytes are embedded losslessly below, not through GLTFExporter canvas conversion.
+  model.root.traverse(o => { for (const m of [o.material].flat().filter(Boolean)) m.map = null; });
   try {
     const animations = characterAnimations(project, model);
     return {
@@ -2605,11 +2675,16 @@ export async function exportAsset(project, options = {}) {
   const validation = assertExportable(project, options);
   const model = exportModel(project, options);
   try {
+    if (project.ripple) {
+      let found = false;
+      model.root.traverse(o => { if ([o.material ?? []].flat().some(m => m.name === project.ripple.material)) found = true; });
+      if (!found) throw new Error('Ripple material is not present in the export scope');
+    }
     const animations = characterAnimations(project, model);
     // Attachment animation can append deformation targets. Inventory the final
     // model, so preflight and the actual file describe the same exported data.
     const report = modelReport(project, model, options);
-    const buffer = nameMeshes(
+    const buffer = embedBaseColorTextures(nameMeshes(
       new Uint8Array(
         await new GLTFExporter().parseAsync(model.root, {
           binary: true,
@@ -2618,7 +2693,7 @@ export async function exportAsset(project, options = {}) {
           animations,
         }),
       ),
-    ).buffer;
+    ), project.materials, project.presentation, project.ripple).buffer;
     return {
       buffer,
       report: {

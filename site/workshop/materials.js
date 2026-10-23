@@ -1,3 +1,4 @@
+import { normalizeTexture, TEXTURE_SLOTS } from "./textures.js";
 import { ModelError } from "./mesh.js";
 import { DenseMesh, isDense, denseData } from "./dense.js";
 
@@ -114,6 +115,8 @@ const OPTIONAL = {
   opacity: [1, 0, 1],
   transmission: [0, 0, 1],
   ior: [1.5, 1, 3],
+  normalScale: [1, -10, 10],
+  occlusionStrength: [1, 0, 1],
 };
 export const MATERIAL_FIELDS = [
   "name",
@@ -126,6 +129,11 @@ export const MATERIAL_FIELDS = [
   "transmission",
   "ior",
   "doubleSided",
+  ...Object.keys(TEXTURE_SLOTS),
+  "normalScale",
+  "occlusionStrength",
+  "transparent",
+  "alphaTest",
 ];
 export function normalizeMaterial(m, path = "material") {
   const bad = (message, field) => {
@@ -163,6 +171,11 @@ export function normalizeMaterial(m, path = "material") {
   if (m.doubleSided !== undefined && typeof m.doubleSided !== "boolean")
     bad("Expected doubleSided true or false", "doubleSided");
   if (m.doubleSided) result.doubleSided = true;
+  if (m.transparent !== undefined && typeof m.transparent !== "boolean") bad("Expected transparent true or false", "transparent");
+  if (m.transparent) result.transparent = true;
+  if (m.alphaTest !== undefined) result.alphaTest = number("alphaTest", 0, 0, 1);
+  for (const key of Object.keys(TEXTURE_SLOTS))
+    if (m[key] !== undefined) result[key] = normalizeTexture(m[key]);
   // Stable key order keeps documents and history comparisons deterministic.
   return Object.fromEntries(
     ["id", ...MATERIAL_FIELDS]

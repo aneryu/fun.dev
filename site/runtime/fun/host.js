@@ -19,7 +19,7 @@ import { ProgressError } from "../../progress/format.js";
 import { createMenu, SAFE_TOP } from "./menu.js";
 
 export const API_VERSION = 3;
-const hooks = ["update", "resize", "pause", "resume", "dispose", "localeChanged", "optionChanged", "shareText", "recordingFocus", "recordingBadge"];
+const hooks = ["update", "resize", "pause", "resume", "dispose", "localeChanged", "optionChanged", "shareText", "recordingFocus", "recordingBadge", "snapshot"];
 const MAX_DELTA = 0.05;
 const resolutionScales = [1, 0.8, 0.65, 0.5];
 
@@ -64,7 +64,7 @@ export function createFunHost({
     if (s.pipeline) s.pipeline.render();
     else host.renderer.render(s.scene, s.camera);
   }
-  function overlay(s) { if (host.menu) host.menu.render(host.renderer); }
+  function overlay(s) { if (host.menu && !s.pipelineHUD) host.menu.render(host.renderer); }
   function present(s) { draw(s); overlay(s); }
   function startLoop(s) {
     if (s.loopActive || !s.game || s.paused || s.scope.signal.aborted) return;
@@ -163,6 +163,7 @@ export function createFunHost({
       invalidated: false, loopActive: false, loading: true, camera: null, scene: null, options: null, cheats: false, scaleIndex: 0, lastFrame: null, sampleTime: 0, slowTime: 0,
     };
     session = s;
+    scope.onCleanup(() => s.pipelineHUD?.dispose());
     const settings = host.store?.settings ?? null;
     let stored = {};
     try { stored = settings?.load() ?? {}; } catch { /* optional */ }
@@ -226,6 +227,8 @@ export function createFunHost({
       },
       setRenderPipeline(pipeline) {
         if (pipeline !== null && typeof pipeline?.render !== "function") throw new TypeError("Expected a render pipeline or null.");
+        s.pipelineHUD?.dispose();
+        s.pipelineHUD = pipeline?.isRenderPipeline && host.menu ? host.menu.composite(pipeline) : null;
         s.pipeline = pipeline;
         if (s.game) redraw(s);
       },
@@ -413,6 +416,10 @@ export function createFunHost({
     registerDebug(prefix = "game") {
       if (!fun.debug?.register) return false;
       fun.debug.register(`${prefix}.stats`, () => this.stats());
+      // Optional application-owned, data-only diagnostics; rendering metrics
+      // remain separate in stats(). Games without this hook return null.
+      fun.debug.register(`${prefix}.inspect`, () => session?.game?.snapshot?.() ?? null);
+      fun.debug.register(`${prefix}.focus`, () => { host.canvas?.focus?.(); return true; });
       fun.debug.register(`${prefix}.capture`, (params) => this.capture(params?.name));
       fun.debug.register(`${prefix}.option`, (params) => { if (!params?.id) throw new TypeError("option needs { id, value }."); setOption(params.id, params.value); return session?.options.values[params.id] ?? null; });
       fun.debug.register(`${prefix}.pause`, () => { setPaused(true); return true; });

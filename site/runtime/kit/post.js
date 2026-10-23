@@ -8,7 +8,7 @@
 //
 // Ambient occlusion runs on "high" tier devices only, unless ao.everywhere is set; bloom runs
 // at half resolution on "low" tier devices.
-export async function createPost(context, { scene = context.scene, camera = context.camera, ao = false, bloom = false, grade = null } = {}) {
+export async function createPost(context, { scene = context.scene, camera = context.camera, ao = false, bloom = false, grade = null, samples } = {}) {
   const { THREE, renderer, graphics, signal, track } = context;
   const { pass, mrt, normalView, builtinAOContext, screenUV, saturation, uniform, vec3, vec4 } = THREE.TSL;
   const high = graphics.tier === "high";
@@ -22,12 +22,19 @@ export async function createPost(context, { scene = context.scene, camera = cont
   signal.throwIfAborted();
 
   const pipeline = track(new THREE.RenderPipeline(renderer));
-  const scenePass = pass(scene, camera);
+  const scenePass = pass(scene, camera, samples === undefined ? {} : { samples });
   const parts = { pipeline, ao: null, bloom: null, grade: null };
   const nodes = [scenePass];
   if (useAO) {
     // A depth and normal pre-pass feeds GTAO; its result darkens only the indirect light.
-    const prePass = pass(scene, camera);
+    // AO needs depth/normals, not an additional multisampled colour buffer.
+    // Keeping this single-sampled avoids duplicating the scene pass's MSAA
+    // allocation (particularly expensive on native Retina surfaces).
+    const prePass = pass(scene, camera, { samples: 0 });
+    // The normal pass must not execute physical refraction: its framebuffer has
+    // no opaque colour to refract (and starts at 1×1 before the first resize).
+    prePass.overrideMaterial = track(new THREE.MeshNormalNodeMaterial());
+    prePass.transparent = false;
     prePass.setMRT(mrt({ output: normalView }));
     const aoPass = aoModule.ao(prePass.getTextureNode("depth"), prePass.getTextureNode(), camera);
     aoPass.resolutionScale = aoOptions.resolution ?? 0.5;

@@ -152,12 +152,13 @@ async function runCandidateWorkflow({ args, store, draft, viewport, candidates }
     try {
       const display=query.showVolumes?volumeOverlayProject(project,relations.results):{project,ids:[]};
       const baseIds=render.ids??savedView?.render?.ids??(nodes.length&&action!=="inspect"?nodes:null);
-      observations = viewport.renderProject(display.project, requested, args.size ?? savedView?.size ?? size, {
+      const renderProject = viewport.renderProjectReady ?? viewport.renderProject;
+      observations = (await renderProject.call(viewport, display.project, requested, args.size ?? savedView?.size ?? size, {
         visibility: "all", helpers: false, ...(savedView?.render ?? {}), ...(nodes.length && action !== "inspect" ? { ids: nodes,
           selection: { id, ids: [id], mode: faces.length ? "face" : "vertex", faces, edges: [], vertices },
           overlays: { selection: true, wire: true } } : {}), ...render,
         ...(display.ids.length&&baseIds?{ids:[...baseIds,...display.ids]}:{}),
-      }).map(shot => ({ ...shot, ...identity, revision: identity.modelRevision, preview: !!candidate,
+      })).map(shot => ({ ...shot, ...identity, revision: identity.modelRevision, preview: !!candidate,
         ...(savedView ? { viewPreset: savedView.metadata } : {}) }));
     } catch (e) { renderError = errorInfo(e); }
   }

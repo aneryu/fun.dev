@@ -257,7 +257,15 @@ editable parts:
   uses spherical interpolation. Unsupported curves/rig transforms and budget
   overflow fail instead of silently dropping them. Runtime GLB cannot reconstruct
   recipes or semantic controls; use the editable project to retain those relationships.
-- Reported, not imported: textures, cameras,
+- Embedded PNG/JPEG base-colour, normal, metallic-roughness, occlusion and emissive
+  textures retain TEXCOORD_0 seams, source normals and
+  sampler settings. Drafts and project files retain the image data and UVs; GLB export
+  embeds the original image bytes without recompression. Texture files count toward
+  the existing project JSON budget. Sampling and KHR_texture_transform are retained;
+  external images, additional UV sets, standalone alpha/transmission maps and unsupported
+  required material extensions are refused explicitly. See [toolchain coverage](workshop-toolchain.md).
+  UV-destructive operations fail rather than committing an untextured mesh.
+- Reported, not imported: cameras,
   lights, line and point primitives. Refused: compressed files (Draco, meshopt, KTX2, WebP,
   AVIF), other unknown required extensions, and models beyond the limits.
 
@@ -541,8 +549,9 @@ made during the stroke rather than rebuilding it. At 258,000 triangles a stroke 
 
 ## Limits and verification
 
-Untextured static models. UV/textures, rigs and animation are later stages of the
-[roadmap](platform-roadmap.md#workshop-replacing-blender-decided-2026-10-18). Limits: 512
+Flat-colour and embedded PBR-textured models. Browser previews support PNG/JPEG;
+the Node image shim currently decodes PNG only (JPEG export remains lossless; use the
+browser for JPEG previews). Limits: 512
 nodes, 32 materials, 64 vertices per polygon, 8 MB project JSON besides dense meshes;
 polygon meshes 30,000 editable vertices and 50,000 triangles in all; dense meshes 600,000
 vertices, 1,000,000 triangles and 256 MB in all (engine limits: the format has none). Polygon

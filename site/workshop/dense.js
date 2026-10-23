@@ -1,3 +1,4 @@
+import { transformNormals } from "./normal-transform.js";
 // Dense meshes (docs/model-editor.md "Dense meshes and sculpting"): the workshop's polygon
 // mesh held in typed arrays, for parts with many faces (sculpted heads, rocks, imported scans).
 // It is the same mesh as { vertices, faces }: face IDs are f0, f1, … in order, every face keeps
@@ -75,7 +76,12 @@ function unpackData(d, frozen = false) {
     const face = { id: `f${f}`, vertices: frozen ? Object.freeze(corners) : corners, material: d.materials[d.faceMaterials[f]] };
     faces[f] = frozen ? Object.freeze(face) : face;
   }
-  return frozen ? Object.freeze({ vertices: Object.freeze(vertices), faces: Object.freeze(faces) }) : { vertices, faces };
+  const attributes = {};
+  for (const [key, size] of [["uvs", 2], ["normals", 3]]) if (d[key]) {
+    attributes[key] = Array.from({ length: V }, (_, i) => { const v = Array.from(d[key].subarray(i * size, (i + 1) * size)); return frozen ? Object.freeze(v) : v; });
+    if (frozen) Object.freeze(attributes[key]);
+  }
+  return frozen ? Object.freeze({ vertices: Object.freeze(vertices), faces: Object.freeze(faces), ...attributes }) : { vertices, faces, ...attributes };
 }
 export const unpackMesh = (mesh) => (isDense(mesh) ? unpackData(denseData(mesh)) : mesh);
 export const denseData = (mesh) => (mesh instanceof DenseMesh ? mesh.dense : mesh.dense);
@@ -113,7 +119,9 @@ export function packMesh(mesh, { renumber = false } = {}) {
     }
     faceMaterials[f] = slot.get(face.material);
   }
-  return new DenseMesh({ positions, offsets, indices, materials, faceMaterials });
+  return new DenseMesh({ positions, offsets, indices, materials, faceMaterials,
+    ...(mesh.uvs ? { uvs: Float64Array.from(mesh.uvs.flat()) } : {}),
+    ...(mesh.normals ? { normals: Float64Array.from(mesh.normals.flat()) } : {}) });
 }
 
 // ---- Checks, counts and tokens: computed once per array (the arrays never change) ----
@@ -143,6 +151,7 @@ export function checkDense(d, materialIds, path = "mesh") {
     checkedPositions.add(d.positions);
   }
   const V = vertexCount(d);
+  for (const [key, size] of [["uvs", 2], ["normals", 3]]) if (d[key] !== undefined && (!(d[key] instanceof Float64Array) || d[key].length !== V * size || d[key].some(n => !Number.isFinite(n)))) fail(`Invalid dense ${key}`, `${path}.${key}`);
   if (checkedTopology.get(d.indices) !== V || !checkedTopology.has(d.offsets)) {
     const { offsets, indices } = d;
     for (let f = 0; f + 1 < offsets.length; f++) {
@@ -217,7 +226,7 @@ export function denseBounds(positions, indices = null) {
 }
 
 // ---- JSON and binary encodings ----
-const KINDS = { positions: Float64Array, offsets: Uint32Array, indices: Uint32Array, faceMaterials: Uint8Array };
+const KINDS = { positions: Float64Array, offsets: Uint32Array, indices: Uint32Array, faceMaterials: Uint8Array, uvs: Float64Array, normals: Float64Array };
 const bytesOf = (array) => new Uint8Array(array.buffer, array.byteOffset, array.byteLength);
 const littleEndian = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
 export function toBase64(bytes) {
@@ -246,6 +255,8 @@ if (!littleEndian) throw new Error("Dense meshes need a little-endian platform")
 
 export function encodeDense(d) {
   return {
+    ...(d.uvs ? { uvs: toBase64(bytesOf(d.uvs)) } : {}),
+    ...(d.normals ? { normals: toBase64(bytesOf(d.normals)) } : {}),
     positions: toBase64(bytesOf(d.positions)),
     offsets: toBase64(bytesOf(d.offsets)),
     indices: toBase64(bytesOf(d.indices)),
@@ -260,6 +271,7 @@ export function decodeDense(input, path = "mesh.dense", resolve = null) {
   const out = { materials: input.materials };
   for (const [key, Kind] of Object.entries(KINDS)) {
     let value = input[key];
+    if (value === undefined && ["uvs", "normals"].includes(key)) continue;
     if (value && typeof value === "object" && !ArrayBuffer.isView(value) && !Array.isArray(value) && resolve) value = resolve(value, `${path}.${key}`);
     if (value instanceof Kind) out[key] = value;
     else if (typeof value === "string" || value instanceof Uint8Array) {
@@ -274,7 +286,7 @@ export function decodeDense(input, path = "mesh.dense", resolve = null) {
   }
   return out;
 }
-export const denseBytes = (d) => d.positions.byteLength + d.offsets.byteLength + d.indices.byteLength + d.faceMaterials.byteLength;
+export const denseBytes = (d) => d.positions.byteLength + d.offsets.byteLength + d.indices.byteLength + d.faceMaterials.byteLength + (d.uvs?.byteLength ?? 0) + (d.normals?.byteLength ?? 0);
 
 // ---- Geometry on the arrays ----
 // Triangles for drawing and checks: triangles as they are, quads split along the shorter
@@ -451,7 +463,7 @@ export function denseVertexNormals(mesh) {
 }
 
 // A new DenseMesh with new positions (the faces shared).
-export const withPositions = (mesh, positions) => new DenseMesh({ ...denseData(mesh), positions });
+export const withPositions = (mesh, positions) => { const { normals, ...d } = denseData(mesh); return new DenseMesh({ ...d, positions }); };
 
 // Normal of one face of a dense mesh, as the polygon code computes it (for checks).
 export function denseFaceNormal(mesh, f) {
@@ -480,14 +492,15 @@ export function transformedDense(mesh, m) {
   }
   const det =
     m[0] * (m[5] * m[10] - m[6] * m[9]) - m[4] * (m[1] * m[10] - m[2] * m[9]) + m[8] * (m[1] * m[6] - m[2] * m[5]);
-  if (det >= 0) return new DenseMesh({ ...d, positions: out });
+  const attributes = d.normals ? { normals: transformNormals(d.normals, m) } : {};
+  if (det >= 0) return new DenseMesh({ ...d, ...attributes, positions: out });
   const indices = new Uint32Array(d.indices.length);
   for (let f = 0; f + 1 < d.offsets.length; f++) {
     const a = d.offsets[f],
       b = d.offsets[f + 1];
     for (let k = a; k < b; k++) indices[k] = d.indices[a + b - 1 - k];
   }
-  return new DenseMesh({ ...d, positions: out, indices });
+  return new DenseMesh({ ...d, ...attributes, positions: out, indices });
 }
 
 // A dense mesh with independent arrays (reads handed to agents never share the document's).
@@ -499,6 +512,8 @@ export const isolate = (mesh) => {
     indices: d.indices.slice(),
     materials: [...d.materials],
     faceMaterials: d.faceMaterials.slice(),
+    ...(d.uvs ? { uvs: d.uvs.slice() } : {}),
+    ...(d.normals ? { normals: d.normals.slice() } : {}),
   });
 };
 
@@ -652,8 +667,13 @@ export function denseGeometry(mesh, crease = 0) {
     expected = null;
     geometryCounts.adopted++;
   } else {
-    result = buildGeometry(mesh, crease);
+    result = buildGeometry(mesh, d.normals ? 180 : crease);
     geometryCounts.built++;
+  }
+  for (const [key, size] of [["uvs", 2], ["normals", 3]]) if (d[key]) {
+    const values = new Float32Array(result.vertexMap.length * size);
+    for (let i = 0; i < result.vertexMap.length; i++) values.set(d[key].subarray(result.vertexMap[i] * size, (result.vertexMap[i] + 1) * size), i * size);
+    result[key] = values;
   }
   geometryCache.set(d, { key: crease, result });
   while (geometryCache.size > 3) geometryCache.delete(geometryCache.keys().next().value);

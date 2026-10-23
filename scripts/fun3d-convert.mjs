@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptEncoder } from "meshoptimizer/encoder";
@@ -14,14 +14,15 @@ import { createImporter, PROFILE } from "../site/runtime/kit/fun3d-import.js";
 const root = new URL("../", import.meta.url);
 // GLTFLoader reaches URL.createObjectURL through `self`, which Node lacks.
 globalThis.self ??= globalThis;
-const KIT = ["fun3d.js", "fun3d-write.js", "fun3d-schema.js", "fun3d-container.js", "fun3d-import.js"];
 let stamp = null;
 
 /** "sha256:<hex>" over the kit modules, the profile and the pinned dependencies. */
 export async function converterStamp() {
   if (stamp) return stamp;
   const hash = createHash("sha256");
-  for (const name of KIT) hash.update(name).update("\0").update(await readFile(new URL(`site/runtime/kit/${name}`, root))).update("\0");
+  // Include imported validators/consumers too: changing their semantics must
+  // invalidate cached conversions even when the entry module is unchanged.
+  for (const name of (await readdir(new URL('site/runtime/kit/',root))).filter(n=>n.endsWith('.js')).sort()) hash.update(name).update("\0").update(await readFile(new URL(`site/runtime/kit/${name}`, root))).update("\0");
   const versions = await Promise.all(["three", "meshoptimizer"].map(async (name) => JSON.parse(await readFile(new URL(`node_modules/${name}/package.json`, root), "utf8")).version));
   hash.update(PROFILE).update("\0").update(versions.join(","));
   return (stamp = `sha256:${hash.digest("hex")}`);

@@ -115,6 +115,7 @@ export async function exportWorld(project, { name = project.name, runtime = [], 
     ...(dataEntry ? { data: dataEntry } : {}),
     models,
     environment: DEFAULT_ENVIRONMENT,
+    ...(project.presentation ? { presentation: project.presentation } : {}),
     ...(runtime.length ? { rules: { runtime: runtime.map(({ rule }) => rule.id) } } : {}),
     source,
   };

@@ -16,6 +16,7 @@ import { CAPS, FORMATS, VERSION, skeletonHash, validateManifest } from "./fun3d-
 import { cloneObjects } from "./objects.js";
 import { createWriter } from "./fun3d-write.js";
 import { textureFromImage } from "./assets.js";
+import { applyTransmission } from './material-features.js';
 
 export { CAPS, VERSION, packChunks, stripEditing, unpackChunks };
 
@@ -51,7 +52,7 @@ export function imageSize(bytes, mime) {
   return null;
 }
 
-export function createFun3d({ THREE, decoder = null, encoder = null, materials = null, ktx2 = null, decodeImage = null } = {}) {
+export function createFun3d({ THREE, decoder = null, encoder = null, materials = null, ktx2 = null, decodeImage = null, transmission = 'physical', extensions = {} } = {}) {
   // Encoded images become textures through the host's decoder (docs/hosts.md); without one,
   // browsers use createImageBitmap and other hosts get a texture that remembers its source.
   decodeImage ??= typeof createImageBitmap === "function"
@@ -215,13 +216,15 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
   // builder: roles and tints do not apply here.
   function classicMaterial(desc, { flat, vertexColors, texture, warn }) {
     const options = { name: desc.name, color: new THREE.Color(desc.color), side: desc.side === "double" ? THREE.DoubleSide : THREE.FrontSide, vertexColors };
-    const material = desc.model === "unlit" ? new THREE.MeshBasicMaterial(options) : new THREE.MeshStandardMaterial({ ...options, roughness: desc.pbr.roughness, metalness: desc.pbr.metalness, flatShading: flat });
+    const Physical = desc.features.transmission && transmission === 'physical' ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
+    const material = desc.model === "unlit" ? new THREE.MeshBasicMaterial(options) : new Physical({ ...options, roughness: desc.pbr.roughness, metalness: desc.pbr.metalness, flatShading: flat });
+    applyTransmission(material, desc, transmission, warn);
     const maps = desc.maps;
     if (maps.color) material.map = texture(maps.color, "srgb");
     if (desc.model === "pbr") {
       if (maps.normal) { material.normalMap = texture(maps.normal); material.normalScale.setScalar(maps.normal.scale ?? 1); }
       if (maps.metalRough) material.metalnessMap = material.roughnessMap = texture(maps.metalRough);
-      if (maps.occlusion) material.aoMap = texture(maps.occlusion);
+      if (maps.occlusion) { material.aoMap = texture(maps.occlusion); material.aoMapIntensity = maps.occlusion.strength ?? 1; }
     }
     if (maps.alpha) material.alphaMap = texture(maps.alpha);
     const emitter = desc.features.emitter;
@@ -230,8 +233,9 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
       material.emissiveIntensity = emitter.intensity ?? 1;
       if (emitter.map) material.emissiveMap = texture(emitter.map, "srgb");
     }
-    for (const name of Object.keys(desc.features)) if (!["emitter", "tint"].includes(name)) warn(`material "${desc.id}": feature ${name} is not in this release; rendered without it`);
+    for (const name of Object.keys(desc.features)) if (!["emitter", "tint", "transmission"].includes(name)) warn(`material "${desc.id}": feature ${name} is not in this release; rendered without it`);
     if (desc.alpha.mode === "mask") material.alphaTest = desc.alpha.cutoff;
+    material.opacity = desc.alpha.opacity;
     if (desc.alpha.mode === "blend") { material.transparent = true; material.opacity = desc.alpha.opacity; material.depthWrite = false; }
     material.userData.fun3d = { id: desc.id, flat };
     return material;
@@ -246,6 +250,10 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
     if (!decodeImage) { const t = new THREE.Texture(); t.userData.fun3dSource = { mime: image.mime, bytes: image.bytes }; return t; }
     const decoded = await decodeImage(image.bytes, { mime: image.mime, imageOrientation: "none", colorSpaceConversion: "none", premultiplyAlpha: "none" });
     const texture = textureFromImage(THREE, decoded);
+    if (typeof decoded.close === 'function') {
+      let closed = false;
+      texture.addEventListener('dispose', () => { if (!closed) { closed = true; decoded.close(); } });
+    }
     texture.needsUpdate = true;
     return texture;
   }
@@ -255,11 +263,17 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
    * meshes are unnamed children carrying the dequantizing transform; skinned meshes are the
    * nodes themselves. `materials` builds from kit/materials.js when given to createFun3d.
    */
-  async function load(bytes, { warn = (message) => console.warn(`fun3d: ${message}`), keepSources = false, materials: builder = materials, resolve = null } = {}) {
+  async function load(bytes, { warn = (message) => console.warn(`fun3d: ${message}`), keepSources = false, materials: builder = materials, resolve = null, signal } = {}) {
+    signal?.throwIfAborted();
     if (decoder) await decoder.ready;
     const { manifest, bins, problems } = await read(bytes);
+    signal?.throwIfAborted();
     if (problems.length) throw new Error(`invalid .fun3d: ${problems[0]}${problems.length > 1 ? ` (+${problems.length - 1} more)` : ""}`);
-    for (const name of manifest.requires ?? []) throw new Error(`this file requires the extension ${name}, which this runtime does not have`);
+    for (const name of manifest.requires ?? []) if (!Object.hasOwn(extensions,name)) throw new Error(`this file requires the extension ${name}, which this runtime does not have`);
+    for (const [name, plugin] of Object.entries(extensions)) {
+      if (plugin.id !== name || typeof plugin.validate !== 'function' || typeof plugin.attach !== 'function') throw new TypeError(`Invalid trusted extension ${name}`);
+      if (manifest.extensions?.[name] !== undefined) plugin.validate(manifest.extensions[name]);
+    }
     // References (docs/worlds.md): the caller loads each referenced model (a tile places
     // library models); only skeleton, image and texture references wait for a later release.
     const resolved = new Map();
@@ -275,7 +289,8 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
     }
     const streams = openStreams(manifest, bins), warnings = [];
     const note = (message) => { warnings.push(message); warn(message); };
-    const disposables = [];
+    const disposables = [], geometries = new Map();
+    try {
 
     // Images and textures.
     const images = new Map();
@@ -283,6 +298,8 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
     const textures = new Map();
     for (const t of manifest.textures ?? []) {
       const image = images.get(t.image), texture = await decodeTexture(image, t, note);
+      disposables.push(texture);
+      signal?.throwIfAborted();
       texture.name = t.id;
       texture.flipY = false;
       texture.colorSpace = t.colorSpace === "srgb" ? THREE.SRGBColorSpace : THREE.NoColorSpace;
@@ -294,7 +311,6 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
       texture.anisotropy = sampler.anisotropy ?? 1;
       if (keepSources) texture.userData.fun3dSource = { mime: image.mime, bytes: image.bytes };
       textures.set(t.id, texture);
-      disposables.push(texture);
     }
     // A map's uv set and transform live on the texture in Three.js, so a texture used with
     // several settings is cloned (clones share the image).
@@ -304,8 +320,13 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
       const key = `${map.texture}|${map.uv ?? 0}|${JSON.stringify(map.transform ?? null)}|${colorSpace}`;
       if (variants.has(key)) return variants.get(key);
       let texture = base;
-      if (map.uv || map.transform) {
+      const targetColorSpace = colorSpace === 'srgb' ? THREE.SRGBColorSpace : colorSpace === 'linear' ? THREE.NoColorSpace : base.colorSpace;
+      if (map.uv || map.transform || targetColorSpace !== base.colorSpace) {
         texture = base.clone();
+        // Three clones userData through JSON, which turns Uint8Array sources
+        // into objects. Encoded immutable bytes must remain typed arrays.
+        if (base.userData.fun3dSource) texture.userData.fun3dSource = base.userData.fun3dSource;
+        texture.colorSpace = targetColorSpace;
         texture.channel = map.uv ?? 0;
         if (map.transform) { texture.offset.fromArray(map.transform.offset ?? [0, 0]); texture.repeat.fromArray(map.transform.scale ?? [1, 1]); texture.rotation = map.transform.rotation ?? 0; }
         disposables.push(texture);
@@ -329,7 +350,6 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
 
     // Geometries.
     const skinnedGeometries = new Set((manifest.nodes ?? []).filter((n) => n.skin && n.mesh).map((n) => n.mesh.geometry));
-    const geometries = new Map();
     for (const g of manifest.geometries ?? []) {
       const geometry = new THREE.BufferGeometry();
       geometry.name = g.id;
@@ -546,20 +566,33 @@ export function createFun3d({ THREE, decoder = null, encoder = null, materials =
     const physicsData = { points: new Map() };
     for (const s of manifest.physics?.shapes ?? []) if (s.type === "convex") physicsData.points.set(s.id, streams.of(s.points));
 
+    let modelDisposed = false;
     const model = {
       manifest, kind: manifest.kind, asset: manifest.asset, root, nodes, geometries, materials: materialDescs, textures, images, skeletons, animations, placements, lights, physicsData, warnings,
       streams, extensions: manifest.extensions ?? {}, refs: resolved,
       node: (id) => nodes.get(id) ?? null,
       clip: (id) => animations.find((c) => c.name === id) ?? null,
       textureFor,
+      effects: new Map(),
       dispose() {
+        if (modelDisposed) return; modelDisposed = true;
+        for (const d of [...disposables].reverse()) d.dispose?.();
         for (const g of geometries.values()) g.dispose();
-        for (const d of disposables) d.dispose?.();
         root.removeFromParent();
       },
     };
     model.file = model;
+    signal?.throwIfAborted();
+    for (const [name, plugin] of Object.entries(extensions)) if (manifest.extensions?.[name] !== undefined) {
+      const effect = plugin.attach(model, manifest.extensions[name]); model.effects.set(name, effect); disposables.push(effect);
+    }
+    for (const name of Object.keys(manifest.extensions ?? {})) if (name === 'fun3d.ripple' && !Object.hasOwn(extensions,name)) note(`Optional extension ${name} uses base-material fallback; register its trusted consumer to enable it`);
     return model;
+    } catch (error) {
+      for (const g of geometries.values()) g.dispose();
+      for (const d of disposables.reverse()) d.dispose?.();
+      throw error;
+    }
   }
 
   return {

@@ -1,3 +1,6 @@
+import { normalizeMeshAttributes, TEXTURE_SLOTS } from "./textures.js";
+import { normalizePresentation } from '../runtime/kit/presentation.js';
+import { normalizeRipple } from '../runtime/kit/ripple.js';
 import { vertexSymmetry, synchronizeVertices } from './vertex-symmetry.js';
 import {
   ModelError,
@@ -195,7 +198,7 @@ function documentSize(input) {
     if (!value || typeof value !== "object" || value.id === undefined || !value.mesh || typeof value.mesh !== "object") return value;
     if (isDense(value.mesh)) {
       const d = value.mesh.dense;
-      dense += ["positions", "offsets", "indices", "faceMaterials"].reduce((n, k) => {
+      dense += ["positions", "offsets", "indices", "faceMaterials", "uvs", "normals"].reduce((n, k) => {
         const v = d?.[k];
         return n + (ArrayBuffer.isView(v) ? v.byteLength : typeof v === "string" ? Math.floor((v.length * 3) / 4) : Array.isArray(v) ? v.length * 8 : 0);
       }, 0);
@@ -315,6 +318,8 @@ export function normalizeProject(input) {
     "materials",
   );
   const materialIds = new Set(materials.map((m) => m.id));
+  const ripple = input.ripple === undefined ? undefined : normalizeRipple(input.ripple);
+  if (ripple && !materialIds.has(ripple.material)) fail('Missing ripple material', 'ripple.material');
   if (!Array.isArray(input.nodes) || input.nodes.length > LIMITS.nodes)
     fail(`Expected at most ${LIMITS.nodes} nodes`);
   let vertexCount = 0,
@@ -456,6 +461,7 @@ export function normalizeProject(input) {
       if (vertices.length > LIMITS.denseVertices || faces.length > LIMITS.denseTriangles)
         fail("Mesh vertex budget exceeded or empty mesh");
       const points = vertices.map((v) => vector(v, `${node.id}.vertex`));
+      const attributes = normalizeMeshAttributes(sourceMesh, points.length);
       let meshTriangles = 0;
       const polygons = faces.map((face) => {
         if (
@@ -490,7 +496,7 @@ export function normalizeProject(input) {
       const big = points.length > DENSE_FROM || polygons.length > DENSE_FROM,
         beyond = points.length > LIMITS.vertices || meshTriangles > LIMITS.triangles;
       if (beyond || (big && canonicalIds(polygons))) {
-        result.mesh = packMesh({ vertices: points, faces: polygons }, { renumber: true });
+        result.mesh = packMesh({ vertices: points, faces: polygons, ...attributes }, { renumber: true });
         denseVertexCount += points.length;
         denseTriangleCount += meshTriangles;
         denseBudget();
@@ -498,8 +504,13 @@ export function normalizeProject(input) {
         if ((vertexCount += points.length) > LIMITS.vertices)
           fail("Mesh vertex budget exceeded or empty mesh");
         if ((triangleCount += meshTriangles) > LIMITS.triangles) fail("Triangle budget exceeded");
-        result.mesh = { vertices: points, faces: polygons };
+        result.mesh = { vertices: points, faces: polygons, ...attributes };
       }
+    }
+    if (result.mesh) {
+      const textured = new Set(materials.filter(m => Object.keys(TEXTURE_SLOTS).some(k => m[k])).map(m => m.id));
+      const meshMaterials = isDense(result.mesh) ? result.mesh.dense.materials : result.mesh.faces.map(f => f.material);
+      if (meshMaterials.some(id => textured.has(id)) && !(isDense(result.mesh) ? result.mesh.dense.uvs : result.mesh.uvs)) fail("Textured geometry requires UVs; this operation cannot discard UVs", `nodes.${node.id}.mesh.uvs`);
     }
     if (node.recipe) {
       result.recipe = normalizeRecipe(node.recipe);
@@ -692,6 +703,8 @@ export function normalizeProject(input) {
     format: FORMAT,
     version: VERSION,
     name: label(input.name, "name"),
+    ...(input.presentation !== undefined ? { presentation: normalizePresentation(input.presentation) } : {}),
+    ...(ripple ? { ripple } : {}),
     ...(input.character ? { character: normalizeCharacter(input.character, nodes) } : {}),
     ...(input.designReferences ? { designReferences: normalizeDesignReferences(input.designReferences) } : {}),
     ...(input.viewPresets !== undefined ? { viewPresets: normalizeViewPresets(input.viewPresets, nodes) } : {}),
@@ -2234,6 +2247,20 @@ function run(project, command) {
     fail("Expected a command with op");
   if (command.op === "renameProject") {
     project.name = command.name;
+    return;
+  }
+  if (command.op === 'presentation') {
+    if (command.definition === null) delete project.presentation;
+    else project.presentation = normalizePresentation(command.definition);
+    return;
+  }
+  if (command.op === 'ripple') {
+    if (command.definition === null) delete project.ripple;
+    else {
+      const ripple = normalizeRipple(command.definition);
+      if (!project.materials.some(m=>m.id===ripple.material)) fail('Missing ripple material', 'definition.material');
+      project.ripple = ripple;
+    }
     return;
   }
   if (command.op === "material") {

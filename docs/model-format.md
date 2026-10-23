@@ -321,6 +321,22 @@ A material is a shading model, parameters, maps and features.
   as features; they have no `extensions` object.
 - Batchable: `pbr` or `unlit`, no maps, no `transmission`. In a batch, animated material
   parameters write to the copy's palette slot.
+
+Local implementation update (2026-10-23): classic and TSL material consumers use
+physical transmission. `createFun3d` / `createMaterials` accept `transmission:
+"physical" | "opaque" | "reject"`; the opaque policy emits a warning. Mapped
+emission and unknown feature handlers also exclude a material from the generic
+palette batch. `occlusion.strength` defaults to 1. See the [toolchain ledger](workshop-toolchain.md)
+for executed GPU checks; the historical rollout table below is not a current
+capability matrix.
+
+`fun3d.presentation` version 1 carries bounded camera, generated HDR environment,
+exposure, lights and post settings. Applications explicitly call
+`createPresentation(context, model.extensions['fun3d.presentation'])`.
+`fun3d.ripple` version 1 carries only validated material ID and numeric/colour
+parameters. Applications explicitly register `createRippleExtension` in the
+loader's trusted `extensions` map. A required unregistered module fails; an
+optional base fallback warns. Module code is never supplied by asset data.
 - The runtime materials own normal mapping and flat shading (they set the normal node), so
   every model and feature renders the same way alone and in a batch.
 

@@ -205,7 +205,7 @@ test("coplanar triangles merge into polygons: a grid into one n-gon, an L into o
   assert.ok(frame.length >= 2 && frame.length <= 4, `${frame.length} frame pieces`);
 });
 
-test("materials map KHR emission, transmission and blending; animation and texture losses are reported", () => {
+test("materials map KHR emission, transmission and blending; animation losses are reported", () => {
   const bytes = gltf({
     nodes: [{ name: "lamp", mesh: 0 }],
     meshes: [{
@@ -219,7 +219,7 @@ test("materials map KHR emission, transmission and blending; animation and textu
     materials: [
       { name: "mat_light", emissiveFactor: [1, 0.8, 0.4], extensions: { KHR_materials_emissive_strength: { emissiveStrength: 6 } } },
       { name: "mat_glass", pbrMetallicRoughness: { baseColorFactor: [0.5, 0.6, 0.7, 0.4], metallicFactor: 0, roughnessFactor: 0.05 }, alphaMode: "BLEND", doubleSided: true, extensions: { KHR_materials_transmission: { transmissionFactor: 0.9 }, KHR_materials_ior: { ior: 1.45 } } },
-      { name: "mat_steel", pbrMetallicRoughness: { baseColorFactor: [0.6, 0.6, 0.6, 1], baseColorTexture: { index: 0 } } },
+      { name: "mat_steel", pbrMetallicRoughness: { baseColorFactor: [0.6, 0.6, 0.6, 1] } },
       { name: "flat", extensions: { KHR_materials_unlit: {} } },
     ],
     animations: [{ channels: [], samplers: [] }],
@@ -235,7 +235,7 @@ test("materials map KHR emission, transmission and blending; animation and textu
     { opacity: 0.4, transmission: 0.9, ior: 1.45, doubleSided: true },
   );
   assert.equal(m.flat.metalness, undefined);
-  assert.deepEqual(warnings.map((w) => w.code).sort(), ["animations", "textures", "unlit"]);
+  assert.deepEqual(warnings.map((w) => w.code).sort(), ["animations", "unlit"]);
   assert.ok(evaluateProject(project));
 });
 

@@ -1,3 +1,4 @@
+import { importTexture, TEXTURE_SLOTS } from "./textures.js";
 // Any GLB becomes editable workshop parts: its node hierarchy and names, flat-colour PBR
 // materials, and polygons recovered from triangles (coplanar, edge-connected regions of one
 // material). Deforming meshes retain vertex correspondence. A workshop project
@@ -14,6 +15,8 @@ import { connectivityToken } from "./components.js";
 import { mergeDesignReferences } from "./design-references.js";
 import { readSkinWeights, importSkins } from "./import-skin.js";
 import { importAnimations } from "./import-animation.js";
+import { normalizePresentation } from '../runtime/kit/presentation.js';
+import { normalizeRipple } from '../runtime/kit/ripple.js';
 
 const fail = (message, code = "invalid_glb", path = "data") => {
   throw new ModelError(message, code, path);
@@ -26,19 +29,14 @@ const COMPRESSED = new Set([
   "EXT_texture_webp",
   "EXT_texture_avif",
 ]);
+// Recognition is not support. Required features may only enter this set when
+// their editable representation and exporter actually preserve the semantics.
 const UNDERSTOOD = new Set([
   "KHR_mesh_quantization",
   "KHR_texture_transform",
-  "KHR_materials_unlit",
   "KHR_materials_emissive_strength",
   "KHR_materials_transmission",
   "KHR_materials_ior",
-  "KHR_materials_volume",
-  "KHR_materials_specular",
-  "KHR_materials_clearcoat",
-  "KHR_materials_sheen",
-  "KHR_materials_variants",
-  "KHR_lights_punctual",
 ]);
 
 /**
@@ -104,32 +102,35 @@ const hex = (rgb) =>
     )
     .join("");
 
-function convertMaterial(m, id, warn) {
+function convertMaterial(m, id, warn, textures = {}) {
+  const texture = textures.baseColorTexture;
   const pbr = m.pbrMetallicRoughness ?? {},
     ext = m.extensions ?? {},
     [r = 1, g = 1, b = 1, a = 1] = pbr.baseColorFactor ?? [];
-  if (
-    pbr.baseColorTexture ||
-    pbr.metallicRoughnessTexture ||
-    m.normalTexture ||
-    m.occlusionTexture ||
-    m.emissiveTexture
-  )
-    warn("textures", "Textures were not imported; materials keep flat colours");
+  if (ext.KHR_materials_transmission?.transmissionTexture)
+    fail('Transmission textures are not supported by editable conversion', 'unsupported_texture');
   if (ext.KHR_materials_unlit)
     warn("unlit", "Unlit materials became matte, lit materials");
   const emissive = m.emissiveFactor ?? [0, 0, 0],
     transmission = clamp(ext.KHR_materials_transmission?.transmissionFactor ?? 0),
     opacity =
-      m.alphaMode === "BLEND"
+      m.alphaMode === "BLEND" || (m.alphaMode === "MASK" && texture)
         ? clamp(a)
-        : m.alphaMode === "MASK"
+        : m.alphaMode === "MASK" && !texture
           ? a >= (m.alphaCutoff ?? 0.5)
             ? 1
             : 0
           : 1;
+  if (transmission === 0 && ext.KHR_materials_ior?.ior !== undefined && ext.KHR_materials_ior.ior !== 1.5)
+    fail('Non-default opaque IOR is not supported by editable conversion', 'unsupported_material');
   return normalizeMaterial({
     id,
+    ...textures,
+    ...(m.normalTexture?.scale !== undefined ? { normalScale: m.normalTexture.scale } : {}),
+    ...(m.occlusionTexture?.strength !== undefined ? { occlusionStrength: m.occlusionTexture.strength } : {}),
+    ...(texture ? { baseColorTexture: texture,
+      ...(m.alphaMode === "BLEND" ? { transparent: true } : {}),
+      ...(m.alphaMode === "MASK" ? { alphaTest: m.alphaCutoff ?? 0.5 } : {}) } : {}),
     name: label(m.name, id),
     color: hex([r, g, b]),
     roughness: ext.KHR_materials_unlit ? 1 : clamp(pbr.roughnessFactor ?? 1),
@@ -358,6 +359,10 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
   const unknown = required.filter((e) => !UNDERSTOOD.has(e));
   if (unknown.length)
     fail(`Unsupported required extensions: ${unknown.join(", ")}`, "unsupported");
+  for (const extension of json.extensionsUsed ?? []) {
+    if (!UNDERSTOOD.has(extension) && extension !== 'KHR_materials_unlit')
+      warn(`extension:${extension}`, `Optional extension ${extension} is not preserved by editable conversion`);
+  }
   if (json.cameras?.length) warn("cameras", "Cameras were not imported");
   if (json.extensions?.KHR_lights_punctual?.lights?.length)
     warn("lights", "Lights were not imported");
@@ -374,7 +379,13 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
       index === undefined
         ? { name: "default" }
         : (json.materials?.[index] ?? fail(`Missing material ${index}`));
-    const look = convertMaterial(source, "pending", warn),
+    const textures = {};
+    for (const [key, info] of Object.entries({
+      baseColorTexture: source.pbrMetallicRoughness?.baseColorTexture,
+      metalRoughTexture: source.pbrMetallicRoughness?.metallicRoughnessTexture,
+      normalTexture: source.normalTexture, occlusionTexture: source.occlusionTexture, emissiveTexture: source.emissiveTexture,
+    })) if (info) textures[key] = importTexture(json, buffers, info);
+    const look = convertMaterial(source, "pending", warn, textures),
       key = JSON.stringify([source.name ?? null, { ...look, id: null }]);
     // glTF files often repeat one material per mesh: same name and look share one ID.
     let id = byLook.get(key);
@@ -418,6 +429,7 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
     const mesh = json.meshes?.[index] ?? fail(`Missing mesh ${index}`);
     const positions = [],
       normals = [],
+      uvs = [],
       triangles = [],
       triangleMaterials = [];
     const morphCount = Math.max(0, ...(mesh.primitives ?? []).map(p => p.targets?.length ?? 0));
@@ -426,7 +438,7 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
     const skinWeights = [];
     if (morphCount > 128 || (morphCount && reduce)) fail("Morph import exceeds target budget or requires lossy reduction", "budget");
     const morphDeltas = Array.from({ length: morphCount }, () => []);
-    let withNormals = true;
+    let withNormals = true, withUVs = false;
     for (const primitive of mesh.primitives ?? []) {
       const mode = primitive.mode ?? 4;
       if (![4, 5, 6].includes(mode)) {
@@ -439,7 +451,12 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
         fail("All material primitives must have matching morph target counts", "invalid_glb");
       if (primitive.attributes?.POSITION === undefined) continue;
       let p = read(primitive.attributes.POSITION);
+      let uv = primitive.attributes.TEXCOORD_0 !== undefined ? read(primitive.attributes.TEXCOORD_0) : null;
+      const materialId = materialFor(primitive.material);
+      if (Object.keys(TEXTURE_SLOTS).some(k => materials.find(m => m.id === materialId)?.[k]) && !uv) fail("Textured primitives require TEXCOORD_0", "unsupported_texture");
       const count = p.length / 3;
+      if (uv && (uv.length !== count * 2 || json.accessors[primitive.attributes.TEXCOORD_0].type !== "VEC2")) fail("UV and position counts differ");
+      withUVs ||= !!uv;
       if (!Number.isInteger(count) || count > 4_000_000)
         fail("A source primitive exceeds the import vertex budget", "budget");
       if ((morphCount || hasSkin) && positions.length + count > DENSE_FROM)
@@ -465,26 +482,35 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
         const budget = Math.max(1, Math.min(minimum, indices.length / 3) + Math.floor((targetTriangles - reserved) * (indices.length / 3) / sourceTriangles)) * 3;
         const flat = Float32Array.from(p);
         // Weld position seams before reduction; each material primitive stays separate.
-        const remap = simplifier.generatePositionRemap(flat, 3);
-        indices = Uint32Array.from(indices, (i) => remap[i]);
-        if (indices.length > budget) {
-          [indices] = simplifier.simplify(indices, flat, 3, budget, .01);
-          if (indices.length > budget)
-            fail(`Cannot fit mesh ${index} (${indices.length / 3} triangles, target ${budget / 3}) into the workshop within 1% geometric error; simplify or split the source model`, "budget");
+        if (!uv) {
+          const remap = simplifier.generatePositionRemap(flat, 3);
+          indices = Uint32Array.from(indices, (i) => remap[i]);
         }
-        const compact = new Map(), positionsOut = [], normalsOut = [];
+        if (indices.length > budget) {
+          if (uv) {
+            const attrs = new Float32Array(count * 5);
+            for (let i = 0; i < count; i++) attrs.set([...(n ? n.subarray(i * 3, i * 3 + 3) : [0, 0, 0]), uv[i * 2], uv[i * 2 + 1]], i * 5);
+            [indices] = simplifier.simplifyWithAttributes(indices, flat, 3, attrs, 5, [1, 1, 1, 2, 2], null, budget, .001, ["LockBorder"]);
+          } else [indices] = simplifier.simplify(indices, flat, 3, budget, .01);
+          if (indices.length > budget)
+            fail(`Cannot fit mesh ${index} (${indices.length / 3} triangles, target ${budget / 3}) into the workshop within the ${uv ? "0.001 attribute-aware" : "0.01 geometric"} error limit; simplify or split the source model`, "budget");
+        }
+        const compact = new Map(), positionsOut = [], normalsOut = [], uvsOut = [];
         indices = Uint32Array.from(indices, (i) => {
           if (!compact.has(i)) {
             compact.set(i, compact.size);
             positionsOut.push(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
+            if (uv) uvsOut.push(uv[i * 2], uv[i * 2 + 1]);
             if (n) normalsOut.push(n[i * 3], n[i * 3 + 1], n[i * 3 + 2]);
           }
           return compact.get(i);
         });
         p = positionsOut;
         n = n ? normalsOut : null;
+        uv = uv ? uvsOut : null;
       }
       const base = positions.length;
+      for (let i = 0; i < p.length / 3; i++) uvs.push(uv ? [uv[i * 2], uv[i * 2 + 1]] : [0, 0]);
       for (let i = 0; i < p.length; i += 3) positions.push([p[i], p[i + 1], p[i + 2]]);
       for (let t = 0; t < morphCount; t++) {
         const attribute = primitive.targets[t].POSITION;
@@ -512,7 +538,7 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
         "budget",
       );
     const result = triangles.length
-      ? morphCount || hasSkin ? { vertices: positions, faces: triangles.map((vertices, i) => ({ id: `f${i}`, vertices, material: triangleMaterials[i] })) }
+      ? morphCount || hasSkin || withUVs ? { vertices: positions, faces: triangles.map((vertices, i) => ({ id: `f${i}`, vertices, material: triangleMaterials[i] })) }
         : editableMesh(positions, triangles, triangleMaterials, r => processing.push({ mesh: mesh.name ?? index, ...r }))
       : null;
     if (result && (morphCount || hasSkin) && (positions.length > DENSE_FROM || triangles.length > DENSE_FROM))
@@ -529,6 +555,7 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
       processing.push({ mesh: mesh.name ?? index, preservedMorphTargets: names, vertexWelding: false,
         reason: "Preserve morph vertex correspondence across material/normal seams" });
     }
+    if (result && withUVs) { result.uvs = uvs; if (withNormals) result.normals = normals; }
     if (result) result.smooth = importedSmoothing(positions, triangles, withNormals ? normals : null);
     meshes.set(index, result?.faces.length ? result : null);
     return meshes.get(index);
@@ -675,6 +702,8 @@ function projectFromGLTF(json, buffers, { name, simplifier, budget } = {}) {
       format: FORMAT,
       version: VERSION,
       name: label(title, "Imported model"),
+      ...(json.extras?.funPresentation ? { presentation: normalizePresentation(json.extras.funPresentation) } : {}),
+      ...(json.extras?.funRipple ? { ripple: normalizeRipple(json.extras.funRipple) } : {}),
       materials: materials.length ? materials : emptyProject().materials,
       nodes,
       ...(character ? { character } : {}),

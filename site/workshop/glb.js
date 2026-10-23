@@ -4,7 +4,7 @@
 import { ModelError } from "./mesh.js";
 import { isDense, denseData } from "./dense.js";
 
-const DENSE_ARRAYS = ["positions", "offsets", "indices", "faceMaterials"];
+const DENSE_ARRAYS = ["positions", "offsets", "indices", "faceMaterials", "uvs", "normals"];
 
 export const WORKSHOP_EXTENSION = "FUNDEV_workshop";
 const MAGIC = 0x46546c67,
@@ -126,6 +126,7 @@ export function withWorkshopProject(glb, project) {
       const d = denseData(node.mesh),
         dense = { materials: [...d.materials] };
       for (const key of DENSE_ARRAYS) {
+        if (!d[key]) continue;
         const pad = (8 - (length % 8)) % 8;
         if (pad) {
           chunks.push(new Uint8Array(pad));

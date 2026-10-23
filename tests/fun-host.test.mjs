@@ -86,6 +86,7 @@ test("a game gets the contract's context and lifecycle on fun", async () => {
         pause() { events.push("pause"); }, resume() { events.push("resume"); },
         localeChanged(l) { events.push(["locale", l]); }, optionChanged(id, value) { events.push(["option", id, value]); },
         shareText: () => "  shared  ", dispose() { events.push("dispose"); },
+        snapshot: () => ({ speed: ctx.options.speed }),
       };
     },
   };
@@ -132,7 +133,8 @@ test("a game gets the contract's context and lifecycle on fun", async () => {
   const receipt = await host.capture("shot.png");
   assert.equal(receipt.path, "/art/shot.png");
   assert.equal(host.registerDebug(), true);
-  assert.deepEqual(Object.keys(stub.registered).sort(), ["game.capture", "game.key", "game.locale", "game.menu", "game.option", "game.pause", "game.quit", "game.reset", "game.restart", "game.resume", "game.stats"]);
+  assert.deepEqual(Object.keys(stub.registered).sort(), ["game.capture", "game.focus", "game.inspect", "game.key", "game.locale", "game.menu", "game.option", "game.pause", "game.quit", "game.reset", "game.restart", "game.resume", "game.stats"]);
+  assert.deepEqual(stub.registered['game.inspect'](), { speed: 3 });
   // Stop disposes the game once and aborts the signal.
   host.stop();
   assert.equal(ctx.signal.aborted, true);

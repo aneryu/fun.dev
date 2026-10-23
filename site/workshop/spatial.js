@@ -1,3 +1,4 @@
+import { transformNormals } from "./normal-transform.js";
 // Small affine helpers shared by the document engine, inspector and viewport.
 // Column-major matrices, XYZ Euler degrees; no renderer or DOM dependency.
 import { isDense, denseData, denseBounds, transformedDense } from "./dense.js";
@@ -100,6 +101,10 @@ export function transformMesh(mesh, m) {
   // Dense meshes are never changed in place (dense.js): transformedDense makes a new one.
   if (isDense(mesh)) throw new Error("internal: transform a dense mesh with transformedDense");
   mesh.vertices = mesh.vertices.map((v) => point(m, v));
+  if (mesh.normals) {
+    const n = transformNormals(mesh.normals.flat(), m);
+    mesh.normals = mesh.normals.map((_, i) => Array.from(n.subarray(i * 3, i * 3 + 3)));
+  }
   if (determinant(m) < 0) mesh.faces.forEach((f) => f.vertices.reverse());
 }
 // Affine reflection changes winding, but not face identity. Preserve manual

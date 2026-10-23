@@ -1,4 +1,5 @@
 import { ModelError } from "./mesh.js";
+import { TEXTURE_SLOTS } from './textures.js';
 
 const string = { type: "string" },
   number = { type: "number" },
@@ -510,6 +511,17 @@ const props = {
   },
   ior: { oneOf: [{ type: "number", minimum: 1, maximum: 3 }, { type: "null" }] },
   doubleSided: { oneOf: [boolean, { type: "null" }] },
+  ...Object.fromEntries(Object.keys(TEXTURE_SLOTS).map(k => [k, { oneOf: [
+    { type: 'object', properties: {
+      uri: string, wrapS: { enum: [33071, 33648, 10497] }, wrapT: { enum: [33071, 33648, 10497] },
+      magFilter: { enum: [9728, 9729] }, minFilter: { enum: [9728, 9729, 9984, 9985, 9986, 9987] },
+      transform: { type: 'object', properties: { offset: pair, scale: pair, rotation: number }, additionalProperties: false },
+    }, required: ['uri'], additionalProperties: false }, { type: 'null' },
+  ] }])),
+  normalScale: { oneOf: [{ type: 'number', minimum: -10, maximum: 10 }, { type: 'null' }] },
+  occlusionStrength: { oneOf: [{ type: 'number', minimum: 0, maximum: 1 }, { type: 'null' }] },
+  transparent: { oneOf: [boolean, { type: 'null' }] },
+  alphaTest: { oneOf: [{ type: 'number', minimum: 0, maximum: 1 }, { type: 'null' }] },
   // Shape edits (deform.js): deform kinds along an axis range, displacement fields, smoothing
   // and subdivision, and the falloff of proportional editing.
   amount: { oneOf: [number, pair] },
@@ -600,11 +612,13 @@ const specs = {
   ],
   material: [
     "id",
-    "name color roughness metalness emissive emissiveIntensity opacity transmission ior doubleSided",
+    "name color roughness metalness emissive emissiveIntensity opacity transmission ior doubleSided baseColorTexture normalTexture metalRoughTexture occlusionTexture emissiveTexture normalScale occlusionStrength transparent alphaTest",
   ],
   removeMaterial: ["id", "replacement"],
   purgeMaterials: ["", ""],
   renameProject: ["name", ""],
+  presentation: ["definition", ""],
+  ripple: ["definition", ""],
   set: ["id", "name parent position rotation scale keepWorld smooth tags params variants tint area path copies tints sockets terrain grid"],
   terrain: ["id", "ops surfaces water seed"],
   grid: ["id", "paint fill"],
@@ -1260,6 +1274,9 @@ export function capabilities({ detail = "full", command } = {}) {
       documentBytes: 8 * 1024 * 1024,
       vertices: 30000,
       triangles: 50000,
+      denseVertices: 600000,
+      denseTriangles: 1000000,
+      denseBytes: 256 * 1024 * 1024,
       checkpoints: 5,
       tags: 16,
       paramsBytes: 4096,
@@ -1304,6 +1321,11 @@ export function capabilities({ detail = "full", command } = {}) {
       "selectiveExport",
       "staticMerge",
       "pbrMaterials",
+      "embeddedMaterialTexturesUV0",
+      "textureTransforms",
+      "targetPresentation",
+      "jointsAndSkinWeights",
+      "characterControlsAndClips",
       "nodeRename",
       "libraryExportNames",
       "booleans",
@@ -1358,11 +1380,10 @@ export function capabilities({ detail = "full", command } = {}) {
       "sculpting",
     ],
     unsupported: [
-      "UV textures",
+      "editable UV1, UV unwrap, standalone alpha/transmission maps and non-default opaque IOR",
       "dynamic topology, sculpt masks and multiresolution",
-      "rigging",
-      "animation",
-      "inter-object collision validation",
+      "IK, automatic weights and retargeting",
+      "continuous collision certification",
     ],
   };
   if (command !== undefined) {
