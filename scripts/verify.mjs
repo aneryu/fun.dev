@@ -163,7 +163,7 @@ try {
   console.log("Verified homepage -> test-results/home-bath-duck.png");
 
   // 2. Verify SDF Low-Poly Block Editor (/studio) for bath-duck (default smooth high-precision mode)
-  await cdp.send("Page.navigate", { url: `${baseUrl}/studio` }, sessionId);
+  await cdp.send("Page.navigate", { url: `${baseUrl}/studio?lang=zh` }, sessionId);
   await waitForCondition(cdp, sessionId, `document.body && document.body.dataset.sdfReady === "true"`);
 
   const studioAudit = await evaluate(
@@ -221,7 +221,28 @@ try {
   await writeFile(resolve(outDir, "studio-sdf-crowd-36.png"), Buffer.from(crowdShot.data, "base64"));
   console.log("Captured 36-Instance Bath Duck Crowd -> test-results/studio-sdf-crowd-36.png");
 
-  // 5. Test Mobile Studio (375x812)
+  // 5. English Studio: every visible label comes from the English dictionary (no CJK characters).
+  await cdp.send("Page.navigate", { url: `${baseUrl}/studio?lang=en` }, sessionId);
+  await waitForCondition(cdp, sessionId, `document.body && document.body.dataset.sdfReady === "true"`);
+  const enAudit = await evaluate(
+    cdp,
+    sessionId,
+    `(() => {
+      const cjk = /[\\u3400-\\u9fff]/;
+      const texts = [document.title, document.body.innerText,
+        ...[...document.querySelectorAll("[aria-label],[title]")].map((el) => (el.getAttribute("aria-label") || "") + (el.getAttribute("title") || ""))];
+      return { lang: document.documentElement.lang, title: document.querySelector("#dock-title")?.textContent,
+        cjk: texts.join("\\n").split("\\n").filter((line) => cjk.test(line)).slice(0, 5) };
+    })()`
+  );
+  console.log("Verified English Studio:", JSON.stringify(enAudit));
+  if (enAudit.lang !== "en" || enAudit.title !== "Bath Duck" || enAudit.cjk.length > 0) {
+    throw new Error(`English Studio check failed: ${JSON.stringify(enAudit)}`);
+  }
+  const enShot = await cdp.send("Page.captureScreenshot", { format: "png" }, sessionId);
+  await writeFile(resolve(outDir, "studio-en.png"), Buffer.from(enShot.data, "base64"));
+
+  // 6. Test Mobile Studio (375x812)
   await cdp.send(
     "Emulation.setDeviceMetricsOverride",
     { width: 375, height: 812, deviceScaleFactor: 2, mobile: true },

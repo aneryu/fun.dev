@@ -1,5 +1,6 @@
 import { WebGPUSDFRuntime } from "./kernel/runtime.js";
 import { bathDuckScene } from "./scenes/bath-duck.js";
+import { detectLocale } from "./locale.js";
 
 const UI_TEXT = {
   zh: {
@@ -24,21 +25,6 @@ const UI_TEXT = {
 
 const urlParams = new URLSearchParams(window.location.search);
 
-function detectLocale() {
-  const urlLang = urlParams.get("lang");
-  if (urlLang === "zh" || urlLang === "en") return urlLang;
-  const langs =
-    Array.isArray(navigator.languages) && navigator.languages.length > 0
-      ? navigator.languages
-      : [navigator.language || "en"];
-  for (const l of langs) {
-    const lower = String(l).toLowerCase();
-    if (lower.startsWith("zh")) return "zh";
-    if (lower.startsWith("en")) return "en";
-  }
-  return "en";
-}
-
 const canvas = document.querySelector("#sdf-canvas");
 const posterFallback = document.querySelector("#poster-fallback");
 const posterMessage = document.querySelector("#poster-message");
@@ -62,6 +48,10 @@ const runtime = new WebGPUSDFRuntime(canvas, {
     }
   },
 });
+
+// Carry an explicit ?lang= over to the Studio link.
+const studioLink = document.querySelector("#open-studio-link");
+if (studioLink && urlParams.has("lang")) studioLink.href = `/studio?lang=${encodeURIComponent(urlParams.get("lang"))}`;
 
 function applyLocale() {
   locale = detectLocale();

@@ -949,12 +949,12 @@ export class SDFEditorEngine {
     return this.blocks.find((b) => b.id === this.selectedBlockId) || this.blocks[0] || null;
   }
 
-  addBlock(primType = "roundBox") {
+  addBlock(primType = "roundBox", label = null) {
     const typeDef = SDF_PRIMITIVE_TYPES.find((t) => t.id === primType) || SDF_PRIMITIVE_TYPES[0];
     const id = `block_${Date.now().toString(36).slice(-4)}_${this.blocks.length + 1}`;
     const newBlock = {
       id,
-      label: `新${typeDef.label} #${this.blocks.length + 1}`,
+      label: label ?? `新${typeDef.label} #${this.blocks.length + 1}`,
       prim: typeDef.id,
       op: "smoothUnion",
       k: 0.04,

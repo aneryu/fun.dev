@@ -11,6 +11,7 @@ import {
   SDF_COLOR_SWATCHES,
   SDF_EDITOR_PRESETS,
 } from "./kernel/sdf-editor.js";
+import { t, blockLabel, primLabel, swatchLabel, applyStaticText } from "./studio-i18n.js";
 
 const ASSET_CAMERAS = {
   "bath-duck": SDF_EDITOR_PRESETS["bath-duck"].initialCamera,
@@ -179,6 +180,8 @@ class StudioSDFEditorApp {
     this._urlUpdateTimer = setTimeout(() => {
       const params = new URLSearchParams();
       params.set("asset", this.currentAssetId);
+      const lang = new URLSearchParams(window.location.search).get("lang");
+      if (lang) params.set("lang", lang);
       const newUrl = `${window.location.pathname}?${params.toString()}`;
       window.history.replaceState(null, "", newUrl);
     }, 180);
@@ -281,7 +284,7 @@ class StudioSDFEditorApp {
       this._startWebGL2Loop();
       document.body.dataset.sdfReady = "true";
     } else {
-      this.badgeRenderer.textContent = "Unsupported";
+      this.badgeRenderer.textContent = t("unsupported");
       this.badgeDot.className = "badge-dot error";
       document.body.dataset.sdfReady = "error";
     }
@@ -366,10 +369,9 @@ class StudioSDFEditorApp {
   }
 
   async _loadAsset(_assetId = "bath-duck") {
-    const preset = SDF_EDITOR_PRESETS["bath-duck"];
     this.currentAssetId = "bath-duck";
 
-    if (this.dockTitle) this.dockTitle.textContent = preset.title;
+    if (this.dockTitle) this.dockTitle.textContent = t("assetTitle");
     this.sdfEditor.loadPreset("bath-duck");
     this._renderBlockEditor();
 
@@ -426,9 +428,9 @@ class StudioSDFEditorApp {
     if (!badge) return;
     const mesh = this.sdfEditor.bakeCombinedMesh();
     if (this.sdfEditor.crowdMode) {
-      badge.textContent = `36 实例 · ${mesh.triangleCount * 36} 面`;
+      badge.textContent = t("statsCrowd", { t: mesh.triangleCount * 36 });
     } else {
-      badge.textContent = `${mesh.triangleCount} 面 · ${mesh.uniqueVertexCount} 顶点`;
+      badge.textContent = t("stats", { t: mesh.triangleCount, v: mesh.uniqueVertexCount });
     }
   }
 
@@ -444,9 +446,9 @@ class StudioSDFEditorApp {
     const modeRow = document.createElement("div");
     modeRow.className = "choice-group";
     const modes = [
-      { id: "smooth", label: "✨ 丝滑高精", active: !this.sdfEditor.crowdMode && this.sdfEditor.shadingMode === "smooth" },
-      { id: "lowpoly", label: "💎 晶面低模", active: !this.sdfEditor.crowdMode && this.sdfEditor.shadingMode === "lowpoly" },
-      { id: "crowd", label: "🚀 36实例同屏", active: this.sdfEditor.crowdMode },
+      { id: "smooth", label: t("modeSmooth"), active: !this.sdfEditor.crowdMode && this.sdfEditor.shadingMode === "smooth" },
+      { id: "lowpoly", label: t("modeLowpoly"), active: !this.sdfEditor.crowdMode && this.sdfEditor.shadingMode === "lowpoly" },
+      { id: "crowd", label: t("modeCrowd"), active: this.sdfEditor.crowdMode },
     ];
     for (const m of modes) {
       const btn = document.createElement("button");
@@ -481,13 +483,13 @@ class StudioSDFEditorApp {
     const voxHead = document.createElement("div");
     voxHead.className = "editor-sec-head";
     const voxLabel = document.createElement("span");
-    voxLabel.textContent = `网格粒度 (${this.sdfEditor.voxelSize.toFixed(3)})`;
+    voxLabel.textContent = t("voxel", { v: this.sdfEditor.voxelSize.toFixed(3) });
     const statBadge = document.createElement("span");
     statBadge.className = "mesh-stat-badge";
     statBadge.id = "editor-mesh-stats";
     statBadge.textContent = this.sdfEditor.crowdMode
-      ? `36 实例 · ${mesh.triangleCount * 36} 面`
-      : `${mesh.triangleCount} 面 · ${mesh.uniqueVertexCount} 顶点`;
+      ? t("statsCrowd", { t: mesh.triangleCount * 36 })
+      : t("stats", { t: mesh.triangleCount, v: mesh.uniqueVertexCount });
     voxHead.appendChild(voxLabel);
     voxHead.appendChild(statBadge);
     viewSec.appendChild(voxHead);
@@ -501,7 +503,7 @@ class StudioSDFEditorApp {
     voxSlider.value = String(this.sdfEditor.voxelSize);
     voxSlider.addEventListener("input", () => {
       this.sdfEditor.voxelSize = parseFloat(voxSlider.value);
-      voxLabel.textContent = `网格粒度 (${this.sdfEditor.voxelSize.toFixed(3)})`;
+      voxLabel.textContent = t("voxel", { v: this.sdfEditor.voxelSize.toFixed(3) });
       this.sdfEditor.invalidateAll();
       this._updateEditorStatsBadge();
     });
@@ -513,7 +515,9 @@ class StudioSDFEditorApp {
     treeSec.className = "editor-section";
     const treeHead = document.createElement("div");
     treeHead.className = "editor-sec-head";
-    treeHead.innerHTML = `<span>原子积木图层 (${this.sdfEditor.blocks.length})</span>`;
+    const treeTitle = document.createElement("span");
+    treeTitle.textContent = t("layers", { n: this.sdfEditor.blocks.length });
+    treeHead.appendChild(treeTitle);
     treeSec.appendChild(treeHead);
 
     const addRow = document.createElement("div");
@@ -522,9 +526,9 @@ class StudioSDFEditorApp {
       const addBtn = document.createElement("button");
       addBtn.type = "button";
       addBtn.className = "add-prim-btn";
-      addBtn.textContent = `+ ${pType.label}`;
+      addBtn.textContent = `+ ${primLabel(pType)}`;
       addBtn.addEventListener("click", () => {
-        this.sdfEditor.addBlock(pType.id);
+        this.sdfEditor.addBlock(pType.id, t("newBlock", { type: primLabel(pType), n: this.sdfEditor.blocks.length + 1 }));
         this._syncEditorGizmo();
         this._renderBlockEditor();
       });
@@ -540,8 +544,13 @@ class StudioSDFEditorApp {
       const isSel = blk.id === this.sdfEditor.selectedBlockId;
       row.className = `block-tree-item${isSel ? " active" : ""}`;
       const pDef = SDF_PRIMITIVE_TYPES.find((t) => t.id === blk.prim) || SDF_PRIMITIVE_TYPES[0];
-      const badges = `${blk.op === "smoothSubtract" ? "➖挖孔 " : ""}${blk.mirrorX ? "↔镜像 " : ""}${pDef.label}`;
-      row.innerHTML = `<span>${pDef.icon} ${blk.label}</span><span class="block-tag">${badges}</span>`;
+      const badges = `${blk.op === "smoothSubtract" ? `${t("tagSubtract")} ` : ""}${blk.mirrorX ? `${t("tagMirror")} ` : ""}${primLabel(pDef)}`;
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = `${pDef.icon} ${blockLabel(blk)}`;
+      const tagSpan = document.createElement("span");
+      tagSpan.className = "block-tag";
+      tagSpan.textContent = badges;
+      row.append(nameSpan, tagSpan);
       row.addEventListener("click", () => {
         this.sdfEditor.selectedBlockId = blk.id;
         this.sdfEditor._streamVersion++;
@@ -563,14 +572,14 @@ class StudioSDFEditorApp {
     const inspHead = document.createElement("div");
     inspHead.className = "editor-sec-head";
     const titleSpan = document.createElement("span");
-    titleSpan.textContent = `编辑：${sel.label}`;
+    titleSpan.textContent = t("editing", { name: blockLabel(sel) });
     inspHead.appendChild(titleSpan);
 
     if (this.sdfEditor.blocks.length > 1) {
       const delBtn = document.createElement("button");
       delBtn.type = "button";
       delBtn.className = "block-del-btn";
-      delBtn.textContent = "🗑️ 删除";
+      delBtn.textContent = t("delete");
       delBtn.addEventListener("click", () => {
         this.sdfEditor.removeBlock(sel.id);
         this._syncEditorGizmo();
@@ -586,7 +595,7 @@ class StudioSDFEditorApp {
     const unionBtn = document.createElement("button");
     unionBtn.type = "button";
     unionBtn.className = `choice-btn${sel.op !== "smoothSubtract" ? " active" : ""}`;
-    unionBtn.textContent = "➕ 融合";
+    unionBtn.textContent = t("union");
     unionBtn.addEventListener("click", () => {
       sel.op = "smoothUnion";
       this.sdfEditor.invalidateGroup(sel.group);
@@ -595,7 +604,7 @@ class StudioSDFEditorApp {
     const subBtn = document.createElement("button");
     subBtn.type = "button";
     subBtn.className = `choice-btn${sel.op === "smoothSubtract" ? " active" : ""}`;
-    subBtn.textContent = "➖ 挖孔";
+    subBtn.textContent = t("subtract");
     subBtn.addEventListener("click", () => {
       sel.op = "smoothSubtract";
       this.sdfEditor.invalidateGroup(sel.group);
@@ -604,7 +613,7 @@ class StudioSDFEditorApp {
     const mirBtn = document.createElement("button");
     mirBtn.type = "button";
     mirBtn.className = `choice-btn${sel.mirrorX ? " active" : ""}`;
-    mirBtn.textContent = "↔ 对称";
+    mirBtn.textContent = t("mirror");
     mirBtn.addEventListener("click", () => {
       sel.mirrorX = !sel.mirrorX;
       if (sel.mirrorX && Math.abs(sel.pos[0]) < 0.04) sel.pos[0] = 0.14;
@@ -627,7 +636,8 @@ class StudioSDFEditorApp {
         Math.hypot(sel.color[0] - sw.rgb[0], sel.color[1] - sw.rgb[1], sel.color[2] - sw.rgb[2]) < 0.12;
       chip.className = `palette-chip${isColorMatch ? " active" : ""}`;
       chip.style.backgroundColor = sw.hex;
-      chip.title = sw.label;
+      chip.title = swatchLabel(sw);
+      chip.setAttribute("aria-label", swatchLabel(sw));
       chip.addEventListener("click", () => {
         sel.color = [...sw.rgb];
         this.sdfEditor.invalidateGroup(sel.group);
@@ -670,20 +680,20 @@ class StudioSDFEditorApp {
       grid.appendChild(r);
     };
 
-    appendSlider("融合k", 0.0, 0.14, 0.005, sel.k ?? 0.04, (v) => {
+    appendSlider(t("blend"), 0.0, 0.14, 0.005, sel.k ?? 0.04, (v) => {
       sel.k = v;
       this.sdfEditor.invalidateGroup(sel.group);
       this._updateEditorStatsBadge();
     });
     if (sel.prim === "roundBox") {
-      appendSlider("倒角r", 0.002, 0.08, 0.002, sel.round ?? 0.015, (v) => {
+      appendSlider(t("round"), 0.002, 0.08, 0.002, sel.round ?? 0.015, (v) => {
         sel.round = v;
         this.sdfEditor.invalidateGroup(sel.group);
         this._updateEditorStatsBadge();
       });
     }
     appendSlider(
-      "位置X",
+      t("posX"),
       -0.6,
       0.6,
       0.01,
@@ -697,7 +707,7 @@ class StudioSDFEditorApp {
       { posAxis: 0 }
     );
     appendSlider(
-      "位置Y",
+      t("posY"),
       -0.5,
       0.6,
       0.01,
@@ -711,7 +721,7 @@ class StudioSDFEditorApp {
       { posAxis: 1 }
     );
     appendSlider(
-      "位置Z",
+      t("posZ"),
       -0.6,
       0.6,
       0.01,
@@ -724,17 +734,17 @@ class StudioSDFEditorApp {
       },
       { posAxis: 2 }
     );
-    appendSlider("尺寸X", 0.03, 0.65, 0.01, sel.size[0], (v) => {
+    appendSlider(t("sizeX"), 0.03, 0.65, 0.01, sel.size[0], (v) => {
       sel.size[0] = v;
       this.sdfEditor.invalidateGroup(sel.group);
       this._updateEditorStatsBadge();
     });
-    appendSlider("尺寸Y", 0.03, 0.65, 0.01, sel.size[1], (v) => {
+    appendSlider(t("sizeY"), 0.03, 0.65, 0.01, sel.size[1], (v) => {
       sel.size[1] = v;
       this.sdfEditor.invalidateGroup(sel.group);
       this._updateEditorStatsBadge();
     });
-    appendSlider("尺寸Z", 0.03, 0.65, 0.01, sel.size[2], (v) => {
+    appendSlider(t("sizeZ"), 0.03, 0.65, 0.01, sel.size[2], (v) => {
       sel.size[2] = v;
       this.sdfEditor.invalidateGroup(sel.group);
       this._updateEditorStatsBadge();
@@ -760,9 +770,9 @@ class StudioSDFEditorApp {
       const json = JSON.stringify(payload, null, 2);
       try {
         await navigator.clipboard.writeText(json);
-        this.copyBtnText.textContent = "已复制 ✓";
+        this.copyBtnText.textContent = t("copied");
         setTimeout(() => {
-          this.copyBtnText.textContent = "复制 SDF JSON";
+          this.copyBtnText.textContent = t("copyJson");
         }, 1800);
       } catch (err) {
         console.warn("Clipboard write failed", err);
@@ -944,5 +954,6 @@ class StudioSDFEditorApp {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  applyStaticText();
   window.__studioApp = new StudioSDFEditorApp();
 });

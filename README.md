@@ -14,6 +14,12 @@ A static personal playground & studio on `fun.dev` for **WebGPU + WGSL Signed Di
     - **`🚀 36实例同屏` (`crowd`)**: 36 instanced Bath Ducks rendered in a single static vertex stream at 60 FPS, plus one-click `.gltf` 2.0, SDF JSON, and WGSL export.
 - **Zero Runtime Dependencies**: Pure native WebGPU (`navigator.gpu`) + WGSL kernel (with zero-dependency WebGL2 GLSL ES 3.00 fallback in `site/kernel/webgl2-fallback.js`) serving directly from `site/` with no bundler or external runtime packages.
 
+## Languages
+
+Both pages speak Chinese and English. `?lang=zh` or `?lang=en` picks one; otherwise the browser's
+language list decides (`site/locale.js`), falling back to English. Studio text lives in
+`site/studio-i18n.js`; a unit test keeps the two dictionaries' keys and placeholders in step.
+
 ## Local Development & Verification
 
 ```sh
