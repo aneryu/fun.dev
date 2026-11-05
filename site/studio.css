@@ -86,52 +86,6 @@ html, body.studio-app {
   margin-left: 6px;
 }
 
-/* 物件选择器 (Picker) */
-.picker-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.picker-row::-webkit-scrollbar {
-  display: none;
-}
-
-.pick-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: #fff;
-  border: 1.5px solid var(--duck-ink);
-  border-radius: 999px;
-  font: inherit;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--duck-ink);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s ease;
-}
-
-.pick-btn:hover {
-  background: var(--duck-cream);
-  transform: translateY(-1px);
-}
-
-.pick-btn.active {
-  background: var(--duck-ink);
-  color: #fff;
-  border-color: var(--duck-ink);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-}
-
-.pick-icon {
-  font-size: 1.05rem;
-  line-height: 1;
-}
-
 /* 3D 舞台区域 (Stage Container) */
 .stage-container {
   flex: 1;
@@ -169,42 +123,6 @@ html, body.studio-app {
   gap: 10px;
 }
 
-.dock-mode-tabs {
-  display: flex;
-  gap: 4px;
-  background: rgba(33, 31, 23, 0.08);
-  padding: 3px;
-  border-radius: 8px;
-}
-
-.dock-tab-btn {
-  flex: 1;
-  border: none;
-  background: transparent;
-  color: var(--duck-brown);
-  font: inherit;
-  font-size: 0.75rem;
-  font-weight: 700;
-  padding: 6px 6px;
-  border-radius: 6px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s ease;
-}
-
-.dock-tab-btn.active {
-  background: var(--duck-ink);
-  color: var(--duck-yellow);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
-}
-
-.knob-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.knob-list[hidden],
 .block-editor-pane[hidden] {
   display: none !important;
 }
@@ -381,21 +299,6 @@ html, body.studio-app {
   background: rgba(0,0,0,0.06);
 }
 
-/* 旋钮列表项 */
-.knob-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.knob-label-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
 /* 滑杆旋钮 */
 .knob-slider {
   -webkit-appearance: none;
@@ -534,6 +437,15 @@ html, body.studio-app {
   z-index: 4;
 }
 
+/* Hidden visually after the intro, kept as the canvas's accessible description. */
+.stage-hint.is-hidden {
+  clip-path: inset(50%);
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 .stage-hint.fade-out {
   opacity: 0;
 }
@@ -606,10 +518,50 @@ html, body.studio-app {
   color: #7bed9f;
 }
 
+/* Keyboard focus (DESIGN.md: Focus Blue, 3px). The canvas draws its ring inside its edge. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--focus-blue);
+  outline-offset: 2px;
+}
+
+#viewport-canvas:focus-visible {
+  outline-offset: -3px;
+}
+
 /* 响应式适配 */
 @media (max-width: 720px) {
   .header-sub {
     display: none;
+  }
+  .studio-header {
+    padding: 8px 12px;
+  }
+  .brand-row {
+    flex-shrink: 1;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .brand-row .wordmark {
+    font-size: 1rem;
+  }
+  .header-title {
+    font-size: 0.85rem;
+  }
+  .status-badge {
+    margin-left: 0;
+    white-space: nowrap;
+  }
+  .action-btn {
+    flex: 1 1 0;
+    justify-content: center;
+    min-height: 44px;
+    padding: 8px 10px;
+    white-space: nowrap;
   }
   .knob-dock {
     width: calc(100% - 32px);
@@ -625,6 +577,12 @@ html, body.studio-app {
   }
   .action-btn span {
     font-size: 0.75rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .action-btn svg {
+    display: none;
   }
 }
 

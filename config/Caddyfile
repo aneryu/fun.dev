@@ -1,0 +1,29 @@
+# fun.dev on the CN2 server (45.194.22.14). It serves documents only, fetched uncached from the
+# Pages project at static.fun.dev: the pages (/, /studio and any other one-segment path, so a
+# missing page gets the site's 404 on fun.dev), sw.js, robots.txt and sitemap.xml. Every other
+# path (CSS, JS, icons) redirects to static.fun.dev, which the pages' CSP allows (site/_headers).
+# The server keeps no files, cache or secrets.
+#
+# Apply: ssh fundev-cn 'sudo tee /etc/caddy/Caddyfile >/dev/null' < config/Caddyfile
+#        ssh fundev-cn 'sudo caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy'
+
+(edge) {
+	@document {
+		method GET HEAD
+		path_regexp ^/(?:[a-z0-9-]+(?:\.html)?|sw\.js|robots\.txt|sitemap\.xml)?$
+	}
+	handle @document {
+		reverse_proxy https://{args[0]} {
+			header_up Host {upstream_hostport}
+			# Pages redirects (/studio.html to /studio) stay on the site.
+			header_down Location ^https://{args[0]}/ https://fun.dev/
+		}
+	}
+	handle {
+		redir https://{args[0]}{uri} 308
+	}
+}
+
+fun.dev {
+	import edge static.fun.dev
+}

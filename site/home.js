@@ -23,16 +23,6 @@ const UI_TEXT = {
 };
 
 const urlParams = new URLSearchParams(window.location.search);
-const requestedScene = urlParams.get("scene");
-const isRedirectingToStudio =
-  urlParams.has("mode") ||
-  urlParams.has("debug") ||
-  (requestedScene && requestedScene !== "bath-duck") ||
-  window.location.hash.startsWith("#code=");
-if (isRedirectingToStudio) {
-  const studioUrl = `/studio${window.location.search}${window.location.hash}`;
-  window.location.replace(studioUrl);
-}
 
 function detectLocale() {
   const urlLang = urlParams.get("lang");
@@ -104,7 +94,6 @@ syncReducedMotion();
 
 // Boot sequence (pure Mode A Bath Duck, zero CPU voxel baking!)
 (async () => {
-  if (isRedirectingToStudio) return;
   applyLocale();
   const ok = await runtime.init();
   if (!ok) return;

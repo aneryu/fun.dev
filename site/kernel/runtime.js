@@ -7,25 +7,7 @@ const PICK_BUFFER_BYTES = 48;     // 3 vec4f (hitPos, targetPos, impulse)
 const MESH_VERTEX_FLOATS = 16;    // 4 x vec4f (posAndMat, normalAndRough, colorAndMetal, localAndScale)
 const MESH_VERTEX_STRIDE = 64;    // 16 * 4 bytes
 
-const MAT_STANDARD = 0.0;
-const MAT_VEHICLE_BODY = 1.0;
-const MAT_VEHICLE_WHEEL = 2.0;
-const MAT_BIPED_CITIZEN = 3.0;
-const MAT_GLOSSY_EYE = 4.0;
 const MAT_UNLIT_GIZMO = 5.0;
-const MAT_SHADOW_DISC = 6.0;
-const MAT_ROADBED = 7.0;
-
-const BONE_DEBUG_COLORS = [
-  [0.95, 0.78, 0.16],
-  [0.95, 0.52, 0.16],
-  [0.24, 0.64, 0.82],
-  [0.16, 0.48, 0.68],
-  [0.72, 0.32, 0.14],
-  [0.34, 0.72, 0.46],
-  [0.84, 0.38, 0.56],
-  [0.54, 0.44, 0.82],
-];
 
 export class WebGPUSDFRuntime {
   constructor(canvas, callbacks = {}) {
@@ -82,9 +64,9 @@ export class WebGPUSDFRuntime {
     this.renderBindGroupB = null;
     this.activeBufferIndex = 0; // 0 = A is current, 1 = B is current
 
-    // Mode B (Baked Auto-Skinned Mesh & Crowd Instancing) + 3D Gizmo resources
-    this.renderMode = "raymarch"; // "raymarch" | "mesh" | "crowd"
-    this.bakedContext = null; // { ir, bakedResult, crowdInstances }
+    // "raymarch" draws the scene's WGSL SDF (the homepage); "custom_mesh" draws the vertex stream
+    // the Studio uploads through onUpdateCustomMesh, plus the 3D gizmo.
+    this.renderMode = "raymarch";
     this.meshBindGroupLayout = null;
     this.meshBindGroup = null;
     this.meshPipeline = null;
@@ -97,8 +79,6 @@ export class WebGPUSDFRuntime {
     this.gizmoIndexCount = 0;
     this._meshVertexScratch = null;
     this._meshIndexScratch = null;
-    this._cachedMorphedMesh = null;
-    this._cachedMorphedKey = "";
     this.depthTexture = null;
     this.msaaColorTexture = null;
     this.gizmoNodeCenter = null;
@@ -155,10 +135,6 @@ export class WebGPUSDFRuntime {
       pinchMidX: 0,
       pinchMidY: 0,
     };
-
-    // Procedural WebAudio tactile squeak/quack synthesizer (opt-in)
-    this.soundEnabled = false;
-    this.audioCtx = null;
 
     this._bindEvents();
   }
@@ -740,7 +716,6 @@ export class WebGPUSDFRuntime {
 
   setParam(key, value) {
     this.paramValues[key] = Number(value);
-    this._cachedMorphedKey = "";
     if (this.paused) {
       this._schedulePausedRender();
     }
@@ -754,9 +729,7 @@ export class WebGPUSDFRuntime {
   }
 
   setRenderMode(mode) {
-    this.renderMode = ["raymarch", "mesh", "crowd", "animate_compare", "world", "custom_mesh"].includes(mode)
-      ? mode
-      : "raymarch";
+    this.renderMode = mode === "custom_mesh" ? mode : "raymarch";
     if (this.paused) {
       this._schedulePausedRender();
     }
@@ -795,31 +768,6 @@ export class WebGPUSDFRuntime {
     this._uploadedCustomVersion = version;
   }
 
-  setGaitOptions(opts) {
-    this.gaitOptions = opts ? { ...(this.gaitOptions || {}), ...opts } : {};
-    if (this.paused) {
-      this._schedulePausedRender();
-    }
-  }
-
-  attachMeshHooks(hooks) {
-    this.meshHooks = hooks || null;
-  }
-
-  setBakedContext(ir, bakedResult, crowdCount = 16) {
-    this._cachedMorphedMesh = null;
-    this._cachedMorphedKey = "";
-    if (!ir || !bakedResult || !this.meshHooks) {
-      this.bakedContext = null;
-      return;
-    }
-    const crowdInstances = this.meshHooks.generateCrowdInstances(ir, bakedResult, crowdCount, 1.05);
-    this.bakedContext = { ir, bakedResult, crowdInstances };
-    if (this.paused) {
-      this._schedulePausedRender();
-    }
-  }
-
   setGizmoNodeCenter(centerVec3) {
     this.gizmoNodeCenter = Array.isArray(centerVec3) ? [...centerVec3] : null;
     if (this.paused) {
@@ -849,455 +797,10 @@ export class WebGPUSDFRuntime {
     }
   }
 
-  _updateModeBMeshBuffers(interpTime) {
-    if (this.renderMode === "custom_mesh" && this.onUpdateCustomMesh) {
+  _updateCustomMesh(interpTime) {
+    if (this.onUpdateCustomMesh) {
       this.onUpdateCustomMesh(this, interpTime);
-      return;
     }
-    if (!this.device || !this.bakedContext || !this.meshHooks) {
-      this.meshIndexCount = 0;
-      this.gizmoIndexCount = 0;
-      return;
-    }
-    if (this.renderMode === "animate_compare" && this.meshHooks.packAnimateCompareScene) {
-      this.meshHooks.packAnimateCompareScene(this, interpTime, this.gaitOptions || {});
-      return;
-    }
-    if (this.renderMode === "world" && this.meshHooks.stepAndPackWorld) {
-      this.meshHooks.stepAndPackWorld(this, interpTime);
-      return;
-    }
-    const {
-      evaluateCSRMorphedMesh,
-      evaluateProceduralRigPose,
-      evaluateSkinnedMesh,
-    } = this.meshHooks;
-    const { ir, bakedResult, crowdInstances } = this.bakedContext;
-    const skinning = bakedResult.skinning;
-    const baseMesh = bakedResult.baseMesh;
-
-    if (this.renderMode === "mesh") {
-      const morphKey = JSON.stringify(this.paramValues);
-      if (!this._cachedMorphedMesh || this._cachedMorphedKey !== morphKey) {
-        this._cachedMorphedMesh = evaluateCSRMorphedMesh(ir, bakedResult, this.paramValues);
-        this._cachedMorphedKey = morphKey;
-      }
-      const morphed = this._cachedMorphedMesh;
-      const activeSkinning = morphed.skinning || skinning;
-      const pose = this.meshHooks.evaluateFootLockedIKPose
-        ? this.meshHooks.evaluateFootLockedIKPose(ir, interpTime, {
-            ...(this.gaitOptions || {}),
-            speed: this.reducedMotion ? 0.0 : (this.gaitOptions?.speed ?? 1.0),
-          }).boneTransforms
-        : evaluateProceduralRigPose(ir, interpTime, {
-            amplitude: this.reducedMotion ? 0.0 : 1.0,
-          });
-      const skinned = evaluateSkinnedMesh(ir, morphed, activeSkinning, pose);
-      const V = skinned.vertexCount;
-      const I = skinned.indices.length;
-
-      // Reserve extra vertices/indices for ground contact shadow disc (13 verts, 36 indices) + optional 3D gizmo octahedron (6 verts, 24 indices)
-      const shadowV = 13;
-      const shadowI = 36;
-      const gizmoV = this.gizmoNodeCenter ? 6 : 0;
-      const gizmoI = this.gizmoNodeCenter ? 24 : 0;
-      const totalV = V + shadowV + gizmoV;
-      const totalI = I + shadowI + gizmoI;
-      this._ensureMeshBuffers(totalV, totalI);
-
-      const vData = this._meshVertexScratch.subarray(0, totalV * MESH_VERTEX_FLOATS);
-      const iData = this._meshIndexScratch.subarray(0, totalI);
-
-      const tintShift =
-        ((this.paramValues.eyeTint ?? this.paramValues.coatTint ?? this.paramValues.cabTint ?? 0.5) - 0.5) * 0.22;
-      const beakBoneIdx = ir.boneNameToIndex.get("beak");
-      const wingLBoneIdx = ir.boneNameToIndex.get("wing.L");
-      const wingRBoneIdx = ir.boneNameToIndex.get("wing.R");
-      const isVehicle = ir.rigTemplate === "vehicle4" || ir.boneNameToIndex.has("wheel.FL");
-      const isBiped = ir.rigTemplate === "biped15" || ir.boneNameToIndex.has("thigh.L");
-      const baseRefPos = morphed.baseReferencePositions || baseMesh.positions;
-      const hoodScale = Math.max(0.5, (this.paramValues.hoodLen ?? 0.25) / 0.25);
-      const cabinScale = Math.max(0.5, (this.paramValues.cabinLen ?? 0.14) / 0.14);
-
-      for (let v = 0; v < V; v++) {
-        // Keep 1:1 world coordinates so Mode A, Mode B, and 3D Gizmo ray hit-testing are identical
-        const px = skinned.positions[v * 3];
-        const py = skinned.positions[v * 3 + 1];
-        const pz = skinned.positions[v * 3 + 2];
-        const nx = skinned.normals[v * 3];
-        const ny = skinned.normals[v * 3 + 1];
-        const nz = skinned.normals[v * 3 + 2];
-
-        let r = 0.96, g = 0.78 + tintShift, b = 0.16;
-        let matId = MAT_STANDARD;
-        let rough = 0.34;
-        let metal = 0.0;
-        let locX = 0.0, locY = 0.0, locZ = 0.0, scaleW = 1.0;
-        const domBone = activeSkinning.dominantBones?.[v] ?? 0;
-        const gTag = skinned.groupTags?.[v] || "body";
-
-        if (this.debugMode === 2) {
-          // 4-bone auto-skinning weight blend visualization
-          r = 0; g = 0; b = 0;
-          for (let s = 0; s < 4; s++) {
-            const w = (activeSkinning.weights[v * 4 + s] || 0) / 255.0;
-            const jb = (activeSkinning.joints[v * 4 + s] || 0) % BONE_DEBUG_COLORS.length;
-            const c = BONE_DEBUG_COLORS[jb];
-            r += c[0] * w;
-            g += c[1] * w;
-            b += c[2] * w;
-          }
-        } else if (this.debugMode === 3) {
-          // Island group + CSR morph displacement intensity visualization
-          const refIdx = Math.min(v, Math.floor(baseRefPos.length / 3) - 1);
-          const disp = Math.hypot(
-            morphed.positions[v * 3] - baseRefPos[refIdx * 3],
-            morphed.positions[v * 3 + 1] - baseRefPos[refIdx * 3 + 1],
-            morphed.positions[v * 3 + 2] - baseRefPos[refIdx * 3 + 2]
-          );
-          const heat = Math.min(1.0, disp / (baseMesh.voxelSize * 1.5));
-          const isSubIsland = gTag !== "body";
-          r = isSubIsland ? 0.22 + heat * 0.75 : 0.18 + heat * 0.80;
-          g = isSubIsland ? 0.62 - heat * 0.25 : 0.48 * (1.0 - heat * 0.5);
-          b = isSubIsland ? 0.82 : 0.72 * (1.0 - heat);
-        } else {
-          if (isVehicle) {
-            const restX = morphed.positions[v * 3];
-            const restY = morphed.positions[v * 3 + 1];
-            const restZ = morphed.positions[v * 3 + 2];
-            if (gTag.startsWith("wheel")) {
-              r = 0.20; g = 0.22; b = 0.25;
-              matId = MAT_VEHICLE_WHEEL;
-              rough = 0.76;
-              locX = restX; locY = restY; locZ = restZ;
-            } else if (gTag === "roofSign") {
-              r = 1.0; g = 0.94; b = 0.62;
-              rough = 0.18;
-            } else {
-              const cabVal = this.paramValues.cabTint ?? 0.5;
-              r = 0.98 - Math.max(0, cabVal - 0.55) * 1.2;
-              g = 0.76 + (cabVal - 0.5) * 0.25;
-              b = 0.14 + Math.max(0, cabVal - 0.5) * 1.3;
-              matId = MAT_VEHICLE_BODY;
-              rough = 0.22;
-              locX = restX;
-              locY = restY;
-              locZ = restZ / hoodScale;
-              scaleW = cabinScale / hoodScale;
-            }
-          } else if (isBiped) {
-            const restX = morphed.positions[v * 3];
-            const restY = morphed.positions[v * 3 + 1];
-            const restZ = morphed.positions[v * 3 + 2];
-            if (gTag === "pack") {
-              r = 0.42; g = 0.26; b = 0.16;
-              rough = 0.45;
-            } else {
-              const coatVal = this.paramValues.coatTint ?? 0.35;
-              r = 0.24 + (1.0 - coatVal) * 0.54;
-              g = 0.30 + Math.sin(coatVal * Math.PI) * 0.26;
-              b = 0.28 + coatVal * 0.46;
-              matId = MAT_BIPED_CITIZEN;
-              rough = 0.68;
-              locX = restX; locY = restY; locZ = restZ;
-            }
-          } else if (gTag === "buoy") {
-            r = 0.94; g = 0.36 - tintShift * 0.5; b = 0.24 + tintShift * 1.2;
-            rough = 0.24;
-          } else if (gTag.startsWith("eye")) {
-            r = 0.04; g = 0.04; b = 0.05;
-            matId = MAT_GLOSSY_EYE;
-            rough = 0.03;
-            locX = morphed.positions[v * 3];
-            locY = morphed.positions[v * 3 + 1];
-            locZ = morphed.positions[v * 3 + 2];
-          } else if (gTag === "beak" || domBone === beakBoneIdx) {
-            r = 0.96; g = 0.46; b = 0.10;
-            rough = 0.30;
-          } else if (domBone === wingLBoneIdx || domBone === wingRBoneIdx) {
-            r = 0.94; g = 0.72 + tintShift; b = 0.14;
-            rough = 0.34;
-          }
-          if (this.gizmoNodeCenter) {
-            const gx = this.gizmoNodeCenter[0];
-            const gy = this.gizmoNodeCenter[1];
-            const gz = this.gizmoNodeCenter[2];
-            const distToGizmo = Math.hypot(px - gx, py - gy, pz - gz);
-            if (distToGizmo < 0.16) {
-              r = Math.min(1.0, r * 0.65 + 0.10);
-              g = Math.min(1.0, g * 0.65 + 0.35);
-              b = Math.min(1.0, b * 0.45 + 0.55);
-            }
-          }
-        }
-
-        const base = v * MESH_VERTEX_FLOATS;
-        vData[base] = px;
-        vData[base + 1] = py;
-        vData[base + 2] = pz;
-        vData[base + 3] = matId;
-        vData[base + 4] = nx;
-        vData[base + 5] = ny;
-        vData[base + 6] = nz;
-        vData[base + 7] = rough;
-        vData[base + 8] = r;
-        vData[base + 9] = g;
-        vData[base + 10] = b;
-        vData[base + 11] = metal;
-        vData[base + 12] = locX;
-        vData[base + 13] = locY;
-        vData[base + 14] = locZ;
-        vData[base + 15] = scaleW;
-      }
-
-      iData.set(skinned.indices, 0);
-
-      // Append ground contact shadow disc at world ground (y = 0.01)
-      appendShadowDisc(vData, iData, V, I, 0.0, 0.01, 0.0, 0.28);
-
-      // Append 3D Gizmo octahedron marker at selected node center in 1:1 world space
-      if (this.gizmoNodeCenter) {
-        appendGizmoOctahedron(
-          vData,
-          iData,
-          V + shadowV,
-          I + shadowI,
-          this.gizmoNodeCenter[0],
-          this.gizmoNodeCenter[1],
-          this.gizmoNodeCenter[2],
-          0.042
-        );
-      }
-
-      this.device.queue.writeBuffer(this.meshVertexBuffer, 0, vData.buffer, vData.byteOffset, vData.byteLength);
-      this.device.queue.writeBuffer(this.meshIndexBuffer, 0, iData.buffer, iData.byteOffset, iData.byteLength);
-      this.meshIndexCount = totalI;
-      this.gizmoIndexCount = gizmoI;
-      return;
-    }
-
-    // Mode B Crowd: render all DNA-varied instances with phase-offset skeletal poses
-    const instances = crowdInstances || [];
-    const isVehicle = ir.rigTemplate === "vehicle4" || ir.boneNameToIndex.has("wheel.FL");
-    const isBiped = ir.rigTemplate === "biped15" || ir.boneNameToIndex.has("thigh.L");
-    const laneCfg = ir.crowd || {};
-    const hasRoadbed = isVehicle && (laneCfg.layout === "lanes" || laneCfg.lanes > 0);
-    const roadV = hasRoadbed ? 8 : 0;
-    const roadI = hasRoadbed ? 12 : 0;
-
-    let totalV = roadV;
-    let totalI = roadI;
-    for (let idx = 0; idx < instances.length; idx++) {
-      const inst = instances[idx];
-      totalV += (inst.vertexCount ?? baseMesh.vertexCount) + 13;
-      totalI += (inst.indices?.length ?? baseMesh.indices.length) + 36;
-    }
-    this._ensureMeshBuffers(totalV, totalI);
-
-    const vData = this._meshVertexScratch.subarray(0, totalV * MESH_VERTEX_FLOATS);
-    const iData = this._meshIndexScratch.subarray(0, totalI);
-    const beakBoneIdx = ir.boneNameToIndex.get("beak");
-
-    let vCursor = 0;
-    let iCursor = 0;
-    const numLanes = Math.max(1, laneCfg.lanes ?? 4);
-    const carsPerLane = Math.max(1, Math.ceil(instances.length / numLanes));
-    const laneSpacing = laneCfg.laneSpacing ?? 0.44;
-    const wrapHalf = laneCfg.wrapHalfSpan ?? 0.94;
-    const laneSpeeds = [0.46, 0.56, 0.54, 0.44];
-
-    if (hasRoadbed) {
-      const roadHalfX = numLanes * laneSpacing * 0.5 + 0.18;
-      const roadHalfZ = wrapHalf + 0.18;
-      appendFlatQuad(vData, iData, vCursor, iCursor, -roadHalfX, roadHalfX, -0.008, -roadHalfZ, roadHalfZ, 0.20, 0.22, 0.26);
-      vCursor += 4;
-      iCursor += 6;
-      appendFlatQuad(vData, iData, vCursor, iCursor, -0.022, 0.022, -0.008, -roadHalfZ, roadHalfZ, 0.96, 0.76, 0.16);
-      vCursor += 4;
-      iCursor += 6;
-    }
-
-    for (let idx = 0; idx < instances.length; idx++) {
-      const inst = instances[idx];
-      const instSkinning = inst.skinning || skinning;
-      const instIndices = inst.indices || baseMesh.indices;
-      const instGroupTags = inst.groupTags || baseMesh.groupTags;
-      const instVCount = inst.vertexCount ?? baseMesh.vertexCount;
-      const instTCount = inst.triangleCount ?? baseMesh.triangleCount;
-      const instHoodScale = Math.max(0.5, (inst.params?.hoodLen ?? this.paramValues.hoodLen ?? 0.25) / 0.25);
-      const instCabinScale = Math.max(0.5, (inst.params?.cabinLen ?? this.paramValues.cabinLen ?? 0.14) / 0.14);
-
-      const laneIdx = idx % numLanes;
-      const slotInLane = Math.floor(idx / numLanes);
-      // First half of lanes drive Southbound (+Z); second half drive Northbound (-Z)
-      const laneDir = laneIdx < numLanes * 0.5 ? 1.0 : -1.0;
-      const laneSpeed = laneSpeeds[laneIdx % laneSpeeds.length];
-      const travelDist = isVehicle && !this.reducedMotion ? interpTime * laneSpeed : 0.0;
-
-      const pose = evaluateProceduralRigPose(ir, interpTime, {
-        phaseOffset: inst.phaseOffset,
-        amplitude: this.reducedMotion ? 0.0 : 1.0,
-        steer: isVehicle ? 0.0 : undefined,
-        wheelSpin: isVehicle ? travelDist / (0.052 * 0.68) : undefined,
-      });
-      const skinned = evaluateSkinnedMesh(
-        ir,
-        {
-          positions: inst.restPositions,
-          normals: inst.restNormals,
-          indices: instIndices,
-          groupTags: instGroupTags,
-          vertexCount: instVCount,
-          triangleCount: instTCount,
-        },
-        instSkinning,
-        pose
-      );
-
-      const effYaw = isVehicle ? (laneDir > 0 ? 0.0 : Math.PI) : inst.yaw;
-      const cosY = Math.cos(effYaw);
-      const sinY = Math.sin(effYaw);
-      const ox = isVehicle ? (laneIdx - (numLanes - 1) * 0.5) * laneSpacing : inst.worldOffset[0];
-      const oy = inst.worldOffset[1];
-      let oz = inst.worldOffset[2];
-      if (isVehicle) {
-        const span = wrapHalf * 2.0;
-        const baseZ = (slotInLane - (carsPerLane - 1) * 0.5) * (span / carsPerLane);
-        const rawZ = baseZ + laneDir * travelDist;
-        oz = rawZ - Math.floor((rawZ + wrapHalf) / span) * span;
-      }
-      const scale = isVehicle ? 0.68 : 0.62;
-      const V = skinned.vertexCount;
-
-      for (let v = 0; v < V; v++) {
-        const lx = skinned.positions[v * 3] * scale;
-        const ly = skinned.positions[v * 3 + 1] * scale;
-        const lz = skinned.positions[v * 3 + 2] * scale;
-        const px = cosY * lx + sinY * lz + ox;
-        const py = ly + oy;
-        const pz = -sinY * lx + cosY * lz + oz;
-
-        const lnx = skinned.normals[v * 3];
-        const lny = skinned.normals[v * 3 + 1];
-        const lnz = skinned.normals[v * 3 + 2];
-        const nx = cosY * lnx + sinY * lnz;
-        const ny = lny;
-        const nz = -sinY * lnx + cosY * lnz;
-
-        const domBone = instSkinning.dominantBones?.[v] ?? 0;
-        const gTag = skinned.groupTags?.[v] || "body";
-        let r = 0.96 - inst.tint * 0.14;
-        let g = 0.72 + (inst.tint - 0.5) * 0.22;
-        let b = 0.15 + inst.tint * 0.25;
-        let matId = MAT_STANDARD;
-        let rough = 0.34;
-        let metal = 0.0;
-        let locX = 0.0, locY = 0.0, locZ = 0.0, scaleW = 1.0;
-
-        if (this.debugMode === 2) {
-          r = 0; g = 0; b = 0;
-          for (let s = 0; s < 4; s++) {
-            const w = (instSkinning.weights[v * 4 + s] || 0) / 255.0;
-            const jb = (instSkinning.joints[v * 4 + s] || 0) % BONE_DEBUG_COLORS.length;
-            const c = BONE_DEBUG_COLORS[jb];
-            r += c[0] * w;
-            g += c[1] * w;
-            b += c[2] * w;
-          }
-        } else if (this.debugMode === 3) {
-          const isSubIsland = gTag !== "body";
-          r = isSubIsland ? 0.85 : 0.24 + inst.tint * 0.5;
-          g = isSubIsland ? 0.42 : 0.52;
-          b = isSubIsland ? 0.78 : 0.72 - inst.tint * 0.3;
-        } else if (isVehicle) {
-          const restX = inst.restPositions[v * 3];
-          const restY = inst.restPositions[v * 3 + 1];
-          const restZ = inst.restPositions[v * 3 + 2];
-          if (gTag.startsWith("wheel")) {
-            r = 0.20; g = 0.22; b = 0.25;
-            matId = MAT_VEHICLE_WHEEL;
-            rough = 0.76;
-            locX = restX; locY = restY; locZ = restZ;
-          } else if (gTag === "roofSign") {
-            r = 1.0; g = 0.94; b = 0.62;
-            rough = 0.18;
-          } else {
-            if (inst.tint < 0.14) {
-              r = 0.94; g = 0.96; b = 0.98;
-            } else if (inst.tint > 0.88) {
-              r = 0.24; g = 0.68; b = 0.74;
-            } else {
-              const warmShift = (inst.tint - 0.5) * 0.08;
-              r = 0.98; g = 0.78 + warmShift; b = 0.12;
-            }
-            matId = MAT_VEHICLE_BODY;
-            rough = 0.22;
-            locX = restX;
-            locY = restY;
-            locZ = restZ / instHoodScale;
-            scaleW = instCabinScale / instHoodScale;
-          }
-        } else if (isBiped) {
-          const restX = inst.restPositions[v * 3];
-          const restY = inst.restPositions[v * 3 + 1];
-          const restZ = inst.restPositions[v * 3 + 2];
-          if (gTag === "pack") {
-            r = 0.42; g = 0.26; b = 0.16;
-            rough = 0.45;
-          } else {
-            r = 0.24 + (1.0 - inst.tint) * 0.54;
-            g = 0.30 + Math.sin(inst.tint * Math.PI) * 0.26;
-            b = 0.28 + inst.tint * 0.46;
-            matId = MAT_BIPED_CITIZEN;
-            rough = 0.68;
-            locX = restX; locY = restY; locZ = restZ;
-          }
-        } else if (gTag.startsWith("eye")) {
-          r = 0.04; g = 0.04; b = 0.05;
-          matId = MAT_GLOSSY_EYE;
-          rough = 0.03;
-          locX = inst.restPositions[v * 3];
-          locY = inst.restPositions[v * 3 + 1];
-          locZ = inst.restPositions[v * 3 + 2];
-        } else if (gTag === "beak" || domBone === beakBoneIdx) {
-          r = 0.96; g = 0.46; b = 0.10;
-          rough = 0.30;
-        }
-
-        const base = (vCursor + v) * MESH_VERTEX_FLOATS;
-        vData[base] = px;
-        vData[base + 1] = py;
-        vData[base + 2] = pz;
-        vData[base + 3] = matId;
-        vData[base + 4] = nx;
-        vData[base + 5] = ny;
-        vData[base + 6] = nz;
-        vData[base + 7] = rough;
-        vData[base + 8] = r;
-        vData[base + 9] = g;
-        vData[base + 10] = b;
-        vData[base + 11] = metal;
-        vData[base + 12] = locX;
-        vData[base + 13] = locY;
-        vData[base + 14] = locZ;
-        vData[base + 15] = scaleW;
-      }
-
-      for (let k = 0; k < instIndices.length; k++) {
-        iData[iCursor + k] = instIndices[k] + vCursor;
-      }
-      vCursor += V;
-      iCursor += instIndices.length;
-
-      appendShadowDisc(vData, iData, vCursor, iCursor, ox, oy - 0.002, oz, 0.17, hasRoadbed);
-      vCursor += 13;
-      iCursor += 36;
-    }
-
-    this.device.queue.writeBuffer(this.meshVertexBuffer, 0, vData.buffer, vData.byteOffset, vData.byteLength);
-    this.device.queue.writeBuffer(this.meshIndexBuffer, 0, iData.buffer, iData.byteOffset, iData.byteLength);
-    this.meshIndexCount = totalI;
-    this.gizmoIndexCount = 0;
   }
 
   setPaused(paused) {
@@ -1318,105 +821,16 @@ export class WebGPUSDFRuntime {
     const now = performance.now();
     this.pointer.pokeHoldUntil = now + 110; // Hold poke active for 110ms so 60Hz sim always catches it
     this.pointer.spacePokeForSim = true;
-    this._playSynthesizedSqueak("poke");
     if (this.paused) {
       this.stepDeterministically(1 / 30);
-    }
-  }
-
-  playSqueak(kind = "squeeze") {
-    this._playSynthesizedSqueak(kind);
-  }
-
-  // Synthesizes a playful rubber-duck squeak toy sound using dual resonant bandpass formants
-  _playSynthesizedSqueak(kind = "squeeze") {
-    if (!this.soundEnabled) return;
-    try {
-      if (!this.audioCtx) {
-        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContextClass) return;
-        this.audioCtx = new AudioContextClass();
-      }
-      if (this.audioCtx.state === "suspended") {
-        this.audioCtx.resume();
-      }
-      const ctx = this.audioCtx;
-      const now = ctx.currentTime;
-      const duration = kind === "release" ? 0.14 : 0.16;
-
-      const osc = ctx.createOscillator();
-      const formant1 = ctx.createBiquadFilter();
-      const formant2 = ctx.createBiquadFilter();
-      const gain = ctx.createGain();
-
-      osc.type = "sawtooth";
-      if (kind === "release") {
-        osc.frequency.setValueAtTime(620, now);
-        osc.frequency.exponentialRampToValueAtTime(920, now + duration * 0.45);
-        osc.frequency.exponentialRampToValueAtTime(480, now + duration);
-      } else {
-        osc.frequency.setValueAtTime(440, now);
-        osc.frequency.exponentialRampToValueAtTime(840, now + 0.045);
-        osc.frequency.exponentialRampToValueAtTime(590, now + duration);
-      }
-
-      formant1.type = "bandpass";
-      formant1.frequency.setValueAtTime(1450, now);
-      formant1.Q.setValueAtTime(4.5, now);
-
-      formant2.type = "bandpass";
-      formant2.frequency.setValueAtTime(2650, now);
-      formant2.Q.setValueAtTime(5.5, now);
-
-      gain.gain.setValueAtTime(0.001, now);
-      gain.gain.linearRampToValueAtTime(0.22, now + 0.015);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
-
-      osc.connect(formant1);
-      osc.connect(formant2);
-      formant1.connect(gain);
-      formant2.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.start(now);
-      osc.stop(now + duration);
-    } catch {
-      // Audio is optional
     }
   }
 
   _computeCameraBasis() {
     this._clampCameraElevation();
     const { target, distance, azimuth, elevation, fov } = this.camera;
-    let effTarget = target;
-    let effDist = distance;
-    if (this.renderMode === "mesh" && this.bakedContext) {
-      const isBiped = this.bakedContext.ir.boneNameToIndex.has("hips");
-      const isVehicle = this.bakedContext.ir.rigTemplate === "vehicle4" || this.bakedContext.ir.boneNameToIndex.has("wheel.FL");
-      effTarget = isBiped
-        ? [target[0], 0.85, target[2]]
-        : isVehicle
-          ? [target[0], 0.16, target[2]]
-          : [target[0], 0.25, target[2]];
-      effDist = isBiped
-        ? distance * 0.95
-        : isVehicle
-          ? 1.12
-          : distance * 0.56;
-    } else if (this.renderMode === "animate_compare" && this.bakedContext) {
-      const isBiped = this.bakedContext.ir.boneNameToIndex.has("hips");
-      const isVehicle = this.bakedContext.ir.rigTemplate === "vehicle4" || this.bakedContext.ir.boneNameToIndex.has("wheel.FL");
-      effTarget = isBiped
-        ? [target[0], 0.56, target[2]]
-        : isVehicle
-          ? [target[0], 0.14, target[2]]
-          : [target[0], 0.24, target[2]];
-      effDist = isBiped ? 2.55 : isVehicle ? 2.25 : 2.15;
-    } else if (this.renderMode === "crowd" && this.bakedContext) {
-      const isVehicle = this.bakedContext.ir.rigTemplate === "vehicle4" || this.bakedContext.ir.boneNameToIndex.has("wheel.FL");
-      effTarget = isVehicle ? [target[0], 0.02, target[2]] : [target[0], 0.20, target[2]];
-      effDist = isVehicle ? 2.82 : distance;
-    }
+    const effTarget = target;
+    const effDist = distance;
 
     const cosEl = Math.cos(elevation);
     const sinEl = Math.sin(elevation);
@@ -1672,19 +1086,9 @@ export class WebGPUSDFRuntime {
       ? this.offscreenTexture.createView()
       : this.context.getCurrentTexture().createView();
 
-    if (this.renderMode !== "raymarch" && (this.bakedContext || this.renderMode === "custom_mesh") && this.meshPipeline && this.depthTexture && this.msaaColorTexture) {
-      this._updateModeBMeshBuffers(this.simTime);
-      if (this.renderMode === "world") {
-        this._computeCameraBasis();
-        this._writeUniformSlice(0, {
-          simTime: this.simTime,
-          dt: 1 / 60,
-          metaY: this.debugMode,
-          tickCount: this.tickCount,
-          pointerFlags: 0,
-        });
-      }
-      const wc = this.renderMode === "world" && this.worldClearColor ? this.worldClearColor : [1.0, 0.831, 0.231];
+    if (this.renderMode === "custom_mesh" && this.meshPipeline && this.depthTexture && this.msaaColorTexture) {
+      this._updateCustomMesh(this.simTime);
+      const wc = [1.0, 0.831, 0.231];
       const rPass = encoder.beginRenderPass({
         colorAttachments: [
           {
@@ -1901,24 +1305,13 @@ export class WebGPUSDFRuntime {
       encoder.copyBufferToBuffer(this.pickBuffer, 0, this.pickReadbackBuffer, 0, PICK_BUFFER_BYTES);
     }
 
-    // Fullscreen SDF or Mode B Skinned Mesh Render Pass
+    // Fullscreen SDF raymarch or the Studio mesh render pass
     const view = this.softwareBlit
       ? this.offscreenTexture.createView()
       : this.context.getCurrentTexture().createView();
-    if (this.renderMode !== "raymarch" && (this.bakedContext || this.renderMode === "custom_mesh") && this.meshPipeline && this.depthTexture && this.msaaColorTexture) {
-      this._updateModeBMeshBuffers(interpTime);
-      if (this.renderMode === "world") {
-        this._computeCameraBasis();
-        this._writeUniformSlice(renderSlice, {
-          simTime: interpTime,
-          dt: fixedTick,
-          metaY: this.debugMode,
-          tickCount: this.tickCount,
-          pointerFlags: 0,
-          allowGrab,
-        });
-      }
-      const wc = this.renderMode === "world" && this.worldClearColor ? this.worldClearColor : [1.0, 0.831, 0.231];
+    if (this.renderMode === "custom_mesh" && this.meshPipeline && this.depthTexture && this.msaaColorTexture) {
+      this._updateCustomMesh(interpTime);
+      const wc = [1.0, 0.831, 0.231];
       const rPass = encoder.beginRenderPass({
         colorAttachments: [
           {
@@ -2012,11 +1405,6 @@ export class WebGPUSDFRuntime {
           this.lastHoverHit = arr[11] > 0.5;
           if (prevGrab !== this.lastGrabActive) {
             this.onGrabChange(this.lastGrabActive);
-            if (this.lastGrabActive) {
-              this._playSynthesizedSqueak("squeeze");
-            } else {
-              this._playSynthesizedSqueak("release");
-            }
           }
           if (this.pointer.down && this.pointer.mode === "pending") {
             this.pointer.mode = this.lastGrabActive ? "grab" : "orbit";
@@ -2111,9 +1499,8 @@ export class WebGPUSDFRuntime {
         return;
       }
 
-      // Check if pointer ray hits the 3D Gizmo octahedron in Mode A, Mode B, or custom_mesh editor mode
+      // Check if the pointer ray hits the 3D gizmo octahedron
       if (
-        (this.renderMode === "mesh" || this.renderMode === "raymarch" || this.renderMode === "custom_mesh") &&
         this.gizmoNodeCenter &&
         this.onGizmoNodeDrag
       ) {
@@ -2305,63 +1692,6 @@ function normalize3(v) {
   return [v[0] / len, v[1] / len, v[2] / len];
 }
 
-// Appends a 12-segment ground contact shadow disc (13 vertices, 36 indices).
-// Uses formal materialId = MAT_SHADOW_DISC (6.0) and radial UV in normalAndRough.xz.
-function appendShadowDisc(vData, iData, vOffset, iOffset, cx, cy, cz, radius, onAsphalt = false) {
-  const groundR = onAsphalt ? 0.20 : 1.0;
-  const groundG = onAsphalt ? 0.22 : 212.0 / 255.0;
-  const groundB = onAsphalt ? 0.26 : 59.0 / 255.0;
-  const centerBase = vOffset * MESH_VERTEX_FLOATS;
-  vData[centerBase] = cx;
-  vData[centerBase + 1] = cy;
-  vData[centerBase + 2] = cz;
-  vData[centerBase + 3] = MAT_SHADOW_DISC;
-  vData[centerBase + 4] = 0.0;
-  vData[centerBase + 5] = 1.0;
-  vData[centerBase + 6] = 0.0;
-  vData[centerBase + 7] = 1.0;
-  vData[centerBase + 8] = groundR;
-  vData[centerBase + 9] = groundG;
-  vData[centerBase + 10] = groundB;
-  vData[centerBase + 11] = 0.0;
-  vData[centerBase + 12] = 0.0;
-  vData[centerBase + 13] = 0.0;
-  vData[centerBase + 14] = 0.0;
-  vData[centerBase + 15] = 1.0;
-
-  const segments = 12;
-  for (let s = 0; s < segments; s++) {
-    const theta = (s / segments) * Math.PI * 2.0;
-    const ux = Math.cos(theta);
-    const uz = Math.sin(theta);
-    const vx = cx + ux * radius;
-    const vz = cz + uz * radius * 0.88;
-    const base = (vOffset + 1 + s) * MESH_VERTEX_FLOATS;
-    vData[base] = vx;
-    vData[base + 1] = cy;
-    vData[base + 2] = vz;
-    vData[base + 3] = MAT_SHADOW_DISC;
-    vData[base + 4] = ux;
-    vData[base + 5] = 1.0;
-    vData[base + 6] = uz;
-    vData[base + 7] = 1.0;
-    vData[base + 8] = groundR;
-    vData[base + 9] = groundG;
-    vData[base + 10] = groundB;
-    vData[base + 11] = 0.0;
-    vData[base + 12] = 0.0;
-    vData[base + 13] = 0.0;
-    vData[base + 14] = 0.0;
-    vData[base + 15] = 1.0;
-
-    const next = ((s + 1) % segments) + 1;
-    const idxBase = iOffset + s * 3;
-    iData[idxBase] = vOffset;
-    iData[idxBase + 1] = vOffset + next;
-    iData[idxBase + 2] = vOffset + 1 + s;
-  }
-}
-
 // Appends a 3D Gizmo octahedron marker (6 vertices, 24 indices) in Focus Blue (#004E89) using MAT_UNLIT_GIZMO (5.0).
 function appendGizmoOctahedron(vData, iData, vOffset, iOffset, cx, cy, cz, radius) {
   const pts = [
@@ -2406,38 +1736,4 @@ function appendGizmoOctahedron(vData, iData, vOffset, iOffset, cx, cy, cz, radiu
     iData[iOffset + f * 3 + 1] = vOffset + faces[f][1];
     iData[iOffset + f * 3 + 2] = vOffset + faces[f][2];
   }
-}
-
-function appendFlatQuad(vData, iData, vOffset, iOffset, xMin, xMax, y, zMin, zMax, r, g, b) {
-  const pts = [
-    [xMin, y, zMin],
-    [xMax, y, zMin],
-    [xMax, y, zMax],
-    [xMin, y, zMax],
-  ];
-  for (let k = 0; k < 4; k++) {
-    const base = (vOffset + k) * MESH_VERTEX_FLOATS;
-    vData[base] = pts[k][0];
-    vData[base + 1] = pts[k][1];
-    vData[base + 2] = pts[k][2];
-    vData[base + 3] = MAT_ROADBED;
-    vData[base + 4] = 0.0;
-    vData[base + 5] = 1.0;
-    vData[base + 6] = 0.0;
-    vData[base + 7] = 0.85;
-    vData[base + 8] = r;
-    vData[base + 9] = g;
-    vData[base + 10] = b;
-    vData[base + 11] = 0.0;
-    vData[base + 12] = 0.0;
-    vData[base + 13] = 0.0;
-    vData[base + 14] = 0.0;
-    vData[base + 15] = 1.0;
-  }
-  iData[iOffset] = vOffset;
-  iData[iOffset + 1] = vOffset + 2;
-  iData[iOffset + 2] = vOffset + 1;
-  iData[iOffset + 3] = vOffset;
-  iData[iOffset + 4] = vOffset + 3;
-  iData[iOffset + 5] = vOffset + 2;
 }

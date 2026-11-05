@@ -4,6 +4,7 @@ import { mkdir, readFile, stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { hostname, networkInterfaces } from "node:os";
 
 const root = resolve(fileURLToPath(new URL("../site/", import.meta.url)));
 
@@ -57,6 +58,17 @@ export function createStaticServer(siteRoot = root, tlsOptions = null) {
   return tlsOptions ? createHttpsServer(tlsOptions, handler) : createServer(handler);
 }
 
+// Addresses other devices on the LAN or a tailnet can reach this machine at.
+function lanAddresses() {
+  return Object.values(networkInterfaces())
+    .flat()
+    .filter((a) => a && a.family === "IPv4" && !a.internal)
+    .map((a) => a.address);
+}
+
+// WebGPU needs a secure context, so phones on the LAN reach the dev server over HTTPS with a
+// self-signed certificate for this machine's names and addresses. DEV_HOSTNAMES adds more names
+// (comma-separated), e.g. a tailnet name. The certificate lives in the ignored .wrangler/ folder.
 async function ensureSelfSignedCert() {
   const certDir = resolve(fileURLToPath(new URL("../.wrangler/", import.meta.url)));
   const keyPath = resolve(certDir, "dev-key.pem");
@@ -64,13 +76,18 @@ async function ensureSelfSignedCert() {
   const existing = await stat(certPath).catch(() => null);
   if (!existing) {
     await mkdir(certDir, { recursive: true });
+    const names = [hostname(), "localhost", ...(process.env.DEV_HOSTNAMES || "").split(",")]
+      .map((n) => n.trim())
+      .filter(Boolean);
+    const ips = ["127.0.0.1", ...lanAddresses()];
+    const san = [...new Set(names)].map((n) => `DNS:${n}`).concat(ips.map((ip) => `IP:${ip}`)).join(",");
     execFileSync("openssl", [
       "req", "-x509", "-newkey", "rsa:2048", "-nodes",
       "-keyout", keyPath,
       "-out", certPath,
       "-days", "365",
-      "-subj", "/CN=spark-6d77.tail54dcda.ts.net",
-      "-addext", "subjectAltName=DNS:spark-6d77.tail54dcda.ts.net,DNS:spark-6d77,DNS:localhost,IP:100.124.222.126,IP:127.0.0.1",
+      "-subj", `/CN=${names[0]}`,
+      "-addext", `subjectAltName=${san}`,
     ], { stdio: "ignore" });
   }
   return {
@@ -83,16 +100,17 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.env.PORT) || 8000;
   const httpsPort = Number(process.env.HTTPS_PORT) || 8443;
   const host = process.env.HOST || "0.0.0.0";
+  const lan = lanAddresses();
   const server = createStaticServer();
   server.listen(port, host, () => {
-    console.log(`HTTP  server: http://100.124.222.126:${port} (or http://localhost:${port})`);
+    console.log(`HTTP  server: http://localhost:${port}`);
   });
   ensureSelfSignedCert()
     .then((tls) => {
       const httpsServer = createStaticServer(root, tls);
       httpsServer.listen(httpsPort, host, () => {
-        console.log(`HTTPS server: https://100.124.222.126:${httpsPort} (WebGPU Secure Context over Tailscale)`);
+        for (const ip of lan) console.log(`HTTPS server: https://${ip}:${httpsPort} (self-signed, for WebGPU on other devices)`);
       });
     })
-    .catch(() => {});
+    .catch((err) => console.warn(`HTTPS server not started: ${err.message}`));
 }

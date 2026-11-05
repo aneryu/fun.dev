@@ -6,8 +6,7 @@
     "dev": "node scripts/dev.mjs",
     "check": "node scripts/check.mjs",
     "test": "node scripts/check.mjs && node --test",
-    "verify": "node scripts/check.mjs && node --test && node scripts/verify.mjs",
-    "scene": "node scripts/scene-check.mjs"
+    "verify": "node scripts/check.mjs && node --test && node scripts/verify.mjs"
   },
   "engines": {
     "node": ">=22"

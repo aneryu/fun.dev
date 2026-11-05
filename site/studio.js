@@ -887,6 +887,20 @@ class StudioSDFEditorApp {
     this.canvas.addEventListener("pointerup", stopDrag);
     this.canvas.addEventListener("pointercancel", stopDrag);
 
+    // Keyboard orbit and zoom for the WebGL2 backend (the WebGPU runtime binds the same keys).
+    this.canvas.addEventListener("keydown", (e) => {
+      if (this.activeBackend !== "WebGL2") return;
+      const cam = this.webglCamera;
+      if (e.key === "ArrowLeft") cam.azimuth += 0.1;
+      else if (e.key === "ArrowRight") cam.azimuth -= 0.1;
+      else if (e.key === "ArrowUp") cam.elevation = Math.min(1.25, cam.elevation + 0.08);
+      else if (e.key === "ArrowDown") cam.elevation = Math.max(-0.35, cam.elevation - 0.08);
+      else if (e.key === "+" || e.key === "=") cam.distance = Math.max(1.2, cam.distance * 0.92);
+      else if (e.key === "-" || e.key === "_") cam.distance = Math.min(6.5, cam.distance * 1.08);
+      else return;
+      e.preventDefault();
+    });
+
     this.canvas.addEventListener(
       "wheel",
       (e) => {
@@ -919,12 +933,12 @@ class StudioSDFEditorApp {
   _scheduleHintFade() {
     if (!this.stageHint) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      this.stageHint.style.display = "none";
+      this.stageHint.classList.add("is-hidden");
       return;
     }
     setTimeout(() => {
       this.stageHint.classList.add("fade-out");
-      setTimeout(() => this.stageHint.remove(), 600);
+      setTimeout(() => this.stageHint.classList.add("is-hidden"), 600);
     }, 3200);
   }
 }

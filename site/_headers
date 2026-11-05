@@ -1,10 +1,13 @@
+# fun.dev is served by the CN2 server's Caddy (config/Caddyfile): it proxies pages from this
+# Pages project and 308-redirects every other path (CSS, JS, icons) to static.fun.dev. CSP checks a
+# redirected request against its final origin, so pages must allow https://static.fun.dev.
 /*
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Cross-Origin-Opener-Policy: same-origin
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com/beacon.min.js https://static.cloudflareinsights.com/beacon.min.js/; connect-src 'self' https://cloudflareinsights.com/cdn-cgi/rum; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; frame-src 'none'; worker-src 'self'
+  Content-Security-Policy: default-src 'self' https://static.fun.dev; script-src 'self' https://static.fun.dev https://static.cloudflareinsights.com/beacon.min.js https://static.cloudflareinsights.com/beacon.min.js/; connect-src 'self' https://static.fun.dev https://cloudflareinsights.com/cdn-cgi/rum; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; frame-src 'none'; worker-src 'self'
 
 /favicon.svg
   Cache-Control: public, max-age=86400

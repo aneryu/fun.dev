@@ -20,8 +20,8 @@ over a collection of polished portfolio components. The homepage (`/`) pairs the
 minimalist `Code for / − work. / + fun.` poster identity (`Things I make for fun.`)
 with a single interactive 3D WebGPU SDF Bath Duck (`bath-duck`) toy floating directly
 on the Duck Yellow canvas, plus a lightweight `Studio ↗` entry point in the top bar
-that opens the standalone `/studio` 3D SDF & Skinned Mesh Studio Workbench (where
-all five scenes, parameter sliders, Mode A/B pipelines, and the WGSL editor live).
+that opens the standalone `/studio` SDF block studio (SDF 低模造物台), where the same
+duck is edited block by block and viewed smooth, faceted low-poly, or as a 36-duck crowd.
 When WebGPU is unavailable or compiling, a crisp local SVG poster stands in on
 the same yellow canvas.
 
@@ -103,7 +103,7 @@ the page without competing with the diff statement. The current line is
 ### Future surfaces
 
 If longer content or dedicated tooling needs separation (such as the standalone
-`/studio` 3D SDF & Skinned Mesh Studio Workbench), use Duck Cream (`#FFF7D6`)
+`/studio` SDF block studio), use Duck Cream (`#FFF7D6`)
 with Duck Ink (`#211F17`) borders. Avoid generic white cards, shadows, glass
 effects, and large collections of rounded pills.
 

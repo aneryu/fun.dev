@@ -1,5 +1,17 @@
 # `fun.dev` — Native WebGPU SDF Modeling, Rigging & Auto-Skinned Mesh Architecture (v3.0)
 
+> **Status (2026-11-05): design roadmap, mostly not built.** What ships today is narrower:
+>
+> - `/` raymarches one hand-written WGSL scene (`site/scenes/bath-duck.js`) with
+>   `site/kernel/runtime.js` ("Mode A"): flat WGSL codegen, uniform substeps, GPU picking,
+>   `device.lost` recovery and loop guards (`site/kernel/compiler.js`) are implemented.
+> - `/studio` edits the same duck as SDF blocks (`site/kernel/sdf-editor.js`): smooth union and
+>   subtraction within groups, mirror X, Surface Nets meshing per group with relaxation, baked
+>   AO, a 36-instance crowd, and glTF / JSON / WGSL export, drawn by WebGPU or WebGL2.
+> - Not built: skeletons and bone attachment, auto-skinning, the `@operator` protocol and its
+>   Lipschitz audit, `dna` / `animated` parameters, the L0–L5 approximation ladder, CSR morphs,
+>   skinned glTF export and the A/B deviation budget. Read the sections below as the plan.
+
 ## 0. Product Positioning & Dual-Mode Runtime Contract
 
 To scale from single-character interactive toys to city-scale procedural worlds on the scale of `slop-newyork` (hundreds of animated pedestrians, vehicles, and props at 60 fps with shadows and long draw distances), the architecture separates **Interactive Authoring (Mode A)** from **Crowd/Runtime Truth (Mode B)** while compiling both from a single unified asset representation:

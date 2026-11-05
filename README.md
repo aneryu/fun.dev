@@ -17,25 +17,40 @@ A static personal playground & studio on `fun.dev` for **WebGPU + WGSL Signed Di
 ## Local Development & Verification
 
 ```sh
-# Start local static dev server on http://127.0.0.1:8000
+# Static dev server: http://localhost:8000, plus HTTPS on :8443 with a self-signed
+# certificate so phones on the LAN get a secure context for WebGPU.
+# DEV_HOSTNAMES=name1,name2 adds extra certificate names (e.g. a tailnet name).
 npm run dev
 
-# Run static link/syntax checks and unit tests
+# Link/asset/syntax checks, home-page dependency isolation, and unit tests
 npm test
 
-# Run full verification (static checks + unit tests + headless Chrome WebGPU rendering & screenshot capture)
+# Everything above plus headless Chrome (SwiftShader WebGPU) screenshots of /, /studio
+# in all three modes, and /studio at 375 px, written to test-results/
 npm run verify
 ```
 
-## Cloudflare Pages
+## Deployment
 
-- Build command: leave empty
-- Build output directory: `site`
-- Production branch: `production`
+There is no build step: the `site/` directory is the deployment.
+
+- Cloudflare Pages project `fundev`, deployed by direct upload (it is not connected to Git):
+
+  ```sh
+  npx wrangler pages deploy site --project-name fundev --branch production
+  ```
+
+- The Pages project answers on `static.fun.dev` (and `api.fun.dev`, `fundev.pages.dev`).
+- `fun.dev` itself points at the CN2 server, whose Caddy (`config/Caddyfile`) proxies pages
+  (`/`, `/studio`, any other one-segment path, `sw.js`, `robots.txt`, `sitemap.xml`) from
+  `static.fun.dev` and 308-redirects every other path (CSS, JS, icons) there. Pages must
+  therefore allow `https://static.fun.dev` in their Content-Security-Policy (`site/_headers`).
+- After changing which paths are pages, update `config/Caddyfile` and apply it on the server
+  (the commands are at the top of that file).
+- `site/sw.js` only unregisters the service worker of older builds and clears their caches.
 
 ## Analytics
 
-Use **Cloudflare Web Analytics** for privacy-first page-view, visitor, and Web
-Vitals reporting. Enable automatic setup for `fun.dev` in the Cloudflare Web
-Analytics dashboard. Cloudflare then injects the beacon at the edge, so this
-repository does not need to contain a site token or third-party tracking code.
+None is active. The pages carry no beacon, and Cloudflare cannot inject one on `fun.dev`
+because that hostname is not proxied by Cloudflare. The CSP already allows the Cloudflare Web
+Analytics beacon, so turning it on means adding its script tag with a site token.
