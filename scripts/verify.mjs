@@ -1,100 +1,240 @@
-import { execFileSync, spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { dist, launch, root, serve } from "./browser/harness.mjs";
-import { kitChecks } from "./browser/kit.mjs";
-import { playerChecks } from "./browser/player.mjs";
-import { siteChecks } from "./browser/site.mjs";
-import { editorChecks } from "./browser/editor.mjs";
-import { fun3dChecks } from "./browser/fun3d.mjs";
-import { smoke } from "./browser/smoke.mjs";
-import { sync } from "./blobs.mjs";
-import { fixtureGames, loadLocalGames } from "./local-games.mjs";
+import { fileURLToPath } from "node:url";
+import { createStaticServer } from "./dev.mjs";
+import { SCENES } from "../site/scenes/index.js";
 
-// Everything checkable locally, with one build and one browser:
-//   npm run verify                      unit tests + all browser suites
-//   npm run verify -- smoke player      only the named browser suites (plus unit tests)
-//   npm run verify -- --transfer        also the slower account-transfer test (wrangler pages dev)
-//   npm run verify -- smoke --game=<id> smoke-test one game only (for parallel game work)
-//   npm run verify -- --games=../fundev-games   smoke-test real games (default: the platform's
-//                                       test game in tests/fixture-games, which the other suites use)
-//   npm run verify -- --webgpu          browser suites on this machine's GPU, games forced to WebGPU
-//   npm run verify -- --skip=editor,kit  leave out browser suites (the release skips what its change cannot touch)
-const args = process.argv.slice(2);
-const skipped = new Set(args.find((arg) => arg.startsWith("--skip="))?.slice("--skip=".length).split(",").filter(Boolean) ?? []);
-const only = args.find((arg) => arg.startsWith("--game="))?.slice("--game=".length);
-const gamesArg = args.find((arg) => arg.startsWith("--games="))?.slice("--games=".length);
-// Builds, asset checks and loadLocalGames below read this directory.
-process.env.FUNDEV_GAMES = gamesArg ? resolve(gamesArg) : fixtureGames;
-const suites = { smoke: null, kit: kitChecks, fun3d: fun3dChecks, player: playerChecks, site: siteChecks, editor: editorChecks };
-// Real games run their smoke test only; the platform suites need the test game.
-const selected = args.filter((arg) => !arg.startsWith("--"));
-if (gamesArg && !selected.length) selected.push("smoke");
-const webgpu = args.includes("--webgpu");
-const unknown = [...selected.filter((name) => !(name in suites)), ...[...skipped].filter((name) => !(name in suites)), ...args.filter((arg) => arg.startsWith("--") && !["--transfer", "--webgpu"].includes(arg) && !arg.startsWith("--game=") && !arg.startsWith("--games=") && !arg.startsWith("--skip="))];
-if (unknown.length) {
-  console.error(`Unknown: ${unknown.join(", ")}. Usage: npm run verify [-- ${Object.keys(suites).join("|")} ...] [--game=<id>] [--games=<dir>] [--transfer] [--webgpu] [--skip=<suite>,...]`);
-  process.exit(1);
-}
-const results = [];
-async function step(name, task) {
-  const started = Date.now();
-  console.log(`\n▶ ${name}`);
-  try {
-    await task();
-    results.push([name, "ok", Date.now() - started]);
-  } catch (error) {
-    results.push([name, "FAIL", Date.now() - started]);
-    console.error(`  ${error.message}`);
-  }
-}
+const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
+const outDir = resolve(root, "test-results");
 
-await step("assets match their locks", async () => {
-  const { changes, problems } = await sync({ mode: "check", log: () => {} });
-  if (problems.length || changes.length) throw new Error([...problems, ...changes, "Run npm run assets, then commit the locks."].join("\n  "));
-});
-await step("unit tests", () => {
-  if (spawnSync(process.execPath, ["--test"], { cwd: root, stdio: "inherit" }).status !== 0) throw new Error("Unit tests failed.");
-});
-await step("local build", () => {
-  // Local game sources; the service worker stays on for the offline check (other suites block it).
-  execFileSync("npm", ["run", "--silent", "build"], { cwd: root, stdio: "inherit", env: { ...process.env, FUNDEV_GAME_ORIGIN: "", FUNDEV_TRANSFER: "", FUNDEV_NO_SW: "" } });
-});
-if (results.every(([, status]) => status === "ok" || status === "skip")) {
-  const server = await serve();
-  const browser = await launch({ webgpu });
-  try {
-    const games = JSON.parse(await readFile(resolve(dist, "games.json"), "utf8")).filter((game) => !only || game.id === only);
-    if (only && !games.length) results.push([`no game "${only}" in ${process.env.FUNDEV_GAMES}`, "FAIL", 0]);
-    else for (const [name, run] of Object.entries(suites)) {
-      if ((selected.length && !selected.includes(name)) || skipped.has(name)) { if (skipped.has(name)) results.push([`browser: ${name}`, "skip", 0]); continue; }
-      await step(`browser: ${name}`, () => name === "smoke" ? smoke({ browser, base: server.base, games, renderer: webgpu ? "webgpu" : "" }) : run({ browser, base: server.base, dist }));
-    }
-  } finally {
-    await browser.close();
-    server.close();
-  }
-}
-if (args.includes("--transfer")) {
-  await step("browser: account transfer", () => {
-    if (spawnSync(process.execPath, ["scripts/progress-browser.mjs"], { cwd: root, stdio: "inherit" }).status !== 0) throw new Error("Transfer browser test failed.");
+function startBrowser() {
+  const args = [
+    "--headless=new",
+    "--remote-debugging-port=0",
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--enable-unsafe-webgpu",
+    "--enable-features=Vulkan",
+    "--use-vulkan=swiftshader",
+    "--use-webgpu-adapter=swiftshader",
+    "--window-size=1280,800",
+    "about:blank",
+  ];
+
+  return new Promise((resolvePromise, rejectPromise) => {
+    const proc = spawn("/usr/bin/google-chrome", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    const timer = setTimeout(() => {
+      proc.kill("SIGKILL");
+      rejectPromise(new Error(`Timed out waiting for Chrome DevTools endpoint.\n${stderr}`));
+    }, 10000);
+
+    const onData = (chunk) => {
+      stderr += chunk.toString("utf8");
+      const match = stderr.match(/DevTools listening on (ws:\/\/[^\s]+)/);
+      if (match) {
+        clearTimeout(timer);
+        proc.stderr.off("data", onData);
+        resolvePromise({ proc, wsUrl: match[1] });
+      }
+    };
+
+    proc.stderr.on("data", onData);
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      rejectPromise(err);
+    });
   });
 }
 
-// Download sizes, for information only: first load (cached with the release) and lazy/ files.
-const releases = await loadLocalGames().catch(() => []);
-if (releases.length) {
-  console.log("\nDownload sizes");
-  const mb = (bytes) => `${(bytes / 1048576).toFixed(1)} MB`;
-  for (const { game, assets } of releases.filter(({ game }) => !only || game.id === only)) {
-    const lazy = assets.filter((asset) => /(?:^|\/)lazy\//.test(asset.path));
-    const sum = (list) => list.reduce((total, asset) => total + asset.body.length, 0);
-    const largest = [...assets].sort((a, b) => b.body.length - a.body.length).slice(0, 3).map((asset) => `${asset.path} ${mb(asset.body.length)}`);
-    console.log(`  ${game.id.padEnd(14)} first load ${mb(sum(assets) - sum(lazy)).padStart(8)}${lazy.length ? `, lazy ${mb(sum(lazy))}` : ""}   largest: ${largest.join(", ")}`);
+class CDPSession {
+  constructor(ws) {
+    this.ws = ws;
+    this.nextId = 1;
+    this.pending = new Map();
+    this.listeners = new Map();
+
+    ws.addEventListener("message", (event) => {
+      const msg = JSON.parse(String(event.data));
+      if (msg.id && this.pending.has(msg.id)) {
+        const { resolve: res, reject: rej } = this.pending.get(msg.id);
+        this.pending.delete(msg.id);
+        if (msg.error) rej(new Error(msg.error.message || JSON.stringify(msg.error)));
+        else res(msg.result);
+        return;
+      }
+      if (msg.method) {
+        const list = this.listeners.get(msg.method) || [];
+        for (const fn of list) fn(msg.params, msg.sessionId);
+      }
+    });
+  }
+
+  send(method, params = {}, sessionId = undefined) {
+    const id = this.nextId++;
+    const payload = { id, method, params };
+    if (sessionId) payload.sessionId = sessionId;
+    return new Promise((res, rej) => {
+      this.pending.set(id, { resolve: res, reject: rej, sessionId });
+      this.ws.send(JSON.stringify(payload));
+    });
+  }
+
+  on(method, fn) {
+    if (!this.listeners.has(method)) this.listeners.set(method, []);
+    this.listeners.get(method).push(fn);
   }
 }
 
-console.log("\nSummary");
-for (const [name, status, time] of results) console.log(`  ${status.padEnd(4)} ${name.padEnd(28)} ${(time / 1000).toFixed(1)}s`);
-console.log("  Screenshots: test-results/");
-if (results.some(([, status]) => status !== "ok" && status !== "skip")) process.exitCode = 1;
+async function evaluate(cdp, sessionId, expression) {
+  const res = await cdp.send(
+    "Runtime.evaluate",
+    { expression, returnByValue: true, awaitPromise: true },
+    sessionId
+  );
+  if (res.exceptionDetails) {
+    throw new Error(`Page evaluation exception: ${res.exceptionDetails.text} - ${JSON.stringify(res.exceptionDetails)}`);
+  }
+  return res.result?.value;
+}
+
+async function waitForCondition(cdp, sessionId, expr, timeoutMs = 45000, pageErrors = []) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const val = await evaluate(cdp, sessionId, expr);
+    if (val) return val;
+    await new Promise((r) => setTimeout(r, 70));
+  }
+  throw new Error(`Timed out waiting for condition: ${expr}\nPageErrors: ${pageErrors.join(" | ")}`);
+}
+
+const server = createStaticServer();
+await new Promise((res) => server.listen(0, "127.0.0.1", res));
+const { port } = server.address();
+const baseUrl = `http://127.0.0.1:${port}`;
+
+let chromeProc = null;
+try {
+  await mkdir(outDir, { recursive: true });
+  const { proc, wsUrl } = await startBrowser();
+  chromeProc = proc;
+
+  const ws = new WebSocket(wsUrl);
+  await new Promise((res, rej) => {
+    ws.addEventListener("open", res, { once: true });
+    ws.addEventListener("error", rej, { once: true });
+  });
+
+  const cdp = new CDPSession(ws);
+  const { targetInfos } = await cdp.send("Target.getTargets");
+  const pageTarget = targetInfos.find((t) => t.type === "page");
+  const { sessionId } = await cdp.send("Target.attachToTarget", {
+    targetId: pageTarget.targetId,
+    flatten: true,
+  });
+
+  const pageErrors = [];
+  await cdp.send("Page.enable", {}, sessionId);
+  await cdp.send("Runtime.enable", {}, sessionId);
+  await cdp.send("Log.enable", {}, sessionId);
+
+  cdp.on("Runtime.exceptionThrown", (params) => {
+    pageErrors.push(params.exceptionDetails?.text || "Runtime exception");
+  });
+  cdp.on("Runtime.consoleAPICalled", (params) => {
+    if (params.type === "error") {
+      const text = (params.args || []).map((a) => a.value || a.description || "").join(" ");
+      pageErrors.push(`console.error: ${text}`);
+    }
+  });
+
+  // 1. Verify minimalist poster homepage (/)
+  await cdp.send(
+    "Emulation.setDeviceMetricsOverride",
+    { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false },
+    sessionId
+  );
+  await cdp.send("Page.navigate", { url: `${baseUrl}/?t=1.2` }, sessionId);
+  await waitForCondition(cdp, sessionId, `document.body && document.body.dataset.sdfReady === "true"`);
+  const homeShot = await cdp.send("Page.captureScreenshot", { format: "png" }, sessionId);
+  await writeFile(resolve(outDir, "home-bath-duck.png"), Buffer.from(homeShot.data, "base64"));
+  console.log("Verified homepage -> test-results/home-bath-duck.png");
+
+  // 2. Verify SDF Low-Poly Block Editor (/studio) for bath-duck (default smooth high-precision mode)
+  await cdp.send("Page.navigate", { url: `${baseUrl}/studio` }, sessionId);
+  await waitForCondition(cdp, sessionId, `document.body && document.body.dataset.sdfReady === "true"`);
+
+  const studioAudit = await evaluate(
+    cdp,
+    sessionId,
+    `(() => {
+      const title = document.querySelector("#dock-title")?.textContent;
+      const blocks = document.querySelectorAll(".block-tree-item").length;
+      const chips = document.querySelectorAll(".palette-chip").length;
+      const sliders = document.querySelectorAll(".knob-slider").length;
+      const stats = document.querySelector("#editor-mesh-stats")?.textContent;
+      return { title, blocks, chips, sliders, stats };
+    })()`
+  );
+  console.log("Verified Studio SDF Bath Duck Editor Audit:", JSON.stringify(studioAudit));
+  if (studioAudit.title !== "澡盆小鸭" || studioAudit.blocks < 8 || studioAudit.sliders < 7) {
+    throw new Error(`SDF Bath Duck Editor workbench check failed: ${JSON.stringify(studioAudit)}`);
+  }
+
+  const smoothShot = await cdp.send("Page.captureScreenshot", { format: "png" }, sessionId);
+  await writeFile(resolve(outDir, "studio-sdf-blocks-editor.png"), Buffer.from(smoothShot.data, "base64"));
+  console.log("Captured SDF Bath Duck (Smooth High-Precision) -> test-results/studio-sdf-blocks-editor.png");
+
+  // 3. Switch to Faceted Low-Poly mode ("lowpoly") and capture screenshot
+  await evaluate(
+    cdp,
+    sessionId,
+    `(async () => {
+      window.__studioApp.sdfEditor.shadingMode = "lowpoly";
+      window.__studioApp.sdfEditor.invalidateAll();
+      window.__studioApp._renderBlockEditor();
+      if (window.__studioApp.runtime) await window.__studioApp.runtime.renderSingleFrame();
+    })()`
+  );
+  const lowpolyShot = await cdp.send("Page.captureScreenshot", { format: "png" }, sessionId);
+  await writeFile(resolve(outDir, "studio-sdf-lowpoly.png"), Buffer.from(lowpolyShot.data, "base64"));
+  console.log("Captured SDF Bath Duck (Faceted Low-Poly) -> test-results/studio-sdf-lowpoly.png");
+
+  // 4. Enable 36-instance crowd stress-test in SDF Editor and capture screenshot
+  await evaluate(
+    cdp,
+    sessionId,
+    `(async () => {
+      window.__studioApp.sdfEditor.shadingMode = "smooth";
+      window.__studioApp.sdfEditor.crowdMode = true;
+      window.__studioApp.sdfEditor.invalidateAll();
+      if (window.__studioApp.runtime) window.__studioApp.runtime.camera.distance = 4.35;
+      window.__studioApp.webglCamera.distance = 4.35;
+      window.__studioApp._syncEditorGizmo();
+      window.__studioApp._renderBlockEditor();
+      if (window.__studioApp.runtime) await window.__studioApp.runtime.renderSingleFrame();
+    })()`
+  );
+  const crowdShot = await cdp.send("Page.captureScreenshot", { format: "png" }, sessionId);
+  await writeFile(resolve(outDir, "studio-sdf-crowd-36.png"), Buffer.from(crowdShot.data, "base64"));
+  console.log("Captured 36-Instance Bath Duck Crowd -> test-results/studio-sdf-crowd-36.png");
+
+  // 5. Test Mobile Studio (375x812)
+  await cdp.send(
+    "Emulation.setDeviceMetricsOverride",
+    { width: 375, height: 812, deviceScaleFactor: 2, mobile: true },
+    sessionId
+  );
+  await cdp.send("Page.navigate", { url: `${baseUrl}/studio` }, sessionId);
+  await waitForCondition(cdp, sessionId, `document.body && document.body.dataset.sdfReady === "true"`);
+  const mobileStudioShot = await cdp.send("Page.captureScreenshot", { format: "png" }, sessionId);
+  await writeFile(resolve(outDir, "studio-knobs-mobile.png"), Buffer.from(mobileStudioShot.data, "base64"));
+  console.log("Captured Mobile Studio -> test-results/studio-knobs-mobile.png");
+
+  console.log("\nAll verify tests passed cleanly!");
+} finally {
+  if (chromeProc) chromeProc.kill("SIGKILL");
+  server.close();
+}

@@ -1,0 +1,663 @@
+/* site/studio.css */
+/* Direction A: ONE FRAME, no scroll. Inspired by polyfork.dev/try + DESIGN.md tokens */
+
+:root {
+  --duck-yellow: #ffd43b;
+  --duck-ink: #211f17;
+  --duck-brown: #5c5133;
+  --beak-orange: #f28c28;
+  --beak-deep: #9c3a12;
+  --water-blue: #4ba3c7;
+  --water-deep: #064f67;
+  --duck-cream: #fff7d6;
+  --focus-blue: #004e89;
+
+  --studio-bg-top: #e8ecf1;
+  --studio-bg-floor: #d4dbe3;
+  --card-bg: rgba(255, 247, 214, 0.94);
+  --card-border: #211f17;
+  --shadow-contact: rgba(33, 31, 23, 0.18);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body.studio-app {
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--studio-bg-floor);
+  color: var(--duck-ink);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 顶部栏：紧凑优雅，单行展示 */
+.studio-header {
+  flex: none;
+  background: var(--duck-yellow);
+  border-bottom: 2px solid var(--duck-ink);
+  padding: 10px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  z-index: 10;
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.wordmark {
+  font-size: 1.15rem;
+  font-weight: 800;
+  text-decoration: none;
+  color: var(--duck-ink);
+  letter-spacing: -0.02em;
+}
+
+.wordmark:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--beak-deep);
+}
+
+.header-divider {
+  color: var(--duck-brown);
+  opacity: 0.5;
+}
+
+.header-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.header-sub {
+  font-size: 0.8rem;
+  color: var(--duck-brown);
+  margin-left: 6px;
+}
+
+/* 物件选择器 (Picker) */
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.picker-row::-webkit-scrollbar {
+  display: none;
+}
+
+.pick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #fff;
+  border: 1.5px solid var(--duck-ink);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--duck-ink);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.pick-btn:hover {
+  background: var(--duck-cream);
+  transform: translateY(-1px);
+}
+
+.pick-btn.active {
+  background: var(--duck-ink);
+  color: #fff;
+  border-color: var(--duck-ink);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+
+.pick-icon {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+/* 3D 舞台区域 (Stage Container) */
+.stage-container {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at 50% 38%, var(--studio-bg-top) 0%, var(--studio-bg-floor) 100%);
+}
+
+#viewport-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+/* 悬浮旋钮控制坞 (Knob Dock) */
+.knob-dock {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  width: 292px;
+  max-height: calc(100% - 80px);
+  background: var(--card-bg);
+  border: 2px solid var(--card-border);
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 8px 24px var(--shadow-contact);
+  backdrop-filter: blur(8px);
+  overflow-y: auto;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dock-mode-tabs {
+  display: flex;
+  gap: 4px;
+  background: rgba(33, 31, 23, 0.08);
+  padding: 3px;
+  border-radius: 8px;
+}
+
+.dock-tab-btn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--duck-brown);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 6px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.dock-tab-btn.active {
+  background: var(--duck-ink);
+  color: var(--duck-yellow);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+}
+
+.knob-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.knob-list[hidden],
+.block-editor-pane[hidden] {
+  display: none !important;
+}
+
+/* SDF 低模积木编辑器面板 */
+.block-editor-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 0.76rem;
+}
+
+.editor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed rgba(33, 31, 23, 0.16);
+}
+
+.editor-section:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.editor-sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  color: var(--duck-ink);
+}
+
+.mesh-stat-badge {
+  font-size: 0.66rem;
+  font-weight: 700;
+  background: rgba(33, 31, 23, 0.09);
+  color: var(--duck-ink);
+  padding: 2px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.add-prim-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.add-prim-btn {
+  border: 1px solid rgba(33, 31, 23, 0.25);
+  background: #fff;
+  color: var(--duck-ink);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 4px 2px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.add-prim-btn:hover {
+  background: var(--duck-yellow);
+  border-color: var(--duck-ink);
+}
+
+.block-tree-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 128px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.block-tree-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(33, 31, 23, 0.14);
+  background: rgba(255, 255, 255, 0.65);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--duck-ink);
+  text-align: left;
+}
+
+.block-tree-item:hover {
+  background: #fff;
+}
+
+.block-tree-item.active {
+  background: var(--duck-yellow);
+  border-color: var(--duck-ink);
+  font-weight: 700;
+}
+
+.block-tag {
+  font-size: 0.65rem;
+  opacity: 0.75;
+  background: rgba(33, 31, 23, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.inspector-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mini-slider-row {
+  display: grid;
+  grid-template-columns: 42px 1fr 38px;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+}
+
+.mini-val {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--duck-brown);
+}
+
+.block-del-btn {
+  border: 1px solid rgba(156, 58, 18, 0.35);
+  background: rgba(242, 140, 40, 0.12);
+  color: var(--beak-deep);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.block-del-btn:hover {
+  background: var(--beak-deep);
+  color: #fff;
+}
+
+.dock-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(33, 31, 23, 0.18);
+  padding-bottom: 8px;
+}
+
+.dock-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.dock-reset-btn {
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--duck-brown);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.dock-reset-btn:hover {
+  color: var(--duck-ink);
+  background: rgba(0,0,0,0.06);
+}
+
+/* 旋钮列表项 */
+.knob-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.knob-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* 滑杆旋钮 */
+.knob-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: #d8dee6;
+  outline: none;
+}
+
+.knob-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--duck-ink);
+  border: 2px solid #fff;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  transition: transform 0.1s ease;
+}
+
+.knob-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  background: var(--beak-deep);
+}
+
+/* 色块选项 (Palette chips) */
+.knob-palette-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.palette-chip {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  cursor: pointer;
+  outline: 2px solid transparent;
+  transition: transform 0.15s ease, outline 0.15s ease;
+}
+
+.palette-chip:hover {
+  transform: scale(1.12);
+}
+
+.palette-chip.active {
+  outline-color: var(--duck-ink);
+  transform: scale(1.15);
+}
+
+/* 开关与单选 (Toggle / Choice) */
+.choice-group {
+  display: flex;
+  gap: 4px;
+  background: #e4e9ef;
+  padding: 2px;
+  border-radius: 6px;
+}
+
+.choice-btn {
+  flex: 1;
+  padding: 4px 4px;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.70rem;
+  font-weight: 600;
+  color: var(--duck-brown);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.choice-btn.active {
+  background: #fff;
+  color: var(--duck-ink);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+
+/* 操作按钮栏 (右下角/左下角) */
+.stage-actions {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 5;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1.5px solid var(--duck-ink);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--duck-ink);
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  backdrop-filter: blur(6px);
+  transition: all 0.15s ease;
+}
+
+.action-btn:hover {
+  background: var(--duck-cream);
+  transform: translateY(-1px);
+}
+
+/* 首次操作小提示 */
+.stage-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  background: rgba(33, 31, 23, 0.78);
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.5s ease;
+  z-index: 4;
+}
+
+.stage-hint.fade-out {
+  opacity: 0;
+}
+
+/* 原生 WGSL 源码查看弹窗 */
+.source-dialog {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: auto;
+  max-width: 90vw;
+  max-height: 85vh;
+  z-index: 100;
+}
+
+.source-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+}
+
+.dialog-box {
+  background: #1e1e24;
+  color: #f1f2f6;
+  border: 2px solid var(--duck-ink);
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 800px;
+  max-height: 80vh;
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dialog-header h3 {
+  font-size: 1rem;
+  color: var(--duck-yellow);
+}
+
+.dialog-close {
+  background: none;
+  border: none;
+  color: #a4b0be;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.dialog-close:hover {
+  color: #fff;
+}
+
+.dialog-desc {
+  font-size: 0.8rem;
+  color: #a4b0be;
+}
+
+.dialog-code {
+  flex: 1;
+  overflow: auto;
+  background: #131417;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: #7bed9f;
+}
+
+/* 响应式适配 */
+@media (max-width: 720px) {
+  .header-sub {
+    display: none;
+  }
+  .knob-dock {
+    width: calc(100% - 32px);
+    max-height: 200px;
+    top: auto;
+    bottom: 60px;
+  }
+  .stage-actions {
+    left: 16px;
+    right: 16px;
+    bottom: 12px;
+    justify-content: space-between;
+  }
+  .action-btn span {
+    font-size: 0.75rem;
+  }
+}
+
+/* WebGPU / WebGL2 状态徽章与 FPS 计数 */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(33, 31, 23, 0.08);
+  border: 1px solid rgba(33, 31, 23, 0.22);
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--duck-ink);
+  margin-left: 10px;
+}
+
+.badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #2ed573;
+  display: inline-block;
+  box-shadow: 0 0 6px rgba(46, 213, 115, 0.6);
+}
+
+.badge-dot.webgl2 {
+  background: #ffa502;
+  box-shadow: 0 0 6px rgba(255, 165, 2, 0.6);
+}
+
+.badge-dot.error {
+  background: #ff4757;
+  box-shadow: 0 0 6px rgba(255, 71, 87, 0.6);
+}

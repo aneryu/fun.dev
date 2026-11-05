@@ -1,72 +1,140 @@
-import { getLocale, initLocale, languagePath, onLocaleChange, t } from "./i18n.js";
-import { blobURL, loadIndex, loadModel, modelPath } from "./models-catalog.js";
-import { registerServiceWorker } from "./pwa.js";
+import { WebGPUSDFRuntime } from "./kernel/runtime.js";
+import { bathDuckScene } from "./scenes/bath-duck.js";
 
-// The homepage: a model from the library turning on the page (the claw machine first; "another
-// one" picks at random), then the workshop, the library and what was made with them.
-initLocale();
-registerServiceWorker();
+const UI_TEXT = {
+  zh: {
+    intro: "做点好玩的东西。",
+    openStudio: "Studio ↗",
+    unsupported: "当前浏览器或环境未开启 WebGPU，已自动切换为静态小黄鸭海报。",
+    ariaHero: "项目介绍",
+    ariaStage: "3D 互动舞台",
+    ariaCanvas: "互动式 3D 浴缸小黄鸭画布",
+    ariaPoster: "小黄鸭静态插画海报",
+  },
+  en: {
+    intro: "Things I make for fun.",
+    openStudio: "Studio ↗",
+    unsupported: "WebGPU is unavailable in this browser; showing the static rubber duck poster.",
+    ariaHero: "Identity",
+    ariaStage: "3D Interactive Stage",
+    ariaCanvas: "Interactive 3D Bath Duck Canvas",
+    ariaPoster: "Rubber duck illustration",
+  },
+};
 
-const stage = document.querySelector("#model-stage");
-const caption = document.querySelector("#model-caption");
-const another = document.querySelector("#another-model");
-const modelsLine = document.querySelector("#models-line");
-// Whole objects show best; modular pieces (walls, road kits) and characters are left out.
-const SHOWN = new Set(["prop", "vehicle"]);
-const FEATURED = "claw_machine_01";
-let index = null, current = null, viewer = null, modelCount = null;
-
-function renderCaption() {
-  caption.replaceChildren();
-  if (!current) return;
-  const view = Object.assign(document.createElement("a"), { href: languagePath(modelPath(current.id)), textContent: t("viewModel") });
-  const open = Object.assign(document.createElement("a"), { href: languagePath(`/workshop/?open=${encodeURIComponent(current.id)}`), textContent: t("openInWorkshop") });
-  const name = Object.assign(document.createElement("strong"), { textContent: current.name[getLocale()] ?? current.name.en });
-  caption.append(name, " · ", view, " · ", open);
+const urlParams = new URLSearchParams(window.location.search);
+const requestedScene = urlParams.get("scene");
+const isRedirectingToStudio =
+  urlParams.has("mode") ||
+  urlParams.has("debug") ||
+  (requestedScene && requestedScene !== "bath-duck") ||
+  window.location.hash.startsWith("#code=");
+if (isRedirectingToStudio) {
+  const studioUrl = `/studio${window.location.search}${window.location.hash}`;
+  window.location.replace(studioUrl);
 }
 
-function renderModels() {
-  modelsLine.textContent = modelCount ? t("modelsLine", modelCount.toLocaleString(getLocale() === "zh" ? "zh-CN" : "en")) : t("modelsIntro");
+function detectLocale() {
+  const urlLang = urlParams.get("lang");
+  if (urlLang === "zh" || urlLang === "en") return urlLang;
+  const langs =
+    Array.isArray(navigator.languages) && navigator.languages.length > 0
+      ? navigator.languages
+      : [navigator.language || "en"];
+  for (const l of langs) {
+    const lower = String(l).toLowerCase();
+    if (lower.startsWith("zh")) return "zh";
+    if (lower.startsWith("en")) return "en";
+  }
+  return "en";
 }
 
-async function show(id) {
-  const model = await loadModel(id, AbortSignal.timeout(15000));
-  const glb = model?.versions[0]?.files["model.glb"];
-  if (!glb) return;
-  viewer ??= (await import("./model-viewer.js")).createViewer(stage, { ground: true });
-  await viewer.load(blobURL("model.glb", glb.sha256));
-  current = model;
-  renderCaption();
+const canvas = document.querySelector("#sdf-canvas");
+const posterFallback = document.querySelector("#poster-fallback");
+const posterMessage = document.querySelector("#poster-message");
+
+let locale = detectLocale();
+
+const runtime = new WebGPUSDFRuntime(canvas, {
+  onStatus({ state, message }) {
+    const t = UI_TEXT[locale];
+    if (state === "running" || state === "paused") {
+      posterFallback.hidden = true;
+    } else if (state === "unsupported") {
+      posterFallback.hidden = false;
+      posterMessage.textContent = t.unsupported;
+      document.body.dataset.sdfReady = "fallback";
+    } else if (state === "error") {
+      document.body.dataset.sdfReady = "error";
+    } else if (state === "lost") {
+      posterFallback.hidden = false;
+      posterMessage.textContent = message;
+    }
+  },
+});
+
+function applyLocale() {
+  locale = detectLocale();
+  document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
+  const t = UI_TEXT[locale];
+  for (const el of document.querySelectorAll("[data-i18n]")) {
+    const key = el.dataset.i18n;
+    if (t[key]) {
+      el.textContent = t[key];
+    }
+  }
+  for (const el of document.querySelectorAll("[data-i18n-aria]")) {
+    const key = el.dataset.i18nAria;
+    if (t[key]) {
+      el.setAttribute("aria-label", t[key]);
+    }
+  }
 }
 
-function showRandom() {
-  const pool = index.models.filter((model) => SHOWN.has(model.type) && model.id !== current?.id);
-  return pool.length ? show(pool[Math.floor(Math.random() * pool.length)].id) : Promise.resolve();
-}
+window.addEventListener("languagechange", () => {
+  applyLocale();
+});
 
-async function start() {
-  // The featured model and the index (for its size and "another one") load side by side.
-  const indexed = loadIndex(getLocale(), AbortSignal.timeout(15000)).then((loaded) => {
-    index = loaded;
-    modelCount = loaded.models.length;
-    renderModels();
-  }, () => {});
-  await show(FEATURED).catch(() => {});
-  await indexed;
-  another.hidden = !current || !index;
-}
+const motionMedia = window.matchMedia("(prefers-reduced-motion: reduce)");
+const syncReducedMotion = () => {
+  runtime.reducedMotion = motionMedia.matches;
+};
+motionMedia.addEventListener("change", syncReducedMotion);
+syncReducedMotion();
 
-another.addEventListener("click", () => { another.disabled = true; showRandom().catch(() => {}).finally(() => { another.disabled = false; }); });
+// Boot sequence (pure Mode A Bath Duck, zero CPU voxel baking!)
+(async () => {
+  if (isRedirectingToStudio) return;
+  applyLocale();
+  const ok = await runtime.init();
+  if (!ok) return;
 
-for (const button of document.querySelectorAll("[data-copy]")) {
-  button.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(document.getElementById(button.dataset.copy).textContent);
-      button.textContent = t("copied");
-      setTimeout(() => { button.textContent = t("copy"); }, 1500);
-    } catch { /* Selecting the command by hand still works. */ }
+  await runtime.loadScene(bathDuckScene, {
+    resetCamera: true,
+    resetState: true,
+    isTrustedDefault: true,
   });
-}
 
-onLocaleChange(() => { renderCaption(); renderModels(); });
-void start();
+  const deterministicT = urlParams.get("t");
+  const startPaused = urlParams.get("paused") === "1" || urlParams.get("paused") === "true";
+
+  if (deterministicT !== null) {
+    runtime.setPaused(true);
+    await runtime.stepDeterministically(Number(deterministicT) || 0);
+    document.body.dataset.sdfReady = "true";
+    if (urlParams.get("paused") === "0" || urlParams.get("paused") === "false") {
+      runtime.setPaused(false);
+      runtime.start();
+    }
+  } else if (startPaused) {
+    runtime.setPaused(true);
+    await runtime.renderSingleFrame();
+    await runtime.device.queue.onSubmittedWorkDone();
+    document.body.dataset.sdfReady = "true";
+  } else {
+    await runtime.renderSingleFrame();
+    await runtime.device.queue.onSubmittedWorkDone();
+    document.body.dataset.sdfReady = "true";
+    runtime.start();
+  }
+})();

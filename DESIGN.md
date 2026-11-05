@@ -16,19 +16,14 @@ yellow field, dark simple marks, and very small touches of beak orange and water
 blue.
 
 The page should feel lightweight, curious, and personal. Prefer one strong idea
-over a collection of polished portfolio components. The homepage (2026-10-19)
-puts the original “Code for / − work. / + fun.” composition, one introductory
-line and one Duck Ink button on the left of the first screen, and a model from
-the library on the right, picked at random and turning on the yellow itself like
-a toy on a desk (no frame; it casts a soft ink shadow), with a small label below
-(name, links, another one). Phones stack them. Below, three plain entries
-(Workshop, Models, Docs) under one ink rule, then one muted line of what was made
-with them. No boxes beyond the button and the install command's cream inset.
-The separate `/games/` lobby uses the
-`fun.dev` wordmark, a quiet Workshop link, a language switch, and a simple game list. A game with a cover
-shows it as a small square thumbnail in place of its row number; the list stays a
-single column of rows, never a card grid. Avoid introductory
-essays, slogans, about sections, or repeated explanations.
+over a collection of polished portfolio components. The homepage (`/`) pairs the
+minimalist `Code for / − work. / + fun.` poster identity (`Things I make for fun.`)
+with a single interactive 3D WebGPU SDF Bath Duck (`bath-duck`) toy floating directly
+on the Duck Yellow canvas, plus a lightweight `Studio ↗` entry point in the top bar
+that opens the standalone `/studio` 3D SDF & Skinned Mesh Studio Workbench (where
+all five scenes, parameter sliders, Mode A/B pipelines, and the WGSL editor live).
+When WebGPU is unavailable or compiling, a crisp local SVG poster stands in on
+the same yellow canvas.
 
 ## Color Palette
 
@@ -71,19 +66,19 @@ Use the local system monospace stack:
 Do not load remote fonts. Monospace is part of the current character, not a
 signal that the site must look like a terminal.
 
-- Wordmark: bold, with fluid `clamp()` sizing on the lobby.
+- Hero: fluid `clamp()` sizing, regular weight, tight tracking.
+- Added line: bold.
 - Body: regular weight with a comfortable `1.5` line height.
 - Keep paragraphs narrow enough to scan in one glance.
 
 ## Layout
 
 - Use a full-viewport yellow canvas.
-- Keep the `fun.dev` wordmark in the top-left corner.
-- On the homepage the headline and the model share the first screen (two columns
-  on wide screens, stacked on phones); header and content share one width.
-- On `/games/`, keep the game list directly beneath the header.
+- Keep the `fun.dev` wordmark in the top-left corner and a lightweight `Studio ↗` entry in the top-right corner.
+- On the minimalist `/` homepage, balance the left-hand `Code for / − work. / + fun.` hero statement (`Things I make for fun.`) with the right-hand 3D Bath Duck stage on desktop, and stack the hero statement and 3D stage vertically on mobile without extra control panels, badges, or captions.
 - Preserve generous empty space; do not fill the page to prove it has content.
-- Design for mobile first, then adapt to desktop. Keep labels short and controls comfortably sized.
+- Keep every diff line intact on desktop when possible.
+- On mobile, reduce type size before changing the composition.
 - Minimum supported viewport width: `320px`.
 
 ## Components
@@ -92,73 +87,38 @@ signal that the site must look like a terminal.
 
 Plain text, bold monospace, no logo lockup. Its hover underline uses Beak Deep.
 
+### Diff statement
+
+- Context line: Duck Ink.
+- Removed `work.` line: Beak Deep with a clear strike-through and `−` marker.
+- Added `fun.` line: Water Deep at bold weight with a `+` marker.
+- Markers are generated with CSS so copied text remains clean.
+
 ### Supporting copy
 
-Only include short game descriptions, instructions, and necessary status text.
-Use Duck Brown for secondary text. All interface copy supports Chinese and
-English; keep `fun.dev` unchanged. Detect the browser language automatically;
-keep the optional Auto/中文/English selector small and borderless at the right of the lobby
-header and inside the player menu. Preserve its 44px touch area and focus outline.
-
-### Model library
-
-`/models` shares the lobby's header, heading rule and filters. Models show as square
-previews with a Duck Ink border, like game covers, in a plain grid with the name and id
-below: no card backgrounds, shadows or rounded corners. A model page puts the 3D view on
-Duck Cream with an ink border beside its facts, stacked on phones. The homepage links it
-next to Games.
-
-### Model workshop
-
-`/workshop/` is a PC-only authoring workbench (minimum 1024px wide). It keeps yellow
-branding and primary actions, with quiet warm-gray panels, monospace controls,
-and a neutral gray 3D viewport for judging
-geometry and material color. The authoring workspace is an intentional exception to the
-dominant yellow canvas rule; the header retains the site identity. A part list, central viewport and property panel
-scroll independently. Inputs use Duck Cream; selection uses Water Deep and focus
-uses Focus Blue. Orthographic views, clay and silhouette display modes support
-shape inspection. Desktop controls may use 32px heights. The game lobby
-has one quiet Workshop link beside its language selector. Editor helpers and grid
-are only for authoring and never appear in exported models. Agent work uses the
-same workbench: a quiet Activity dialog shows changes and fixed-camera comparisons,
-Checkpoints provide named recovery, and recipe parameters sit in a collapsible
-inspector section. A sticky part/owner strip links to object properties, modeling steps and asset parameters. Steps use compact expandable summaries, retaining the current expansion during edits. Export choices show origin and resulting bounds before download. Asset parameters identify their owning asset and any shared source. Driven fields stay read-only, with direct links to their controlling parameters and an explicit detach action. Independent, shared-parameter and static asset copies are named choices. Material-binding failures offer a visible recovery action without discarding staged parameter edits. Pending values have explicit Rebuild/Cancel actions. Activity describes field changes and affected parts; delivery reports lead with dimensions, size and diagnostics, with JSON in expandable details. Saving state must distinguish pending, saved and failed. Do not expose protocol details in ordinary modeling controls.
+Short and set in regular-weight Duck Brown. It should quietly anchor
+the page without competing with the diff statement. The current line is
+`Things I make for fun.`
 
 ### Future surfaces
 
-If longer content needs separation, use Duck Cream with Duck Ink. Avoid generic
-white cards, shadows, glass effects, and large collections of rounded pills.
+If longer content or dedicated tooling needs separation (such as the standalone
+`/studio` 3D SDF & Skinned Mesh Studio Workbench), use Duck Cream (`#FFF7D6`)
+with Duck Ink (`#211F17`) borders. Avoid generic white cards, shadows, glass
+effects, and large collections of rounded pills.
 
 ## Motion and Interaction
 
-The wordmark remains readable without JavaScript; the game
-catalog and player require it and show a noscript explanation. CSS motion must
-respect `prefers-reduced-motion`. The player passes this preference to games.
-
-### Shared player
-
-Platform controls live in one ☰ menu on every screen: restart, fullscreen (where
-supported), My progress, options, share, record video (games that allow it) and the
-language. Opening it pauses the game. While recording, an ink stop button with a
-blinking Beak Orange dot and the elapsed time sits beside the menu button; the finished
-clip opens in a dialog styled like Options.
-On every screen the page gives way to the game: the game fills the available dynamic
-viewport, the menu button floats at the top left and the site link, back link and title
-live in the menu; respect display cutouts and safe areas in both orientations. Short
-action messages show briefly over the bottom of the game. Orientation prompts apply to
-phones and small windows only.
-All of it stays keyboard accessible, including the return to the lobby.
-Loading, pause, and error messages are plain text in a high-contrast inset.
-Game options (how to play, sound and haptics, settings, cheats) open in a dialog
-styled like My progress: Duck Yellow surface, Duck Ink border, plain fieldsets.
-Game covers are 1200×630 screenshots of the game itself, cropped to a square
-with a Duck Ink border in the lobby.
+The baseline page does not require JavaScript or motion. Add interaction only
+when it introduces a real playful idea. CSS motion must respect
+`prefers-reduced-motion`, and core content must remain available without it.
 
 ## Accessibility
 
 - Preserve the current high-contrast text variants on Duck Yellow.
 - Use Focus Blue for a visible `3px` keyboard outline.
-- Do not communicate game state through color alone; retain text status.
+- Do not communicate diff meaning through color alone; retain `+`, `−`,
+  insertion, deletion, and strike-through semantics.
 - Keep touch controls at least `44px` high if controls are introduced.
 - Decorative images and marks must be hidden from assistive technology.
 
@@ -172,7 +132,7 @@ with a Duck Ink border in the lobby.
 
 ## Do Not
 
-- Do not add gradients, glassmorphism, glossy 3D ducks, or SaaS-style card grids.
+- Do not add gradients, glassmorphism, photorealistic stock 3D assets, or SaaS-style card grids (keep 3D SDF toys tactile, matte, and stylized).
 - Do not use several saturated colors at equal visual weight.
 - Do not use Beak Orange or Water Blue for small text on yellow.
 - Do not introduce a framework, CSS library, icon set, or remote font for

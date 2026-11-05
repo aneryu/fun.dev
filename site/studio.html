@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="fun.dev SDF 低模造物台 — 用 SDF 积木拼装、融合与量产低多边形模型。" />
+    <meta name="theme-color" content="#ffd43b" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/studio.css" />
+    <script type="module" src="/studio.js"></script>
+    <title>fun.dev · SDF 低模造物台</title>
+  </head>
+  <body class="studio-app">
+    <header class="studio-header">
+      <div class="brand-row">
+        <a class="wordmark" href="/" aria-label="返回首页">fun.dev</a>
+        <span class="header-divider">/</span>
+        <span class="header-title">SDF 低模造物台</span>
+        <span class="header-sub">澡盆小鸭 · 实时 SDF 积木拼装与网格烘焙工作台</span>
+        <span class="status-badge" id="gpu-status-badge"><span class="badge-dot" id="badge-dot"></span><span id="badge-renderer">WebGPU</span> · <span id="badge-fps">--</span> fps</span>
+      </div>
+    </header>
+
+    <main class="stage-container" id="stage-container">
+      <canvas id="viewport-canvas"></canvas>
+
+      <!-- 悬浮 SDF 低模积木控制坞 (SDF Block Dock) -->
+      <aside class="knob-dock" id="knob-dock" aria-label="SDF 积木编辑器面板">
+        <div class="dock-header">
+          <h2 class="dock-title" id="dock-title">澡盆小鸭</h2>
+          <button type="button" class="dock-reset-btn" id="dock-reset-btn" title="重置澡盆小鸭">↺ 重置</button>
+        </div>
+        <div class="block-editor-pane" id="block-editor-pane">
+          <!-- SDF 低多边形积木编辑器 -->
+        </div>
+      </aside>
+
+      <!-- 操作按钮栏 (底角) -->
+      <div class="stage-actions">
+        <button type="button" class="action-btn" id="export-gltf-btn" title="导出标准 3D 模型">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>导出 .gltf</span>
+        </button>
+        <button type="button" class="action-btn" id="copy-json-btn" title="复制当前 SDF 积木配置 JSON">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          <span id="copy-btn-text">复制 SDF JSON</span>
+        </button>
+        <button type="button" class="action-btn" id="view-source-btn" title="查看 SDF 积木与 WGSL 源码">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          <span>&lt;/&gt; 源码</span>
+        </button>
+      </div>
+
+      <!-- 首次操作小提示 (3秒后自动淡出) -->
+      <div class="stage-hint" id="stage-hint">
+        拖拽八面体移动积木 · 拖动背景旋转 · 滚轮缩放
+      </div>
+    </main>
+
+    <!-- 原生 WGSL 源码查看弹窗 -->
+    <dialog class="source-dialog" id="source-dialog">
+      <div class="dialog-box">
+        <div class="dialog-header">
+          <h3>原生 WGSL 着色器源码</h3>
+          <button type="button" class="dialog-close" id="dialog-close-btn" aria-label="关闭">✕</button>
+        </div>
+        <p class="dialog-desc">当前物件的实时 WGSL 着色器，由 fun.dev 原生 WebGPU 内核驱动编译运行。</p>
+        <pre class="dialog-code"><code id="dialog-code-content"></code></pre>
+      </div>
+    </dialog>
+  </body>
+</html>

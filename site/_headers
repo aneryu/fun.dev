@@ -3,51 +3,11 @@
   X-Frame-Options: DENY
   Cross-Origin-Opener-Policy: same-origin
   Referrer-Policy: strict-origin-when-cross-origin
-  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), hid=(), display-capture=(), clipboard-read=()
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
   Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com/beacon.min.js https://static.cloudflareinsights.com/beacon.min.js/; connect-src 'self' https://cloudflareinsights.com/cdn-cgi/rum; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; frame-src 'none'; worker-src 'self'
 
 /favicon.svg
   Cache-Control: public, max-age=86400
 
-# Game pages (/games/<id>) alone may run glTF/Draco/KTX2 loaders: Blob URL workers, embedded
-# Blob textures, recorded video previews (blob: media), and WebAssembly. Detach the site policy, then replace it.
-/games/*
-  ! Content-Security-Policy
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com/beacon.min.js https://static.cloudflareinsights.com/beacon.min.js/; connect-src 'self' blob: https://cloudflareinsights.com/cdn-cgi/rum; img-src 'self' blob:; media-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; frame-src 'none'; worker-src 'self' blob:
-
-# The model workshop compiles its geometry kernel (WebAssembly) and reads opened GLB files and
-# reference images through Blob URLs.
-/workshop/*
-  ! Content-Security-Policy
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com/beacon.min.js https://static.cloudflareinsights.com/beacon.min.js/; connect-src 'self' blob: http://127.0.0.1:* https://cloudflareinsights.com/cdn-cgi/rum; img-src 'self' blob: data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; frame-src 'none'; worker-src 'self' blob:
-
-# The homepage turns a library model with the same viewer as the model pages.
-/
-  ! Content-Security-Policy
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com/beacon.min.js https://static.cloudflareinsights.com/beacon.min.js/; connect-src 'self' blob: https://cloudflareinsights.com/cdn-cgi/rum; img-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; frame-src 'none'; worker-src 'self'
-
-# Model pages run the glTF loader, which reads embedded textures through Blob URLs.
-/models/*
-  ! Content-Security-Policy
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com/beacon.min.js https://static.cloudflareinsights.com/beacon.min.js/; connect-src 'self' blob: https://cloudflareinsights.com/cdn-cgi/rum; img-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; frame-src 'none'; worker-src 'self'
-
-/model
-  ! Content-Security-Policy
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com/beacon.min.js https://static.cloudflareinsights.com/beacon.min.js/; connect-src 'self' blob: https://cloudflareinsights.com/cdn-cgi/rum; img-src 'self' blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; frame-src 'none'; worker-src 'self'
-
 /sw.js
-  Cache-Control: no-cache
-
-# The vision and physics runtimes' addresses are their content hashes.
-/runtime/vision/*
-  Cache-Control: public, max-age=31536000, immutable
-/runtime/physics/*
-  Cache-Control: public, max-age=31536000, immutable
-
-# The agent tool: the launcher and workshop.json stay current; workshop files are named by their content.
-/tools/fundev-workshop.mjs
-  Cache-Control: no-cache
-/tools/workshop.json
-  Cache-Control: no-cache
-/tools/workshop-*
-  Cache-Control: public, max-age=31536000, immutable
+  Cache-Control: no-cache, no-store, must-revalidate

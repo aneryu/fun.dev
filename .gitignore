@@ -1,24 +1,8 @@
 .wrangler/
 .DS_Store
-node_modules
-dist/
-dist-console/
-.editor-preview/
 .env
 .env.*
 .dev.vars
 .dev.vars.*
-test-results/
 .claude/worktrees/
-# Binary files live in a content-addressed store; Git keeps their locks (docs/assets.md).
-/sources/*
-!/sources/README.md
-!/sources/sources.lock
-/.assets-state.json
-
-# Built by npm run workshop:npm
-packages/fundev-workshop/workshop.mjs
-packages/fundev-workshop/THIRD_PARTY_LICENSES.md
-packages/fundev-runtime/kit/
-scripts/fun-probe/model.fun3d
-scripts/fun-probe/model-meshopt.fun3d
+test-results/
